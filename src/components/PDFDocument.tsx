@@ -1,8 +1,8 @@
 import React from 'react'
 import {
-  Document, Page, View, Text, StyleSheet, Font,
+  Document, Page, View, Text, Image, StyleSheet,
 } from '@react-pdf/renderer'
-import type { DocType, QuoteContent, SOWContent, ReportContent } from '@/lib/types'
+import type { DocType, QuoteContent, SOWContent, ReportContent, CompanyProfile, PhotoWithData } from '@/lib/types'
 
 const ORANGE = '#FF6B35'
 const BLACK = '#111111'
@@ -16,14 +16,16 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: BLACK,
     paddingTop: 40,
-    paddingBottom: 50,
+    paddingBottom: 60,
     paddingHorizontal: 50,
     lineHeight: 1.5,
   },
   // Header
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 },
+  companyLogo: { width: 100, height: 40, objectFit: 'contain' },
   companyName: { fontSize: 14, fontFamily: 'Helvetica-Bold', color: BLACK },
   companyTagline: { fontSize: 8, color: MUTED, marginTop: 2 },
+  companyContact: { fontSize: 7, color: MUTED, marginTop: 3 },
   headerRight: { alignItems: 'flex-end' },
   refText: { fontSize: 9, color: MUTED },
   dateText: { fontSize: 9, color: MUTED, marginTop: 2 },
@@ -35,12 +37,11 @@ const styles = StyleSheet.create({
   section: { marginBottom: 16 },
   sectionLabel: { fontSize: 8, fontFamily: 'Helvetica-Bold', letterSpacing: 1, textTransform: 'uppercase', color: ORANGE, marginBottom: 6 },
   body: { fontSize: 10, color: BLACK, lineHeight: 1.6 },
-  // Line items table (quotes)
+  // Line items table
   table: { marginTop: 12, marginBottom: 20 },
   tableHeader: { flexDirection: 'row', backgroundColor: BLACK, paddingVertical: 6, paddingHorizontal: 8, borderRadius: 3 },
   tableRow: { flexDirection: 'row', paddingVertical: 6, paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: BORDER },
   tableRowAlt: { backgroundColor: BG_LIGHT },
-  tableRowTotal: { flexDirection: 'row', paddingVertical: 8, paddingHorizontal: 8, backgroundColor: BORDER, marginTop: 2, borderRadius: 3 },
   colDesc: { flex: 3 },
   colQty: { flex: 0.7, textAlign: 'right' },
   colUnit: { flex: 0.7, textAlign: 'center' },
@@ -48,7 +49,6 @@ const styles = StyleSheet.create({
   colTotal: { flex: 1, textAlign: 'right' },
   thText: { fontSize: 8, fontFamily: 'Helvetica-Bold', color: '#FFFFFF' },
   tdText: { fontSize: 9, color: BLACK },
-  tdTextBold: { fontSize: 9, fontFamily: 'Helvetica-Bold', color: BLACK },
   // Totals
   totalsBlock: { marginTop: 4, alignItems: 'flex-end' },
   totalRow: { flexDirection: 'row', gap: 20, marginBottom: 4 },
@@ -56,6 +56,13 @@ const styles = StyleSheet.create({
   totalValue: { fontSize: 9, color: BLACK, width: 70, textAlign: 'right' },
   grandTotalLabel: { fontSize: 11, fontFamily: 'Helvetica-Bold', color: BLACK, width: 80, textAlign: 'right' },
   grandTotalValue: { fontSize: 11, fontFamily: 'Helvetica-Bold', color: ORANGE, width: 70, textAlign: 'right' },
+  // Photos section
+  photoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 8 },
+  photoItem: { width: '47%', marginBottom: 10 },
+  photoImage: { width: '100%', height: 120, objectFit: 'cover', borderRadius: 4, border: '1px solid #E5E5E5' },
+  photoAreaBadge: { fontSize: 7, fontFamily: 'Helvetica-Bold', color: ORANGE, textTransform: 'uppercase', marginTop: 4, marginBottom: 2 },
+  photoNote: { fontSize: 8, color: MUTED, lineHeight: 1.4 },
+  photoNoNote: { fontSize: 8, color: '#BBBBBB', fontStyle: 'italic' },
   // Signature block
   sigBlock: { marginTop: 30, paddingTop: 16, borderTopWidth: 1, borderTopColor: BORDER },
   sigLine: { width: 200, height: 1, backgroundColor: BLACK, marginTop: 30, marginBottom: 4 },
@@ -66,21 +73,39 @@ const styles = StyleSheet.create({
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     borderTopWidth: 1, borderTopColor: BORDER, paddingTop: 8,
   },
-  footerText: { fontSize: 8, color: MUTED },
-  footerBrand: { fontSize: 8, color: ORANGE },
+  footerText: { fontSize: 7, color: MUTED },
+  footerBrand: { fontSize: 7, color: ORANGE },
 })
 
-function Header({ reference, date }: { reference: string; date: string }) {
+interface HeaderProps {
+  reference: string
+  date: string
+  company: CompanyProfile | null
+}
+
+function Header({ reference, date, company }: HeaderProps) {
+  const name = company?.name || 'Brisbane Biohazard Cleaning'
+  const tagline = company?.tagline || 'Professional Biohazard Remediation Services'
+  const contact = [company?.phone, company?.email, company?.abn ? `ABN: ${company.abn}` : ''].filter(Boolean).join('  ·  ')
+
   return (
     <>
       <View style={styles.header}>
         <View>
-          <Text style={styles.companyName}>Brisbane Biohazard Cleaning</Text>
-          <Text style={styles.companyTagline}>Professional Biohazard Remediation Services</Text>
+          {company?.logo_url ? (
+            <Image src={company.logo_url} style={styles.companyLogo} />
+          ) : (
+            <>
+              <Text style={styles.companyName}>{name}</Text>
+              <Text style={styles.companyTagline}>{tagline}</Text>
+            </>
+          )}
+          {contact ? <Text style={styles.companyContact}>{contact}</Text> : null}
         </View>
         <View style={styles.headerRight}>
           <Text style={styles.refText}>{reference}</Text>
           <Text style={styles.dateText}>{date}</Text>
+          {company?.licence ? <Text style={styles.dateText}>Lic: {company.licence}</Text> : null}
         </View>
       </View>
       <View style={styles.rule} />
@@ -88,10 +113,11 @@ function Header({ reference, date }: { reference: string; date: string }) {
   )
 }
 
-function Footer() {
+function Footer({ company }: { company: CompanyProfile | null }) {
+  const name = company?.name || 'Brisbane Biohazard Cleaning'
   return (
     <View style={styles.footer} fixed>
-      <Text style={styles.footerText}>Brisbane Biohazard Cleaning — biohazards.net</Text>
+      <Text style={styles.footerText}>{name} — biohazards.net</Text>
       <Text style={styles.footerBrand} render={({ pageNumber, totalPages }) => `Page ${pageNumber} of ${totalPages}`} />
     </View>
   )
@@ -106,17 +132,43 @@ function Section({ label, text }: { label: string; text: string }) {
   )
 }
 
-function QuotePDF({ content }: { content: QuoteContent }) {
+function PhotoSection({ photos, label }: { photos: PhotoWithData[]; label: string }) {
+  if (photos.length === 0) return null
+  return (
+    <View style={styles.section} break={photos.length > 4}>
+      <Text style={styles.sectionLabel}>{label}</Text>
+      <View style={styles.photoGrid}>
+        {photos.map((p, i) => (
+          <View key={i} style={styles.photoItem}>
+            {(p.dataUrl || p.file_url) ? (
+              <Image
+                src={p.dataUrl || p.file_url}
+                style={styles.photoImage}
+              />
+            ) : null}
+            {p.area_ref ? <Text style={styles.photoAreaBadge}>{p.area_ref}</Text> : null}
+            {p.caption
+              ? <Text style={styles.photoNote}>{p.caption}</Text>
+              : <Text style={styles.photoNoNote}>No note</Text>
+            }
+          </View>
+        ))}
+      </View>
+    </View>
+  )
+}
+
+function QuotePDF({ content, photos, company }: { content: QuoteContent; photos: PhotoWithData[]; company: CompanyProfile | null }) {
   const today = new Date().toLocaleDateString('en-AU', { day: '2-digit', month: 'long', year: 'numeric' })
   const fmt = (n: number) => `$${Number(n).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const beforePhotos = photos.filter(p => p.category === 'before' || p.category === 'assessment').slice(0, 6)
 
   return (
     <Page size="A4" style={styles.page}>
-      <Header reference={content.reference} date={today} />
+      <Header reference={content.reference} date={today} company={company} />
       <Text style={styles.docTitle}>{content.title}</Text>
       <Section label="Overview" text={content.intro} />
 
-      {/* Line items */}
       <Text style={styles.sectionLabel}>Scope & Pricing</Text>
       <View style={styles.table}>
         <View style={styles.tableHeader}>
@@ -137,7 +189,6 @@ function QuotePDF({ content }: { content: QuoteContent }) {
         ))}
       </View>
 
-      {/* Totals */}
       <View style={styles.totalsBlock}>
         <View style={styles.totalRow}>
           <Text style={styles.totalLabel}>Subtotal</Text>
@@ -153,39 +204,43 @@ function QuotePDF({ content }: { content: QuoteContent }) {
         </View>
       </View>
 
-      {content.notes && (
-        <View style={{ marginTop: 20 }}>
-          <Section label="Notes & Conditions" text={content.notes} />
-        </View>
-      )}
+      {content.notes && <View style={{ marginTop: 20 }}><Section label="Notes & Conditions" text={content.notes} /></View>}
       <Section label="Payment Terms" text={content.payment_terms} />
       <Section label="Quote Validity" text={content.validity} />
 
-      {/* Acceptance */}
+      {/* Before photos as evidence */}
+      {beforePhotos.length > 0 && (
+        <PhotoSection photos={beforePhotos} label={`Site Condition Photos (${beforePhotos.length})`} />
+      )}
+
       <View style={styles.sigBlock}>
         <Text style={styles.sectionLabel}>Acceptance</Text>
         <Text style={[styles.body, { marginBottom: 4 }]}>
           To accept this quote, please sign below and return with deposit payment.
         </Text>
         <View style={{ flexDirection: 'row', gap: 40, marginTop: 16 }}>
-          <View>
-            <View style={styles.sigLine} />
-            <Text style={styles.sigLabel}>Client Signature</Text>
-          </View>
-          <View>
-            <View style={styles.sigLine} />
-            <Text style={styles.sigLabel}>Date</Text>
-          </View>
+          <View><View style={styles.sigLine} /><Text style={styles.sigLabel}>Client Signature</Text></View>
+          <View><View style={styles.sigLine} /><Text style={styles.sigLabel}>Date</Text></View>
         </View>
       </View>
 
-      <Footer />
+      <Footer company={company} />
     </Page>
   )
 }
 
-function SOWOrReportPDF({ content, type }: { content: SOWContent | ReportContent; type: DocType }) {
+function SOWOrReportPDF({
+  content, type, photos, company,
+}: {
+  content: SOWContent | ReportContent
+  type: DocType
+  photos: PhotoWithData[]
+  company: CompanyProfile | null
+}) {
   const today = new Date().toLocaleDateString('en-AU', { day: '2-digit', month: 'long', year: 'numeric' })
+
+  const beforePhotos = photos.filter(p => p.category === 'before' || p.category === 'assessment').slice(0, 6)
+  const afterPhotos = photos.filter(p => p.category === 'after').slice(0, 6)
 
   const sowSections: Array<{ key: keyof SOWContent; label: string }> = [
     { key: 'executive_summary', label: 'Executive Summary' },
@@ -214,7 +269,7 @@ function SOWOrReportPDF({ content, type }: { content: SOWContent | ReportContent
 
   return (
     <Page size="A4" style={styles.page}>
-      <Header reference={(content as SOWContent).reference} date={today} />
+      <Header reference={(content as SOWContent).reference} date={today} company={company} />
       <Text style={styles.docTitle}>{(content as SOWContent).title}</Text>
 
       {sections.map(({ key, label }) => {
@@ -223,24 +278,31 @@ function SOWOrReportPDF({ content, type }: { content: SOWContent | ReportContent
         return <Section key={key} label={label} text={text} />
       })}
 
+      {/* SOW: show before photos as evidence of scope */}
+      {type === 'sow' && beforePhotos.length > 0 && (
+        <PhotoSection photos={beforePhotos} label={`Site Condition Photos — Evidence of Scope (${beforePhotos.length})`} />
+      )}
+
+      {/* Report: before + after photos */}
+      {type === 'report' && beforePhotos.length > 0 && (
+        <PhotoSection photos={beforePhotos} label={`Before — Site Conditions on Arrival (${beforePhotos.length})`} />
+      )}
+      {type === 'report' && afterPhotos.length > 0 && (
+        <PhotoSection photos={afterPhotos} label={`After — Completed Works (${afterPhotos.length})`} />
+      )}
+
       {type === 'sow' && (
         <View style={styles.sigBlock}>
           <Text style={styles.sectionLabel}>Acceptance</Text>
           <Text style={[styles.body, { marginBottom: 4 }]}>{(content as SOWContent).acceptance}</Text>
           <View style={{ flexDirection: 'row', gap: 40, marginTop: 16 }}>
-            <View>
-              <View style={styles.sigLine} />
-              <Text style={styles.sigLabel}>Client Signature</Text>
-            </View>
-            <View>
-              <View style={styles.sigLine} />
-              <Text style={styles.sigLabel}>Date</Text>
-            </View>
+            <View><View style={styles.sigLine} /><Text style={styles.sigLabel}>Client Signature</Text></View>
+            <View><View style={styles.sigLine} /><Text style={styles.sigLabel}>Date</Text></View>
           </View>
         </View>
       )}
 
-      <Footer />
+      <Footer company={company} />
     </Page>
   )
 }
@@ -248,18 +310,18 @@ function SOWOrReportPDF({ content, type }: { content: SOWContent | ReportContent
 interface JobPDFDocumentProps {
   type: DocType
   content: object
+  photos: PhotoWithData[]
+  company: CompanyProfile | null
 }
 
-export function JobPDFDocument({ type, content }: JobPDFDocumentProps) {
+export function JobPDFDocument({ type, content, photos, company }: JobPDFDocumentProps) {
+  const name = company?.name || 'Brisbane Biohazard Cleaning'
   return (
-    <Document
-      title="Brisbane Biohazard Cleaning"
-      author="Brisbane Biohazard Cleaning"
-    >
+    <Document title={name} author={name}>
       {type === 'quote' ? (
-        <QuotePDF content={content as QuoteContent} />
+        <QuotePDF content={content as QuoteContent} photos={photos} company={company} />
       ) : (
-        <SOWOrReportPDF content={content as SOWContent | ReportContent} type={type} />
+        <SOWOrReportPDF content={content as SOWContent | ReportContent} type={type} photos={photos} company={company} />
       )}
     </Document>
   )

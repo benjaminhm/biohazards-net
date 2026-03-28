@@ -77,6 +77,7 @@ export interface Photo {
   job_id: string
   file_url: string
   caption: string
+  area_ref: string        // which room/area this photo documents
   category: PhotoCategory
   uploaded_at: string
 }
@@ -88,6 +89,19 @@ export interface Document {
   content: object
   file_url: string | null
   created_at: string
+}
+
+export interface CompanyProfile {
+  id: string
+  name: string
+  abn: string
+  phone: string
+  email: string
+  address: string
+  licence: string
+  tagline: string
+  logo_url: string | null
+  updated_at: string
 }
 
 // Claude-generated document structures
@@ -138,4 +152,9 @@ export interface ReportContent {
   photo_record: string
   outcome: string
   technician_signoff: string
+}
+
+// Photo with base64 data for PDF embedding
+export interface PhotoWithData extends Photo {
+  dataUrl?: string
 }

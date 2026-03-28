@@ -97,8 +97,13 @@ export default function JobQueuePage() {
             </div>
             <h1 style={{ fontSize: 22, fontWeight: 700 }}>Job Queue</h1>
           </div>
-          <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-            {jobs.length} job{jobs.length !== 1 ? 's' : ''}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+              {jobs.length} job{jobs.length !== 1 ? 's' : ''}
+            </div>
+            <Link href="/settings">
+              <button className="btn btn-ghost" style={{ fontSize: 18, padding: '4px 8px' }} title="Company Settings">⚙️</button>
+            </Link>
           </div>
         </div>
       </div>

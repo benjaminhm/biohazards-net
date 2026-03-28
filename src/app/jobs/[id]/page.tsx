@@ -175,7 +175,12 @@ export default function JobPage() {
           <AssessmentTab job={job} onJobUpdate={updated => setJob(updated)} />
         )}
         {activeTab === 'photos' && (
-          <PhotosTab jobId={id} photos={photos} onPhotosUpdate={setPhotos} />
+          <PhotosTab
+            jobId={id}
+            photos={photos}
+            areas={job.assessment_data?.areas?.map(a => a.name) ?? []}
+            onPhotosUpdate={setPhotos}
+          />
         )}
         {activeTab === 'documents' && (
           <DocumentsTab documents={documents} />
@@ -231,6 +236,7 @@ export default function JobPage() {
           jobId={id}
           type={generatedDoc.type}
           content={generatedDoc.content}
+          photos={photos}
           onClose={() => setGeneratedDoc(null)}
           onSaved={onDocumentSaved}
         />
