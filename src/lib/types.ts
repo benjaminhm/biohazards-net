@@ -102,6 +102,8 @@ export interface CompanyProfile {
   licence: string
   tagline: string
   logo_url: string | null
+  subdomain: string | null       // e.g. "brisbane" → brisbane.biohazards.net
+  custom_domain: string | null   // e.g. "app.hazmatpro.com.au"
   updated_at: string
 }
 
