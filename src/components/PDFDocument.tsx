@@ -4,7 +4,7 @@ import {
 } from '@react-pdf/renderer'
 import type { DocType, QuoteContent, SOWContent, ReportContent, CompanyProfile, PhotoWithData } from '@/lib/types'
 
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://biohazards-net.vercel.app'
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://biohazards.net'
 
 const ORANGE = '#FF6B35'
 const BLACK = '#111111'
