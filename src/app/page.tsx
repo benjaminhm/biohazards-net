@@ -5,7 +5,7 @@ import Link from 'next/link'
 import type { Job, JobStatus } from '@/lib/types'
 
 const STATUS_ORDER: JobStatus[] = [
-  'lead', 'assessed', 'quoted', 'scheduled', 'underway',
+  'lead', 'assessed', 'quoted', 'accepted', 'scheduled', 'underway',
   'completed', 'report_sent', 'paid',
 ]
 
@@ -13,6 +13,7 @@ const STATUS_LABELS: Record<JobStatus, string> = {
   lead: 'Lead',
   assessed: 'Assessed',
   quoted: 'Quoted',
+  accepted: 'Accepted ✓',
   scheduled: 'Scheduled',
   underway: 'Underway',
   completed: 'Completed',

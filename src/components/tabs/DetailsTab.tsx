@@ -18,6 +18,7 @@ const STATUSES: { value: JobStatus; label: string }[] = [
   { value: 'lead', label: 'Lead' },
   { value: 'assessed', label: 'Assessed' },
   { value: 'quoted', label: 'Quoted' },
+  { value: 'accepted', label: 'Accepted ✓' },
   { value: 'scheduled', label: 'Scheduled' },
   { value: 'underway', label: 'Underway' },
   { value: 'completed', label: 'Completed' },

@@ -27,6 +27,7 @@ const STATUS_LABELS: Record<JobStatus, string> = {
   lead: 'Lead',
   assessed: 'Assessed',
   quoted: 'Quoted',
+  accepted: 'Accepted ✓',
   scheduled: 'Scheduled',
   underway: 'Underway',
   completed: 'Completed',

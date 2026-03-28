@@ -1,8 +1,10 @@
 import React from 'react'
 import {
-  Document, Page, View, Text, Image, StyleSheet,
+  Document, Page, View, Text, Image, Link, StyleSheet,
 } from '@react-pdf/renderer'
 import type { DocType, QuoteContent, SOWContent, ReportContent, CompanyProfile, PhotoWithData } from '@/lib/types'
+
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://biohazards-net.vercel.app'
 
 const ORANGE = '#FF6B35'
 const BLACK = '#111111'
@@ -63,6 +65,13 @@ const styles = StyleSheet.create({
   photoAreaBadge: { fontSize: 7, fontFamily: 'Helvetica-Bold', color: ORANGE, textTransform: 'uppercase', marginTop: 4, marginBottom: 2 },
   photoNote: { fontSize: 8, color: MUTED, lineHeight: 1.4 },
   photoNoNote: { fontSize: 8, color: '#BBBBBB', fontStyle: 'italic' },
+  // Accept block
+  acceptBlock: { marginTop: 24, padding: 16, backgroundColor: '#FFF5F1', borderRadius: 6, borderWidth: 1, borderColor: '#FFD4C2' },
+  acceptLabel: { fontSize: 8, fontFamily: 'Helvetica-Bold', letterSpacing: 1, textTransform: 'uppercase', color: ORANGE, marginBottom: 6 },
+  acceptBody: { fontSize: 10, color: BLACK, marginBottom: 10 },
+  acceptBtn: { backgroundColor: ORANGE, borderRadius: 6, paddingVertical: 10, paddingHorizontal: 20, alignSelf: 'flex-start' },
+  acceptBtnText: { fontSize: 11, fontFamily: 'Helvetica-Bold', color: '#FFFFFF' },
+  acceptUrlText: { fontSize: 8, color: MUTED, marginTop: 6 },
   // Signature block
   sigBlock: { marginTop: 30, paddingTop: 16, borderTopWidth: 1, borderTopColor: BORDER },
   sigLine: { width: 200, height: 1, backgroundColor: BLACK, marginTop: 30, marginBottom: 4 },
@@ -158,7 +167,7 @@ function PhotoSection({ photos, label }: { photos: PhotoWithData[]; label: strin
   )
 }
 
-function QuotePDF({ content, photos, company }: { content: QuoteContent; photos: PhotoWithData[]; company: CompanyProfile | null }) {
+function QuotePDF({ content, photos, company, jobId }: { content: QuoteContent; photos: PhotoWithData[]; company: CompanyProfile | null; jobId?: string }) {
   const today = new Date().toLocaleDateString('en-AU', { day: '2-digit', month: 'long', year: 'numeric' })
   const fmt = (n: number) => `$${Number(n).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
   const beforePhotos = photos.filter(p => p.category === 'before' || p.category === 'assessment').slice(0, 6)
@@ -211,6 +220,22 @@ function QuotePDF({ content, photos, company }: { content: QuoteContent; photos:
       {/* Before photos as evidence */}
       {beforePhotos.length > 0 && (
         <PhotoSection photos={beforePhotos} label={`Site Condition Photos (${beforePhotos.length})`} />
+      )}
+
+      {/* Accept quote block */}
+      {jobId && (
+        <View style={styles.acceptBlock}>
+          <Text style={styles.acceptLabel}>Accept This Quote Online</Text>
+          <Text style={styles.acceptBody}>
+            Click the button below to accept this quote. You will be taken to a secure page where you can confirm your acceptance.
+          </Text>
+          <Link src={`${APP_URL}/accept/${jobId}`}>
+            <View style={styles.acceptBtn}>
+              <Text style={styles.acceptBtnText}>✓  Accept This Quote</Text>
+            </View>
+          </Link>
+          <Text style={styles.acceptUrlText}>{APP_URL}/accept/{jobId}</Text>
+        </View>
       )}
 
       <View style={styles.sigBlock}>
@@ -312,14 +337,15 @@ interface JobPDFDocumentProps {
   content: object
   photos: PhotoWithData[]
   company: CompanyProfile | null
+  jobId?: string
 }
 
-export function JobPDFDocument({ type, content, photos, company }: JobPDFDocumentProps) {
+export function JobPDFDocument({ type, content, photos, company, jobId }: JobPDFDocumentProps) {
   const name = company?.name || 'Brisbane Biohazard Cleaning'
   return (
     <Document title={name} author={name}>
       {type === 'quote' ? (
-        <QuotePDF content={content as QuoteContent} photos={photos} company={company} />
+        <QuotePDF content={content as QuoteContent} photos={photos} company={company} jobId={jobId} />
       ) : (
         <SOWOrReportPDF content={content as SOWContent | ReportContent} type={type} photos={photos} company={company} />
       )}

@@ -2,6 +2,7 @@ export type JobStatus =
   | 'lead'
   | 'assessed'
   | 'quoted'
+  | 'accepted'
   | 'scheduled'
   | 'underway'
   | 'completed'

@@ -91,6 +91,7 @@ export default function GenerateModal({ jobId, type, content, photos, onClose, o
         content: parsed,
         photos: photosWithData,
         company,
+        jobId,
       }))
       const pdfBlob = await instance.toBlob()
 
