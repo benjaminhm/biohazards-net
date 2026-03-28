@@ -222,20 +222,20 @@ function QuotePDF({ content, photos, company, jobId }: { content: QuoteContent; 
         <PhotoSection photos={beforePhotos} label={`Site Condition Photos (${beforePhotos.length})`} />
       )}
 
-      {/* Accept quote block */}
+      {/* Accept quote block — entire block is a link for mobile compatibility */}
       {jobId && (
-        <View style={styles.acceptBlock}>
-          <Text style={styles.acceptLabel}>Accept This Quote Online</Text>
-          <Text style={styles.acceptBody}>
-            Click the button below to accept this quote. You will be taken to a secure page where you can confirm your acceptance.
-          </Text>
-          <Link src={`${APP_URL}/accept/${jobId}`}>
+        <Link src={`${APP_URL}/accept/${jobId}`}>
+          <View style={styles.acceptBlock}>
+            <Text style={styles.acceptLabel}>Accept This Quote Online</Text>
+            <Text style={styles.acceptBody}>
+              Tap or click anywhere in this box to accept this quote online.
+            </Text>
             <View style={styles.acceptBtn}>
               <Text style={styles.acceptBtnText}>✓  Accept This Quote</Text>
             </View>
-          </Link>
-          <Text style={styles.acceptUrlText}>{APP_URL}/accept/{jobId}</Text>
-        </View>
+            <Text style={styles.acceptUrlText}>{APP_URL}/accept/{jobId}</Text>
+          </View>
+        </Link>
       )}
 
       <View style={styles.sigBlock}>
