@@ -9,7 +9,6 @@ const nextConfig: NextConfig = {
       },
     ],
   },
-  serverExternalPackages: ['@react-pdf/renderer'],
 }
 
 export default nextConfig

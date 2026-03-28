@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, createElement } from 'react'
 import type { DocType, Document } from '@/lib/types'
 
 interface Props {
@@ -35,23 +35,17 @@ export default function GenerateModal({ jobId, type, content, onClose, onSaved }
         return
       }
 
-      // Generate PDF via API
-      const pdfRes = await fetch('/api/pdf', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type, content: parsed, jobId }),
-      })
+      // Generate PDF client-side (avoids server-side ESM issues with react-pdf)
+      const [{ pdf }, { JobPDFDocument }] = await Promise.all([
+        import('@react-pdf/renderer'),
+        import('@/components/PDFDocument'),
+      ])
 
-      if (!pdfRes.ok) {
-        const err = await pdfRes.json()
-        throw new Error(err.error ?? 'PDF generation failed')
-      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const instance = (pdf as any)(createElement(JobPDFDocument as any, { type, content: parsed }))
+      const pdfBlob = await instance.toBlob()
 
-      const pdfBlob = await pdfRes.blob()
-
-      // Upload PDF to Supabase Storage via a FormData request
-      // First save the document record with content only (no file_url yet)
-      // Then try to upload, update if successful
+      // Try to upload to Supabase Storage
       let fileUrl: string | null = null
       try {
         const { supabase } = await import('@/lib/supabase')
@@ -65,7 +59,7 @@ export default function GenerateModal({ jobId, type, content, onClose, onSaved }
           fileUrl = urlData.publicUrl
         }
       } catch {
-        // Storage upload failed — still save the document record
+        // Storage upload failed — still save document record
       }
 
       // Save document record to DB
@@ -87,7 +81,7 @@ export default function GenerateModal({ jobId, type, content, onClose, onSaved }
 
       onSaved(savedDoc)
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to save document')
+      setError(err instanceof Error ? err.message : 'Failed to generate PDF')
     } finally {
       setSaving(false)
     }
