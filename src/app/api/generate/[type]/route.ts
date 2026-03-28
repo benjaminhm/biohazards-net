@@ -1,0 +1,67 @@
+import { NextResponse } from 'next/server'
+import Anthropic from '@anthropic-ai/sdk'
+import { createServiceClient } from '@/lib/supabase'
+import { buildQuotePrompt, buildSOWPrompt, buildReportPrompt } from '@/lib/prompts'
+
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+
+export async function POST(req: Request, { params }: { params: Promise<{ type: string }> }) {
+  try {
+    const { type } = await params
+    if (!['quote', 'sow', 'report'].includes(type)) {
+      return NextResponse.json({ error: 'Invalid document type' }, { status: 400 })
+    }
+
+    const { jobId } = await req.json()
+    if (!jobId) return NextResponse.json({ error: 'Missing jobId' }, { status: 400 })
+
+    const supabase = createServiceClient()
+    const [jobRes, photosRes] = await Promise.all([
+      supabase.from('jobs').select('*').eq('id', jobId).single(),
+      supabase.from('photos').select('*').eq('job_id', jobId),
+    ])
+
+    if (jobRes.error) throw jobRes.error
+    const job = jobRes.data
+    const photos = photosRes.data ?? []
+
+    if (!job.assessment_data) {
+      return NextResponse.json(
+        { error: 'Assessment data required. Please complete the Assessment tab first.' },
+        { status: 422 }
+      )
+    }
+
+    let prompt: string
+    if (type === 'quote') prompt = buildQuotePrompt(job, photos)
+    else if (type === 'sow') prompt = buildSOWPrompt(job, photos)
+    else prompt = buildReportPrompt(job, photos)
+
+    const message = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 4096,
+      messages: [{ role: 'user', content: prompt }],
+    })
+
+    const rawText = message.content[0].type === 'text' ? message.content[0].text : ''
+
+    // Strip any markdown code fences Claude might add despite instructions
+    const cleaned = rawText
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/\s*```\s*$/, '')
+      .trim()
+
+    let content: object
+    try {
+      content = JSON.parse(cleaned)
+    } catch {
+      // If parsing fails, return raw text wrapped in an object
+      content = { raw: rawText }
+    }
+
+    return NextResponse.json({ content })
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Unknown error'
+    return NextResponse.json({ error: msg }, { status: 500 })
+  }
+}
