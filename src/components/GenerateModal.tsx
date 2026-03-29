@@ -20,14 +20,10 @@ const TYPE_LABELS: Record<DocType, string> = {
 
 async function toBase64(url: string): Promise<string | undefined> {
   try {
-    const res = await fetch(url)
-    const blob = await res.blob()
-    return await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onloadend = () => resolve(reader.result as string)
-      reader.onerror = reject
-      reader.readAsDataURL(blob)
-    })
+    const res = await fetch(`/api/image-proxy?url=${encodeURIComponent(url)}`)
+    if (!res.ok) return undefined
+    const data = await res.json()
+    return data.dataUrl ?? undefined
   } catch {
     return undefined
   }
