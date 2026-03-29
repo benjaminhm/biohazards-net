@@ -65,13 +65,17 @@ function Checkbox({ label, checked, onChange }: { label: string; checked: boolea
   )
 }
 
+function mergeWithDefaults(saved: AssessmentData | null): AssessmentData {
+  return { ...DEFAULT_ASSESSMENT, ...(saved ?? {}) }
+}
+
 export default function AssessmentTab({ job, onJobUpdate }: Props) {
-  const [data, setData] = useState<AssessmentData>(job.assessment_data ?? DEFAULT_ASSESSMENT)
+  const [data, setData] = useState<AssessmentData>(mergeWithDefaults(job.assessment_data))
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
   useEffect(() => {
-    setData(job.assessment_data ?? DEFAULT_ASSESSMENT)
+    setData(mergeWithDefaults(job.assessment_data))
   }, [job.id])
 
   function setField<K extends keyof AssessmentData>(key: K, value: AssessmentData[K]) {
@@ -224,7 +228,10 @@ export default function AssessmentTab({ job, onJobUpdate }: Props) {
             <input
               type="number"
               value={data.target_price || ''}
-              onChange={e => setField('target_price', parseFloat(e.target.value) || undefined)}
+              onChange={e => {
+                const n = parseFloat(e.target.value)
+                setField('target_price', isNaN(n) ? undefined : n)
+              }}
               placeholder="0.00"
               min="0"
               step="50"
