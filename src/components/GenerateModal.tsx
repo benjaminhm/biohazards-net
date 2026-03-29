@@ -59,12 +59,26 @@ export default function GenerateModal({ jobId, type, content, photos, onClose, o
         .filter(p => relevantCategories.includes(p.category))
         .slice(0, 12) // max 12 photos per document
 
-      // 3. Map photos to proxy URLs so react-pdf fetches them directly (no CORS)
+      // 3. Fetch images through proxy and convert to base64 data URLs for react-pdf
       setSavingStep(`Preparing ${relevantPhotos.length} photos...`)
-      const photosWithData: PhotoWithData[] = relevantPhotos.map(p => ({
-        ...p,
-        dataUrl: proxyUrl(p.file_url),
-      }))
+      const photosWithData: PhotoWithData[] = await Promise.all(
+        relevantPhotos.map(async (p) => {
+          try {
+            const res = await fetch(proxyUrl(p.file_url))
+            if (!res.ok) return { ...p }
+            const blob = await res.blob()
+            const dataUrl = await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader()
+              reader.onload = () => resolve(reader.result as string)
+              reader.onerror = reject
+              reader.readAsDataURL(blob)
+            })
+            return { ...p, dataUrl }
+          } catch {
+            return { ...p }
+          }
+        })
+      )
 
       // 4. Generate PDF client-side
       setSavingStep('Rendering PDF...')
