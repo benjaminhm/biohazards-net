@@ -159,8 +159,36 @@ export default function DetailsTab({ job, onJobUpdate }: Props) {
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 20px' }}>
         <EditableField label="Client Name" value={job.client_name} onChange={v => updateField('client_name', v)} />
-        <EditableField label="Phone" value={job.client_phone} onChange={v => updateField('client_phone', v)} type="tel" />
-        <EditableField label="Email" value={job.client_email} onChange={v => updateField('client_email', v)} type="email" />
+
+        {/* Phone with actions */}
+        <div className="field">
+          <label>Phone</label>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <div style={{ flex: 1 }}>
+              <EditableField label="" value={job.client_phone} onChange={v => updateField('client_phone', v)} type="tel" />
+            </div>
+            {job.client_phone && (
+              <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                <a href={`tel:${job.client_phone.replace(/\s/g, '')}`} title="Call" style={actionBtn}>📞</a>
+                <a href={`sms:${job.client_phone.replace(/\s/g, '')}`} title="Text" style={actionBtn}>💬</a>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Email with action */}
+        <div className="field">
+          <label>Email</label>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <div style={{ flex: 1 }}>
+              <EditableField label="" value={job.client_email} onChange={v => updateField('client_email', v)} type="email" />
+            </div>
+            {job.client_email && (
+              <a href={`mailto:${job.client_email}`} title="Send email" style={actionBtn}>✉️</a>
+            )}
+          </div>
+        </div>
+
         <div className="field">
           <label>Job Type</label>
           <select value={job.job_type} onChange={e => updateField('job_type', e.target.value)}>
@@ -250,4 +278,11 @@ export default function DetailsTab({ job, onJobUpdate }: Props) {
       </div>
     </div>
   )
+}
+
+const actionBtn: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  width: 36, height: 36, borderRadius: 6, fontSize: 16, flexShrink: 0,
+  background: 'var(--surface-2)', border: '1px solid var(--border)',
+  textDecoration: 'none', cursor: 'pointer', transition: 'background 0.15s',
 }
