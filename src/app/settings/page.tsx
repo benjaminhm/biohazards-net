@@ -14,6 +14,8 @@ const DEFAULT_PROFILE: Omit<CompanyProfile, 'id' | 'updated_at'> = {
   licence: '',
   tagline: 'Professional Biohazard Remediation Services',
   logo_url: null,
+  subdomain: '',
+  custom_domain: '',
 }
 
 export default function SettingsPage() {
@@ -39,6 +41,8 @@ export default function SettingsPage() {
             licence: data.company.licence ?? '',
             tagline: data.company.tagline ?? DEFAULT_PROFILE.tagline,
             logo_url: data.company.logo_url ?? null,
+            subdomain: data.company.subdomain ?? '',
+            custom_domain: data.company.custom_domain ?? '',
           })
         }
         setLoading(false)
