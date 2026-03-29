@@ -18,15 +18,9 @@ const TYPE_LABELS: Record<DocType, string> = {
   report: 'Completion Report',
 }
 
-async function toBase64(url: string): Promise<string | undefined> {
-  try {
-    const res = await fetch(`/api/image-proxy?url=${encodeURIComponent(url)}`)
-    if (!res.ok) return undefined
-    const data = await res.json()
-    return data.dataUrl ?? undefined
-  } catch {
-    return undefined
-  }
+function proxyUrl(url: string): string {
+  const base = process.env.NEXT_PUBLIC_APP_URL || window.location.origin
+  return `${base}/api/image-proxy?url=${encodeURIComponent(url)}`
 }
 
 export default function GenerateModal({ jobId, type, content, photos, onClose, onSaved }: Props) {
@@ -65,14 +59,12 @@ export default function GenerateModal({ jobId, type, content, photos, onClose, o
         .filter(p => relevantCategories.includes(p.category))
         .slice(0, 12) // max 12 photos per document
 
-      // 3. Convert photo URLs to base64 for reliable PDF embedding
-      setSavingStep(`Processing ${relevantPhotos.length} photos...`)
-      const photosWithData: PhotoWithData[] = await Promise.all(
-        relevantPhotos.map(async (p) => ({
-          ...p,
-          dataUrl: await toBase64(p.file_url),
-        }))
-      )
+      // 3. Map photos to proxy URLs so react-pdf fetches them directly (no CORS)
+      setSavingStep(`Preparing ${relevantPhotos.length} photos...`)
+      const photosWithData: PhotoWithData[] = relevantPhotos.map(p => ({
+        ...p,
+        dataUrl: proxyUrl(p.file_url),
+      }))
 
       // 4. Generate PDF client-side
       setSavingStep('Rendering PDF...')
