@@ -19,6 +19,8 @@ const DEFAULT_ASSESSMENT: AssessmentData = {
   estimated_waste_litres: 0,
   access_restrictions: '',
   observations: '',
+  target_price: undefined,
+  gst_treatment: 'exclusive' as const,
 }
 
 interface Props {
@@ -204,6 +206,61 @@ export default function AssessmentTab({ job, onJobUpdate }: Props) {
           <input type="number" value={data.estimated_waste_litres || ''} onChange={e => setField('estimated_waste_litres', parseFloat(e.target.value) || 0)} placeholder="0" min="0" />
         </div>
       </div>
+      {/* Target quote price */}
+      {section('Quote Pricing')}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 20px' }}>
+        <div className="field">
+          <label>
+            Target Quote Amount
+            <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 6 }}>
+              Claude works line items back from this
+            </span>
+          </label>
+          <div style={{ position: 'relative' }}>
+            <span style={{
+              position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
+              color: 'var(--text-muted)', fontSize: 15, fontWeight: 600, pointerEvents: 'none',
+            }}>$</span>
+            <input
+              type="number"
+              value={data.target_price || ''}
+              onChange={e => setField('target_price', parseFloat(e.target.value) || undefined)}
+              placeholder="0.00"
+              min="0"
+              step="50"
+              style={{ paddingLeft: 24 }}
+            />
+          </div>
+        </div>
+        <div className="field">
+          <label>GST Treatment</label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
+            {([
+              { value: 'exclusive', label: '+ GST on top', sub: '$5,000 + $500 GST = $5,500' },
+              { value: 'inclusive', label: 'GST included', sub: '$5,500 incl. GST = $5,000 + $500' },
+              { value: 'none',      label: 'No GST',       sub: 'Amount shown as-is, no GST line' },
+            ] as const).map(opt => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setField('gst_treatment', opt.value)}
+                style={{
+                  textAlign: 'left', padding: '8px 12px', borderRadius: 7, cursor: 'pointer',
+                  border: `2px solid ${(data.gst_treatment ?? 'exclusive') === opt.value ? 'var(--accent)' : 'var(--border)'}`,
+                  background: (data.gst_treatment ?? 'exclusive') === opt.value ? 'var(--accent-dim)' : 'var(--surface-2)',
+                  transition: 'all 0.15s',
+                }}
+              >
+                <div style={{ fontSize: 13, fontWeight: 600, color: (data.gst_treatment ?? 'exclusive') === opt.value ? 'var(--accent)' : 'var(--text)' }}>
+                  {opt.label}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>{opt.sub}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
       <div className="field">
         <label>Access Restrictions</label>
         <input value={data.access_restrictions} onChange={e => setField('access_restrictions', e.target.value)} placeholder="e.g. Key with property manager, code required..." />

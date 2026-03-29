@@ -56,6 +56,8 @@ export interface AssessmentData {
   estimated_waste_litres: number
   access_restrictions: string
   observations: string
+  target_price?: number
+  gst_treatment?: 'inclusive' | 'exclusive' | 'none'
 }
 
 export interface Job {
