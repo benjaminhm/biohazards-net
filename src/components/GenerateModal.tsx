@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, createElement } from 'react'
-import type { DocType, Document, Photo, PhotoWithData, CompanyProfile } from '@/lib/types'
+import { useState } from 'react'
+import type { DocType, Document, Photo, CompanyProfile } from '@/lib/types'
+import { buildPrintHTML } from '@/lib/printDocument'
 
 interface Props {
   jobId: string
@@ -18,21 +19,17 @@ const TYPE_LABELS: Record<DocType, string> = {
   report: 'Completion Report',
 }
 
-function proxyUrl(url: string): string {
-  const base = process.env.NEXT_PUBLIC_APP_URL || window.location.origin
-  return `${base}/api/image-proxy?url=${encodeURIComponent(url)}`
-}
-
 export default function GenerateModal({ jobId, type, content, photos, onClose, onSaved }: Props) {
   const [draft, setDraft] = useState(JSON.stringify(content, null, 2))
   const [saving, setSaving] = useState(false)
   const [savingStep, setSavingStep] = useState('')
   const [error, setError] = useState('')
 
-  async function saveAndDownload() {
+  async function saveAndOpen() {
     setSaving(true)
     setError('')
     try {
+      // 1. Validate JSON
       let parsed: object
       try {
         parsed = JSON.parse(draft)
@@ -42,98 +39,46 @@ export default function GenerateModal({ jobId, type, content, photos, onClose, o
         return
       }
 
-      // 1. Fetch company profile
+      // 2. Fetch company profile
       setSavingStep('Loading company profile...')
       let company: CompanyProfile | null = null
       try {
         const companyRes = await fetch('/api/company')
         const companyData = await companyRes.json()
         company = companyData.company ?? null
-      } catch { /* continue without company profile */ }
+      } catch { /* continue without */ }
 
-      // 2. Select relevant photos (before+assessment for quote/sow, all for report)
+      // 3. Select relevant photos
       const relevantCategories = type === 'report'
         ? ['before', 'assessment', 'during', 'after']
         : ['before', 'assessment']
       const relevantPhotos = photos
         .filter(p => relevantCategories.includes(p.category))
-        .slice(0, 12) // max 12 photos per document
+        .slice(0, 16)
 
-      // 3. Fetch images through proxy and convert to base64 data URLs for react-pdf
-      setSavingStep(`Preparing ${relevantPhotos.length} photos...`)
-      const photosWithData: PhotoWithData[] = await Promise.all(
-        relevantPhotos.map(async (p) => {
-          try {
-            const res = await fetch(proxyUrl(p.file_url))
-            if (!res.ok) return { ...p }
-            const blob = await res.blob()
-            const dataUrl = await new Promise<string>((resolve, reject) => {
-              const reader = new FileReader()
-              reader.onload = () => resolve(reader.result as string)
-              reader.onerror = reject
-              reader.readAsDataURL(blob)
-            })
-            return { ...p, dataUrl }
-          } catch {
-            return { ...p }
-          }
-        })
-      )
-
-      // 4. Generate PDF client-side
-      setSavingStep('Rendering PDF...')
-      const [{ pdf }, { JobPDFDocument }] = await Promise.all([
-        import('@react-pdf/renderer'),
-        import('@/components/PDFDocument'),
-      ])
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const instance = (pdf as any)(createElement(JobPDFDocument as any, {
-        type,
-        content: parsed,
-        photos: photosWithData,
-        company,
-        jobId,
-      }))
-      const pdfBlob = await instance.toBlob()
-
-      // 5. Upload PDF to Supabase Storage
-      setSavingStep('Saving PDF...')
-      let fileUrl: string | null = null
-      try {
-        const { supabase } = await import('@/lib/supabase')
-        const fileName = `${type}-${jobId.slice(0, 8)}-${Date.now()}.pdf`
-        const { data: uploadData, error: uploadErr } = await supabase.storage
-          .from('job-pdfs')
-          .upload(`${jobId}/${fileName}`, pdfBlob, { contentType: 'application/pdf', upsert: false })
-
-        if (!uploadErr && uploadData) {
-          const { data: urlData } = supabase.storage.from('job-pdfs').getPublicUrl(uploadData.path)
-          fileUrl = urlData.publicUrl
-        }
-      } catch { /* continue even if storage fails */ }
-
-      // 6. Save document record
+      // 4. Save document record to DB
       setSavingStep('Saving record...')
       const saveRes = await fetch('/api/documents', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ job_id: jobId, type, content: parsed, file_url: fileUrl }),
+        body: JSON.stringify({ job_id: jobId, type, content: parsed, file_url: null }),
       })
       const { document: savedDoc, error: saveErr } = await saveRes.json()
       if (saveErr) throw new Error(saveErr)
 
-      // 7. Trigger download
-      const url = URL.createObjectURL(pdfBlob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `${type}-${jobId.slice(0, 8)}.pdf`
-      a.click()
-      URL.revokeObjectURL(url)
+      // 5. Build HTML and open in new tab
+      setSavingStep('Opening document...')
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin
+      const html = buildPrintHTML(type, parsed, relevantPhotos, company, jobId, appUrl)
+      const blob = new Blob([html], { type: 'text/html' })
+      const url  = URL.createObjectURL(blob)
+      window.open(url, '_blank')
+      // Revoke after a delay to give the tab time to load
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
 
       onSaved(savedDoc)
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to generate PDF')
+      setError(err instanceof Error ? err.message : 'Failed to open document')
     } finally {
       setSaving(false)
       setSavingStep('')
@@ -159,7 +104,7 @@ export default function GenerateModal({ jobId, type, content, photos, onClose, o
         <div>
           <div style={{ fontWeight: 700, fontSize: 16 }}>{TYPE_LABELS[type]}</div>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-            Review and edit below — then save as PDF
+            Review and edit below — then open as a page to print / save as PDF
           </div>
         </div>
         <button onClick={onClose} style={{ fontSize: 20, color: 'var(--text-muted)', padding: '4px 8px' }}>✕</button>
@@ -196,14 +141,14 @@ export default function GenerateModal({ jobId, type, content, photos, onClose, o
             Discard
           </button>
           <button
-            onClick={saveAndDownload}
+            onClick={saveAndOpen}
             disabled={saving}
             className="btn btn-primary"
             style={{ flex: 2, fontSize: 15 }}
           >
             {saving
-              ? <><span className="spinner" /> {savingStep || 'Generating PDF...'}</>
-              : '↓ Save & Download PDF'
+              ? <><span className="spinner" /> {savingStep || 'Working...'}</>
+              : '↗ Save & Open Document'
             }
           </button>
         </div>
