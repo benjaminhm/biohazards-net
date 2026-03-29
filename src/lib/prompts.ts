@@ -98,23 +98,12 @@ Today's date: ${new Date().toISOString().slice(0, 10).replace(/-/g, '')}
 
 ${(() => {
   const tp = a.target_price
-  const gst = a.gst_treatment ?? 'exclusive'
   if (!tp) {
     return `PRICING: Use realistic Australian market rates for biohazard work ($120–$250/hr depending on contamination level). Base labour on contamination level (${a.contamination_level}/5) and estimated hours (${a.estimated_hours}hrs). Ensure subtotal + GST (10%) = total.`
   }
-  if (gst === 'exclusive') {
-    const subtotal = tp
-    const gstAmt = Math.round(tp * 0.1 * 100) / 100
-    const total = Math.round((tp + gstAmt) * 100) / 100
-    return `PRICING: The target quote is $${tp.toLocaleString()} EXCLUDING GST. Work the line items backward from this total. Line items must sum to exactly $${subtotal.toLocaleString()} (subtotal). Set subtotal: ${subtotal}, gst: ${gstAmt}, total: ${total}. Distribute the total across logical line items (labour per area, PPE, waste disposal, callout fee, specialist requirements) that reflect the actual scope — do not pad or invent work not relevant to this job.`
-  }
-  if (gst === 'inclusive') {
-    const subtotal = Math.round((tp / 1.1) * 100) / 100
-    const gstAmt = Math.round((tp - subtotal) * 100) / 100
-    return `PRICING: The target quote is $${tp.toLocaleString()} INCLUSIVE of GST. Work the line items backward from this total. Line items must sum to exactly $${subtotal.toLocaleString()} (ex-GST subtotal). Set subtotal: ${subtotal}, gst: ${gstAmt}, total: ${tp}. Distribute across logical line items that reflect the actual scope.`
-  }
-  // none
-  return `PRICING: The target quote is $${tp.toLocaleString()} with NO GST. Work the line items backward from this total. Line items must sum to exactly $${tp.toLocaleString()}. Set subtotal: ${tp}, gst: 0, total: ${tp}. Distribute across logical line items that reflect the actual scope.`
+  const subtotal = Math.round((tp / 1.1) * 100) / 100
+  const gstAmt   = Math.round((tp - subtotal) * 100) / 100
+  return `PRICING: The target total (inc. GST) is $${tp.toLocaleString()}. Work the line items BACKWARD from this number. Line items must sum to exactly $${subtotal.toLocaleString()} (ex-GST subtotal). Set subtotal: ${subtotal}, gst: ${gstAmt}, total: ${tp}. Distribute across logical line items (labour per area, PPE/consumables, waste disposal, callout fee) that genuinely reflect the scope — do not pad or invent work not relevant to this job.`
 })()}
 
 Include line items for: labour per area, PPE, waste disposal, callout fee, and any specialist requirements identified. Reference the specific areas, photo notes, and conditions found — do not be generic. Return ONLY the JSON object.`

@@ -57,7 +57,6 @@ export interface AssessmentData {
   access_restrictions: string
   observations: string
   target_price?: number
-  gst_treatment?: 'inclusive' | 'exclusive' | 'none'
 }
 
 export interface Job {
