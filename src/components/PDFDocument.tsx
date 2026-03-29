@@ -61,7 +61,7 @@ const styles = StyleSheet.create({
   // Photos section
   photoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 8 },
   photoItem: { width: '47%', marginBottom: 10 },
-  photoImage: { width: '100%', height: 120, objectFit: 'cover', borderRadius: 4, border: '1px solid #E5E5E5' },
+  photoImage: { width: '100%', height: 120, objectFit: 'cover', borderRadius: 4, borderWidth: 1, borderColor: '#E5E5E5' },
   photoAreaBadge: { fontSize: 7, fontFamily: 'Helvetica-Bold', color: ORANGE, textTransform: 'uppercase', marginTop: 4, marginBottom: 2 },
   photoNote: { fontSize: 8, color: MUTED, lineHeight: 1.4 },
   photoNoNote: { fontSize: 8, color: '#BBBBBB', fontStyle: 'italic' },
