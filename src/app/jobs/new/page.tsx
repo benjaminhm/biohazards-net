@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import type { JobType, JobUrgency } from '@/lib/types'
+import SmartFill from '@/components/SmartFill'
 
 const JOB_TYPES: { value: JobType; label: string }[] = [
   { value: 'crime_scene', label: 'Crime Scene' },
@@ -72,6 +73,16 @@ export default function NewJobPage() {
       </div>
 
       <div className="container" style={{ paddingTop: 32, paddingBottom: 60, maxWidth: 540 }}>
+        <SmartFill
+          onApply={fields => {
+            const allowed = ['client_name', 'client_phone', 'client_email', 'site_address', 'job_type', 'urgency']
+            const updates: Partial<typeof form> = {}
+            for (const key of allowed) {
+              if (fields[key]) updates[key as keyof typeof form] = fields[key] as JobType & JobUrgency & string
+            }
+            setForm(f => ({ ...f, ...updates }))
+          }}
+        />
         <form onSubmit={submit}>
           {error && (
             <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, padding: 12, color: '#F87171', marginBottom: 24, fontSize: 14 }}>
