@@ -87,6 +87,75 @@ export default function DetailsTab({ job, onJobUpdate }: Props) {
   const [saving, setSaving] = useState(false)
   const [noteText, setNoteText] = useState('')
   const [addingNote, setAddingNote] = useState(false)
+  const [smartFillOpen, setSmartFillOpen] = useState(false)
+  const [pastedText, setPastedText] = useState('')
+  const [extracting, setExtracting] = useState(false)
+  const [extracted, setExtracted] = useState<Record<string, string> | null>(null)
+  const [applying, setApplying] = useState(false)
+
+  async function extractDetails() {
+    if (!pastedText.trim()) return
+    setExtracting(true)
+    setExtracted(null)
+    try {
+      const res = await fetch(`/api/jobs/${job.id}/extract`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: pastedText }),
+      })
+      const data = await res.json()
+      setExtracted(data.extracted)
+    } finally {
+      setExtracting(false)
+    }
+  }
+
+  async function applyExtracted() {
+    if (!extracted) return
+    setApplying(true)
+    try {
+      const fields: Record<string, string> = {}
+      const map: Record<string, string> = {
+        client_name: 'client_name',
+        client_phone: 'client_phone',
+        client_email: 'client_email',
+        site_address: 'site_address',
+        job_type: 'job_type',
+        urgency: 'urgency',
+      }
+      for (const [key, field] of Object.entries(map)) {
+        if (extracted[key]) fields[field] = extracted[key]
+      }
+      const res = await fetch(`/api/jobs/${job.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(fields),
+      })
+      const data = await res.json()
+      onJobUpdate(data.job)
+      // Save original message as a note
+      await fetch(`/api/jobs/${job.id}/notes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: `Smart fill source: ${pastedText.substring(0, 200)}${pastedText.length > 200 ? '...' : ''}` }),
+      })
+      setPastedText('')
+      setExtracted(null)
+      setSmartFillOpen(false)
+    } finally {
+      setApplying(false)
+    }
+  }
+
+  const FIELD_LABELS: Record<string, string> = {
+    client_name: 'Client Name',
+    client_phone: 'Phone',
+    client_email: 'Email',
+    site_address: 'Site Address',
+    job_type: 'Job Type',
+    urgency: 'Urgency',
+    company_name: 'Company',
+  }
 
   async function updateField(field: string, value: string) {
     setSaving(true)
@@ -126,6 +195,79 @@ export default function DetailsTab({ job, onJobUpdate }: Props) {
 
   return (
     <div style={{ paddingBottom: 40 }}>
+
+      {/* Smart Fill Panel */}
+      <div style={{ marginBottom: 20, border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+        <button
+          onClick={() => setSmartFillOpen(o => !o)}
+          style={{
+            width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '12px 14px', background: 'var(--surface)', border: 'none',
+            color: 'var(--accent)', fontWeight: 600, fontSize: 13, cursor: 'pointer',
+          }}
+        >
+          <span>⚡ Smart Fill — paste a message or email</span>
+          <span style={{ color: 'var(--text-muted)', fontSize: 16 }}>{smartFillOpen ? '▲' : '▼'}</span>
+        </button>
+
+        {smartFillOpen && (
+          <div style={{ padding: 14, background: 'var(--surface-2)', borderTop: '1px solid var(--border)' }}>
+            <textarea
+              value={pastedText}
+              onChange={e => setPastedText(e.target.value)}
+              placeholder="Paste a text message, email, or voicemail transcript here... Claude will extract the client name, phone, email, address, job type and urgency."
+              rows={5}
+              style={{ marginBottom: 10, fontSize: 13 }}
+            />
+            <button
+              onClick={extractDetails}
+              disabled={!pastedText.trim() || extracting}
+              className="btn btn-primary"
+              style={{ fontSize: 13 }}
+            >
+              {extracting ? <><span className="spinner" /> Extracting...</> : '⚡ Extract Details'}
+            </button>
+
+            {extracted && (
+              <div style={{ marginTop: 14 }}>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1 }}>
+                  Extracted — review before applying
+                </div>
+                <div style={{ display: 'grid', gap: 6, marginBottom: 14 }}>
+                  {Object.entries(extracted).filter(([, v]) => v).map(([key, value]) => (
+                    <div key={key} style={{
+                      display: 'flex', gap: 10, padding: '8px 12px',
+                      background: 'var(--surface)', borderRadius: 6,
+                      border: '1px solid var(--border)', fontSize: 13,
+                    }}>
+                      <span style={{ color: 'var(--text-muted)', minWidth: 100 }}>{FIELD_LABELS[key] || key}</span>
+                      <span style={{ color: 'var(--text)', fontWeight: 500 }}>{value}</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    onClick={applyExtracted}
+                    disabled={applying}
+                    className="btn btn-primary"
+                    style={{ fontSize: 13 }}
+                  >
+                    {applying ? <><span className="spinner" /> Applying...</> : '✓ Apply to Job'}
+                  </button>
+                  <button
+                    onClick={() => setExtracted(null)}
+                    className="btn btn-ghost"
+                    style={{ fontSize: 13 }}
+                  >
+                    Discard
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 20px' }}>
         <EditableField label="Client Name" value={job.client_name} onChange={v => updateField('client_name', v)} />
         <EditableField label="Phone" value={job.client_phone} onChange={v => updateField('client_phone', v)} type="tel" />
