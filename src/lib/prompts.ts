@@ -97,13 +97,25 @@ Job ID for reference: ${job.id}
 Today's date: ${new Date().toISOString().slice(0, 10).replace(/-/g, '')}
 
 ${(() => {
-  const tp = a.target_price
+  const tp   = a.target_price
+  const note = (a.target_price_note || '').toLowerCase()
   if (!tp) {
     return `PRICING: Use realistic Australian market rates for biohazard work ($120–$250/hr depending on contamination level). Base labour on contamination level (${a.contamination_level}/5) and estimated hours (${a.estimated_hours}hrs). Ensure subtotal + GST (10%) = total.`
   }
-  const subtotal = Math.round((tp / 1.1) * 100) / 100
-  const gstAmt   = Math.round((tp - subtotal) * 100) / 100
-  return `PRICING: The target total (inc. GST) is $${tp.toLocaleString()}. Work the line items BACKWARD from this number. Line items must sum to exactly $${subtotal.toLocaleString()} (ex-GST subtotal). Set subtotal: ${subtotal}, gst: ${gstAmt}, total: ${tp}. Distribute across logical line items (labour per area, PPE/consumables, waste disposal, callout fee) that genuinely reflect the scope — do not pad or invent work not relevant to this job.`
+  const isExGST = note.includes('ex') || note.includes('excl') || note.includes('+ gst') || note.includes('+gst')
+  let subtotal: number, gstAmt: number, total: number
+  if (isExGST) {
+    subtotal = tp
+    gstAmt   = Math.round(tp * 0.1 * 100) / 100
+    total    = Math.round((tp + gstAmt) * 100) / 100
+  } else {
+    // default: treat as inc. GST
+    subtotal = Math.round((tp / 1.1) * 100) / 100
+    gstAmt   = Math.round((tp - subtotal) * 100) / 100
+    total    = tp
+  }
+  const gstNote = note ? ` (noted as: ${a.target_price_note})` : ' (treated as inc. GST)'
+  return `PRICING: Target amount is $${tp.toLocaleString()}${gstNote}. Work line items BACKWARD from this. Set subtotal: ${subtotal}, gst: ${gstAmt}, total: ${total}. Line items must sum to exactly $${subtotal.toLocaleString()} (ex-GST). Distribute across logical line items (labour per area, PPE/consumables, waste disposal, callout fee) that genuinely reflect the scope — do not pad or invent work not relevant to this job.`
 })()}
 
 Include line items for: labour per area, PPE, waste disposal, callout fee, and any specialist requirements identified. Reference the specific areas, photo notes, and conditions found — do not be generic. Return ONLY the JSON object.`

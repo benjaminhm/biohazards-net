@@ -211,29 +211,40 @@ export default function AssessmentTab({ job, onJobUpdate }: Props) {
       </div>
       {/* Target quote price */}
       {section('Quote Pricing')}
-      <div className="field">
-        <label>
-          Target Quote Amount
-          <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 6 }}>
-            Claude works line items back from this
-          </span>
-        </label>
-        <div style={{ position: 'relative' }}>
-          <span style={{
-            position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
-            color: 'var(--text-muted)', fontSize: 15, fontWeight: 600, pointerEvents: 'none',
-          }}>$</span>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
+        <div className="field">
+          <label>
+            Target Amount
+            <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 6 }}>
+              Claude works line items back from this
+            </span>
+          </label>
+          <div style={{ position: 'relative' }}>
+            <span style={{
+              position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
+              color: 'var(--text-muted)', fontSize: 15, fontWeight: 600, pointerEvents: 'none',
+            }}>$</span>
+            <input
+              type="number"
+              value={data.target_price || ''}
+              onChange={e => {
+                const n = parseFloat(e.target.value)
+                setField('target_price', isNaN(n) ? undefined : n)
+              }}
+              placeholder="0.00"
+              min="0"
+              step="50"
+              style={{ paddingLeft: 24 }}
+            />
+          </div>
+        </div>
+        <div className="field">
+          <label>GST Note</label>
           <input
-            type="number"
-            value={data.target_price || ''}
-            onChange={e => {
-              const n = parseFloat(e.target.value)
-              setField('target_price', isNaN(n) ? undefined : n)
-            }}
-            placeholder="e.g. 5500 (inc. GST) or 5000 (+GST)"
-            min="0"
-            step="50"
-            style={{ paddingLeft: 24 }}
+            type="text"
+            value={data.target_price_note || ''}
+            onChange={e => setField('target_price_note', e.target.value)}
+            placeholder="e.g. inc. GST  or  + GST"
           />
         </div>
       </div>

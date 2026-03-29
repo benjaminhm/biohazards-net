@@ -57,6 +57,7 @@ export interface AssessmentData {
   access_restrictions: string
   observations: string
   target_price?: number
+  target_price_note?: string
 }
 
 export interface Job {
