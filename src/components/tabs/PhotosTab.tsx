@@ -25,6 +25,92 @@ const CATEGORY_COLORS: Record<PhotoCategory, string> = {
   assessment: '#60A5FA',
 }
 
+function PhotoCard({ photo, onDelete, onUpdate }: {
+  photo: Photo
+  onDelete: (id: string) => void
+  onUpdate: (photo: Photo) => void
+}) {
+  const [deleting, setDeleting] = useState(false)
+  const [editingCaption, setEditingCaption] = useState(false)
+  const [captionDraft, setCaptionDraft] = useState(photo.caption)
+
+  async function handleDelete() {
+    if (!confirm('Delete this photo?')) return
+    setDeleting(true)
+    await fetch(`/api/photos/${photo.id}`, { method: 'DELETE' })
+    onDelete(photo.id)
+  }
+
+  async function saveCaption() {
+    const res = await fetch(`/api/photos/${photo.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ caption: captionDraft }),
+    })
+    const data = await res.json()
+    onUpdate(data.photo)
+    setEditingCaption(false)
+  }
+
+  return (
+    <div style={{ background: 'var(--surface)', borderRadius: 8, overflow: 'hidden', border: '1px solid var(--border)', opacity: deleting ? 0.4 : 1 }}>
+      <div style={{ position: 'relative', aspectRatio: '4/3', background: 'var(--surface-2)' }}>
+        <Image src={photo.file_url} alt={photo.caption || photo.category} fill style={{ objectFit: 'cover' }} unoptimized />
+        <button
+          onClick={handleDelete}
+          title="Delete photo"
+          style={{
+            position: 'absolute', top: 6, right: 6,
+            background: 'rgba(0,0,0,0.6)', border: 'none', borderRadius: 5,
+            padding: '4px 7px', fontSize: 13, cursor: 'pointer', color: '#fff',
+          }}
+        >🗑️</button>
+      </div>
+      <div style={{ padding: '10px 12px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: CATEGORY_COLORS[photo.category] }}>
+            {photo.category}
+          </span>
+          {photo.area_ref && (
+            <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', background: 'var(--surface-2)', padding: '2px 6px', borderRadius: 4 }}>
+              {photo.area_ref}
+            </span>
+          )}
+        </div>
+        {editingCaption ? (
+          <div>
+            <textarea
+              value={captionDraft}
+              onChange={e => setCaptionDraft(e.target.value)}
+              rows={3}
+              style={{ width: '100%', fontSize: 12, resize: 'vertical', marginBottom: 6 }}
+              autoFocus
+            />
+            <div style={{ display: 'flex', gap: 4 }}>
+              <button className="btn btn-primary" style={{ fontSize: 11, padding: '5px 10px' }} onClick={saveCaption}>Save</button>
+              <button className="btn btn-ghost" style={{ fontSize: 11, padding: '5px 10px' }} onClick={() => setEditingCaption(false)}>Cancel</button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 6 }}>
+            <div style={{ flex: 1 }}>
+              {photo.caption
+                ? <div style={{ fontSize: 12, color: 'var(--text)', lineHeight: 1.5 }}>{photo.caption}</div>
+                : <div style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }}>No note — tap ✏️ to add</div>
+              }
+            </div>
+            <button
+              onClick={() => { setCaptionDraft(photo.caption); setEditingCaption(true) }}
+              title="Edit note"
+              style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 5, padding: '3px 7px', fontSize: 12, cursor: 'pointer', flexShrink: 0 }}
+            >✏️</button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function PhotosTab({ jobId, photos, areas = [], onPhotosUpdate }: Props) {
   const [filter, setFilter] = useState<PhotoCategory | 'all'>('all')
   const [uploading, setUploading] = useState(false)
@@ -266,37 +352,12 @@ export default function PhotosTab({ jobId, photos, areas = [], onPhotosUpdate }:
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
           {filtered.map(photo => (
-            <div key={photo.id} style={{ background: 'var(--surface)', borderRadius: 8, overflow: 'hidden', border: '1px solid var(--border)' }}>
-              <div style={{ position: 'relative', aspectRatio: '4/3', background: 'var(--surface-2)' }}>
-                <Image
-                  src={photo.file_url}
-                  alt={photo.caption || photo.category}
-                  fill
-                  style={{ objectFit: 'cover' }}
-                  unoptimized
-                />
-              </div>
-              <div style={{ padding: '10px 12px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                  <span style={{
-                    fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
-                    color: CATEGORY_COLORS[photo.category],
-                  }}>
-                    {photo.category}
-                  </span>
-                  {photo.area_ref && (
-                    <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', background: 'var(--surface-2)', padding: '2px 6px', borderRadius: 4 }}>
-                      {photo.area_ref}
-                    </span>
-                  )}
-                </div>
-                {photo.caption ? (
-                  <div style={{ fontSize: 12, color: 'var(--text)', lineHeight: 1.5 }}>{photo.caption}</div>
-                ) : (
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }}>No note added</div>
-                )}
-              </div>
-            </div>
+            <PhotoCard
+              key={photo.id}
+              photo={photo}
+              onDelete={(id) => onPhotosUpdate(photos.filter(p => p.id !== id))}
+              onUpdate={(updated) => onPhotosUpdate(photos.map(p => p.id === updated.id ? updated : p))}
+            />
           ))}
         </div>
       )}

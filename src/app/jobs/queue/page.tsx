@@ -38,29 +38,50 @@ const URGENCY_ICON: Record<string, string> = {
   standard: '⚪',
 }
 
-function JobCard({ job }: { job: Job }) {
+function JobCard({ job, onDelete }: { job: Job; onDelete: (id: string) => void }) {
+  const [deleting, setDeleting] = useState(false)
+
+  async function handleDelete(e: React.MouseEvent) {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!confirm(`Delete job for ${job.client_name}? This cannot be undone.`)) return
+    setDeleting(true)
+    await fetch(`/api/jobs/${job.id}`, { method: 'DELETE' })
+    onDelete(job.id)
+  }
+
   return (
-    <Link href={`/jobs/${job.id}`}>
-      <div className="card" style={{ marginBottom: 10, cursor: 'pointer' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 2 }}>{job.client_name}</div>
-            <div style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {job.site_address}
-            </div>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-              <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-                {URGENCY_ICON[job.urgency]} {JOB_TYPE_LABELS[job.job_type] ?? job.job_type}
-              </span>
-              <span className={`badge badge-${job.urgency}`}>{job.urgency}</span>
-            </div>
+    <div className="card" style={{ marginBottom: 10, opacity: deleting ? 0.5 : 1 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+        <Link href={`/jobs/${job.id}`} style={{ flex: 1, minWidth: 0, textDecoration: 'none', color: 'inherit' }}>
+          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 2 }}>{job.client_name}</div>
+          <div style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {job.site_address}
           </div>
-          <span className={`badge badge-${job.status}`} style={{ flexShrink: 0 }}>
-            {STATUS_LABELS[job.status]}
-          </span>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+            <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+              {URGENCY_ICON[job.urgency]} {JOB_TYPE_LABELS[job.job_type] ?? job.job_type}
+            </span>
+            <span className={`badge badge-${job.urgency}`}>{job.urgency}</span>
+          </div>
+        </Link>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, flexShrink: 0 }}>
+          <span className={`badge badge-${job.status}`}>{STATUS_LABELS[job.status]}</span>
+          <button
+            onClick={handleDelete}
+            disabled={deleting}
+            title="Delete job"
+            style={{
+              background: 'none', border: '1px solid var(--border)', borderRadius: 6,
+              padding: '4px 8px', fontSize: 13, color: 'var(--text-muted)',
+              cursor: 'pointer', transition: 'all 0.15s',
+            }}
+          >
+            🗑️
+          </button>
         </div>
       </div>
-    </Link>
+    </div>
   )
 }
 
@@ -68,6 +89,10 @@ export default function JobQueuePage() {
   const [jobs, setJobs] = useState<Job[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+
+  function handleDelete(id: string) {
+    setJobs(prev => prev.filter(j => j.id !== id))
+  }
 
   useEffect(() => {
     fetch('/api/jobs')
@@ -142,7 +167,7 @@ export default function JobQueuePage() {
                 <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{group.length}</span>
                 <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
               </div>
-              {group.map(job => <JobCard key={job.id} job={job} />)}
+              {group.map(job => <JobCard key={job.id} job={job} onDelete={handleDelete} />)}
             </div>
           )
         })}

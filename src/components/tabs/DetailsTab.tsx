@@ -88,6 +88,35 @@ export default function DetailsTab({ job, onJobUpdate }: Props) {
   const [saving, setSaving] = useState(false)
   const [noteText, setNoteText] = useState('')
   const [addingNote, setAddingNote] = useState(false)
+  const [editingNoteIdx, setEditingNoteIdx] = useState<number | null>(null)
+  const [editingNoteText, setEditingNoteText] = useState('')
+
+  async function updateNotes(newLines: string[]) {
+    const res = await fetch(`/api/jobs/${job.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ notes: newLines.join('\n') }),
+    })
+    const data = await res.json()
+    onJobUpdate(data.job)
+  }
+
+  async function deleteNote(idx: number) {
+    if (!confirm('Delete this note?')) return
+    const lines = job.notes ? job.notes.split('\n').filter(Boolean) : []
+    lines.splice(idx, 1)
+    await updateNotes(lines)
+  }
+
+  async function saveEditedNote(idx: number) {
+    const lines = job.notes ? job.notes.split('\n').filter(Boolean) : []
+    const match = lines[idx].match(/^\[(.+?)\] .+$/)
+    const timestamp = match ? match[1] : new Date().toLocaleString('en-AU')
+    lines[idx] = `[${timestamp}] ${editingNoteText}`
+    await updateNotes(lines)
+    setEditingNoteIdx(null)
+    setEditingNoteText('')
+  }
 
   async function updateField(field: string, value: string) {
     setSaving(true)
@@ -274,15 +303,43 @@ export default function DetailsTab({ job, onJobUpdate }: Props) {
         )}
         {noteLines.map((line, i) => {
           const match = line.match(/^\[(.+?)\] (.+)$/)
+          const timestamp = match ? match[1] : ''
+          const text = match ? match[2] : line
           return (
             <div key={i} style={{ marginBottom: 10, padding: '10px 12px', background: 'var(--surface)', borderRadius: 6, border: '1px solid var(--border)' }}>
-              {match ? (
-                <>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>{match[1]}</div>
-                  <div style={{ fontSize: 14 }}>{match[2]}</div>
-                </>
+              {editingNoteIdx === i ? (
+                <div>
+                  <textarea
+                    value={editingNoteText}
+                    onChange={e => setEditingNoteText(e.target.value)}
+                    rows={3}
+                    style={{ width: '100%', resize: 'vertical', marginBottom: 8 }}
+                    autoFocus
+                  />
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button className="btn btn-primary" style={{ fontSize: 12, padding: '6px 12px' }} onClick={() => saveEditedNote(i)}>Save</button>
+                    <button className="btn btn-ghost" style={{ fontSize: 12, padding: '6px 12px' }} onClick={() => setEditingNoteIdx(null)}>Cancel</button>
+                  </div>
+                </div>
               ) : (
-                <div style={{ fontSize: 14 }}>{line}</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    {timestamp && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>{timestamp}</div>}
+                    <div style={{ fontSize: 14 }}>{text}</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                    <button
+                      onClick={() => { setEditingNoteIdx(i); setEditingNoteText(text) }}
+                      title="Edit note"
+                      style={{ ...noteActionBtn }}
+                    >✏️</button>
+                    <button
+                      onClick={() => deleteNote(i)}
+                      title="Delete note"
+                      style={{ ...noteActionBtn }}
+                    >🗑️</button>
+                  </div>
+                </div>
               )}
             </div>
           )
@@ -316,4 +373,10 @@ const actionBtn: React.CSSProperties = {
   width: 36, height: 36, borderRadius: 6, fontSize: 16, flexShrink: 0,
   background: 'var(--surface-2)', border: '1px solid var(--border)',
   textDecoration: 'none', cursor: 'pointer', transition: 'background 0.15s',
+}
+
+const noteActionBtn: React.CSSProperties = {
+  background: 'none', border: '1px solid var(--border)', borderRadius: 5,
+  padding: '3px 7px', fontSize: 12, cursor: 'pointer', color: 'var(--text-muted)',
+  transition: 'all 0.15s',
 }
