@@ -78,42 +78,40 @@ export default function NewClientPage() {
   if (submitted) {
     return (
       <div style={{
-        minHeight: '100vh', background: '#f8f8f8',
+        minHeight: '100vh', background: 'var(--bg)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: 24, fontFamily: 'system-ui, sans-serif',
+        padding: 24,
       }}>
         <div style={{ maxWidth: 480, width: '100%', textAlign: 'center' }}>
           <div style={{
             width: 64, height: 64, borderRadius: '50%',
-            background: '#22C55E', display: 'flex', alignItems: 'center',
+            background: 'rgba(34,197,94,0.15)', border: '2px solid #22C55E',
+            display: 'flex', alignItems: 'center',
             justifyContent: 'center', margin: '0 auto 24px', fontSize: 28,
           }}>✓</div>
-          <h1 style={{ fontSize: 26, fontWeight: 700, color: '#111', marginBottom: 12 }}>
-            Thanks, {form.client_name.split(' ')[0]}
+          <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 8 }}>
+            Lead saved — {form.client_name}
           </h1>
-          <p style={{ fontSize: 16, color: '#555', lineHeight: 1.6, marginBottom: 24 }}>
-            We&apos;ve received your enquiry and will be in touch shortly.
-            If your situation is urgent, please call us directly.
+          <p style={{ fontSize: 15, color: 'var(--text-muted)', marginBottom: 24 }}>
+            Job created as a lead in your queue.
           </p>
-          <div style={{
-            background: '#fff', border: '1px solid #e5e5e5',
-            borderRadius: 10, padding: '16px 20px', textAlign: 'left',
-          }}>
-            <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: '#888', marginBottom: 10 }}>
-              Your enquiry
-            </div>
-            {[
-              ['Name', form.client_name],
-              ['Phone', form.client_phone],
-              ['Email', form.client_email],
-              ['Address', form.site_address],
-              ['Job Type', JOB_TYPES.find(j => j.value === form.job_type)?.label ?? form.job_type],
-            ].filter(([, v]) => v).map(([label, value]) => (
-              <div key={label} style={{ display: 'flex', gap: 12, marginBottom: 6, fontSize: 14 }}>
-                <span style={{ color: '#888', minWidth: 70 }}>{label}</span>
-                <span style={{ color: '#111', fontWeight: 500 }}>{value}</span>
-              </div>
-            ))}
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+            <a href="/" style={{
+              padding: '11px 20px', background: 'var(--accent)', color: '#fff',
+              borderRadius: 8, fontWeight: 600, fontSize: 14, textDecoration: 'none',
+            }}>
+              View Job Queue
+            </a>
+            <button
+              onClick={() => { setSubmitted(false); setForm({ client_name: '', client_phone: '', client_email: '', site_address: '', job_type: 'other', notes: '' }) }}
+              style={{
+                padding: '11px 20px', background: 'var(--surface)',
+                border: '1px solid var(--border)', color: 'var(--text)',
+                borderRadius: 8, fontWeight: 600, fontSize: 14, cursor: 'pointer',
+              }}
+            >
+              Add Another
+            </button>
           </div>
         </div>
       </div>
@@ -121,30 +119,26 @@ export default function NewClientPage() {
   }
 
   return (
-    <div style={{
-      minHeight: '100vh', background: '#f8f8f8',
-      fontFamily: 'system-ui, sans-serif',
-    }}>
+    <div style={{ minHeight: '100vh', background: 'var(--bg)' }}>
       {/* Header */}
-      <div style={{ background: '#fff', borderBottom: '1px solid #e5e5e5', padding: '16px 24px' }}>
-        <div style={{ maxWidth: 560, margin: '0 auto', display: 'flex', alignItems: 'center', gap: 14 }}>
-          {company?.logo_url && (
-            <Image src={company.logo_url} alt={companyName} width={40} height={40} style={{ objectFit: 'contain', borderRadius: 6 }} />
-          )}
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 16, color: '#111' }}>{companyName}</div>
-            <div style={{ fontSize: 12, color: '#888' }}>{tagline}</div>
+      <div style={{ borderBottom: '1px solid var(--border)', padding: '16px 24px' }}>
+        <div style={{ maxWidth: 560, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            {company?.logo_url && (
+              <Image src={company.logo_url} alt={companyName} width={36} height={36} style={{ objectFit: 'contain', borderRadius: 6 }} />
+            )}
+            <div style={{ fontWeight: 700, fontSize: 15 }}>{companyName}</div>
           </div>
+          <a href="/" style={{ fontSize: 13, color: 'var(--text-muted)', textDecoration: 'none' }}>← Job Queue</a>
         </div>
       </div>
 
-      <div style={{ maxWidth: 560, margin: '0 auto', padding: '32px 24px 60px' }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: '#111', marginBottom: 6 }}>
-          New Client Enquiry
+      <div style={{ maxWidth: 560, margin: '0 auto', padding: '28px 24px 60px' }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>
+          New Client Intake
         </h1>
-        <p style={{ fontSize: 15, color: '#666', marginBottom: 28, lineHeight: 1.5 }}>
-          Fill in your details below and we&apos;ll get back to you promptly.
-          All enquiries are treated with complete discretion.
+        <p style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 24, lineHeight: 1.5 }}>
+          Log client details after a call or conversation. Job is created as a lead in your queue.
         </p>
 
         {error && (
@@ -160,7 +154,7 @@ export default function NewClientPage() {
         <form onSubmit={submit}>
           {/* Name */}
           <div style={{ marginBottom: 16 }}>
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#333', marginBottom: 6 }}>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>
               Your Name *
             </label>
             <input
@@ -175,7 +169,7 @@ export default function NewClientPage() {
 
           {/* Phone */}
           <div style={{ marginBottom: 16 }}>
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#333', marginBottom: 6 }}>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>
               Phone Number *
             </label>
             <input
@@ -189,7 +183,7 @@ export default function NewClientPage() {
 
           {/* Email */}
           <div style={{ marginBottom: 16 }}>
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#333', marginBottom: 6 }}>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>
               Email Address
             </label>
             <input
@@ -203,7 +197,7 @@ export default function NewClientPage() {
 
           {/* Address */}
           <div style={{ marginBottom: 16 }}>
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#333', marginBottom: 6 }}>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>
               Site Address
             </label>
             <input
@@ -217,7 +211,7 @@ export default function NewClientPage() {
 
           {/* Job Type */}
           <div style={{ marginBottom: 16 }}>
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#333', marginBottom: 6 }}>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>
               Type of Service Required
             </label>
             <select
@@ -233,7 +227,7 @@ export default function NewClientPage() {
 
           {/* Notes */}
           <div style={{ marginBottom: 24 }}>
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#333', marginBottom: 6 }}>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6 }}>
               Brief Description
               <span style={{ fontWeight: 400, color: '#888', marginLeft: 6 }}>optional</span>
             </label>
@@ -260,9 +254,6 @@ export default function NewClientPage() {
             {submitting ? 'Submitting...' : 'Submit Enquiry'}
           </button>
 
-          <p style={{ textAlign: 'center', fontSize: 12, color: '#999', marginTop: 14 }}>
-            Your information is kept strictly confidential.
-          </p>
         </form>
       </div>
     </div>
@@ -271,7 +262,7 @@ export default function NewClientPage() {
 
 const inputStyle: React.CSSProperties = {
   width: '100%', padding: '11px 14px',
-  background: '#fff', border: '1px solid #ddd',
-  borderRadius: 8, fontSize: 15, color: '#111',
+  background: 'var(--surface-2)', border: '1px solid var(--border)',
+  borderRadius: 8, fontSize: 15, color: 'var(--text)',
   boxSizing: 'border-box', outline: 'none',
 }
