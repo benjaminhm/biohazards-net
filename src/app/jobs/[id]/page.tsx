@@ -112,7 +112,7 @@ export default function JobPage() {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12 }}>
         <div style={{ fontSize: 18, fontWeight: 600 }}>Job not found</div>
-        <Link href="/"><button className="btn btn-secondary">Back to Queue</button></Link>
+        <Link href="/jobs/queue"><button className="btn btn-secondary">Back to Queue</button></Link>
       </div>
     )
   }
@@ -130,7 +130,7 @@ export default function JobPage() {
       <div style={{ borderBottom: '1px solid var(--border)', padding: '14px 0', position: 'sticky', top: 0, background: 'var(--bg)', zIndex: 10 }}>
         <div className="container">
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-            <Link href="/">
+            <Link href="/jobs/queue">
               <button className="btn btn-ghost" style={{ padding: '6px 0', fontSize: 14 }}>← Jobs</button>
             </Link>
             <div style={{ flex: 1, minWidth: 0 }}>
