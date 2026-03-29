@@ -121,6 +121,27 @@ export default function DetailsTab({ job, onJobUpdate }: Props) {
     }
   }
 
+  function downloadVCard() {
+    const vcard = [
+      'BEGIN:VCARD',
+      'VERSION:3.0',
+      `FN:${job.client_name}`,
+      job.client_phone ? `TEL;TYPE=CELL:${job.client_phone}` : '',
+      job.client_email ? `EMAIL:${job.client_email}` : '',
+      job.site_address ? `ADR;TYPE=HOME:;;${job.site_address};;;;` : '',
+      `NOTE:${job.job_type.replace(/_/g, ' ')} — biohazards.net`,
+      'END:VCARD',
+    ].filter(Boolean).join('\n')
+
+    const blob = new Blob([vcard], { type: 'text/vcard' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${job.client_name.replace(/\s+/g, '_')}.vcf`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   const urgencies: JobUrgency[] = ['standard', 'urgent', 'emergency']
   const urgencyLabels = { standard: '⚪ Standard', urgent: '🟠 Urgent', emergency: '🔴 Emergency' }
   const noteLines = job.notes ? job.notes.split('\n').filter(Boolean) : []
@@ -158,7 +179,17 @@ export default function DetailsTab({ job, onJobUpdate }: Props) {
       />
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 20px' }}>
-        <EditableField label="Client Name" value={job.client_name} onChange={v => updateField('client_name', v)} />
+        <div className="field">
+          <label>Client Name</label>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <div style={{ flex: 1 }}>
+              <EditableField label="" value={job.client_name} onChange={v => updateField('client_name', v)} />
+            </div>
+            {job.client_name && (
+              <button onClick={downloadVCard} title="Save contact to phone" style={actionBtn}>💾</button>
+            )}
+          </div>
+        </div>
 
         {/* Phone with actions */}
         <div className="field">
