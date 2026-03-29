@@ -38,50 +38,130 @@ const URGENCY_ICON: Record<string, string> = {
   standard: '⚪',
 }
 
-function JobCard({ job, onDelete }: { job: Job; onDelete: (id: string) => void }) {
+function DeleteModal({ clientName, onConfirm, onCancel }: {
+  clientName: string
+  onConfirm: () => void
+  onCancel: () => void
+}) {
+  const [typed, setTyped] = useState('')
   const [deleting, setDeleting] = useState(false)
+  const match = typed.trim().toLowerCase() === clientName.trim().toLowerCase()
 
-  async function handleDelete(e: React.MouseEvent) {
-    e.preventDefault()
-    e.stopPropagation()
-    if (!confirm(`Delete job for ${job.client_name}? This cannot be undone.`)) return
+  async function handleConfirm() {
+    if (!match) return
     setDeleting(true)
-    await fetch(`/api/jobs/${job.id}`, { method: 'DELETE' })
-    onDelete(job.id)
+    await onConfirm()
   }
 
   return (
-    <div className="card" style={{ marginBottom: 10, opacity: deleting ? 0.5 : 1 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-        <Link href={`/jobs/${job.id}`} style={{ flex: 1, minWidth: 0, textDecoration: 'none', color: 'inherit' }}>
-          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 2 }}>{job.client_name}</div>
-          <div style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {job.site_address}
-          </div>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-            <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-              {URGENCY_ICON[job.urgency]} {JOB_TYPE_LABELS[job.job_type] ?? job.job_type}
-            </span>
-            <span className={`badge badge-${job.urgency}`}>{job.urgency}</span>
-          </div>
-        </Link>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, flexShrink: 0 }}>
-          <span className={`badge badge-${job.status}`}>{STATUS_LABELS[job.status]}</span>
+    <div
+      onClick={e => { if (e.target === e.currentTarget) onCancel() }}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 200,
+        background: 'rgba(0,0,0,0.75)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: 20,
+      }}
+    >
+      <div style={{
+        background: 'var(--surface)', borderRadius: 12,
+        border: '1px solid var(--border)', padding: 24,
+        width: '100%', maxWidth: 400,
+      }}>
+        <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>Delete Job</div>
+        <div style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 20, lineHeight: 1.5 }}>
+          This will permanently delete the job and all associated photos and documents.
+          Type <strong style={{ color: 'var(--text)' }}>{clientName}</strong> to confirm.
+        </div>
+        <input
+          autoFocus
+          value={typed}
+          onChange={e => setTyped(e.target.value)}
+          placeholder={`Type "${clientName}"`}
+          onKeyDown={e => { if (e.key === 'Enter' && match) handleConfirm(); if (e.key === 'Escape') onCancel() }}
+          style={{
+            width: '100%', marginBottom: 16,
+            border: `1px solid ${typed.length > 0 ? (match ? '#22C55E' : '#F87171') : 'var(--border)'}`,
+            borderRadius: 6, padding: '10px 12px', fontSize: 15,
+            background: 'var(--surface-2)', color: 'var(--text)',
+            transition: 'border-color 0.15s',
+          }}
+        />
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-ghost" onClick={onCancel} style={{ flex: 1 }}>Cancel</button>
           <button
-            onClick={handleDelete}
-            disabled={deleting}
-            title="Delete job"
+            onClick={handleConfirm}
+            disabled={!match || deleting}
             style={{
-              background: 'none', border: '1px solid var(--border)', borderRadius: 6,
-              padding: '4px 8px', fontSize: 13, color: 'var(--text-muted)',
-              cursor: 'pointer', transition: 'all 0.15s',
+              flex: 1, padding: '10px 16px', borderRadius: 8, fontSize: 14, fontWeight: 600,
+              background: match ? '#EF4444' : 'var(--surface-2)',
+              color: match ? '#fff' : 'var(--text-muted)',
+              border: `1px solid ${match ? '#EF4444' : 'var(--border)'}`,
+              cursor: match ? 'pointer' : 'not-allowed',
+              transition: 'all 0.15s',
             }}
           >
-            🗑️
+            {deleting ? <span className="spinner" /> : 'Delete Job'}
           </button>
         </div>
       </div>
     </div>
+  )
+}
+
+function JobCard({ job, onDelete }: { job: Job; onDelete: (id: string) => void }) {
+  const [showModal, setShowModal] = useState(false)
+  const [deleted, setDeleted] = useState(false)
+
+  async function handleConfirm() {
+    await fetch(`/api/jobs/${job.id}`, { method: 'DELETE' })
+    setDeleted(true)
+    setShowModal(false)
+    onDelete(job.id)
+  }
+
+  if (deleted) return null
+
+  return (
+    <>
+      {showModal && (
+        <DeleteModal
+          clientName={job.client_name}
+          onConfirm={handleConfirm}
+          onCancel={() => setShowModal(false)}
+        />
+      )}
+      <div className="card" style={{ marginBottom: 10 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+          <Link href={`/jobs/${job.id}`} style={{ flex: 1, minWidth: 0, textDecoration: 'none', color: 'inherit' }}>
+            <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 2 }}>{job.client_name}</div>
+            <div style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {job.site_address}
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+              <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                {URGENCY_ICON[job.urgency]} {JOB_TYPE_LABELS[job.job_type] ?? job.job_type}
+              </span>
+              <span className={`badge badge-${job.urgency}`}>{job.urgency}</span>
+            </div>
+          </Link>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, flexShrink: 0 }}>
+            <span className={`badge badge-${job.status}`}>{STATUS_LABELS[job.status]}</span>
+            <button
+              onClick={e => { e.preventDefault(); e.stopPropagation(); setShowModal(true) }}
+              title="Delete job"
+              style={{
+                background: 'none', border: '1px solid var(--border)', borderRadius: 6,
+                padding: '4px 8px', fontSize: 13, color: 'var(--text-muted)',
+                cursor: 'pointer', transition: 'all 0.15s',
+              }}
+            >
+              🗑️
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
   )
 }
 
