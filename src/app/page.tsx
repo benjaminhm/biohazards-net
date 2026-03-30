@@ -3,11 +3,23 @@
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import type { CompanyProfile } from '@/lib/types'
+import type { CompanyProfile, Job } from '@/lib/types'
+
+function fmtBooking(iso: string) {
+  const d = new Date(iso)
+  const today = new Date()
+  const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1)
+  const isToday    = d.toDateString() === today.toDateString()
+  const isTomorrow = d.toDateString() === tomorrow.toDateString()
+  const dayLabel = isToday ? 'Today' : isTomorrow ? 'Tomorrow' : d.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })
+  const time = d.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' })
+  return { dayLabel, time, isToday, isTomorrow }
+}
 
 export default function HomePage() {
-  const [company, setCompany] = useState<CompanyProfile | null>(null)
-  const [time, setTime] = useState('')
+  const [company, setCompany]       = useState<CompanyProfile | null>(null)
+  const [time, setTime]             = useState('')
+  const [upcoming, setUpcoming]     = useState<Job[]>([])
   const router = useRouter()
 
   async function signOut() {
@@ -19,6 +31,11 @@ export default function HomePage() {
     fetch('/api/company')
       .then(r => r.json())
       .then(d => setCompany(d.company ?? null))
+      .catch(() => {})
+
+    fetch('/api/jobs?upcoming=true')
+      .then(r => r.json())
+      .then(d => setUpcoming(d.jobs ?? []))
       .catch(() => {})
 
     const tick = () => {
@@ -163,6 +180,55 @@ export default function HomePage() {
           </Link>
         ))}
       </div>
+
+      {/* Upcoming Bookings */}
+      {upcoming.length > 0 && (
+        <div style={{ padding: '0 16px 24px' }}>
+          <div style={{
+            fontSize: 11, fontWeight: 700, letterSpacing: '0.1em',
+            textTransform: 'uppercase', color: 'var(--accent)',
+            marginBottom: 10,
+          }}>
+            📅 Upcoming Bookings
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {upcoming.map(job => {
+              const { dayLabel, time: t, isToday } = fmtBooking(job.scheduled_at!)
+              return (
+                <Link key={job.id} href={`/jobs/${job.id}`} style={{ textDecoration: 'none' }}>
+                  <div style={{
+                    background: 'var(--surface)',
+                    border: `1px solid ${isToday ? 'var(--accent)' : 'var(--border)'}`,
+                    borderLeft: `4px solid ${isToday ? 'var(--accent)' : '#3B82F6'}`,
+                    borderRadius: 10,
+                    padding: '12px 14px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 14,
+                  }}>
+                    <div style={{ textAlign: 'center', minWidth: 48, flexShrink: 0 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: isToday ? 'var(--accent)' : '#3B82F6', textTransform: 'uppercase' }}>{dayLabel}</div>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>{t}</div>
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{job.client_name}</div>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {job.site_address || job.job_type.replace(/_/g, ' ')}
+                      </div>
+                      {job.schedule_note && (
+                        <div style={{ fontSize: 11, color: 'var(--accent)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {job.schedule_note}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 18, color: 'var(--text-muted)', flexShrink: 0 }}>›</div>
+                  </div>
+                </Link>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Footer */}
       <div style={{

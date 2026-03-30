@@ -72,6 +72,8 @@ export interface Job {
   site_address: string
   notes: string
   assessment_data: AssessmentData | null
+  scheduled_at: string | null
+  schedule_note: string | null
   created_at: string
   updated_at: string
 }

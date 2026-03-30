@@ -295,6 +295,34 @@ export default function DetailsTab({ job, onJobUpdate }: Props) {
 
       <hr className="divider" />
 
+      {/* Scheduling */}
+      <div style={{ marginBottom: 4 }}>
+        <label style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--accent)', display: 'block', marginBottom: 12 }}>
+          📅 Scheduling
+        </label>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 20px' }}>
+          <div className="field">
+            <label>Date &amp; Time</label>
+            <input
+              type="datetime-local"
+              value={job.scheduled_at ? job.scheduled_at.slice(0, 16) : ''}
+              onChange={e => updateField('scheduled_at', e.target.value ? new Date(e.target.value).toISOString() : '')}
+            />
+          </div>
+          <div className="field">
+            <label>Scheduling Note</label>
+            <input
+              type="text"
+              defaultValue={job.schedule_note ?? ''}
+              placeholder="Access details, key number, etc."
+              onBlur={e => { if (e.target.value !== (job.schedule_note ?? '')) updateField('schedule_note', e.target.value) }}
+            />
+          </div>
+        </div>
+      </div>
+
+      <hr className="divider" />
+
       {/* Notes log */}
       <div style={{ marginBottom: 16 }}>
         <label style={{ marginBottom: 12 }}>Notes Log</label>

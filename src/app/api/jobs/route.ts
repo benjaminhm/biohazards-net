@@ -1,14 +1,25 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
+    const { searchParams } = new URL(req.url)
+    const upcoming = searchParams.get('upcoming') === 'true'
     const supabase = createServiceClient()
-    const { data, error } = await supabase
-      .from('jobs')
-      .select('*')
-      .order('created_at', { ascending: false })
 
+    let query = supabase.from('jobs').select('*')
+
+    if (upcoming) {
+      query = query
+        .not('scheduled_at', 'is', null)
+        .gte('scheduled_at', new Date().toISOString())
+        .order('scheduled_at', { ascending: true })
+        .limit(10)
+    } else {
+      query = query.order('created_at', { ascending: false })
+    }
+
+    const { data, error } = await query
     if (error) throw error
     return NextResponse.json({ jobs: data })
   } catch (err: unknown) {
