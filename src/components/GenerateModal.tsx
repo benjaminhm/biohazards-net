@@ -7,7 +7,7 @@ import { buildPrintHTML } from '@/lib/printDocument'
 interface Props {
   jobId: string
   type: DocType
-  content: object
+  content: object | null   // null = still generating
   photos: Photo[]
   onClose: () => void
   onSaved: (doc: Document) => void
@@ -20,8 +20,13 @@ const TYPE_LABELS: Record<DocType, string> = {
 }
 
 export default function GenerateModal({ jobId, type, content, photos, onClose, onSaved }: Props) {
-  const [draft, setDraft]         = useState(JSON.stringify(content, null, 2))
+  const [draft, setDraft]         = useState(content ? JSON.stringify(content, null, 2) : '')
   const [view, setView]           = useState<'json' | 'preview'>('preview')
+
+  // When content arrives from parent (async generation), populate draft
+  useEffect(() => {
+    if (content) setDraft(JSON.stringify(content, null, 2))
+  }, [content])
   const [company, setCompany]     = useState<CompanyProfile | null>(null)
   const [saving, setSaving]       = useState(false)
   const [savingStep, setSavingStep] = useState('')
@@ -183,11 +188,11 @@ export default function GenerateModal({ jobId, type, content, photos, onClose, o
             borderRadius: 7, padding: '8px 12px', color: 'var(--text)',
             outline: 'none',
           }}
-          disabled={applying}
+          disabled={applying || !content}
         />
         <button
           onClick={applyInstruction}
-          disabled={applying || !instruction.trim()}
+          disabled={applying || !instruction.trim() || !content}
           style={{
             padding: '8px 16px', borderRadius: 7, fontSize: 13, fontWeight: 700,
             background: 'var(--accent)', color: '#fff', border: 'none',
@@ -207,7 +212,30 @@ export default function GenerateModal({ jobId, type, content, photos, onClose, o
 
       {/* ── Main content area ── */}
       <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        {view === 'preview' ? (
+        {!content ? (
+          /* Loading state while Claude writes */
+          <div style={{
+            flex: 1, display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center', gap: 20,
+            background: 'var(--bg)', color: 'var(--text-muted)',
+          }}>
+            <div style={{ fontSize: 36 }}>✍️</div>
+            <div style={{ fontWeight: 600, fontSize: 16, color: 'var(--text)' }}>
+              Claude is writing your {TYPE_LABELS[type].toLowerCase()}…
+            </div>
+            <div style={{ fontSize: 13 }}>This usually takes 10–20 seconds</div>
+            <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+              {[0,1,2].map(i => (
+                <div key={i} style={{
+                  width: 8, height: 8, borderRadius: '50%',
+                  background: 'var(--accent)',
+                  animation: `pulse 1.2s ease-in-out ${i * 0.4}s infinite`,
+                }} />
+              ))}
+            </div>
+            <style>{`@keyframes pulse { 0%,100%{opacity:.2;transform:scale(.8)} 50%{opacity:1;transform:scale(1)} }`}</style>
+          </div>
+        ) : view === 'preview' ? (
           <iframe
             srcDoc={previewHtml}
             style={{ flex: 1, border: 'none', background: '#fff' }}
@@ -247,13 +275,13 @@ export default function GenerateModal({ jobId, type, content, photos, onClose, o
         )}
         {!error && <>
           <button onClick={onClose} className="btn btn-secondary" style={{ flex: 1 }}>
-            Discard
+            {content ? 'Discard' : 'Cancel'}
           </button>
           <button
             onClick={saveAndOpen}
-            disabled={saving}
+            disabled={saving || !content}
             className="btn btn-primary"
-            style={{ flex: 2, fontSize: 15 }}
+            style={{ flex: 2, fontSize: 15, opacity: !content ? 0.4 : 1 }}
           >
             {saving
               ? <><span className="spinner" /> {savingStep || 'Saving...'}</>

@@ -45,9 +45,9 @@ export default function JobPage() {
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<Tab>('details')
 
-  // Generate state
-  const [generating, setGenerating] = useState<DocType | null>(null)
-  const [generatedDoc, setGeneratedDoc] = useState<{ type: DocType; content: object } | null>(null)
+  // Generate state — modal opens immediately, content arrives async
+  const [modalType, setModalType]       = useState<DocType | null>(null)
+  const [modalContent, setModalContent] = useState<object | null>(null)
   const [generateError, setGenerateError] = useState('')
 
   useEffect(() => { fetchAll() }, [id])
@@ -75,7 +75,9 @@ export default function JobPage() {
       setTimeout(() => setGenerateError(''), 4000)
       return
     }
-    setGenerating(type)
+    // Open modal immediately — content will arrive shortly
+    setModalType(type)
+    setModalContent(null)
     setGenerateError('')
     try {
       const res = await fetch(`/api/generate/${type}`, {
@@ -85,18 +87,24 @@ export default function JobPage() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Generation failed')
-      setGeneratedDoc({ type, content: data.content })
+      setModalContent(data.content)
     } catch (err: unknown) {
+      setModalContent(null)
+      setModalType(null)
       setGenerateError(err instanceof Error ? err.message : 'Failed to generate document')
       setTimeout(() => setGenerateError(''), 5000)
-    } finally {
-      setGenerating(null)
     }
   }
 
   function onDocumentSaved(doc: Document) {
     setDocuments(prev => [doc, ...prev])
-    setGeneratedDoc(null)
+    setModalType(null)
+    setModalContent(null)
+  }
+
+  function closeModal() {
+    setModalType(null)
+    setModalContent(null)
   }
 
   if (loading) {
@@ -204,26 +212,17 @@ export default function JobPage() {
         )}
         <div className="container">
           <div style={{ display: 'flex', gap: 8 }}>
-            {(['quote', 'sow', 'report'] as DocType[]).map(type => {
-              const labels = { quote: 'Generate Quote', sow: 'Generate SOW', report: 'Generate Report' }
-              const isGenerating = generating === type
+            {(['quote', 'sow', 'report'] as DocType[]).map(t => {
+              const labels = { quote: 'Quote', sow: 'SOW', report: 'Report' }
               return (
                 <button
-                  key={type}
-                  onClick={() => generate(type)}
-                  disabled={!!generating}
+                  key={t}
+                  onClick={() => generate(t)}
+                  disabled={!!modalType}
                   className="btn btn-primary"
-                  style={{
-                    flex: 1,
-                    fontSize: 13,
-                    padding: '12px 8px',
-                    opacity: generating && !isGenerating ? 0.5 : 1,
-                    background: isGenerating ? 'var(--accent-hover)' : undefined,
-                  }}
+                  style={{ flex: 1, fontSize: 13, padding: '12px 8px', opacity: modalType && modalType !== t ? 0.5 : 1 }}
                 >
-                  {isGenerating ? (
-                    <><span className="spinner" /> Writing...</>
-                  ) : labels[type]}
+                  + {labels[t]}
                 </button>
               )
             })}
@@ -231,14 +230,14 @@ export default function JobPage() {
         </div>
       </div>
 
-      {/* Generate modal */}
-      {generatedDoc && (
+      {/* Generate modal — opens immediately, content streams in */}
+      {modalType && (
         <GenerateModal
           jobId={id}
-          type={generatedDoc.type}
-          content={generatedDoc.content}
+          type={modalType}
+          content={modalContent}
           photos={photos}
-          onClose={() => setGeneratedDoc(null)}
+          onClose={closeModal}
           onSaved={onDocumentSaved}
         />
       )}
