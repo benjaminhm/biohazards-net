@@ -17,8 +17,10 @@ const PUBLIC_PREFIXES = [
   '/new-client',
   '/accept/',           // /accept/[jobId] quote acceptance
   '/api/auth',          // login / logout API
+  '/api/intake',        // public intake form submission
   '/api/accept/',       // quote acceptance API
-  '/api/notify-lead',   // public intake webhook
+  '/api/notify-lead',   // lead notification webhook
+  '/api/company',       // company branding (logo/name shown on public pages)
   '/_next',
   '/favicon',
   '/manifest',

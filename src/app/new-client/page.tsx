@@ -47,22 +47,12 @@ export default function NewClientPage() {
     setSubmitting(true)
     setError('')
     try {
-      const res = await fetch('/api/jobs', {
+      const res = await fetch('/api/intake', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...form,
-          urgency: 'standard',
-          status: 'lead',
-          notes: form.notes
-            ? `[Client enquiry] ${form.notes}`
-            : '[Client enquiry via online form]',
-        }),
+        body: JSON.stringify(form),
       })
       if (!res.ok) throw new Error('Submission failed')
-
-      // Notify operator
-      await fetch('/api/notify-lead', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) })
 
       setSubmitted(true)
     } catch {
