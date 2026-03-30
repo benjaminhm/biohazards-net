@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import type { DocType, Document, Photo, CompanyProfile } from '@/lib/types'
+import { DOC_TYPE_LABELS } from '@/lib/types'
 import { buildPrintHTML } from '@/lib/printDocument'
 
 interface Props {
@@ -13,12 +14,6 @@ interface Props {
   clientEmail: string
   onClose: () => void
   onSaved: (doc: Document) => void
-}
-
-const TYPE_LABELS: Record<DocType, string> = {
-  quote:  'Quote',
-  sow:    'Scope of Work',
-  report: 'Completion Report',
 }
 
 export default function GenerateModal({ jobId, type, content, photos, clientName, clientEmail, onClose, onSaved }: Props) {
@@ -105,9 +100,9 @@ export default function GenerateModal({ jobId, type, content, photos, clientName
     if (!result) return
     onSaved(result.doc)
 
-    const subject = encodeURIComponent(`${TYPE_LABELS[type]} — ${company?.name ?? 'Brisbane Biohazard Cleaning'}`)
+    const subject = encodeURIComponent(`${DOC_TYPE_LABELS[type]} — ${company?.name ?? 'Brisbane Biohazard Cleaning'}`)
     const body = encodeURIComponent(
-      `Hi ${clientName.split(' ')[0]},\n\nPlease find your ${TYPE_LABELS[type].toLowerCase()} at the link below.\n\n${result.printUrl}\n\nDon't hesitate to reach out if you have any questions.\n\nKind regards,\n${company?.name ?? 'Brisbane Biohazard Cleaning'}`
+      `Hi ${clientName.split(' ')[0]},\n\nPlease find your ${DOC_TYPE_LABELS[type].toLowerCase()} at the link below.\n\n${result.printUrl}\n\nDon't hesitate to reach out if you have any questions.\n\nKind regards,\n${company?.name ?? 'Brisbane Biohazard Cleaning'}`
     )
     const mailto = `mailto:${clientEmail}?subject=${subject}&body=${body}`
     window.location.href = mailto
@@ -123,7 +118,7 @@ export default function GenerateModal({ jobId, type, content, photos, clientName
         background: 'var(--surface)', borderBottom: '1px solid var(--border)',
         padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0,
       }}>
-        <div style={{ fontWeight: 700, fontSize: 15 }}>{TYPE_LABELS[type]}</div>
+        <div style={{ fontWeight: 700, fontSize: 15 }}>{DOC_TYPE_LABELS[type]}</div>
         <button onClick={onClose} style={{ fontSize: 20, color: 'var(--text-muted)', padding: '2px 8px', background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
       </div>
 
@@ -170,7 +165,7 @@ export default function GenerateModal({ jobId, type, content, photos, clientName
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 20, background: 'var(--bg)', color: 'var(--text-muted)' }}>
             <div style={{ fontSize: 36 }}>✍️</div>
             <div style={{ fontWeight: 600, fontSize: 16, color: 'var(--text)' }}>
-              Claude is writing your {TYPE_LABELS[type].toLowerCase()}…
+              Claude is writing your {DOC_TYPE_LABELS[type].toLowerCase()}…
             </div>
             <div style={{ fontSize: 13 }}>Usually takes 10–20 seconds</div>
             <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>

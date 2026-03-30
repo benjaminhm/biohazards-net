@@ -261,6 +261,19 @@ export default function AssessmentTab({ job, onJobUpdate }: Props) {
       </div>
 
       <div className="field">
+        <label>
+          Terms &amp; Conditions
+          <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 6 }}>included in Quote &amp; Engagement Agreement</span>
+        </label>
+        <textarea
+          value={data.terms_and_conditions ?? '50% deposit required to confirm booking. Remainder payable on completion within 7 days of invoice. Late payments attract interest at 10% p.a. All biohazardous waste disposed of in accordance with applicable legislation. Contractor not liable for pre-existing structural damage. Client warrants authority to engage contractor for works at the stated premises.'}
+          onChange={e => setField('terms_and_conditions', e.target.value)}
+          rows={5}
+          style={{ resize: 'vertical', fontSize: 13 }}
+        />
+      </div>
+
+      <div className="field">
         <label>Access Restrictions</label>
         <input value={data.access_restrictions} onChange={e => setField('access_restrictions', e.target.value)} placeholder="e.g. Key with property manager, code required..." />
       </div>
