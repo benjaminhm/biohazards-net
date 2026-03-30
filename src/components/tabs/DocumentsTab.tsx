@@ -5,6 +5,7 @@ import type { Document } from '@/lib/types'
 
 interface Props {
   documents: Document[]
+  onDocumentDeleted: (id: string) => void
 }
 
 const TYPE_LABELS: Record<string, string> = {
@@ -13,8 +14,10 @@ const TYPE_LABELS: Record<string, string> = {
   report: 'Completion Report',
 }
 
-function DocRow({ doc }: { doc: Document }) {
-  const [copied, setCopied] = useState(false)
+function DocRow({ doc, onDeleted }: { doc: Document; onDeleted: (id: string) => void }) {
+  const [copied, setCopied]   = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   const printUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/api/print/${doc.id}`
 
@@ -23,6 +26,17 @@ function DocRow({ doc }: { doc: Document }) {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     })
+  }
+
+  async function handleDelete() {
+    setDeleting(true)
+    try {
+      await fetch(`/api/documents/${doc.id}`, { method: 'DELETE' })
+      onDeleted(doc.id)
+    } finally {
+      setDeleting(false)
+      setConfirmDelete(false)
+    }
   }
 
   return (
@@ -37,31 +51,43 @@ function DocRow({ doc }: { doc: Document }) {
             })}
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button
-            onClick={copyLink}
-            className="btn btn-secondary"
-            style={{ fontSize: 13, padding: '8px 14px' }}
-          >
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button onClick={copyLink} className="btn btn-secondary" style={{ fontSize: 13, padding: '8px 14px' }}>
             {copied ? '✓ Copied' : '🔗 Copy Link'}
           </button>
           <a href={printUrl} target="_blank" rel="noopener noreferrer">
-            <button className="btn btn-secondary" style={{ fontSize: 13, padding: '8px 14px' }}>
-              ↗ Open
-            </button>
+            <button className="btn btn-secondary" style={{ fontSize: 13, padding: '8px 14px' }}>↗ Open</button>
           </a>
+          {confirmDelete ? (
+            <>
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                style={{ fontSize: 12, padding: '8px 12px', borderRadius: 6, border: 'none', background: '#EF4444', color: '#fff', fontWeight: 700, cursor: 'pointer' }}
+              >
+                {deleting ? '…' : 'Delete'}
+              </button>
+              <button
+                onClick={() => setConfirmDelete(false)}
+                style={{ fontSize: 12, padding: '8px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer' }}
+              >
+                Keep
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => setConfirmDelete(true)}
+              style={{ fontSize: 18, padding: '4px 8px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', lineHeight: 1 }}
+              title="Delete document"
+            >
+              🗑
+            </button>
+          )}
         </div>
       </div>
-      {/* Copyable URL bar */}
       <div
         onClick={copyLink}
-        style={{
-          fontSize: 11, color: 'var(--text-muted)',
-          background: 'var(--bg)', border: '1px solid var(--border)',
-          borderRadius: 6, padding: '7px 10px',
-          wordBreak: 'break-all', cursor: 'pointer',
-          userSelect: 'all',
-        }}
+        style={{ fontSize: 11, color: 'var(--text-muted)', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '7px 10px', wordBreak: 'break-all', cursor: 'pointer', userSelect: 'all' }}
         title="Click to copy"
       >
         {printUrl}
@@ -70,7 +96,7 @@ function DocRow({ doc }: { doc: Document }) {
   )
 }
 
-export default function DocumentsTab({ documents }: Props) {
+export default function DocumentsTab({ documents, onDocumentDeleted }: Props) {
   if (documents.length === 0) {
     return (
       <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
@@ -83,7 +109,7 @@ export default function DocumentsTab({ documents }: Props) {
 
   return (
     <div style={{ paddingBottom: 40 }}>
-      {documents.map(doc => <DocRow key={doc.id} doc={doc} />)}
+      {documents.map(doc => <DocRow key={doc.id} doc={doc} onDeleted={onDocumentDeleted} />)}
     </div>
   )
 }

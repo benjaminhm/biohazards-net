@@ -192,7 +192,10 @@ export default function JobPage() {
           />
         )}
         {activeTab === 'documents' && (
-          <DocumentsTab documents={documents} />
+          <DocumentsTab
+            documents={documents}
+            onDocumentDeleted={docId => setDocuments(prev => prev.filter(d => d.id !== docId))}
+          />
         )}
       </div>
 
