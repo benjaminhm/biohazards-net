@@ -20,6 +20,8 @@ const DEFAULT_ASSESSMENT: AssessmentData = {
   access_restrictions: '',
   observations: '',
   target_price: undefined,
+  target_price_note: '',
+  payment_terms: '50% deposit required prior to works commencing. Remainder due on completion, net 7 days.',
 }
 
 interface Props {
@@ -247,6 +249,15 @@ export default function AssessmentTab({ job, onJobUpdate }: Props) {
             placeholder="e.g. inc. GST  or  + GST"
           />
         </div>
+      </div>
+      <div className="field">
+        <label>Payment Terms</label>
+        <textarea
+          value={data.payment_terms ?? ''}
+          onChange={e => setField('payment_terms', e.target.value)}
+          rows={2}
+          style={{ resize: 'vertical' }}
+        />
       </div>
 
       <div className="field">

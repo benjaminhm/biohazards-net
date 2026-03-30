@@ -118,7 +118,9 @@ ${(() => {
   return `PRICING: Target amount is $${tp.toLocaleString()}${gstNote}. Work line items BACKWARD from this. Set subtotal: ${subtotal}, gst: ${gstAmt}, total: ${total}. Line items must sum to exactly $${subtotal.toLocaleString()} (ex-GST). Distribute across logical line items (labour per area, PPE/consumables, waste disposal, callout fee) that genuinely reflect the scope — do not pad or invent work not relevant to this job.`
 })()}
 
-Include line items for: labour per area, PPE, waste disposal, callout fee, and any specialist requirements identified. Reference the specific areas, photo notes, and conditions found — do not be generic. Return ONLY the JSON object.`
+Include line items for: labour per area, PPE, waste disposal, callout fee, and any specialist requirements identified. Reference the specific areas, photo notes, and conditions found — do not be generic.
+PAYMENT TERMS: Use exactly this text in the payment_terms field: "${a.payment_terms || '50% deposit required prior to works commencing. Remainder due on completion, net 7 days.'}"
+Return ONLY the JSON object.`
 }
 
 export function buildSOWPrompt(job: Job, photos: Photo[]): string {

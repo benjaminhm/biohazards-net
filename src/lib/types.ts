@@ -58,6 +58,7 @@ export interface AssessmentData {
   observations: string
   target_price?: number
   target_price_note?: string
+  payment_terms?: string
 }
 
 export interface Job {
