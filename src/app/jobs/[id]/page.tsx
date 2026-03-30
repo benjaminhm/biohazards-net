@@ -237,6 +237,8 @@ export default function JobPage() {
           type={modalType}
           content={modalContent}
           photos={photos}
+          clientName={job.client_name}
+          clientEmail={job.client_email ?? ''}
           onClose={closeModal}
           onSaved={onDocumentSaved}
         />
