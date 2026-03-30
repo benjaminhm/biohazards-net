@@ -2,11 +2,18 @@
 
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import type { CompanyProfile } from '@/lib/types'
 
 export default function HomePage() {
   const [company, setCompany] = useState<CompanyProfile | null>(null)
   const [time, setTime] = useState('')
+  const router = useRouter()
+
+  async function signOut() {
+    await fetch('/api/auth', { method: 'DELETE' })
+    router.push('/login')
+  }
 
   useEffect(() => {
     fetch('/api/company')
@@ -82,8 +89,21 @@ export default function HomePage() {
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
           <div style={{ fontSize: 28, fontWeight: 800, lineHeight: 1 }}>Dashboard</div>
-          <div style={{ fontSize: 24, fontWeight: 300, color: 'var(--text-muted)', letterSpacing: '-0.02em' }}>
-            {time}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ fontSize: 24, fontWeight: 300, color: 'var(--text-muted)', letterSpacing: '-0.02em' }}>
+              {time}
+            </div>
+            <button
+              onClick={signOut}
+              title="Sign out"
+              style={{
+                background: 'none', border: '1px solid var(--border)',
+                borderRadius: 8, padding: '4px 10px', cursor: 'pointer',
+                color: 'var(--text-muted)', fontSize: 12,
+              }}
+            >
+              Sign out
+            </button>
           </div>
         </div>
       </div>
