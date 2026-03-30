@@ -194,6 +194,8 @@ export default function JobPage() {
         {activeTab === 'documents' && (
           <DocumentsTab
             documents={documents}
+            clientName={job.client_name}
+            clientEmail={job.client_email ?? ''}
             onDocumentDeleted={docId => setDocuments(prev => prev.filter(d => d.id !== docId))}
           />
         )}

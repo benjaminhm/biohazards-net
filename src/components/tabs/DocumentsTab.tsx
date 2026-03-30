@@ -5,6 +5,8 @@ import type { Document } from '@/lib/types'
 
 interface Props {
   documents: Document[]
+  clientName: string
+  clientEmail: string
   onDocumentDeleted: (id: string) => void
 }
 
@@ -14,7 +16,7 @@ const TYPE_LABELS: Record<string, string> = {
   report: 'Completion Report',
 }
 
-function DocRow({ doc, onDeleted }: { doc: Document; onDeleted: (id: string) => void }) {
+function DocRow({ doc, clientName, clientEmail, onDeleted }: { doc: Document; clientName: string; clientEmail: string; onDeleted: (id: string) => void }) {
   const [copied, setCopied]   = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -55,6 +57,11 @@ function DocRow({ doc, onDeleted }: { doc: Document; onDeleted: (id: string) => 
           <button onClick={copyLink} className="btn btn-secondary" style={{ fontSize: 13, padding: '8px 14px' }}>
             {copied ? '✓ Copied' : '🔗 Copy Link'}
           </button>
+          <a
+            href={`mailto:${clientEmail}?subject=${encodeURIComponent(`${TYPE_LABELS[doc.type] ?? doc.type} — ${clientName}`)}&body=${encodeURIComponent(`Hi ${clientName.split(' ')[0]},\n\nPlease find your ${(TYPE_LABELS[doc.type] ?? doc.type).toLowerCase()} at the link below:\n\n${printUrl}\n\nPlease don't hesitate to reach out if you have any questions.\n\nKind regards`)}`}
+          >
+            <button className="btn btn-secondary" style={{ fontSize: 13, padding: '8px 14px' }}>✉️ Email</button>
+          </a>
           <a href={printUrl} target="_blank" rel="noopener noreferrer">
             <button className="btn btn-secondary" style={{ fontSize: 13, padding: '8px 14px' }}>↗ Open</button>
           </a>
@@ -96,7 +103,7 @@ function DocRow({ doc, onDeleted }: { doc: Document; onDeleted: (id: string) => 
   )
 }
 
-export default function DocumentsTab({ documents, onDocumentDeleted }: Props) {
+export default function DocumentsTab({ documents, clientName, clientEmail, onDocumentDeleted }: Props) {
   if (documents.length === 0) {
     return (
       <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
@@ -109,7 +116,7 @@ export default function DocumentsTab({ documents, onDocumentDeleted }: Props) {
 
   return (
     <div style={{ paddingBottom: 40 }}>
-      {documents.map(doc => <DocRow key={doc.id} doc={doc} onDeleted={onDocumentDeleted} />)}
+      {documents.map(doc => <DocRow key={doc.id} doc={doc} clientName={clientName} clientEmail={clientEmail} onDeleted={onDocumentDeleted} />)}
     </div>
   )
 }
