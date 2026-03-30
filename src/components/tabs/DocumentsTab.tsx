@@ -36,15 +36,11 @@ export default function DocumentsTab({ documents }: Props) {
               })}
             </div>
           </div>
-          {doc.file_url ? (
-            <a href={doc.file_url} target="_blank" rel="noopener noreferrer">
-              <button className="btn btn-secondary" style={{ fontSize: 13, padding: '8px 16px' }}>
-                Download PDF
-              </button>
-            </a>
-          ) : (
-            <span style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }}>No file</span>
-          )}
+          <a href={`/api/print/${doc.id}`} target="_blank" rel="noopener noreferrer">
+            <button className="btn btn-secondary" style={{ fontSize: 13, padding: '8px 16px' }}>
+              ↗ View / Print
+            </button>
+          </a>
         </div>
       ))}
     </div>

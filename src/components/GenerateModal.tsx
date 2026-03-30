@@ -1,8 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import type { DocType, Document, Photo, CompanyProfile } from '@/lib/types'
-import { buildPrintHTML } from '@/lib/printDocument'
+import type { DocType, Document, Photo } from '@/lib/types'
 
 interface Props {
   jobId: string
@@ -39,24 +38,7 @@ export default function GenerateModal({ jobId, type, content, photos, onClose, o
         return
       }
 
-      // 2. Fetch company profile
-      setSavingStep('Loading company profile...')
-      let company: CompanyProfile | null = null
-      try {
-        const companyRes = await fetch('/api/company')
-        const companyData = await companyRes.json()
-        company = companyData.company ?? null
-      } catch { /* continue without */ }
-
-      // 3. Select relevant photos
-      const relevantCategories = type === 'report'
-        ? ['before', 'assessment', 'during', 'after']
-        : ['before', 'assessment']
-      const relevantPhotos = photos
-        .filter(p => relevantCategories.includes(p.category))
-        .slice(0, 16)
-
-      // 4. Save document record to DB
+      // 2. Save document record to DB
       setSavingStep('Saving record...')
       const saveRes = await fetch('/api/documents', {
         method: 'POST',
@@ -66,15 +48,20 @@ export default function GenerateModal({ jobId, type, content, photos, onClose, o
       const { document: savedDoc, error: saveErr } = await saveRes.json()
       if (saveErr) throw new Error(saveErr)
 
-      // 5. Build HTML and open in new tab
+      // 5. Navigate to the permanent print URL
       setSavingStep('Opening document...')
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin
-      const html = buildPrintHTML(type, parsed, relevantPhotos, company, jobId, appUrl)
-      const blob = new Blob([html], { type: 'text/html' })
-      const url  = URL.createObjectURL(blob)
-      window.open(url, '_blank')
-      // Revoke after a delay to give the tab time to load
-      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+      const printUrl = `/api/print/${savedDoc.id}`
+
+      // In PWA standalone mode window.open is blocked — navigate directly instead
+      const isPWA =
+        window.matchMedia('(display-mode: standalone)').matches ||
+        (window.navigator as { standalone?: boolean }).standalone === true
+
+      if (isPWA) {
+        window.location.href = printUrl
+      } else {
+        window.open(printUrl, '_blank')
+      }
 
       onSaved(savedDoc)
     } catch (err: unknown) {
