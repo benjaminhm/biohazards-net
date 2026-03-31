@@ -1,300 +1,248 @@
 'use client'
 
-import { useEffect, useState, useCallback, Suspense } from 'react'
+import { useEffect, useState, useRef, useCallback, Suspense } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import type { DocType, Job, Photo, CompanyProfile } from '@/lib/types'
 import { DOC_TYPE_LABELS } from '@/lib/types'
-import { buildPrintHTML } from '@/lib/printDocument'
 
-// ── Field definitions per doc type ────────────────────────────────────────────
+// ── Contenteditable section ───────────────────────────────────────────────────
 
-type FieldType = 'text' | 'textarea' | 'line_items' | 'steps' | 'risks' | 'waste_items'
+function Editable({ value, onChange, multiline = true, style }: {
+  value: string; onChange: (v: string) => void; multiline?: boolean; style?: React.CSSProperties
+}) {
+  const ref  = useRef<HTMLDivElement>(null)
+  const last = useRef(value)
 
-interface FieldDef {
-  key: string
-  label: string
-  type: FieldType
-  hint?: string
-  rows?: number
+  useEffect(() => {
+    if (ref.current && value !== last.current) {
+      ref.current.innerText = value
+      last.current = value
+    }
+  }, [value])
+
+  return (
+    <div
+      ref={ref}
+      contentEditable
+      suppressContentEditableWarning
+      onBlur={e => { const v = e.currentTarget.innerText; last.current = v; onChange(v) }}
+      onKeyDown={e => { if (!multiline && e.key === 'Enter') e.preventDefault() }}
+      style={{ outline: 'none', cursor: 'text', minHeight: '1em', ...style }}
+    >
+      {value}
+    </div>
+  )
 }
 
-const FIELDS: Record<DocType, FieldDef[]> = {
-  quote: [
-    { key: 'intro',          label: 'Overview / Introduction', type: 'textarea', rows: 4 },
-    { key: 'line_items',     label: 'Line Items',              type: 'line_items' },
-    { key: 'notes',          label: 'Notes & Conditions',      type: 'textarea', rows: 3 },
-    { key: 'payment_terms',  label: 'Payment Terms',           type: 'textarea', rows: 2 },
-    { key: 'validity',       label: 'Quote Validity',          type: 'text' },
-  ],
-  sow: [
-    { key: 'executive_summary', label: 'Executive Summary',    type: 'textarea', rows: 4 },
-    { key: 'scope',             label: 'Scope of Work',        type: 'textarea', rows: 5 },
-    { key: 'methodology',       label: 'Methodology',          type: 'textarea', rows: 5 },
-    { key: 'safety_protocols',  label: 'Safety Protocols',     type: 'textarea', rows: 4 },
-    { key: 'waste_disposal',    label: 'Waste Disposal',       type: 'textarea', rows: 3 },
-    { key: 'timeline',          label: 'Timeline',             type: 'textarea', rows: 2 },
-    { key: 'exclusions',        label: 'Exclusions',           type: 'textarea', rows: 3 },
-    { key: 'disclaimer',        label: 'Disclaimer',           type: 'textarea', rows: 3 },
-    { key: 'acceptance',        label: 'Acceptance Clause',    type: 'textarea', rows: 2 },
-  ],
-  swms: [
-    { key: 'project_details',       label: 'Project Details',         type: 'textarea', rows: 2 },
-    { key: 'steps',                 label: 'Work Steps, Hazards & Controls', type: 'steps' },
-    { key: 'ppe_required',          label: 'PPE Required',            type: 'textarea', rows: 4 },
-    { key: 'emergency_procedures',  label: 'Emergency Procedures',    type: 'textarea', rows: 4 },
-    { key: 'legislation_references',label: 'Legislation & References',type: 'textarea', rows: 2 },
-    { key: 'declarations',          label: 'Worker Declarations',     type: 'textarea', rows: 2 },
-  ],
-  authority_to_proceed: [
-    { key: 'scope_summary',          label: 'Scope of Works Authorised',  type: 'textarea', rows: 4 },
-    { key: 'access_details',         label: 'Site Access Details',        type: 'textarea', rows: 3 },
-    { key: 'special_conditions',     label: 'Special Conditions',         type: 'textarea', rows: 3 },
-    { key: 'liability_acknowledgment',label: 'Liability Acknowledgment',  type: 'textarea', rows: 3 },
-    { key: 'payment_authorisation',  label: 'Payment Authorisation',      type: 'textarea', rows: 3 },
-    { key: 'acceptance',             label: 'Acceptance Clause',          type: 'textarea', rows: 2 },
-  ],
-  engagement_agreement: [
-    { key: 'parties',            label: 'Parties',                type: 'textarea', rows: 3 },
-    { key: 'services_description',label: 'Services Description',  type: 'textarea', rows: 4 },
-    { key: 'fees_and_payment',   label: 'Fees & Payment',         type: 'textarea', rows: 4 },
-    { key: 'liability_limitations',label: 'Limitation of Liability', type: 'textarea', rows: 4 },
-    { key: 'confidentiality',    label: 'Confidentiality',        type: 'textarea', rows: 3 },
-    { key: 'dispute_resolution', label: 'Dispute Resolution',     type: 'textarea', rows: 3 },
-    { key: 'termination',        label: 'Termination',            type: 'textarea', rows: 3 },
-    { key: 'governing_law',      label: 'Governing Law',          type: 'text' },
-    { key: 'acceptance',         label: 'Acceptance Clause',      type: 'textarea', rows: 2 },
-  ],
-  report: [
-    { key: 'executive_summary', label: 'Executive Summary',          type: 'textarea', rows: 4 },
-    { key: 'site_conditions',   label: 'Site Conditions on Arrival', type: 'textarea', rows: 4 },
-    { key: 'works_carried_out', label: 'Works Carried Out',          type: 'textarea', rows: 5 },
-    { key: 'methodology',       label: 'Methodology',                type: 'textarea', rows: 4 },
-    { key: 'products_used',     label: 'Products & Equipment Used',  type: 'textarea', rows: 3 },
-    { key: 'waste_disposal',    label: 'Waste Disposal',             type: 'textarea', rows: 3 },
-    { key: 'photo_record',      label: 'Photo Record Notes',         type: 'textarea', rows: 3 },
-    { key: 'outcome',           label: 'Outcome',                    type: 'textarea', rows: 3 },
-    { key: 'technician_signoff',label: 'Technician Sign-Off',        type: 'textarea', rows: 2 },
-  ],
-  certificate_of_decontamination: [
-    { key: 'date_of_works',           label: 'Date of Works',              type: 'text' },
-    { key: 'works_summary',           label: 'Works Summary',              type: 'textarea', rows: 4 },
-    { key: 'decontamination_standard',label: 'Decontamination Standard',   type: 'textarea', rows: 3 },
-    { key: 'products_used',           label: 'Products Used',              type: 'textarea', rows: 3 },
-    { key: 'outcome_statement',       label: 'Outcome Statement',          type: 'textarea', rows: 3 },
-    { key: 'limitations',             label: 'Limitations',                type: 'textarea', rows: 2 },
-    { key: 'certifier_statement',     label: 'Certifier Statement',        type: 'textarea', rows: 2 },
-  ],
-  waste_disposal_manifest: [
-    { key: 'collection_date',  label: 'Collection Date',    type: 'text' },
-    { key: 'waste_items',      label: 'Waste Items',        type: 'waste_items' },
-    { key: 'transport_details',label: 'Transport Details',  type: 'textarea', rows: 3 },
-    { key: 'declaration',      label: 'Declaration',        type: 'textarea', rows: 3 },
-  ],
-  jsa: [
-    { key: 'job_description',   label: 'Job Description',         type: 'textarea', rows: 3 },
-    { key: 'steps',             label: 'Steps, Hazards & Controls', type: 'steps' },
-    { key: 'ppe_required',      label: 'PPE Required',            type: 'textarea', rows: 3 },
-    { key: 'emergency_contacts',label: 'Emergency Contacts',      type: 'textarea', rows: 3 },
-    { key: 'sign_off',          label: 'Sign-Off Statement',      type: 'textarea', rows: 2 },
-  ],
-  nda: [
-    { key: 'parties',                           label: 'Parties',                       type: 'textarea', rows: 3 },
-    { key: 'confidential_information_definition',label: 'Confidential Information',     type: 'textarea', rows: 4 },
-    { key: 'obligations',                       label: 'Obligations',                   type: 'textarea', rows: 4 },
-    { key: 'exceptions',                        label: 'Exceptions',                    type: 'textarea', rows: 3 },
-    { key: 'term',                              label: 'Term',                          type: 'textarea', rows: 2 },
-    { key: 'remedies',                          label: 'Remedies',                      type: 'textarea', rows: 3 },
-    { key: 'governing_law',                     label: 'Governing Law',                 type: 'text' },
-    { key: 'acceptance',                        label: 'Acceptance Clause',             type: 'textarea', rows: 2 },
-  ],
-  risk_assessment: [
-    { key: 'site_description',   label: 'Site Description',    type: 'textarea', rows: 3 },
-    { key: 'assessment_date',    label: 'Assessment Date',     type: 'text' },
-    { key: 'assessor',           label: 'Assessor',            type: 'text' },
-    { key: 'risks',              label: 'Risk Register',       type: 'risks' },
-    { key: 'overall_risk_rating',label: 'Overall Risk Rating', type: 'text' },
-    { key: 'recommendations',    label: 'Recommendations',     type: 'textarea', rows: 3 },
-    { key: 'review_date',        label: 'Review Date',         type: 'text' },
-  ],
+function TCell({ value, onChange, style }: { value: string; onChange: (v: string) => void; style?: React.CSSProperties }) {
+  return (
+    <td style={{ padding: '9px 12px', borderBottom: '1px solid #eee', verticalAlign: 'top', ...style }}>
+      <Editable value={value} onChange={onChange} multiline={false} />
+    </td>
+  )
 }
 
-// ── Sub-components ────────────────────────────────────────────────────────────
+// ── Doc building blocks ───────────────────────────────────────────────────────
 
-interface LineItem { description: string; qty: number; unit: string; rate: number; total: number }
+function DocLabel({ children }: { children: React.ReactNode }) {
+  return <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: '#FF6B35', marginTop: 26, marginBottom: 8 }}>{children}</div>
+}
 
-function LineItemsEditor({ value, onChange }: { value: LineItem[]; onChange: (v: LineItem[]) => void }) {
-  function update(i: number, field: keyof LineItem, val: string) {
-    const next = value.map((item, idx) => {
-      if (idx !== i) return item
-      const updated = { ...item, [field]: field === 'description' || field === 'unit' ? val : parseFloat(val) || 0 }
-      updated.total = updated.qty * updated.rate
-      return updated
+function DocSection({ label, value, onChange, rows = 3 }: { label: string; value: string; onChange: (v: string) => void; rows?: number }) {
+  return <>
+    <DocLabel>{label}</DocLabel>
+    <Editable value={value || ''} onChange={onChange}
+      style={{ fontSize: 13, color: '#333', lineHeight: 1.6, padding: '6px 8px', borderRadius: 4, background: 'rgba(0,0,0,0.02)', minHeight: `${rows * 1.5}em` }} />
+  </>
+}
+
+type LI = { description: string; qty: number; unit: string; rate: number; total: number }
+function LineItemsDoc({ items, onChange }: { items: LI[]; onChange: (v: LI[]) => void }) {
+  function upd(i: number, f: string, v: string) {
+    const next = items.map((li, idx) => {
+      if (idx !== i) return li
+      const u = { ...li, [f]: f === 'description' || f === 'unit' ? v : parseFloat(v) || 0 }
+      if (f === 'qty' || f === 'rate') u.total = u.qty * u.rate
+      return u
     })
     onChange(next)
   }
-  const subtotal = value.reduce((s, li) => s + li.total, 0)
-  const gst = Math.round(subtotal * 0.1 * 100) / 100
-  const total = subtotal + gst
-
-  return (
-    <div>
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-          <thead>
-            <tr style={{ background: '#1a1a1a', color: '#fff' }}>
-              {['Description', 'Qty', 'Unit', 'Rate ($)', 'Total ($)'].map(h => (
-                <th key={h} style={{ padding: '8px 10px', textAlign: h === 'Description' ? 'left' : 'right', fontSize: 12 }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {value.map((li, i) => (
-              <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
-                {(['description', 'qty', 'unit', 'rate'] as const).map(f => (
-                  <td key={f} style={{ padding: 4 }}>
-                    <input
-                      value={String(li[f])}
-                      onChange={e => update(i, f, e.target.value)}
-                      style={{ width: '100%', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 5, padding: '6px 8px', fontSize: 13, color: 'var(--text)', textAlign: f === 'description' ? 'left' : 'right' }}
-                    />
-                  </td>
-                ))}
-                <td style={{ padding: '4px 10px', textAlign: 'right', fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap' }}>
-                  ${li.total.toFixed(2)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, fontSize: 13 }}>
-        <div style={{ display: 'flex', gap: 40, color: 'var(--text-muted)' }}><span>Subtotal</span><span>${subtotal.toFixed(2)}</span></div>
-        <div style={{ display: 'flex', gap: 40, color: 'var(--text-muted)' }}><span>GST (10%)</span><span>${gst.toFixed(2)}</span></div>
-        <div style={{ display: 'flex', gap: 40, fontWeight: 700, fontSize: 15, borderTop: '2px solid var(--text)', paddingTop: 6 }}><span>TOTAL</span><span style={{ color: 'var(--accent)' }}>${total.toFixed(2)}</span></div>
+  const sub = items.reduce((s, i) => s + i.total, 0)
+  const gst = Math.round(sub * 0.1 * 100) / 100
+  return <>
+    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginTop: 8 }}>
+      <thead>
+        <tr style={{ background: '#1a1a1a', color: '#fff' }}>
+          {['Description', 'Qty', 'Unit', 'Rate', 'Total'].map((h, i) => (
+            <th key={h} style={{ padding: '9px 12px', textAlign: i === 0 ? 'left' : 'right', fontSize: 12 }}>{h}</th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {items.map((li, i) => (
+          <tr key={i}>
+            <TCell value={li.description} onChange={v => upd(i, 'description', v)} />
+            <TCell value={String(li.qty)} onChange={v => upd(i, 'qty', v)} style={{ textAlign: 'right', width: 50 }} />
+            <TCell value={li.unit} onChange={v => upd(i, 'unit', v)} style={{ width: 60 }} />
+            <TCell value={String(li.rate)} onChange={v => upd(i, 'rate', v)} style={{ textAlign: 'right', width: 80 }} />
+            <td style={{ padding: '9px 12px', textAlign: 'right', fontWeight: 600, width: 90, borderBottom: '1px solid #eee' }}>${li.total.toFixed(2)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3, fontSize: 13 }}>
+      <div style={{ display: 'flex', gap: 40, color: '#666' }}><span>Subtotal</span><span style={{ minWidth: 80, textAlign: 'right' }}>${sub.toFixed(2)}</span></div>
+      {gst > 0 && <div style={{ display: 'flex', gap: 40, color: '#666' }}><span>GST (10%)</span><span style={{ minWidth: 80, textAlign: 'right' }}>${gst.toFixed(2)}</span></div>}
+      <div style={{ display: 'flex', gap: 40, fontWeight: 700, fontSize: 15, borderTop: '2px solid #1a1a1a', paddingTop: 8 }}>
+        <span>TOTAL</span><span style={{ minWidth: 80, textAlign: 'right', color: '#FF6B35' }}>${(sub + gst).toFixed(2)}</span>
       </div>
     </div>
+  </>
+}
+
+type WS = { step: string; hazards: string; risk_before: string; controls: string; risk_after: string; responsible: string }
+function StepsDoc({ steps, onChange }: { steps: WS[]; onChange: (v: WS[]) => void }) {
+  function upd(i: number, f: keyof WS, v: string) { onChange(steps.map((s, idx) => idx === i ? { ...s, [f]: v } : s)) }
+  const rc = (r: string) => r?.startsWith('H') ? '#dc2626' : r?.startsWith('M') ? '#d97706' : '#16a34a'
+  return (
+    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+      <thead><tr style={{ background: '#1a1a1a', color: '#fff' }}>
+        {['#','Step / Task','Hazards','R↑','Controls','R↓','By'].map(h => <th key={h} style={{ padding: '8px 10px', textAlign: 'left', fontSize: 11 }}>{h}</th>)}
+      </tr></thead>
+      <tbody>{steps.map((s, i) => (
+        <tr key={i} style={{ borderBottom: '1px solid #eee' }}>
+          <td style={{ padding: '8px 10px', color: '#999', fontSize: 11 }}>{i + 1}</td>
+          <td style={{ padding: '4px 6px' }}><Editable value={s.step} onChange={v => upd(i, 'step', v)} style={{ fontSize: 12, minHeight: '2em' }} /></td>
+          <td style={{ padding: '4px 6px' }}><Editable value={s.hazards} onChange={v => upd(i, 'hazards', v)} style={{ fontSize: 12, minHeight: '2em' }} /></td>
+          <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700, color: rc(s.risk_before) }}>{s.risk_before}</td>
+          <td style={{ padding: '4px 6px' }}><Editable value={s.controls} onChange={v => upd(i, 'controls', v)} style={{ fontSize: 12, minHeight: '2em' }} /></td>
+          <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700, color: rc(s.risk_after) }}>{s.risk_after}</td>
+          <td style={{ padding: '4px 6px' }}><Editable value={s.responsible} onChange={v => upd(i, 'responsible', v)} multiline={false} style={{ fontSize: 12 }} /></td>
+        </tr>
+      ))}</tbody>
+    </table>
   )
 }
 
-interface WorkStep { step: string; hazards: string; risk_before: string; controls: string; risk_after: string; responsible: string }
-
-function StepsEditor({ value, onChange }: { value: WorkStep[]; onChange: (v: WorkStep[]) => void }) {
-  function update(i: number, field: keyof WorkStep, val: string) {
-    onChange(value.map((s, idx) => idx === i ? { ...s, [field]: val } : s))
-  }
+type RR = { hazard: string; likelihood: string; consequence: string; risk_rating: string; controls: string; residual_risk: string }
+function RisksDoc({ risks, onChange }: { risks: RR[]; onChange: (v: RR[]) => void }) {
+  function upd(i: number, f: keyof RR, v: string) { onChange(risks.map((r, idx) => idx === i ? { ...r, [f]: v } : r)) }
+  const rc = (r: string) => r?.startsWith('H') ? '#dc2626' : r?.startsWith('M') ? '#d97706' : '#16a34a'
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {value.map((s, i) => (
-        <div key={i} style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8, padding: 14 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent)', marginBottom: 10 }}>STEP {i+1}</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            {[
-              { f: 'step', l: 'Task' }, { f: 'hazards', l: 'Hazards' },
-              { f: 'controls', l: 'Control Measures' }, { f: 'responsible', l: 'Responsible' },
-            ].map(({ f, l }) => (
-              <div key={f}>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>{l}</div>
-                <textarea value={((s as unknown) as Record<string,string>)[f]} onChange={e => update(i, f as keyof WorkStep, e.target.value)} rows={2}
-                  style={{ width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, padding: '7px 10px', fontSize: 13, color: 'var(--text)', resize: 'vertical' }} />
-              </div>
-            ))}
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 8 }}>
-            {[{ f: 'risk_before', l: 'Risk Before (H/M/L)' }, { f: 'risk_after', l: 'Risk After (H/M/L)' }].map(({ f, l }) => (
-              <div key={f}>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>{l}</div>
-                <select value={((s as unknown) as Record<string,string>)[f]} onChange={e => update(i, f as keyof WorkStep, e.target.value)}
-                  style={{ width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, padding: '8px 10px', fontSize: 13, color: 'var(--text)' }}>
-                  <option value="H">H — High</option>
-                  <option value="M">M — Medium</option>
-                  <option value="L">L — Low</option>
-                </select>
-              </div>
-            ))}
-          </div>
+    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+      <thead><tr style={{ background: '#1a1a1a', color: '#fff' }}>
+        {['Hazard','Like.','Cons.','Rating','Controls','Residual'].map(h => <th key={h} style={{ padding: '8px 10px', textAlign: 'left', fontSize: 11 }}>{h}</th>)}
+      </tr></thead>
+      <tbody>{risks.map((r, i) => (
+        <tr key={i} style={{ borderBottom: '1px solid #eee' }}>
+          <td style={{ padding: '4px 6px' }}><Editable value={r.hazard} onChange={v => upd(i, 'hazard', v)} style={{ fontSize: 12 }} /></td>
+          <td style={{ padding: '8px 10px', fontWeight: 700, color: rc(r.likelihood) }}>{r.likelihood}</td>
+          <td style={{ padding: '8px 10px', fontWeight: 700, color: rc(r.consequence) }}>{r.consequence}</td>
+          <td style={{ padding: '8px 10px', fontWeight: 700, color: rc(r.risk_rating) }}>{r.risk_rating}</td>
+          <td style={{ padding: '4px 6px' }}><Editable value={r.controls} onChange={v => upd(i, 'controls', v)} style={{ fontSize: 12 }} /></td>
+          <td style={{ padding: '8px 10px', fontWeight: 700, color: rc(r.residual_risk) }}>{r.residual_risk}</td>
+        </tr>
+      ))}</tbody>
+    </table>
+  )
+}
+
+type WI = { description: string; quantity: string; unit: string; disposal_method: string; facility: string }
+function WasteDoc({ items, onChange }: { items: WI[]; onChange: (v: WI[]) => void }) {
+  function upd(i: number, f: keyof WI, v: string) { onChange(items.map((w, idx) => idx === i ? { ...w, [f]: v } : w)) }
+  return (
+    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+      <thead><tr style={{ background: '#1a1a1a', color: '#fff' }}>
+        {['Description','Qty','Unit','Disposal','Facility'].map(h => <th key={h} style={{ padding: '8px 10px', textAlign: 'left', fontSize: 11 }}>{h}</th>)}
+      </tr></thead>
+      <tbody>{items.map((w, i) => (
+        <tr key={i} style={{ borderBottom: '1px solid #eee' }}>
+          {(['description','quantity','unit','disposal_method','facility'] as const).map(f => (
+            <TCell key={f} value={String(w[f])} onChange={v => upd(i, f, v)} />
+          ))}
+        </tr>
+      ))}</tbody>
+    </table>
+  )
+}
+
+// ── Document body ─────────────────────────────────────────────────────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function DocumentBody({ type, content, company, onChange }: { type: DocType; content: Record<string, any>; company: CompanyProfile | null; onChange: (k: string, v: unknown) => void }) {
+  const name    = company?.name    || 'Brisbane Biohazard Cleaning'
+  const tagline = company?.tagline || 'Professional Biohazard Remediation Services'
+  const sec = (label: string, key: string, rows = 3) => (
+    <DocSection key={key} label={label} value={content[key] || ''} onChange={v => onChange(key, v)} rows={rows} />
+  )
+  return (
+    <div style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif', color: '#1a1a1a', lineHeight: 1.5 }}>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+        <div>
+          {company?.logo_url && <img src={company.logo_url} alt={name} style={{ maxHeight: 52, maxWidth: 150, objectFit: 'contain', display: 'block', marginBottom: 6 }} />}
+          <div style={{ fontWeight: 700, fontSize: 18 }}>{name}</div>
+          <div style={{ fontSize: 11, color: '#777', marginTop: 2 }}>{tagline}</div>
         </div>
-      ))}
+        <div style={{ textAlign: 'right', fontSize: 12, color: '#555' }}>
+          <Editable value={content.reference || ''} onChange={v => onChange('reference', v)} multiline={false} style={{ fontWeight: 700, color: '#1a1a1a', fontSize: 13 }} />
+          <div style={{ marginTop: 2 }}>{new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
+          {company?.abn && <div style={{ marginTop: 2 }}>ABN {company.abn}</div>}
+        </div>
+      </div>
+      <div style={{ height: 3, background: '#FF6B35', borderRadius: 2, marginBottom: 24 }} />
+      <Editable value={content.title || ''} onChange={v => onChange('title', v)} multiline={false}
+        style={{ fontSize: 22, fontWeight: 700, marginBottom: 20 }} />
+
+      {type === 'quote' && <>
+        {sec('Overview', 'intro', 3)}
+        <DocLabel>Scope &amp; Pricing</DocLabel>
+        <LineItemsDoc items={content.line_items || []} onChange={v => { const s = v.reduce((a: number, i: LI) => a + i.total, 0); onChange('line_items', v); onChange('subtotal', s); onChange('gst', Math.round(s * 0.1 * 100) / 100); onChange('total', s + Math.round(s * 0.1 * 100) / 100) }} />
+        {sec('Notes & Conditions', 'notes', 2)}
+        {sec('Payment Terms', 'payment_terms', 2)}
+        {sec('Quote Validity', 'validity', 1)}
+      </>}
+      {type === 'sow' && <>{sec('Executive Summary','executive_summary',3)}{sec('Scope of Work','scope',5)}{sec('Methodology','methodology',4)}{sec('Safety Protocols','safety_protocols',3)}{sec('Waste Disposal','waste_disposal',2)}{sec('Timeline','timeline',2)}{sec('Exclusions','exclusions',2)}{sec('Disclaimer','disclaimer',2)}{sec('Acceptance','acceptance',2)}</>}
+      {type === 'swms' && <>{sec('Project Details','project_details',2)}<DocLabel>Work Steps, Hazards &amp; Controls</DocLabel><StepsDoc steps={content.steps||[]} onChange={v=>onChange('steps',v)} />{sec('PPE Required','ppe_required',3)}{sec('Emergency Procedures','emergency_procedures',3)}{sec('Legislation & References','legislation_references',2)}{sec('Worker Declarations','declarations',2)}</>}
+      {type === 'authority_to_proceed' && <>{sec('Scope of Works Authorised','scope_summary',3)}{sec('Site Access Details','access_details',2)}{sec('Special Conditions','special_conditions',2)}{sec('Liability Acknowledgment','liability_acknowledgment',3)}{sec('Payment Authorisation','payment_authorisation',2)}{sec('Acceptance','acceptance',2)}</>}
+      {type === 'engagement_agreement' && <>{sec('Parties','parties',2)}{sec('Services','services_description',3)}{sec('Fees & Payment','fees_and_payment',3)}{sec('Limitation of Liability','liability_limitations',3)}{sec('Confidentiality','confidentiality',2)}{sec('Dispute Resolution','dispute_resolution',2)}{sec('Termination','termination',2)}{sec('Governing Law','governing_law',1)}{sec('Acceptance','acceptance',2)}</>}
+      {type === 'report' && <>{sec('Executive Summary','executive_summary',3)}{sec('Site Conditions on Arrival','site_conditions',3)}{sec('Works Carried Out','works_carried_out',5)}{sec('Methodology','methodology',3)}{sec('Products & Equipment Used','products_used',3)}{sec('Waste Disposal','waste_disposal',2)}{sec('Photo Record Notes','photo_record',2)}{sec('Outcome','outcome',2)}{sec('Technician Sign-Off','technician_signoff',2)}</>}
+      {type === 'certificate_of_decontamination' && <>
+        {sec('Date of Works','date_of_works',1)}{sec('Works Summary','works_summary',3)}{sec('Decontamination Standard','decontamination_standard',2)}{sec('Products Used','products_used',2)}
+        <div style={{ margin: '24px 0', padding: 20, background: '#f0fdf4', border: '2px solid #16a34a', borderRadius: 10 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: '#16a34a', marginBottom: 8 }}>Outcome</div>
+          <Editable value={content.outcome_statement||''} onChange={v=>onChange('outcome_statement',v)} style={{ fontSize: 14, color: '#15803d', fontWeight: 600, lineHeight: 1.5, minHeight: '2em' }} />
+        </div>
+        {sec('Limitations','limitations',2)}{sec('Certifier Statement','certifier_statement',2)}
+      </>}
+      {type === 'waste_disposal_manifest' && <>{sec('Collection Date','collection_date',1)}<DocLabel>Waste Items</DocLabel><WasteDoc items={content.waste_items||[]} onChange={v=>onChange('waste_items',v)} />{sec('Transport Details','transport_details',2)}{sec('Declaration','declaration',3)}</>}
+      {type === 'jsa' && <>{sec('Job Description','job_description',2)}<DocLabel>Steps, Hazards &amp; Controls</DocLabel><StepsDoc steps={content.steps||[]} onChange={v=>onChange('steps',v)} />{sec('PPE Required','ppe_required',2)}{sec('Emergency Contacts','emergency_contacts',2)}{sec('Sign-Off Statement','sign_off',2)}</>}
+      {type === 'nda' && <>{sec('Parties','parties',2)}{sec('Confidential Information','confidential_information_definition',3)}{sec('Obligations','obligations',3)}{sec('Exceptions','exceptions',2)}{sec('Term','term',2)}{sec('Remedies','remedies',2)}{sec('Governing Law','governing_law',1)}{sec('Acceptance','acceptance',2)}</>}
+      {type === 'risk_assessment' && <>{sec('Site Description','site_description',2)}{sec('Assessment Date','assessment_date',1)}{sec('Assessor','assessor',1)}<DocLabel>Risk Register</DocLabel><RisksDoc risks={content.risks||[]} onChange={v=>onChange('risks',v)} />{sec('Overall Risk Rating','overall_risk_rating',1)}{sec('Recommendations','recommendations',2)}{sec('Review Date','review_date',1)}</>}
+
+      {/* Signature block */}
+      <div style={{ marginTop: 40, borderTop: '1px solid #eee', paddingTop: 20 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 48, marginTop: 24 }}>
+          <div style={{ borderTop: '1px solid #555', paddingTop: 6, fontSize: 11, color: '#666' }}>Authorised Signature</div>
+          <div style={{ borderTop: '1px solid #555', paddingTop: 6, fontSize: 11, color: '#666' }}>Date</div>
+        </div>
+      </div>
     </div>
   )
 }
 
-interface RiskRow { hazard: string; likelihood: string; consequence: string; risk_rating: string; controls: string; residual_risk: string }
+// ── Chat suggestions ──────────────────────────────────────────────────────────
 
-function RisksEditor({ value, onChange }: { value: RiskRow[]; onChange: (v: RiskRow[]) => void }) {
-  function update(i: number, field: keyof RiskRow, val: string) {
-    onChange(value.map((r, idx) => idx === i ? { ...r, [field]: val } : r))
-  }
-  const ratingOptions = [{ value: 'H', label: 'H — High' }, { value: 'M', label: 'M — Medium' }, { value: 'L', label: 'L — Low' }]
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {value.map((r, i) => (
-        <div key={i} style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8, padding: 14 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent)', marginBottom: 10 }}>RISK {i+1}</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>Hazard</div>
-              <input value={r.hazard} onChange={e => update(i, 'hazard', e.target.value)}
-                style={{ width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, padding: '8px 10px', fontSize: 13, color: 'var(--text)' }} />
-            </div>
-            <div>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>Controls</div>
-              <input value={r.controls} onChange={e => update(i, 'controls', e.target.value)}
-                style={{ width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, padding: '8px 10px', fontSize: 13, color: 'var(--text)' }} />
-            </div>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10, marginTop: 10 }}>
-            {[{ f: 'likelihood', l: 'Likelihood' }, { f: 'consequence', l: 'Consequence' }, { f: 'risk_rating', l: 'Risk Rating' }, { f: 'residual_risk', l: 'Residual Risk' }].map(({ f, l }) => (
-              <div key={f}>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>{l}</div>
-                <select value={((r as unknown) as Record<string,string>)[f]} onChange={e => update(i, f as keyof RiskRow, e.target.value)}
-                  style={{ width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, padding: '8px 10px', fontSize: 13, color: 'var(--text)' }}>
-                  {ratingOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              </div>
-            ))}
-          </div>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-interface WasteItemRow { description: string; quantity: string; unit: string; disposal_method: string; facility: string }
-
-function WasteItemsEditor({ value, onChange }: { value: WasteItemRow[]; onChange: (v: WasteItemRow[]) => void }) {
-  function update(i: number, field: keyof WasteItemRow, val: string) {
-    onChange(value.map((w, idx) => idx === i ? { ...w, [field]: val } : w))
-  }
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      {value.map((w, i) => (
-        <div key={i} style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8, padding: 14 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent)', marginBottom: 10 }}>ITEM {i+1}</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 10 }}>
-            {[{ f: 'description', l: 'Description' }, { f: 'quantity', l: 'Quantity' }, { f: 'unit', l: 'Unit' }].map(({ f, l }) => (
-              <div key={f}>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>{l}</div>
-                <input value={((w as unknown) as Record<string,string>)[f]} onChange={e => update(i, f as keyof WasteItemRow, e.target.value)}
-                  style={{ width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, padding: '8px 10px', fontSize: 13, color: 'var(--text)' }} />
-              </div>
-            ))}
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 10 }}>
-            {[{ f: 'disposal_method', l: 'Disposal Method' }, { f: 'facility', l: 'Facility' }].map(({ f, l }) => (
-              <div key={f}>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>{l}</div>
-                <input value={((w as unknown) as Record<string,string>)[f]} onChange={e => update(i, f as keyof WasteItemRow, e.target.value)}
-                  style={{ width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, padding: '8px 10px', fontSize: 13, color: 'var(--text)' }} />
-              </div>
-            ))}
-          </div>
-        </div>
-      ))}
-    </div>
-  )
-}
+const STARTERS = [
+  'Change the tone to be more direct',
+  'Make the intro shorter',
+  'Remove generic filler phrases',
+  'Make it sound more personal',
+]
 
 // ── Main page ─────────────────────────────────────────────────────────────────
+
+interface ChatMsg { role: 'user' | 'assistant'; text: string }
 
 function DocEditorInner() {
   const params       = useParams()
@@ -303,267 +251,177 @@ function DocEditorInner() {
 
   const jobId   = params.id as string
   const docType = params.type as DocType
-  const docId   = searchParams.get('docId') // set when editing existing doc
+  const docId   = searchParams.get('docId')
 
-  const [job,     setJob]     = useState<Job | null>(null)
-  const [photos,  setPhotos]  = useState<Photo[]>([])
-  const [company, setCompany] = useState<CompanyProfile | null>(null)
-  const [fields,  setFields]  = useState<Record<string, unknown>>({})
-  const [building,setBuilding]= useState(false)
-  const [saving,  setSaving]  = useState(false)
-  const [buildErr,setBuildErr]= useState('')
-  const [saveErr, setSaveErr] = useState('')
-  const [saveOk,  setSaveOk]  = useState(false)
+  const [job,        setJob]        = useState<Job | null>(null)
+  const [photos,     setPhotos]     = useState<Photo[]>([])
+  const [company,    setCompany]    = useState<CompanyProfile | null>(null)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [content,    setContent]    = useState<Record<string, any>>({})
   const [savedDocId, setSavedDocId] = useState<string | null>(docId)
+  const [building,   setBuilding]   = useState(false)
+  const [saving,     setSaving]     = useState(false)
+  const [saveOk,     setSaveOk]     = useState(false)
+  const [saveErr,    setSaveErr]    = useState('')
+  const [messages,   setMessages]   = useState<ChatMsg[]>([])
+  const [input,      setInput]      = useState('')
+  const [chatting,   setChatting]   = useState(false)
+  const chatEndRef = useRef<HTMLDivElement>(null)
 
-  const docLabel = DOC_TYPE_LABELS[docType] ?? docType
+  const docLabel   = DOC_TYPE_LABELS[docType] ?? docType
+  const hasContent = Object.keys(content).length > 0
 
-  // Load job, photos, company, and existing doc (if editing)
   useEffect(() => {
     async function load() {
       const [jobRes, companyRes] = await Promise.all([
         fetch(`/api/jobs/${jobId}`).then(r => r.json()),
         fetch('/api/company').then(r => r.json()),
       ])
-      setJob(jobRes.job)
-      setPhotos(jobRes.photos ?? [])
-      setCompany(companyRes.company ?? null)
-
+      setJob(jobRes.job); setPhotos(jobRes.photos ?? []); setCompany(companyRes.company ?? null)
       if (docId) {
-        const docRes = await fetch(`/api/documents/${docId}`).then(r => r.json())
-        if (docRes.document?.content) setFields(docRes.document.content)
+        const d = await fetch(`/api/documents/${docId}`).then(r => r.json())
+        if (d.document?.content) setContent(d.document.content)
       }
     }
     load()
   }, [jobId, docId])
 
-  function setField(key: string, value: unknown) {
-    setFields(f => ({ ...f, [key]: value }))
-  }
+  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, chatting])
+
+  function updateField(key: string, val: unknown) { setContent(c => ({ ...c, [key]: val })) }
 
   const buildWithClaude = useCallback(async () => {
     if (!job) return
     setBuilding(true)
-    setBuildErr('')
+    setMessages([{ role: 'assistant', text: `Building your ${docLabel} from the assessment data…` }])
     try {
-      const res = await fetch('/api/build-document', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: docType, job, photos, company }),
-      })
+      const res = await fetch('/api/build-document', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: docType, job, photos, company }) })
       const data = await res.json()
       if (data.error) throw new Error(data.error)
-      // Merge — don't overwrite reference/title if already set
-      setFields(prev => ({ ...data.content, ...Object.fromEntries(Object.entries(prev).filter(([,v]) => v)) }))
+      setContent(data.content)
+      setMessages([{ role: 'assistant', text: `Done ✓  Your ${docLabel} is ready. Click any section to edit, or tell me what to change.` }])
     } catch (err: unknown) {
-      setBuildErr(err instanceof Error ? err.message : 'Build failed')
-    } finally {
-      setBuilding(false)
-    }
-  }, [job, photos, company, docType])
+      setMessages([{ role: 'assistant', text: `Error: ${err instanceof Error ? err.message : 'Build failed'}` }])
+    } finally { setBuilding(false) }
+  }, [job, photos, company, docType, docLabel])
 
-  async function saveAndPreview() {
-    if (!job) return
-    setSaving(true)
-    setSaveErr('')
+  async function sendMessage() {
+    const msg = input.trim()
+    if (!msg || chatting || !hasContent) return
+    setInput('')
+    setMessages(m => [...m, { role: 'user', text: msg }])
+    setChatting(true)
     try {
-      // Save or update document record
-      const url    = savedDocId ? `/api/documents/${savedDocId}` : '/api/documents'
-      const method = savedDocId ? 'PATCH' : 'POST'
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ job_id: jobId, type: docType, content: fields, file_url: null }),
-      })
+      const res = await fetch('/api/chat-document', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: docType, content, message: msg }) })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      setContent(data.content)
+      setMessages(m => [...m, { role: 'assistant', text: data.reply || 'Done ✓' }])
+    } catch (err: unknown) {
+      setMessages(m => [...m, { role: 'assistant', text: `Error: ${err instanceof Error ? err.message : 'Failed'}` }])
+    } finally { setChatting(false) }
+  }
+
+  async function save(andOpen = false) {
+    if (!hasContent) return
+    setSaving(true); setSaveErr('')
+    try {
+      const url = savedDocId ? `/api/documents/${savedDocId}` : '/api/documents'
+      const res = await fetch(url, { method: savedDocId ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ job_id: jobId, type: docType, content, file_url: null }) })
       const data = await res.json()
       if (data.error) throw new Error(data.error)
       const id = data.document?.id ?? savedDocId
       setSavedDocId(id)
-
-      // Open print page
-      const appUrl  = window.location.origin
-      const printUrl = `${appUrl}/api/print/${id}`
-      const isPWA = window.matchMedia('(display-mode: standalone)').matches
-      if (isPWA) {
-        window.location.href = printUrl
+      if (andOpen) {
+        const printUrl = `${window.location.origin}/api/print/${id}`
+        if (window.matchMedia('(display-mode: standalone)').matches) window.location.href = printUrl
+        else window.open(printUrl, '_blank')
       } else {
-        window.open(printUrl, '_blank')
+        setSaveOk(true); setTimeout(() => setSaveOk(false), 2500)
+        router.push(`/jobs/${jobId}?tab=documents`)
       }
-    } catch (err: unknown) {
-      setSaveErr(err instanceof Error ? err.message : 'Save failed')
-    } finally {
-      setSaving(false)
-    }
+    } catch (err: unknown) { setSaveErr(err instanceof Error ? err.message : 'Save failed') }
+    finally { setSaving(false) }
   }
-
-  async function saveOnly() {
-    if (!job) return
-    setSaving(true)
-    setSaveErr('')
-    try {
-      const url    = savedDocId ? `/api/documents/${savedDocId}` : '/api/documents'
-      const method = savedDocId ? 'PATCH' : 'POST'
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ job_id: jobId, type: docType, content: fields, file_url: null }),
-      })
-      const data = await res.json()
-      if (data.error) throw new Error(data.error)
-      setSavedDocId(data.document?.id ?? savedDocId)
-      setSaveOk(true)
-      setTimeout(() => setSaveOk(false), 2500)
-      router.push(`/jobs/${jobId}?tab=documents`)
-    } catch (err: unknown) {
-      setSaveErr(err instanceof Error ? err.message : 'Save failed')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  // Live preview HTML (for screen-only inline preview)
-  const previewHtml = (() => {
-    try {
-      if (!Object.keys(fields).length) return null
-      return buildPrintHTML(docType, fields, photos, company, jobId, window?.location?.origin ?? '', {
-        client_name: job?.client_name,
-        client_email: job?.client_email,
-        client_phone: job?.client_phone,
-        printUrl: savedDocId ? `${window?.location?.origin}/api/print/${savedDocId}` : '',
-      })
-    } catch { return null }
-  })()
-
-  const fieldDefs = FIELDS[docType] ?? []
-  const hasFields = Object.values(fields).some(v => v !== undefined && v !== '' && (Array.isArray(v) ? v.length > 0 : true))
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--bg)', overflow: 'hidden' }}>
 
-      {/* Header */}
-      <div style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)', padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 12, position: 'sticky', top: 0, zIndex: 10 }}>
-        <button onClick={() => router.push(`/jobs/${jobId}?tab=documents`)}
-          style={{ fontSize: 18, color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px' }}>←</button>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontWeight: 700, fontSize: 15 }}>{docLabel}</div>
-          {job && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{job.client_name} — {job.site_address}</div>}
+      {/* Top bar */}
+      <div style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)', padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, zIndex: 20 }}>
+        <button onClick={() => router.push(`/jobs/${jobId}?tab=documents`)} style={{ fontSize: 18, color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px', flexShrink: 0 }}>←</button>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 700, fontSize: 14 }}>{docLabel}</div>
+          {job && <div style={{ fontSize: 11, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{job.client_name} — {job.site_address}</div>}
         </div>
-        <button
-          onClick={buildWithClaude}
-          disabled={building || !job}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            padding: '9px 16px', borderRadius: 8, fontSize: 13, fontWeight: 700,
-            background: building ? 'var(--surface-2)' : 'var(--surface-2)',
-            border: '1px solid var(--border)', color: 'var(--accent)',
-            cursor: building || !job ? 'not-allowed' : 'pointer',
-            opacity: building || !job ? 0.6 : 1,
-          }}
-        >
-          {building ? <><span className="spinner" /> Building…</> : '✨ Build with Claude'}
+        {saveErr && <div style={{ fontSize: 12, color: '#F87171', flexShrink: 0 }}>{saveErr}</div>}
+        {saveOk  && <div style={{ fontSize: 12, color: '#4ADE80', flexShrink: 0 }}>✓ Saved</div>}
+        <button onClick={() => save(false)} disabled={saving || !hasContent} className="btn btn-secondary" style={{ fontSize: 13, padding: '8px 14px', flexShrink: 0 }}>
+          {saving ? '…' : '💾 Save'}
+        </button>
+        <button onClick={() => save(true)} disabled={saving || !hasContent} className="btn btn-primary" style={{ fontSize: 13, padding: '8px 14px', flexShrink: 0 }}>
+          ↗ Preview &amp; Send
         </button>
       </div>
 
-      {buildErr && (
-        <div style={{ background: 'rgba(239,68,68,0.1)', padding: '10px 20px', fontSize: 13, color: '#F87171' }}>{buildErr}</div>
-      )}
+      {/* Split layout */}
+      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
 
-      {/* Empty state */}
-      {!hasFields && !building && (
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, padding: 40 }}>
-          <div style={{ fontSize: 40 }}>📄</div>
-          <div style={{ fontWeight: 600, fontSize: 16 }}>Start your {docLabel}</div>
-          <div style={{ fontSize: 14, color: 'var(--text-muted)', textAlign: 'center', maxWidth: 340 }}>
-            Click <strong>✨ Build with Claude</strong> to auto-populate all fields from your assessment, or fill them in manually below.
+        {/* Chat panel */}
+        <div style={{ width: 300, minWidth: 260, maxWidth: 340, borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', background: 'var(--surface)', flexShrink: 0 }}>
+          <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)' }}>
+            <button onClick={buildWithClaude} disabled={building || !job}
+              style={{ width: '100%', padding: '10px', borderRadius: 8, fontSize: 13, fontWeight: 700, background: building ? 'var(--surface-2)' : 'var(--accent)', color: building ? 'var(--text-muted)' : '#fff', border: 'none', cursor: building || !job ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, opacity: building || !job ? 0.7 : 1 }}>
+              {building ? <><span className="spinner" /> Building…</> : '✨ Build with Claude'}
+            </button>
+          </div>
+
+          <div style={{ flex: 1, overflowY: 'auto', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {messages.length === 0 && !building && (
+              <div style={{ color: 'var(--text-muted)', fontSize: 12, lineHeight: 1.6 }}>
+                {hasContent ? 'Click any section on the right to edit directly, or tell me what to change.' : 'Click ✨ Build with Claude to generate your document.'}
+              </div>
+            )}
+            {messages.length === 0 && hasContent && STARTERS.map(s => (
+              <button key={s} onClick={() => setInput(s)}
+                style={{ textAlign: 'left', padding: '8px 10px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer', lineHeight: 1.4 }}>
+                {s}
+              </button>
+            ))}
+            {messages.map((m, i) => (
+              <div key={i} style={{ alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '88%', padding: '9px 12px', borderRadius: m.role === 'user' ? '12px 12px 3px 12px' : '12px 12px 12px 3px', background: m.role === 'user' ? 'var(--accent)' : 'var(--bg)', color: m.role === 'user' ? '#fff' : 'var(--text)', border: m.role === 'assistant' ? '1px solid var(--border)' : 'none', fontSize: 13, lineHeight: 1.5 }}>
+                {m.text}
+              </div>
+            ))}
+            {chatting && <div style={{ alignSelf: 'flex-start', padding: '9px 14px', borderRadius: '12px 12px 12px 3px', background: 'var(--bg)', border: '1px solid var(--border)', fontSize: 13, color: 'var(--text-muted)', display: 'flex', gap: 6, alignItems: 'center' }}><span className="spinner" /> Updating…</div>}
+            <div ref={chatEndRef} />
+          </div>
+
+          <div style={{ padding: '10px 12px', borderTop: '1px solid var(--border)' }}>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }}
+                placeholder={hasContent ? 'Tell Claude what to change… (Enter to send)' : 'Build document first…'}
+                disabled={chatting || !hasContent} rows={2}
+                style={{ flex: 1, resize: 'none', fontSize: 13, padding: '8px 10px', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text)', lineHeight: 1.4 }} />
+              <button onClick={sendMessage} disabled={chatting || !input.trim() || !hasContent}
+                style={{ padding: '8px 12px', borderRadius: 8, background: 'var(--accent)', color: '#fff', border: 'none', fontWeight: 700, fontSize: 16, cursor: 'pointer', alignSelf: 'flex-end', opacity: chatting || !input.trim() || !hasContent ? 0.4 : 1, flexShrink: 0 }}>↑</button>
+            </div>
           </div>
         </div>
-      )}
 
-      {building && (
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
-          <div style={{ fontSize: 36 }}>✍️</div>
-          <div style={{ fontWeight: 600, fontSize: 16 }}>Claude is writing your {docLabel}…</div>
-          <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Usually takes 10–20 seconds</div>
-        </div>
-      )}
-
-      {/* Fields */}
-      {!building && (
-        <div style={{ flex: 1, maxWidth: 800, width: '100%', margin: '0 auto', padding: '24px 20px 120px' }}>
-          {fieldDefs.map(fd => (
-            <div key={fd.key} style={{ marginBottom: 24 }}>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--accent)', marginBottom: 8 }}>
-                {fd.label}
-              </label>
-
-              {fd.type === 'text' && (
-                <input
-                  value={String(fields[fd.key] ?? '')}
-                  onChange={e => setField(fd.key, e.target.value)}
-                  style={{ width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 14px', fontSize: 14, color: 'var(--text)' }}
-                />
-              )}
-
-              {fd.type === 'textarea' && (
-                <textarea
-                  value={String(fields[fd.key] ?? '')}
-                  onChange={e => setField(fd.key, e.target.value)}
-                  rows={fd.rows ?? 4}
-                  style={{ width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 14px', fontSize: 14, color: 'var(--text)', resize: 'vertical', lineHeight: 1.6 }}
-                />
-              )}
-
-              {fd.type === 'line_items' && (
-                <LineItemsEditor
-                  value={(fields[fd.key] as LineItem[]) ?? []}
-                  onChange={v => {
-                    const sub = v.reduce((s, li) => s + li.total, 0)
-                    const gst = Math.round(sub * 0.1 * 100) / 100
-                    setFields(f => ({ ...f, line_items: v, subtotal: sub, gst, total: sub + gst }))
-                  }}
-                />
-              )}
-
-              {fd.type === 'steps' && (
-                <StepsEditor
-                  value={(fields[fd.key] as WorkStep[]) ?? []}
-                  onChange={v => setField(fd.key, v)}
-                />
-              )}
-
-              {fd.type === 'risks' && (
-                <RisksEditor
-                  value={(fields[fd.key] as RiskRow[]) ?? []}
-                  onChange={v => setField(fd.key, v)}
-                />
-              )}
-
-              {fd.type === 'waste_items' && (
-                <WasteItemsEditor
-                  value={(fields[fd.key] as WasteItemRow[]) ?? []}
-                  onChange={v => setField(fd.key, v)}
-                />
-              )}
+        {/* Document panel */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '32px 24px 80px', background: '#e8e8e8' }}>
+          {!hasContent ? (
+            <div style={{ maxWidth: 600, margin: '80px auto', textAlign: 'center', color: 'var(--text-muted)' }}>
+              <div style={{ fontSize: 48, marginBottom: 16 }}>📄</div>
+              <div style={{ fontWeight: 600, fontSize: 16, color: 'var(--text)', marginBottom: 8 }}>Empty document</div>
+              <div style={{ fontSize: 13 }}>Click <strong>✨ Build with Claude</strong> to generate your {docLabel}.</div>
             </div>
-          ))}
-        </div>
-      )}
-
-      {/* Footer actions */}
-      <div style={{
-        position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 10,
-        background: 'var(--surface)', borderTop: '1px solid var(--border)',
-        padding: '12px 20px',
-      }}>
-        {saveErr && <div style={{ fontSize: 12, color: '#F87171', marginBottom: 8 }}>{saveErr}</div>}
-        {saveOk  && <div style={{ fontSize: 12, color: '#4ADE80', marginBottom: 8 }}>✓ Saved</div>}
-        <div style={{ display: 'flex', gap: 10, maxWidth: 800, margin: '0 auto' }}>
-          <button onClick={saveOnly} disabled={saving || !hasFields} className="btn btn-secondary" style={{ flex: 1 }}>
-            {saving ? <><span className="spinner" /> Saving…</> : '💾 Save'}
-          </button>
-          <button onClick={saveAndPreview} disabled={saving || !hasFields} className="btn btn-primary" style={{ flex: 2, fontSize: 15 }}>
-            {saving ? <><span className="spinner" /> Opening…</> : '↗ Preview & Send'}
-          </button>
+          ) : (
+            <div style={{ maxWidth: 800, margin: '0 auto', background: '#fff', borderRadius: 4, boxShadow: '0 4px 32px rgba(0,0,0,0.12)', padding: '48px' }}>
+              <DocumentBody type={docType} content={content} company={company} onChange={updateField} />
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -572,7 +430,7 @@ function DocEditorInner() {
 
 export default function DocEditorPage() {
   return (
-    <Suspense fallback={<div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}><div className="spinner" /></div>}>
+    <Suspense fallback={<div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><div className="spinner" /></div>}>
       <DocEditorInner />
     </Suspense>
   )
