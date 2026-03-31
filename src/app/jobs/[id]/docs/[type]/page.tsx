@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, Suspense } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import type { DocType, Job, Photo, CompanyProfile } from '@/lib/types'
 import { DOC_TYPE_LABELS } from '@/lib/types'
@@ -296,7 +296,7 @@ function WasteItemsEditor({ value, onChange }: { value: WasteItemRow[]; onChange
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-export default function DocEditorPage() {
+function DocEditorInner() {
   const params       = useParams()
   const router       = useRouter()
   const searchParams = useSearchParams()
@@ -313,6 +313,7 @@ export default function DocEditorPage() {
   const [saving,  setSaving]  = useState(false)
   const [buildErr,setBuildErr]= useState('')
   const [saveErr, setSaveErr] = useState('')
+  const [saveOk,  setSaveOk]  = useState(false)
   const [savedDocId, setSavedDocId] = useState<string | null>(docId)
 
   const docLabel = DOC_TYPE_LABELS[docType] ?? docType
@@ -410,6 +411,8 @@ export default function DocEditorPage() {
       const data = await res.json()
       if (data.error) throw new Error(data.error)
       setSavedDocId(data.document?.id ?? savedDocId)
+      setSaveOk(true)
+      setTimeout(() => setSaveOk(false), 2500)
       router.push(`/jobs/${jobId}?tab=documents`)
     } catch (err: unknown) {
       setSaveErr(err instanceof Error ? err.message : 'Save failed')
@@ -553,6 +556,7 @@ export default function DocEditorPage() {
         padding: '12px 20px',
       }}>
         {saveErr && <div style={{ fontSize: 12, color: '#F87171', marginBottom: 8 }}>{saveErr}</div>}
+        {saveOk  && <div style={{ fontSize: 12, color: '#4ADE80', marginBottom: 8 }}>✓ Saved</div>}
         <div style={{ display: 'flex', gap: 10, maxWidth: 800, margin: '0 auto' }}>
           <button onClick={saveOnly} disabled={saving || !hasFields} className="btn btn-secondary" style={{ flex: 1 }}>
             {saving ? <><span className="spinner" /> Saving…</> : '💾 Save'}
@@ -563,5 +567,13 @@ export default function DocEditorPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function DocEditorPage() {
+  return (
+    <Suspense fallback={<div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}><div className="spinner" /></div>}>
+      <DocEditorInner />
+    </Suspense>
   )
 }

@@ -21,7 +21,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     const supabase = createServiceClient()
     const { data, error } = await supabase
       .from('documents')
-      .update({ content: body.content, updated_at: new Date().toISOString() })
+      .update({ content: body.content })
       .eq('id', id)
       .select()
       .single()
