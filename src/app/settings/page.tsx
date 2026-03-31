@@ -3,7 +3,20 @@
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
-import type { CompanyProfile } from '@/lib/types'
+import type { CompanyProfile, DocType } from '@/lib/types'
+import { DOC_TYPE_LABELS } from '@/lib/types'
+
+const RULE_TABS: { id: string; label: string }[] = [
+  { id: 'general', label: 'General' },
+  ...Object.entries(DOC_TYPE_LABELS).map(([id, label]) => ({ id, label })),
+]
+
+const DEFAULT_GENERAL_RULES = `You are writing documents for an Australian biohazard remediation company. Always:
+- Use a confident, professional tone — no fluff or filler language
+- Be specific to the actual job, site, and client — never generic
+- Reference Australian standards, legislation and geography where relevant
+- Use Australian spelling (e.g. organisation, colour, authorise)
+- Keep language clear and direct — this is a professional services business`
 
 const DEFAULT_PROFILE: Omit<CompanyProfile, 'id' | 'updated_at'> = {
   name: 'Brisbane Biohazard Cleaning',
@@ -16,6 +29,7 @@ const DEFAULT_PROFILE: Omit<CompanyProfile, 'id' | 'updated_at'> = {
   logo_url: null,
   subdomain: '',
   custom_domain: '',
+  document_rules: { general: DEFAULT_GENERAL_RULES },
 }
 
 export default function SettingsPage() {
@@ -25,6 +39,7 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false)
   const [uploadingLogo, setUploadingLogo] = useState(false)
   const [error, setError] = useState('')
+  const [activeRuleTab, setActiveRuleTab] = useState('general')
   const logoRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -43,6 +58,7 @@ export default function SettingsPage() {
             logo_url: data.company.logo_url ?? null,
             subdomain: data.company.subdomain ?? '',
             custom_domain: data.company.custom_domain ?? '',
+            document_rules: data.company.document_rules ?? DEFAULT_PROFILE.document_rules,
           })
         }
         setLoading(false)
@@ -205,6 +221,83 @@ export default function SettingsPage() {
           {field('Phone', 'phone', '07 xxxx xxxx')}
           {field('Email', 'email', 'info@example.com.au')}
           {field('Address', 'address', 'Brisbane, QLD')}
+        </div>
+
+        {/* Document Instructions */}
+        <div className="card" style={{ marginBottom: 24 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent)', marginBottom: 4 }}>
+            Document Instructions
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 14 }}>
+            Claude reads these every time it generates or edits a document. You can also edit these live on the editor page via the <strong>📋 Instructions</strong> button.
+          </div>
+
+          {/* Tab row — scrollable */}
+          <div style={{ display: 'flex', gap: 4, overflowX: 'auto', paddingBottom: 8, marginBottom: 12, scrollbarWidth: 'none' }}>
+            {RULE_TABS.map(tab => {
+              const hasInstructions = !!profile.document_rules?.[tab.id]
+              const hasPdf = tab.id !== 'general' && !!profile.document_rules?.[tab.id + '_pdf']
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveRuleTab(tab.id)}
+                  style={{
+                    padding: '5px 12px', borderRadius: 6, fontSize: 12, whiteSpace: 'nowrap',
+                    border: '1px solid var(--border)', cursor: 'pointer', flexShrink: 0,
+                    background: activeRuleTab === tab.id ? 'var(--accent)' : 'var(--bg)',
+                    color: activeRuleTab === tab.id ? '#fff' : 'var(--text-muted)',
+                    fontWeight: activeRuleTab === tab.id ? 700 : 400,
+                  }}
+                >
+                  {tab.label}
+                  {hasInstructions ? ' ●' : ''}{hasPdf ? ' 📄' : ''}
+                </button>
+              )
+            })}
+          </div>
+
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>
+            {activeRuleTab === 'general'
+              ? 'Applied to ALL document types — voice, tone, Australian spelling, formatting preferences'
+              : `${DOC_TYPE_LABELS[activeRuleTab as DocType] ?? activeRuleTab} Instructions — only applied to this document type`}
+          </div>
+
+          <textarea
+            value={profile.document_rules?.[activeRuleTab] ?? ''}
+            onChange={e => setProfile(p => ({
+              ...p,
+              document_rules: { ...(p.document_rules ?? {}), [activeRuleTab]: e.target.value },
+            }))}
+            placeholder={activeRuleTab === 'general'
+              ? 'e.g. Always use Australian spelling. Never use filler phrases. Confident, direct tone…'
+              : `What should Claude always do for every ${DOC_TYPE_LABELS[activeRuleTab as DocType] ?? activeRuleTab}?\n\ne.g. Always break into line items per area. Never go under $2,500…`}
+            rows={9}
+            style={{
+              width: '100%', resize: 'vertical', fontSize: 13, lineHeight: 1.6,
+              background: 'var(--bg)', border: '1px solid var(--border)',
+              borderRadius: 8, padding: '10px 12px', color: 'var(--text)',
+              fontFamily: 'inherit', boxSizing: 'border-box',
+            }}
+          />
+
+          {activeRuleTab !== 'general' && profile.document_rules?.[activeRuleTab + '_pdf'] && (
+            <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-muted)', padding: '8px 12px', background: 'var(--bg)', borderRadius: 8, border: '1px solid var(--border)' }}>
+              <span>📄</span>
+              <span style={{ flex: 1 }}>Style guide PDF uploaded for this doc type</span>
+              <button
+                onClick={() => setProfile(p => {
+                  const dr = { ...(p.document_rules ?? {}) }
+                  delete dr[activeRuleTab + '_pdf']
+                  return { ...p, document_rules: dr }
+                })}
+                style={{ color: '#F87171', background: 'none', border: 'none', cursor: 'pointer', fontSize: 12 }}>
+                Remove
+              </button>
+            </div>
+          )}
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 10 }}>
+            💡 To upload a style guide PDF, open the document editor and click <strong>📋 Instructions</strong>
+          </div>
         </div>
 
         {error && (

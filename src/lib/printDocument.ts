@@ -324,7 +324,7 @@ function buildQuoteHTML(c: QuoteContent, photos: Photo[], company: CompanyProfil
     ${section('Notes &amp; Conditions', c.notes)}
     ${section('Payment Terms', c.payment_terms)}
     ${section('Quote Validity', c.validity)}
-    ${photoGrid(before, 'Site Condition Photos')}
+    ${c.include_photos !== false ? photoGrid(before, 'Site Condition Photos') : ''}
     <div class="accept-box">
       <div class="al">Accept This Quote Online</div>
       <p>Tap or click the button below to accept this quote online and we will be in touch to confirm your booking.</p>
@@ -349,7 +349,7 @@ function buildSOWHTML(c: SOWContent, photos: Photo[], company: CompanyProfile | 
     ${section('Waste Disposal', c.waste_disposal)}
     ${section('Timeline', c.timeline)}
     ${section('Exclusions', c.exclusions)}
-    ${photoGrid(before, 'Site Condition Photos')}
+    ${c.include_photos !== false ? photoGrid(before, 'Site Condition Photos') : ''}
     ${section('Disclaimer', c.disclaimer)}
     ${sigBlock(c.acceptance)}
   `, c.title, client)
@@ -427,10 +427,10 @@ function buildReportHTML(c: ReportContent, photos: Photo[], company: CompanyProf
     ${section('Methodology', c.methodology)}
     ${section('Products &amp; Equipment Used', c.products_used)}
     ${section('Waste Disposal', c.waste_disposal)}
-    ${photoGrid(during, 'During Works Photos')}
+    ${c.include_photos !== false ? photoGrid(during, 'During Works Photos') : ''}
     ${section('Photo Record', c.photo_record)}
     ${section('Outcome', c.outcome)}
-    ${photoGrid(after, 'Completion Photos')}
+    ${c.include_photos !== false ? photoGrid(after, 'Completion Photos') : ''}
     ${sigBlock(c.technician_signoff)}
   `, c.title, client)
 }

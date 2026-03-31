@@ -147,6 +147,7 @@ export interface CompanyProfile {
   subdomain: string | null
   custom_domain: string | null
   updated_at: string
+  document_rules?: Record<string, string>  // general + per-type rules (biohazards.md)
 }
 
 // ── Line items (Quote, Engagement Agreement) ──────────────────────────────────
@@ -204,6 +205,7 @@ export interface QuoteContent {
   notes: string
   payment_terms: string
   validity: string
+  include_photos?: boolean
 }
 
 export interface SOWContent {
@@ -218,6 +220,7 @@ export interface SOWContent {
   exclusions: string
   disclaimer: string
   acceptance: string
+  include_photos?: boolean
 }
 
 export interface SWMSContent {
@@ -268,6 +271,7 @@ export interface ReportContent {
   photo_record: string
   outcome: string
   technician_signoff: string
+  include_photos?: boolean
 }
 
 export interface CertificateOfDecontaminationContent {

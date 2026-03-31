@@ -6,18 +6,23 @@ const client = new Anthropic()
 
 export async function POST(req: Request) {
   try {
-    const { type, content, message } = await req.json() as {
+    const { type, content, message, rules } = await req.json() as {
       type: DocType
       content: Record<string, unknown>
       message: string
+      rules?: string
     }
 
     if (!type || !content || !message) {
       return NextResponse.json({ error: 'type, content and message are required' }, { status: 400 })
     }
 
-    const systemPrompt = `You are an expert document editor helping a biohazard remediation company edit professional documents.
+    const rulesBlock = rules?.trim()
+      ? `\nDOCUMENT RULES (biohazards.md — follow these strictly when rewriting content):\n${rules.trim()}\n`
+      : ''
 
+    const systemPrompt = `You are an expert document editor helping a biohazard remediation company edit professional documents.
+${rulesBlock}
 The user will give you instructions to modify a ${type} document. You must:
 1. Apply the instruction to the document content
 2. Return the complete updated document as JSON (same structure as input)

@@ -51,6 +51,13 @@ ${photoNotes}
 `.trim()
 }
 
+function getRules(type: DocType, company: CompanyProfile | null): string {
+  const rules = company?.document_rules ?? {}
+  const parts = [rules.general, rules[type]].filter(Boolean)
+  if (!parts.length) return ''
+  return `\nDOCUMENT RULES (biohazards.md — follow these strictly):\n${parts.join('\n\n')}\n`
+}
+
 function buildPrompt(type: DocType, job: Job, photos: Photo[], company: CompanyProfile | null): string {
   const ctx = jobContext(job, photos, company)
   const d = new Date().toLocaleDateString('en-AU', { day:'numeric', month:'long', year:'numeric' })
@@ -223,8 +230,10 @@ Include 5–8 steps covering the key tasks for this specific job type.`,
 Include 6–10 realistic risks based on the job type, contamination level, and special risks identified.`,
   }
 
-  return `You are a professional document writer for ${company?.name ?? 'Brisbane Biohazard Cleaning'}, an Australian biohazard remediation company.
+  const rules = getRules(type, company)
 
+  return `You are a professional document writer for ${company?.name ?? 'Brisbane Biohazard Cleaning'}, an Australian biohazard remediation company.
+${rules}
 JOB CONTEXT:
 ${ctx}
 
@@ -232,7 +241,18 @@ Generate a professional ${type.replace(/_/g,' ').toUpperCase()} document.
 
 ${schemas[type]}
 
-Write in a professional, confident tone appropriate for Australian biohazard remediation. Be specific — reference the actual site, job type, and assessment data. Do not be generic. Return ONLY the JSON object, no other text.`
+Be specific — reference the actual site, job type, and assessment data. Do not be generic. Return ONLY the JSON object, no other text.`
+}
+
+async function fetchPdfBase64(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url)
+    if (!res.ok) return null
+    const buf = await res.arrayBuffer()
+    return Buffer.from(buf).toString('base64')
+  } catch {
+    return null
+  }
 }
 
 export async function POST(req: Request) {
@@ -250,10 +270,32 @@ export async function POST(req: Request) {
 
     const prompt = buildPrompt(type, job, photos ?? [], company)
 
+    // Build message content — optionally prepend style guide PDF
+    type ContentBlock =
+      | { type: 'text'; text: string }
+      | { type: 'document'; source: { type: 'base64'; media_type: 'application/pdf'; data: string }; title?: string; context?: string }
+
+    const userContent: ContentBlock[] = []
+
+    const stylePdfUrl = company?.document_rules?.[type + '_pdf']
+    if (stylePdfUrl) {
+      const pdfBase64 = await fetchPdfBase64(stylePdfUrl)
+      if (pdfBase64) {
+        userContent.push({
+          type: 'document',
+          source: { type: 'base64', media_type: 'application/pdf', data: pdfBase64 },
+          title: `${type} Style Guide`,
+          context: `This is an example ${type} document uploaded as a style guide. Match its formatting, structure, tone and level of detail when generating the new document.`,
+        })
+      }
+    }
+
+    userContent.push({ type: 'text', text: prompt })
+
     const message = await client.messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 4096,
-      messages: [{ role: 'user', content: prompt }],
+      messages: [{ role: 'user', content: userContent }],
     })
 
     const text = message.content[0].type === 'text' ? message.content[0].text.trim() : ''

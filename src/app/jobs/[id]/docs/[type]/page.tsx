@@ -5,6 +5,164 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import type { DocType, Job, Photo, CompanyProfile } from '@/lib/types'
 import { DOC_TYPE_LABELS } from '@/lib/types'
 
+// ── Instructions panel ────────────────────────────────────────────────────────
+
+function InstructionsPanel({ docType, docLabel, company, onSaved, onClose }: {
+  docType: DocType
+  docLabel: string
+  company: CompanyProfile | null
+  onSaved: (updated: CompanyProfile) => void
+  onClose: () => void
+}) {
+  const [specific,    setSpecific]    = useState(company?.document_rules?.[docType] ?? '')
+  const [general,     setGeneral]     = useState(company?.document_rules?.general ?? '')
+  const [stylePdfUrl, setStylePdfUrl] = useState(company?.document_rules?.[docType + '_pdf'] ?? '')
+  const [showGeneral, setShowGeneral] = useState(false)
+  const [saving,      setSaving]      = useState(false)
+  const [uploadingPdf,setUploadingPdf]= useState(false)
+  const [saveErr,     setSaveErr]     = useState('')
+  const pdfRef = useRef<HTMLInputElement>(null)
+
+  async function uploadPdf(file: File) {
+    setUploadingPdf(true)
+    try {
+      const fileName = `style-guide-${docType}-${Date.now()}.pdf`
+      const res = await fetch('/api/company/style-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileName, contentType: 'application/pdf' }),
+      })
+      const { signedUrl, publicUrl, error: urlErr } = await res.json()
+      if (urlErr) throw new Error(urlErr)
+      const up = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': 'application/pdf' }, body: file })
+      if (!up.ok) throw new Error('Upload failed')
+      setStylePdfUrl(publicUrl)
+    } catch (e) {
+      setSaveErr(e instanceof Error ? e.message : 'PDF upload failed')
+    } finally {
+      setUploadingPdf(false)
+    }
+  }
+
+  async function save() {
+    setSaving(true)
+    setSaveErr('')
+    try {
+      const merged = {
+        ...(company?.document_rules ?? {}),
+        general,
+        [docType]: specific,
+        ...(stylePdfUrl ? { [docType + '_pdf']: stylePdfUrl } : {}),
+      }
+      const res = await fetch('/api/company', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ document_rules: merged }),
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      onSaved(data.company)
+      onClose()
+    } catch (e) {
+      setSaveErr(e instanceof Error ? e.message : 'Save failed')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div style={{ background: 'var(--surface)', borderRadius: 12, width: '100%', maxWidth: 520, maxHeight: '88vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
+
+        {/* Header */}
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 15 }}>📋 {docLabel} Instructions</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>
+              Claude reads these every time it builds or edits this document. Saves to your company profile.
+            </div>
+          </div>
+          <button onClick={onClose} style={{ fontSize: 20, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '0 4px', flexShrink: 0 }}>✕</button>
+        </div>
+
+        {/* Body */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 18 }}>
+
+          {/* Doc-specific instructions */}
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 700, display: 'block', marginBottom: 6, color: 'var(--text)' }}>
+              {docLabel} Instructions
+            </label>
+            <textarea
+              value={specific}
+              onChange={e => setSpecific(e.target.value)}
+              placeholder={`What should Claude always do for every ${docLabel}?\n\ne.g. Always break the quote into separate line items per area. Never go under $2,500. Include a note about disposal costs. Use the word "remediation" not "cleaning".`}
+              rows={9}
+              style={{ width: '100%', resize: 'vertical', fontSize: 13, lineHeight: 1.6, background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px', color: 'var(--text)', fontFamily: 'inherit', boxSizing: 'border-box' }}
+            />
+          </div>
+
+          {/* Style guide PDF */}
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 700, display: 'block', marginBottom: 4, color: 'var(--text)' }}>
+              Style Guide PDF <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>— optional</span>
+            </label>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+              Upload an existing {docLabel} as a reference — Claude will match its formatting, structure, and tone.
+            </div>
+            {stylePdfUrl ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8 }}>
+                <span style={{ fontSize: 20 }}>📄</span>
+                <span style={{ fontSize: 13, flex: 1, color: 'var(--text)' }}>Style guide uploaded</span>
+                <button onClick={() => { setStylePdfUrl(''); if (pdfRef.current) pdfRef.current.value = '' }}
+                  style={{ fontSize: 12, color: '#F87171', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px' }}>Remove</button>
+                <button onClick={() => pdfRef.current?.click()}
+                  style={{ fontSize: 12, color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px' }}>Replace</button>
+              </div>
+            ) : (
+              <button onClick={() => pdfRef.current?.click()} disabled={uploadingPdf}
+                style={{ width: '100%', padding: '12px', borderRadius: 8, border: '1px dashed var(--border)', background: 'var(--bg)', color: 'var(--text-muted)', fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                {uploadingPdf ? <><span className="spinner" /> Uploading PDF…</> : '📄 Upload existing PDF as style guide'}
+              </button>
+            )}
+            <input ref={pdfRef} type="file" accept=".pdf" style={{ display: 'none' }}
+              onChange={e => { const f = e.target.files?.[0]; if (f) uploadPdf(f) }} />
+          </div>
+
+          {/* General rules — collapsible */}
+          <div>
+            <button onClick={() => setShowGeneral(g => !g)}
+              style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: 5 }}>
+              {showGeneral ? '▾' : '▸'} General Instructions <span style={{ fontWeight: 400 }}>(all doc types)</span>
+            </button>
+            {showGeneral && (
+              <textarea
+                value={general}
+                onChange={e => setGeneral(e.target.value)}
+                placeholder="Voice and tone rules that apply to every document type…"
+                rows={5}
+                style={{ width: '100%', resize: 'vertical', fontSize: 13, lineHeight: 1.6, background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px', color: 'var(--text)', fontFamily: 'inherit', boxSizing: 'border-box', marginTop: 8 }}
+              />
+            )}
+          </div>
+        </div>
+
+        {/* Footer */}
+        {saveErr && (
+          <div style={{ padding: '8px 20px', fontSize: 12, color: '#F87171', background: 'rgba(239,68,68,0.08)' }}>{saveErr}</div>
+        )}
+        <div style={{ padding: '14px 20px', borderTop: '1px solid var(--border)', display: 'flex', gap: 10 }}>
+          <button onClick={onClose} className="btn btn-secondary" style={{ flex: 1 }}>Cancel</button>
+          <button onClick={save} disabled={saving} className="btn btn-primary" style={{ flex: 2 }}>
+            {saving ? <><span className="spinner" /> Saving…</> : '💾 Save Instructions'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Contenteditable section ───────────────────────────────────────────────────
 
 function Editable({ value, onChange, multiline = true, style }: {
@@ -253,19 +411,20 @@ function DocEditorInner() {
   const docType = params.type as DocType
   const docId   = searchParams.get('docId')
 
-  const [job,        setJob]        = useState<Job | null>(null)
-  const [photos,     setPhotos]     = useState<Photo[]>([])
-  const [company,    setCompany]    = useState<CompanyProfile | null>(null)
+  const [job,              setJob]             = useState<Job | null>(null)
+  const [photos,           setPhotos]          = useState<Photo[]>([])
+  const [company,          setCompany]         = useState<CompanyProfile | null>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [content,    setContent]    = useState<Record<string, any>>({})
-  const [savedDocId, setSavedDocId] = useState<string | null>(docId)
-  const [building,   setBuilding]   = useState(false)
-  const [saving,     setSaving]     = useState(false)
-  const [saveOk,     setSaveOk]     = useState(false)
-  const [saveErr,    setSaveErr]    = useState('')
-  const [messages,   setMessages]   = useState<ChatMsg[]>([])
-  const [input,      setInput]      = useState('')
-  const [chatting,   setChatting]   = useState(false)
+  const [content,          setContent]         = useState<Record<string, any>>({})
+  const [savedDocId,       setSavedDocId]      = useState<string | null>(docId)
+  const [building,         setBuilding]        = useState(false)
+  const [saving,           setSaving]          = useState(false)
+  const [saveOk,           setSaveOk]          = useState(false)
+  const [saveErr,          setSaveErr]         = useState('')
+  const [messages,         setMessages]        = useState<ChatMsg[]>([])
+  const [input,            setInput]           = useState('')
+  const [chatting,         setChatting]        = useState(false)
+  const [showInstructions, setShowInstructions]= useState(false)
   const chatEndRef = useRef<HTMLDivElement>(null)
 
   const docLabel   = DOC_TYPE_LABELS[docType] ?? docType
@@ -305,6 +464,11 @@ function DocEditorInner() {
     } finally { setBuilding(false) }
   }, [job, photos, company, docType, docLabel])
 
+  function getDocRules(): string {
+    const dr = company?.document_rules ?? {}
+    return [dr.general, dr[docType]].filter(Boolean).join('\n\n')
+  }
+
   async function sendMessage() {
     const msg = input.trim()
     if (!msg || chatting || !hasContent) return
@@ -312,7 +476,7 @@ function DocEditorInner() {
     setMessages(m => [...m, { role: 'user', text: msg }])
     setChatting(true)
     try {
-      const res = await fetch('/api/chat-document', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: docType, content, message: msg }) })
+      const res = await fetch('/api/chat-document', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: docType, content, message: msg, rules: getDocRules() }) })
       const data = await res.json()
       if (data.error) throw new Error(data.error)
       setContent(data.content)
@@ -369,11 +533,23 @@ function DocEditorInner() {
 
         {/* Chat panel */}
         <div style={{ width: 300, minWidth: 260, maxWidth: 340, borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', background: 'var(--surface)', flexShrink: 0 }}>
-          <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)' }}>
+          <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 6 }}>
             <button onClick={buildWithClaude} disabled={building || !job}
               style={{ width: '100%', padding: '10px', borderRadius: 8, fontSize: 13, fontWeight: 700, background: building ? 'var(--surface-2)' : 'var(--accent)', color: building ? 'var(--text-muted)' : '#fff', border: 'none', cursor: building || !job ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, opacity: building || !job ? 0.7 : 1 }}>
               {building ? <><span className="spinner" /> Building…</> : '✨ Build with Claude'}
             </button>
+            <button onClick={() => setShowInstructions(true)}
+              style={{ width: '100%', padding: '7px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: 'var(--bg)', color: company?.document_rules?.[docType] ? 'var(--accent)' : 'var(--text-muted)', border: '1px solid var(--border)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
+              📋 {docLabel} Instructions{company?.document_rules?.[docType] ? ' ●' : ''}
+            </button>
+            {['quote','sow','report'].includes(docType) && (
+              <button
+                onClick={() => updateField('include_photos', content.include_photos === false ? true : false)}
+                style={{ width: '100%', padding: '7px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: 'var(--bg)', border: '1px solid var(--border)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, color: content.include_photos === false ? 'var(--text-muted)' : 'var(--accent)' }}>
+                <span style={{ fontSize: 16, lineHeight: 1 }}>{content.include_photos === false ? '🚫' : '📷'}</span>
+                Photos {content.include_photos === false ? 'excluded' : 'included'}
+              </button>
+            )}
           </div>
 
           <div style={{ flex: 1, overflowY: 'auto', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -408,6 +584,16 @@ function DocEditorInner() {
             </div>
           </div>
         </div>
+
+        {showInstructions && (
+          <InstructionsPanel
+            docType={docType}
+            docLabel={docLabel}
+            company={company}
+            onSaved={updated => setCompany(updated)}
+            onClose={() => setShowInstructions(false)}
+          />
+        )}
 
         {/* Document panel */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '32px 24px 80px', background: '#e8e8e8' }}>
