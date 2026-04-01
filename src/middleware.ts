@@ -1,56 +1,38 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
+import { NextResponse } from 'next/server'
 
-// ── Tenant resolution ──────────────────────────────────────────────────────
-// Hosts that are the platform itself — not white-label tenants
+// ── Platform hosts (not white-label tenants) ───────────────────────────────
 const PLATFORM_HOSTS = [
   'app.biohazards.net',
   'biohazards.net',
   'www.biohazards.net',
-  'localhost:3000',
   'localhost',
+  'localhost:3000',
 ]
 
-// ── Auth ───────────────────────────────────────────────────────────────────
-// Paths that are always public — no password required
-const PUBLIC_PREFIXES = [
-  '/login',
-  '/new-client',
-  '/accept/',           // /accept/[jobId] quote acceptance
-  '/api/auth',          // login / logout API
-  '/api/intake',        // public intake form submission
-  '/api/accept/',       // quote acceptance API
-  '/api/notify-lead',   // lead notification webhook
-  '/api/company',       // company branding (logo/name shown on public pages)
-  '/_next',
-  '/favicon',
-  '/manifest',
-  '/icons',
-  '/apple-touch-icon',
-]
+// ── Public routes — no auth required ──────────────────────────────────────
+const isPublicRoute = createRouteMatcher([
+  '/login(.*)',
+  '/sign-in(.*)',
+  '/new-client(.*)',
+  '/accept/(.*)',
+  '/api/intake(.*)',
+  '/api/accept/(.*)',
+  '/api/notify-lead(.*)',
+  '/api/company(.*)',
+  '/api/print/(.*)',
+])
 
-const SESSION_COOKIE = 'bh_session'
-
-export function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl
+export default clerkMiddleware(async (auth, request) => {
   const hostname = request.headers.get('host') || ''
   const host = hostname.split(':')[0]
 
-  // ── 1. Skip auth for public paths ─────────────────────────────────────
-  const isPublic = PUBLIC_PREFIXES.some(p => pathname.startsWith(p))
-  if (!isPublic) {
-    const session = request.cookies.get(SESSION_COOKIE)
-    const appPassword = process.env.APP_PASSWORD
-
-    // If APP_PASSWORD is not set, allow through (dev mode)
-    if (appPassword && session?.value !== appPassword) {
-      const loginUrl = request.nextUrl.clone()
-      loginUrl.pathname = '/login'
-      loginUrl.searchParams.set('from', pathname)
-      return NextResponse.redirect(loginUrl)
-    }
+  // Protect non-public routes
+  if (!isPublicRoute(request)) {
+    await auth.protect()
   }
 
-  // ── 2. Tenant header injection for white-label subdomains ──────────────
+  // Inject tenant host header for white-label subdomains
   const isPlatform = PLATFORM_HOSTS.some(h => host === h || host.endsWith('.vercel.app'))
   if (!isPlatform) {
     const response = NextResponse.next()
@@ -59,7 +41,7 @@ export function middleware(request: NextRequest) {
   }
 
   return NextResponse.next()
-}
+})
 
 export const config = {
   matcher: [

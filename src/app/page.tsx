@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useClerk } from '@clerk/nextjs'
 import type { CompanyProfile, Job } from '@/lib/types'
 
 function fmtBooking(iso: string) {
@@ -20,12 +20,7 @@ export default function HomePage() {
   const [company, setCompany]       = useState<CompanyProfile | null>(null)
   const [time, setTime]             = useState('')
   const [upcoming, setUpcoming]     = useState<Job[]>([])
-  const router = useRouter()
-
-  async function signOut() {
-    await fetch('/api/auth', { method: 'DELETE' })
-    router.push('/login')
-  }
+  const { signOut } = useClerk()
 
   useEffect(() => {
     fetch('/api/company')
@@ -111,7 +106,7 @@ export default function HomePage() {
               {time}
             </div>
             <button
-              onClick={signOut}
+              onClick={() => signOut({ redirectUrl: '/login' })}
               title="Sign out"
               style={{
                 background: 'none', border: '1px solid var(--border)',
