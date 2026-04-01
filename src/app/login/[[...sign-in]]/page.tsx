@@ -23,7 +23,7 @@ export default function LoginPage() {
         </div>
         <div style={{ fontWeight: 700, fontSize: 20, color: 'var(--text)' }}>biohazards.net</div>
       </div>
-      <SignIn />
+      <SignIn routing="path" path="/login" />
     </div>
   )
 }
