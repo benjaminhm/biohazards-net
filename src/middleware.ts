@@ -31,15 +31,21 @@ export default clerkMiddleware(async (auth, request: NextRequest) => {
   } else if (slug === 'admin') {
     requestHeaders.set('x-org-slug', 'admin')
 
-    // Require platform admin role
+    // Require authenticated platform admin
     const { userId } = await auth()
+
+    if (!userId) {
+      // Redirect to login on main app domain
+      return NextResponse.redirect('https://app.biohazards.net/login?redirect_url=https://admin.biohazards.net')
+    }
+
     const adminIds = (process.env.PLATFORM_ADMIN_CLERK_IDS ?? '')
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean)
 
-    if (!userId || !adminIds.includes(userId)) {
-      return new NextResponse('Forbidden', { status: 403 })
+    if (!adminIds.includes(userId)) {
+      return new NextResponse('Forbidden — not a platform admin', { status: 403 })
     }
   }
 
