@@ -106,6 +106,10 @@ export default function AssessmentTab({ job, onJobUpdate }: Props) {
   const [data, setData] = useState<AssessmentData>(mergeWithDefaults(job.assessment_data))
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [smartText, setSmartText] = useState('')
+  const [extracting, setExtracting] = useState(false)
+  const [extractError, setExtractError] = useState('')
+  const [justExtracted, setJustExtracted] = useState(false)
 
   useEffect(() => {
     setData(mergeWithDefaults(job.assessment_data))
@@ -157,6 +161,53 @@ export default function AssessmentTab({ job, onJobUpdate }: Props) {
     setSaved(false)
   }
 
+  async function extractFromText() {
+    if (!smartText.trim()) return
+    setExtracting(true)
+    setExtractError('')
+    try {
+      const res = await fetch(`/api/jobs/${job.id}/extract-assessment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: smartText }),
+      })
+      const { extracted, error } = await res.json()
+      if (error) throw new Error(error)
+
+      // Merge extracted fields into current data — don't overwrite with nulls
+      setData(d => ({
+        ...d,
+        contamination_level: extracted.contamination_level ?? d.contamination_level,
+        biohazard_type:      extracted.biohazard_type      || d.biohazard_type,
+        estimated_hours:     extracted.estimated_hours     ?? d.estimated_hours,
+        estimated_waste_litres: extracted.estimated_waste_litres ?? d.estimated_waste_litres,
+        access_restrictions: extracted.access_restrictions || d.access_restrictions,
+        observations:        extracted.observations
+          ? (d.observations ? `${d.observations}\n\n${extracted.observations}` : extracted.observations)
+          : d.observations,
+        areas: extracted.areas?.length ? [...d.areas, ...extracted.areas] : d.areas,
+        ppe_required: extracted.ppe_required
+          ? { ...d.ppe_required, ...Object.fromEntries(Object.entries(extracted.ppe_required).filter(([, v]) => v === true)) }
+          : d.ppe_required,
+        special_risks: extracted.special_risks
+          ? { ...d.special_risks, ...Object.fromEntries(Object.entries(extracted.special_risks).filter(([, v]) => v === true)) }
+          : d.special_risks,
+        custom_fields: [
+          ...(d.custom_fields ?? []),
+          ...(extracted.custom_fields ?? []),
+        ],
+      }))
+
+      setJustExtracted(true)
+      setSmartText('')
+      setTimeout(() => setJustExtracted(false), 3000)
+    } catch (e: unknown) {
+      setExtractError(e instanceof Error ? e.message : 'Extraction failed')
+    } finally {
+      setExtracting(false)
+    }
+  }
+
   async function save() {
     setSaving(true)
     setSaved(false)
@@ -183,6 +234,50 @@ export default function AssessmentTab({ job, onJobUpdate }: Props) {
 
   return (
     <div style={{ paddingBottom: 40 }}>
+
+      {/* ── SmartFill ── */}
+      <div style={{
+        background: justExtracted ? 'rgba(34,197,94,0.06)' : 'var(--surface-2)',
+        border: `1px solid ${justExtracted ? 'rgba(34,197,94,0.3)' : 'var(--border)'}`,
+        borderRadius: 12,
+        padding: '16px',
+        marginBottom: 28,
+        transition: 'all 0.3s',
+      }}>
+        {justExtracted ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#4ADE80', fontWeight: 600, fontSize: 14 }}>
+            <span style={{ fontSize: 20 }}>✓</span>
+            Fields extracted — review below and save when ready
+          </div>
+        ) : (
+          <>
+            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>SmartFill</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12, lineHeight: 1.5 }}>
+              Paste an email thread, voice memo transcript, or site notes. Claude will extract and populate the fields below.
+            </div>
+            <textarea
+              value={smartText}
+              onChange={e => setSmartText(e.target.value)}
+              placeholder="Paste email, notes, or voice memo here…&#10;&#10;e.g. &quot;Attended site at 42 Smith St. Two rooms affected — master bedroom approx 4sqm blood contamination, ensuite 2sqm. Insurance with Suncorp, claim SUN-12345. Body removed by QPS. Coroner released 14 March. Will need full PPE, skip bin required...&quot;"
+              rows={5}
+              style={{ resize: 'vertical', fontSize: 13, lineHeight: 1.6, marginBottom: 10 }}
+            />
+            {extractError && (
+              <div style={{ fontSize: 12, color: '#F87171', marginBottom: 8 }}>{extractError}</div>
+            )}
+            <button
+              type="button"
+              onClick={extractFromText}
+              disabled={!smartText.trim() || extracting}
+              className="btn btn-primary"
+              style={{ fontSize: 13, padding: '10px 20px', opacity: !smartText.trim() ? 0.4 : 1 }}
+            >
+              {extracting ? <><span className="spinner" style={{ width: 14, height: 14 }} /> Extracting…</> : '⚡ Extract Fields'}
+            </button>
+          </>
+        )}
+      </div>
+
       {/* Areas */}
       {section('Areas')}
       {data.areas.map((area, i) => (
