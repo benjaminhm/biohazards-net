@@ -35,12 +35,12 @@ export default clerkMiddleware(async (auth, request) => {
   // Inject tenant host header for white-label subdomains
   const isPlatform = PLATFORM_HOSTS.some(h => host === h || host.endsWith('.vercel.app'))
   if (!isPlatform) {
-    const response = NextResponse.next()
+    const response = NextResponse.next({ request })
     response.headers.set('x-tenant-host', host)
     return response
   }
 
-  return NextResponse.next()
+  return NextResponse.next({ request })
 })
 
 export const config = {
