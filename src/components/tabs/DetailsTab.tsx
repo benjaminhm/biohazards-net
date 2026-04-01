@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import type { Job, JobStatus, JobType, JobUrgency } from '@/lib/types'
+import type { Job, JobStatus, JobType, JobUrgency, PhoneEntry } from '@/lib/types'
 import SmartFill from '@/components/SmartFill'
 
 interface Person { id: string; name: string; role: string; phone: string; email: string; status: string }
@@ -196,9 +196,20 @@ export default function DetailsTab({ job, onJobUpdate }: Props) {
     // Contact name: "John Smith · Unattended Death · Newstead"
     const contactName = [job.client_name, serviceLabel, suburb].filter(Boolean).join(' · ')
 
-    // Store both AU formats so phone matches incoming texts from either +61 or 04xx
-    const phone04  = normalizeAUPhone(job.client_phone)
-    const phone61  = toE164(phone04)
+    // Primary number — both formats so phone matches +61 incoming texts
+    const phone04 = normalizeAUPhone(job.client_phone)
+    const phone61 = toE164(phone04)
+
+    // Additional numbers
+    const extraPhoneLines = (job.client_phones ?? []).flatMap(p => {
+      const n04 = normalizeAUPhone(p.number)
+      const n61 = toE164(n04)
+      const type = p.label.toLowerCase().includes('land') ? 'HOME' : 'CELL'
+      return [
+        n04 ? `TEL;TYPE=${type}:${n04}` : '',
+        n61 && n61 !== n04 ? `TEL;TYPE=${type}:${n61}` : '',
+      ].filter(Boolean)
+    })
 
     const vcard = [
       'BEGIN:VCARD',
@@ -207,6 +218,7 @@ export default function DetailsTab({ job, onJobUpdate }: Props) {
       `N:${job.client_name};;;;`,
       phone04 ? `TEL;TYPE=CELL:${phone04}` : '',
       phone61 && phone61 !== phone04 ? `TEL;TYPE=CELL:${phone61}` : '',
+      ...extraPhoneLines,
       job.client_email ? `EMAIL:${job.client_email}` : '',
       job.site_address ? `ADR;TYPE=HOME:;;${job.site_address};;;;` : '',
       `NOTE:${serviceLabel}${suburb ? ' · ' + suburb : ''} — biohazards.net`,
@@ -224,8 +236,31 @@ export default function DetailsTab({ job, onJobUpdate }: Props) {
 
   // Auto-normalise phone to 04xx when saving
   async function updatePhone(raw: string) {
-    const normalised = normalizeAUPhone(raw)
-    await updateField('client_phone', normalised)
+    await updateField('client_phone', normalizeAUPhone(raw))
+  }
+
+  async function saveExtraPhones(phones: PhoneEntry[]) {
+    await fetch(`/api/jobs/${job.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ client_phones: phones }),
+    }).then(r => r.json()).then(d => onJobUpdate(d.job))
+  }
+
+  function addExtraPhone() {
+    const updated = [...(job.client_phones ?? []), { label: 'Landline', number: '' }]
+    saveExtraPhones(updated)
+  }
+
+  function updateExtraPhone(idx: number, field: keyof PhoneEntry, value: string) {
+    const updated = (job.client_phones ?? []).map((p, i) =>
+      i === idx ? { ...p, [field]: field === 'number' ? normalizeAUPhone(value) : value } : p
+    )
+    saveExtraPhones(updated)
+  }
+
+  function removeExtraPhone(idx: number) {
+    saveExtraPhones((job.client_phones ?? []).filter((_, i) => i !== idx))
   }
 
   const urgencies: JobUrgency[] = ['standard', 'urgent', 'emergency']
@@ -277,10 +312,15 @@ export default function DetailsTab({ job, onJobUpdate }: Props) {
           </div>
         </div>
 
-        {/* Phone with actions */}
-        <div className="field">
-          <label>Phone</label>
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        {/* Phone — primary + additional numbers */}
+        <div className="field" style={{ gridColumn: '1 / -1' }}>
+          <label>Phone Numbers</label>
+
+          {/* Primary mobile */}
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6 }}>
+            <div style={{ width: 90, flexShrink: 0 }}>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: '10px 0 0 2px', fontWeight: 600 }}>Mobile</div>
+            </div>
             <div style={{ flex: 1 }}>
               <EditableField label="" value={job.client_phone} onChange={v => updatePhone(v)} type="tel" />
             </div>
@@ -291,6 +331,39 @@ export default function DetailsTab({ job, onJobUpdate }: Props) {
               </div>
             )}
           </div>
+
+          {/* Extra numbers */}
+          {(job.client_phones ?? []).map((p, i) => (
+            <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6 }}>
+              <select
+                value={p.label}
+                onChange={e => updateExtraPhone(i, 'label', e.target.value)}
+                style={{ width: 90, flexShrink: 0, fontSize: 12, padding: '10px 6px' }}
+              >
+                <option>Landline</option>
+                <option>Mobile</option>
+                <option>Work</option>
+                <option>Other</option>
+              </select>
+              <div style={{ flex: 1 }}>
+                <EditableField label="" value={p.number} onChange={v => updateExtraPhone(i, 'number', v)} type="tel" />
+              </div>
+              {p.number && (
+                <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                  <a href={`tel:${toE164(normalizeAUPhone(p.number))}`} title="Call" style={actionBtn}>📞</a>
+                  <a href={`sms:${toE164(normalizeAUPhone(p.number))}`} title="Text" style={actionBtn}>💬</a>
+                </div>
+              )}
+              <button onClick={() => removeExtraPhone(i)} title="Remove" style={{ ...actionBtn, color: '#F87171' }}>×</button>
+            </div>
+          ))}
+
+          <button
+            onClick={addExtraPhone}
+            style={{ fontSize: 12, color: 'var(--text-muted)', background: 'none', border: '1px dashed var(--border)', borderRadius: 6, padding: '6px 12px', cursor: 'pointer', marginTop: 2 }}
+          >
+            + Add number
+          </button>
         </div>
 
         {/* Email with action */}

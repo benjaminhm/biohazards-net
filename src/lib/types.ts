@@ -104,6 +104,11 @@ export interface AssessmentData {
   custom_fields?: CustomField[]
 }
 
+export interface PhoneEntry {
+  label: string   // "Mobile", "Landline", "Work", "Other"
+  number: string
+}
+
 export interface Job {
   id: string
   status: JobStatus
@@ -111,6 +116,7 @@ export interface Job {
   job_type: JobType
   client_name: string
   client_phone: string
+  client_phones: PhoneEntry[]   // additional numbers beyond primary
   client_email: string
   site_address: string
   notes: string
