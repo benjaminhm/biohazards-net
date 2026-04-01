@@ -1,8 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { Job, JobStatus, JobType, JobUrgency } from '@/lib/types'
 import SmartFill from '@/components/SmartFill'
+
+interface Person { id: string; name: string; role: string; phone: string; email: string; status: string }
+interface Assignment { id: string; person_id: string; people: Person }
 
 const JOB_TYPES: { value: JobType; label: string }[] = [
   { value: 'crime_scene', label: 'Crime Scene' },
@@ -323,6 +326,11 @@ export default function DetailsTab({ job, onJobUpdate }: Props) {
 
       <hr className="divider" />
 
+      {/* Team */}
+      <TeamSection jobId={job.id} />
+
+      <hr className="divider" />
+
       {/* Notes log */}
       <div style={{ marginBottom: 16 }}>
         <label style={{ marginBottom: 12 }}>Notes Log</label>
@@ -392,6 +400,116 @@ export default function DetailsTab({ job, onJobUpdate }: Props) {
           {addingNote ? <span className="spinner" /> : 'Add Note'}
         </button>
       </div>
+    </div>
+  )
+}
+
+function TeamSection({ jobId }: { jobId: string }) {
+  const [assignments, setAssignments] = useState<Assignment[]>([])
+  const [people, setPeople]           = useState<Person[]>([])
+  const [loading, setLoading]         = useState(true)
+  const [adding, setAdding]           = useState(false)
+  const [selectedId, setSelectedId]   = useState('')
+  const [saving, setSaving]           = useState(false)
+
+  useEffect(() => {
+    Promise.all([
+      fetch(`/api/jobs/${jobId}/team`).then(r => r.json()),
+      fetch('/api/people').then(r => r.json()),
+    ]).then(([teamRes, peopleRes]) => {
+      setAssignments(teamRes.assignments ?? [])
+      setPeople((peopleRes.people ?? []).filter((p: Person) => p.status === 'active'))
+    }).finally(() => setLoading(false))
+  }, [jobId])
+
+  const assignedIds = new Set(assignments.map(a => a.person_id))
+  const available   = people.filter(p => !assignedIds.has(p.id))
+
+  async function addPerson() {
+    if (!selectedId) return
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/jobs/${jobId}/team`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ person_id: selectedId }),
+      })
+      const data = await res.json()
+      if (data.assignment) setAssignments(a => [...a, data.assignment])
+      setSelectedId(''); setAdding(false)
+    } finally { setSaving(false) }
+  }
+
+  async function removePerson(personId: string) {
+    await fetch(`/api/jobs/${jobId}/team/${personId}`, { method: 'DELETE' })
+    setAssignments(a => a.filter(x => x.person_id !== personId))
+  }
+
+  const roleColors: Record<string, string> = { employee: '#3B82F6', subcontractor: '#8B5CF6', admin: '#F59E0B' }
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <label style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--accent)', margin: 0 }}>
+          👥 Assigned Team
+        </label>
+        {!adding && available.length > 0 && (
+          <button onClick={() => setAdding(true)}
+            style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)', background: 'none', border: '1px solid var(--accent)', borderRadius: 6, padding: '4px 10px', cursor: 'pointer' }}>
+            + Add
+          </button>
+        )}
+      </div>
+
+      {loading ? (
+        <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Loading…</div>
+      ) : assignments.length === 0 && !adding ? (
+        <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>No team assigned yet.{available.length > 0 ? ' Tap + Add to dispatch someone.' : ' Add team members in the Team section first.'}</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {assignments.map(a => {
+            const p = a.people
+            const color = roleColors[p.role] ?? '#888'
+            return (
+              <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8 }}>
+                <div style={{ width: 34, height: 34, borderRadius: '50%', background: color + '22', border: `2px solid ${color}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color, flexShrink: 0 }}>
+                  {p.name.split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase()}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>{p.name}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'capitalize' }}>{p.role}</div>
+                </div>
+                {p.phone && (
+                  <a href={`tel:${p.phone.replace(/\s/g, '')}`} title="Call" style={{ fontSize: 18, textDecoration: 'none', flexShrink: 0 }}>📞</a>
+                )}
+                {p.phone && (
+                  <a href={`sms:${p.phone.replace(/\s/g, '')}`} title="Text" style={{ fontSize: 18, textDecoration: 'none', flexShrink: 0 }}>💬</a>
+                )}
+                <button onClick={() => removePerson(a.person_id)} title="Remove"
+                  style={{ fontSize: 14, background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', flexShrink: 0, padding: '4px' }}>✕</button>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {adding && (
+        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+          <select value={selectedId} onChange={e => setSelectedId(e.target.value)} style={{ flex: 1 }}>
+            <option value="">Select team member…</option>
+            {available.map(p => (
+              <option key={p.id} value={p.id}>{p.name} ({p.role})</option>
+            ))}
+          </select>
+          <button onClick={addPerson} disabled={!selectedId || saving}
+            style={{ padding: '8px 14px', borderRadius: 8, background: 'var(--accent)', color: '#fff', border: 'none', fontWeight: 600, fontSize: 13, cursor: 'pointer', opacity: !selectedId || saving ? 0.5 : 1 }}>
+            {saving ? '…' : 'Assign'}
+          </button>
+          <button onClick={() => { setAdding(false); setSelectedId('') }}
+            style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'none', color: 'var(--text)', cursor: 'pointer', fontSize: 13 }}>
+            Cancel
+          </button>
+        </div>
+      )}
     </div>
   )
 }
