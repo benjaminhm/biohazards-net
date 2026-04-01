@@ -84,7 +84,7 @@ export default function NewJobPage() {
             setForm(f => ({ ...f, ...updates }))
           }}
         />
-        <form onSubmit={submit}>
+        <form data-devid="P5-E1" onSubmit={submit}>
           {error && (
             <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, padding: 12, color: '#F87171', marginBottom: 24, fontSize: 14 }}>
               {error}
@@ -94,6 +94,7 @@ export default function NewJobPage() {
           <div className="field">
             <label>Client Name *</label>
             <input
+              data-devid="P5-E2"
               type="text"
               value={form.client_name}
               onChange={e => set('client_name', e.target.value)}
@@ -125,6 +126,7 @@ export default function NewJobPage() {
           <div className="field">
             <label>Site Address *</label>
             <input
+              data-devid="P5-E3"
               type="text"
               value={form.site_address}
               onChange={e => set('site_address', e.target.value)}
@@ -134,7 +136,7 @@ export default function NewJobPage() {
 
           <div className="field">
             <label>Job Type</label>
-            <select value={form.job_type} onChange={e => set('job_type', e.target.value)}>
+            <select data-devid="P5-E4" value={form.job_type} onChange={e => set('job_type', e.target.value)}>
               {JOB_TYPES.map(t => (
                 <option key={t.value} value={t.value}>{t.label}</option>
               ))}
@@ -168,6 +170,7 @@ export default function NewJobPage() {
           </div>
 
           <button
+            data-devid="P5-E6"
             type="submit"
             className="btn btn-primary"
             disabled={saving}

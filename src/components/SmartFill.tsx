@@ -68,6 +68,7 @@ export default function SmartFill({ onApply, sourceText, onSourceText, defaultOp
     }}>
       {/* Header button */}
       <button
+        data-devid="P5-E5"
         type="button"
         onClick={() => setOpen(o => !o)}
         style={{

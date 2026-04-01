@@ -526,16 +526,16 @@ function DocEditorInner() {
   const chatPanelInner = (
     <>
       <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <button onClick={buildWithClaude} disabled={building || !job}
+        <button data-devid="P3-E2" onClick={buildWithClaude} disabled={building || !job}
           style={{ width: '100%', padding: '10px', borderRadius: 8, fontSize: 13, fontWeight: 700, background: building ? 'var(--surface-2)' : 'var(--accent)', color: building ? 'var(--text-muted)' : '#fff', border: 'none', cursor: building || !job ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, opacity: building || !job ? 0.7 : 1 }}>
           {building ? <><span className="spinner" /> Building…</> : '✨ Build with Claude'}
         </button>
-        <button onClick={() => setShowInstructions(true)}
+        <button data-devid="P3-E3" onClick={() => setShowInstructions(true)}
           style={{ width: '100%', padding: '7px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: 'var(--bg)', color: company?.document_rules?.[docType] ? 'var(--accent)' : 'var(--text-muted)', border: '1px solid var(--border)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
           📋 {docLabel} Instructions{company?.document_rules?.[docType] ? ' ●' : ''}
         </button>
         {['quote','sow','report'].includes(docType) && (
-          <button
+          <button data-devid="P3-E4"
             onClick={() => updateField('include_photos', content.include_photos === false ? true : false)}
             style={{ width: '100%', padding: '7px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: 'var(--bg)', border: '1px solid var(--border)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, color: content.include_photos === false ? 'var(--text-muted)' : 'var(--accent)' }}>
             <span style={{ fontSize: 16, lineHeight: 1 }}>{content.include_photos === false ? '🚫' : '📷'}</span>
@@ -543,7 +543,7 @@ function DocEditorInner() {
           </button>
         )}
       </div>
-      <div style={{ flex: 1, overflowY: 'auto', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div data-devid="P3-E5" style={{ flex: 1, overflowY: 'auto', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
         {messages.length === 0 && !building && (
           <div style={{ color: 'var(--text-muted)', fontSize: 12, lineHeight: 1.6 }}>
             {hasContent ? 'Tap any section on the document to edit directly, or tell me what to change.' : 'Tap ✨ Build with Claude to generate your document.'}
@@ -565,7 +565,7 @@ function DocEditorInner() {
       </div>
       <div style={{ padding: '10px 12px', borderTop: '1px solid var(--border)' }}>
         <div style={{ display: 'flex', gap: 6 }}>
-          <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }}
+          <textarea data-devid="P3-E6" value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }}
             placeholder={hasContent ? 'Tell Claude what to change… (Enter to send)' : 'Build document first…'}
             disabled={chatting || !hasContent} rows={2}
             style={{ flex: 1, resize: 'none', fontSize: 13, padding: '8px 10px', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text)', lineHeight: 1.4 }} />
@@ -577,7 +577,7 @@ function DocEditorInner() {
   )
 
   const docPanelInner = (
-    <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '16px 12px 100px' : '32px 24px 80px', background: '#e8e8e8' }}>
+    <div data-devid="P3-E9" style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '16px 12px 100px' : '32px 24px 80px', background: '#e8e8e8' }}>
       {!hasContent ? (
         <div style={{ maxWidth: 600, margin: isMobile ? '40px auto' : '80px auto', textAlign: 'center', color: 'var(--text-muted)', padding: '0 16px' }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>📄</div>
@@ -600,7 +600,7 @@ function DocEditorInner() {
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--bg)', overflow: 'hidden' }}>
 
       {/* Top bar */}
-      <div style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)', padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, zIndex: 20 }}>
+      <div data-devid="P3-E1" style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)', padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, zIndex: 20 }}>
         <button onClick={() => router.push(`/jobs/${jobId}?tab=documents`)} style={{ fontSize: 18, color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px', flexShrink: 0 }}>←</button>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: 14 }}>{docLabel}</div>
@@ -608,10 +608,10 @@ function DocEditorInner() {
         </div>
         {saveErr && <div style={{ fontSize: 12, color: '#F87171', flexShrink: 0 }}>{saveErr}</div>}
         {saveOk  && <div style={{ fontSize: 12, color: '#4ADE80', flexShrink: 0 }}>✓</div>}
-        <button onClick={() => save(false)} disabled={saving || !hasContent} className="btn btn-secondary" style={{ fontSize: 13, padding: '8px 12px', flexShrink: 0 }}>
+        <button data-devid="P3-E7" onClick={() => save(false)} disabled={saving || !hasContent} className="btn btn-secondary" style={{ fontSize: 13, padding: '8px 12px', flexShrink: 0 }}>
           {saving ? '…' : isMobile ? '💾' : '💾 Save'}
         </button>
-        <button onClick={() => save(true)} disabled={saving || !hasContent} className="btn btn-primary" style={{ fontSize: 13, padding: '8px 12px', flexShrink: 0 }}>
+        <button data-devid="P3-E8" onClick={() => save(true)} disabled={saving || !hasContent} className="btn btn-primary" style={{ fontSize: 13, padding: '8px 12px', flexShrink: 0 }}>
           {isMobile ? '↗' : '↗ Preview & Send'}
         </button>
       </div>
@@ -641,12 +641,12 @@ function DocEditorInner() {
           </div>
           {/* Bottom tab bar */}
           <div style={{ display: 'flex', borderTop: '1px solid var(--border)', background: 'var(--surface)', flexShrink: 0, zIndex: 10 }}>
-            <button onClick={() => setMobileTab('doc')}
+            <button data-devid="P3-E10" onClick={() => setMobileTab('doc')}
               style={{ flex: 1, padding: '12px 8px', border: 'none', background: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, color: mobileTab === 'doc' ? 'var(--accent)' : 'var(--text-muted)', borderTop: mobileTab === 'doc' ? '2px solid var(--accent)' : '2px solid transparent' }}>
               <span style={{ fontSize: 20 }}>📄</span>
               Document
             </button>
-            <button onClick={() => setMobileTab('chat')}
+            <button data-devid="P3-E11" onClick={() => setMobileTab('chat')}
               style={{ flex: 1, padding: '12px 8px', border: 'none', background: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, color: mobileTab === 'chat' ? 'var(--accent)' : 'var(--text-muted)', borderTop: mobileTab === 'chat' ? '2px solid var(--accent)' : '2px solid transparent', position: 'relative' }}>
               <span style={{ fontSize: 20 }}>💬</span>
               Chat

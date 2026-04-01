@@ -119,6 +119,7 @@ export default function AdminPage() {
           <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>Platform administration — manage organisations</p>
         </div>
         <button
+          data-devid="P6-E2"
           onClick={() => setShowModal(true)}
           style={{
             background: 'var(--accent)',
@@ -136,7 +137,7 @@ export default function AdminPage() {
       </div>
 
       {/* Stats */}
-      <div style={{ display: 'flex', gap: 16, marginBottom: 32 }}>
+      <div data-devid="P6-E1" style={{ display: 'flex', gap: 16, marginBottom: 32 }}>
         <StatCard label="Total Orgs" value={totalOrgs} />
         <StatCard label="Active Orgs" value={activeOrgs} />
       </div>
@@ -149,7 +150,7 @@ export default function AdminPage() {
       )}
 
       {/* Table */}
-      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
+      <div data-devid="P6-E3" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Loading&hellip;</div>
         ) : orgs.length === 0 ? (

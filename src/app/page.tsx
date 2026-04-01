@@ -85,7 +85,7 @@ export default function HomePage() {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
-      <div style={{
+      <div data-devid="P1-E1" style={{
         padding: '32px 20px 24px',
         borderBottom: '1px solid var(--border)',
       }}>
@@ -130,7 +130,7 @@ export default function HomePage() {
         alignContent: 'start',
       }}>
         {/* Job Queue — full width */}
-        <Link href={tiles[0].href} style={{ gridColumn: '1 / -1', textDecoration: 'none' }}>
+        <Link data-devid="P1-E2" href={tiles[0].href} style={{ gridColumn: '1 / -1', textDecoration: 'none' }}>
           <div style={{
             background: 'var(--surface)',
             border: `1px solid var(--border)`,
@@ -152,8 +152,10 @@ export default function HomePage() {
         </Link>
 
         {/* Remaining tiles — 2 column grid */}
-        {tiles.slice(1).map((tile) => (
-          <Link key={tile.href} href={tile.href} style={{ textDecoration: 'none' }}>
+        {tiles.slice(1).map((tile, idx) => {
+          const devIds: Record<number, string> = { 0: 'P1-E3', 1: 'P1-E4', 2: 'P1-E5', 3: 'P1-E6' }
+          return (
+          <Link key={tile.href} data-devid={devIds[idx]} href={tile.href} style={{ textDecoration: 'none' }}>
             <div style={{
               background: 'var(--surface)',
               border: `1px solid var(--border)`,
@@ -173,12 +175,13 @@ export default function HomePage() {
               </div>
             </div>
           </Link>
-        ))}
+          )
+        })}
       </div>
 
       {/* Upcoming Bookings */}
       {upcoming.length > 0 && (
-        <div style={{ padding: '0 16px 24px' }}>
+        <div data-devid="P1-E7" style={{ padding: '0 16px 24px' }}>
           <div style={{
             fontSize: 11, fontWeight: 700, letterSpacing: '0.1em',
             textTransform: 'uppercase', color: 'var(--accent)',

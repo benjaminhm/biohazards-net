@@ -60,7 +60,7 @@ function EditableField({
             onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }}
             autoFocus
           />
-          <button className="btn btn-primary" onClick={save} style={{ padding: '10px 16px', fontSize: 13 }}>Save</button>
+          <button data-devid="P2-E5" className="btn btn-primary" onClick={save} style={{ padding: '10px 16px', fontSize: 13 }}>Save</button>
           <button className="btn btn-ghost" onClick={() => setEditing(false)} style={{ padding: '10px 12px', fontSize: 13 }}>✕</button>
         </div>
       ) : (

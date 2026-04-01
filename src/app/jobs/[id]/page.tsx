@@ -81,7 +81,7 @@ export default function JobPage() {
   return (
     <div style={{ minHeight: '100vh', paddingBottom: 40 }}>
       {/* Header */}
-      <div style={{ borderBottom: '1px solid var(--border)', padding: '14px 0', position: 'sticky', top: 0, background: 'var(--bg)', zIndex: 10 }}>
+      <div data-devid="P2-E1" style={{ borderBottom: '1px solid var(--border)', padding: '14px 0', position: 'sticky', top: 0, background: 'var(--bg)', zIndex: 10 }}>
         <div className="container">
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
             <Link href="/jobs/queue">
@@ -92,14 +92,14 @@ export default function JobPage() {
                 {job.client_name} — {JOB_TYPE_LABELS[job.job_type] ?? job.job_type}
               </div>
             </div>
-            <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+            <div data-devid="P2-E2" style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
               <span className={`badge badge-${job.status}`}>{STATUS_LABELS[job.status]}</span>
               <span className={`badge badge-${job.urgency}`}>{job.urgency}</span>
             </div>
           </div>
 
           {/* Tabs */}
-          <div style={{ display: 'flex', gap: 2, borderBottom: '1px solid var(--border)', marginBottom: -1 }}>
+          <div data-devid="P2-E3" style={{ display: 'flex', gap: 2, borderBottom: '1px solid var(--border)', marginBottom: -1 }}>
             {tabs.map(t => (
               <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
                 padding: '8px 14px', fontSize: 13, fontWeight: 600,
@@ -115,7 +115,7 @@ export default function JobPage() {
       </div>
 
       {/* Tab content */}
-      <div className="container" style={{ paddingTop: 24 }}>
+      <div data-devid="P2-E4" className="container" style={{ paddingTop: 24 }}>
         {activeTab === 'details' && (
           <DetailsTab job={job} onJobUpdate={setJob} />
         )}

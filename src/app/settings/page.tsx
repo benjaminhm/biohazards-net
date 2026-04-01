@@ -153,7 +153,7 @@ export default function SettingsPage() {
       <div className="container" style={{ paddingTop: 24, maxWidth: 560 }}>
 
         {/* Logo */}
-        <div className="card" style={{ marginBottom: 24 }}>
+        <div data-devid="P4-E2" className="card" style={{ marginBottom: 24 }}>
           <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent)', marginBottom: 14 }}>
             Company Logo
           </div>
@@ -203,7 +203,7 @@ export default function SettingsPage() {
         </div>
 
         {/* Company details */}
-        <div className="card" style={{ marginBottom: 24 }}>
+        <div data-devid="P4-E1" className="card" style={{ marginBottom: 24 }}>
           <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent)', marginBottom: 14 }}>
             Company Details
           </div>
@@ -224,7 +224,7 @@ export default function SettingsPage() {
         </div>
 
         {/* Document Instructions */}
-        <div className="card" style={{ marginBottom: 24 }}>
+        <div data-devid="P4-E3" className="card" style={{ marginBottom: 24 }}>
           <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent)', marginBottom: 4 }}>
             Document Instructions
           </div>
