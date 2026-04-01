@@ -425,10 +425,22 @@ function DocEditorInner() {
   const [input,            setInput]           = useState('')
   const [chatting,         setChatting]        = useState(false)
   const [showInstructions, setShowInstructions]= useState(false)
+  const [isMobile,         setIsMobile]        = useState(false)
+  const [mobileTab,        setMobileTab]        = useState<'doc' | 'chat'>('chat')
   const chatEndRef = useRef<HTMLDivElement>(null)
 
   const docLabel   = DOC_TYPE_LABELS[docType] ?? docType
   const hasContent = Object.keys(content).length > 0
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
+
+  // Default to doc tab when editing an existing doc
+  useEffect(() => { if (docId && hasContent) setMobileTab('doc') }, [docId, hasContent])
 
   useEffect(() => {
     async function load() {
@@ -458,7 +470,8 @@ function DocEditorInner() {
       const data = await res.json()
       if (data.error) throw new Error(data.error)
       setContent(data.content)
-      setMessages([{ role: 'assistant', text: `Done ✓  Your ${docLabel} is ready. Click any section to edit, or tell me what to change.` }])
+      setMessages([{ role: 'assistant', text: `Done ✓  Your ${docLabel} is ready. Tap the Document tab to review, or tell me what to change.` }])
+      setMobileTab('doc')
     } catch (err: unknown) {
       setMessages([{ role: 'assistant', text: `Error: ${err instanceof Error ? err.message : 'Build failed'}` }])
     } finally { setBuilding(false) }
@@ -508,6 +521,81 @@ function DocEditorInner() {
     finally { setSaving(false) }
   }
 
+  // ── Shared panel contents ────────────────────────────────────────────────────
+
+  const chatPanelInner = (
+    <>
+      <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <button onClick={buildWithClaude} disabled={building || !job}
+          style={{ width: '100%', padding: '10px', borderRadius: 8, fontSize: 13, fontWeight: 700, background: building ? 'var(--surface-2)' : 'var(--accent)', color: building ? 'var(--text-muted)' : '#fff', border: 'none', cursor: building || !job ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, opacity: building || !job ? 0.7 : 1 }}>
+          {building ? <><span className="spinner" /> Building…</> : '✨ Build with Claude'}
+        </button>
+        <button onClick={() => setShowInstructions(true)}
+          style={{ width: '100%', padding: '7px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: 'var(--bg)', color: company?.document_rules?.[docType] ? 'var(--accent)' : 'var(--text-muted)', border: '1px solid var(--border)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
+          📋 {docLabel} Instructions{company?.document_rules?.[docType] ? ' ●' : ''}
+        </button>
+        {['quote','sow','report'].includes(docType) && (
+          <button
+            onClick={() => updateField('include_photos', content.include_photos === false ? true : false)}
+            style={{ width: '100%', padding: '7px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: 'var(--bg)', border: '1px solid var(--border)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, color: content.include_photos === false ? 'var(--text-muted)' : 'var(--accent)' }}>
+            <span style={{ fontSize: 16, lineHeight: 1 }}>{content.include_photos === false ? '🚫' : '📷'}</span>
+            Photos {content.include_photos === false ? 'excluded' : 'included'}
+          </button>
+        )}
+      </div>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {messages.length === 0 && !building && (
+          <div style={{ color: 'var(--text-muted)', fontSize: 12, lineHeight: 1.6 }}>
+            {hasContent ? 'Tap any section on the document to edit directly, or tell me what to change.' : 'Tap ✨ Build with Claude to generate your document.'}
+          </div>
+        )}
+        {messages.length === 0 && hasContent && STARTERS.map(s => (
+          <button key={s} onClick={() => setInput(s)}
+            style={{ textAlign: 'left', padding: '8px 10px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer', lineHeight: 1.4 }}>
+            {s}
+          </button>
+        ))}
+        {messages.map((m, i) => (
+          <div key={i} style={{ alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '88%', padding: '9px 12px', borderRadius: m.role === 'user' ? '12px 12px 3px 12px' : '12px 12px 12px 3px', background: m.role === 'user' ? 'var(--accent)' : 'var(--bg)', color: m.role === 'user' ? '#fff' : 'var(--text)', border: m.role === 'assistant' ? '1px solid var(--border)' : 'none', fontSize: 13, lineHeight: 1.5 }}>
+            {m.text}
+          </div>
+        ))}
+        {chatting && <div style={{ alignSelf: 'flex-start', padding: '9px 14px', borderRadius: '12px 12px 12px 3px', background: 'var(--bg)', border: '1px solid var(--border)', fontSize: 13, color: 'var(--text-muted)', display: 'flex', gap: 6, alignItems: 'center' }}><span className="spinner" /> Updating…</div>}
+        <div ref={chatEndRef} />
+      </div>
+      <div style={{ padding: '10px 12px', borderTop: '1px solid var(--border)' }}>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }}
+            placeholder={hasContent ? 'Tell Claude what to change… (Enter to send)' : 'Build document first…'}
+            disabled={chatting || !hasContent} rows={2}
+            style={{ flex: 1, resize: 'none', fontSize: 13, padding: '8px 10px', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text)', lineHeight: 1.4 }} />
+          <button onClick={sendMessage} disabled={chatting || !input.trim() || !hasContent}
+            style={{ padding: '8px 12px', borderRadius: 8, background: 'var(--accent)', color: '#fff', border: 'none', fontWeight: 700, fontSize: 16, cursor: 'pointer', alignSelf: 'flex-end', opacity: chatting || !input.trim() || !hasContent ? 0.4 : 1, flexShrink: 0 }}>↑</button>
+        </div>
+      </div>
+    </>
+  )
+
+  const docPanelInner = (
+    <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '16px 12px 100px' : '32px 24px 80px', background: '#e8e8e8' }}>
+      {!hasContent ? (
+        <div style={{ maxWidth: 600, margin: isMobile ? '40px auto' : '80px auto', textAlign: 'center', color: 'var(--text-muted)', padding: '0 16px' }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>📄</div>
+          <div style={{ fontWeight: 600, fontSize: 16, color: 'var(--text)', marginBottom: 8 }}>Empty document</div>
+          <div style={{ fontSize: 13 }}>
+            {isMobile
+              ? <>Tap <strong>Chat</strong> below, then tap <strong>✨ Build with Claude</strong>.</>
+              : <>Click <strong>✨ Build with Claude</strong> to generate your {docLabel}.</>}
+          </div>
+        </div>
+      ) : (
+        <div style={{ maxWidth: 800, margin: '0 auto', background: '#fff', borderRadius: 4, boxShadow: '0 4px 32px rgba(0,0,0,0.12)', padding: isMobile ? '20px 16px' : '48px' }}>
+          <DocumentBody type={docType} content={content} company={company} onChange={updateField} />
+        </div>
+      )}
+    </div>
+  )
+
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--bg)', overflow: 'hidden' }}>
 
@@ -519,97 +607,62 @@ function DocEditorInner() {
           {job && <div style={{ fontSize: 11, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{job.client_name} — {job.site_address}</div>}
         </div>
         {saveErr && <div style={{ fontSize: 12, color: '#F87171', flexShrink: 0 }}>{saveErr}</div>}
-        {saveOk  && <div style={{ fontSize: 12, color: '#4ADE80', flexShrink: 0 }}>✓ Saved</div>}
-        <button onClick={() => save(false)} disabled={saving || !hasContent} className="btn btn-secondary" style={{ fontSize: 13, padding: '8px 14px', flexShrink: 0 }}>
-          {saving ? '…' : '💾 Save'}
+        {saveOk  && <div style={{ fontSize: 12, color: '#4ADE80', flexShrink: 0 }}>✓</div>}
+        <button onClick={() => save(false)} disabled={saving || !hasContent} className="btn btn-secondary" style={{ fontSize: 13, padding: '8px 12px', flexShrink: 0 }}>
+          {saving ? '…' : isMobile ? '💾' : '💾 Save'}
         </button>
-        <button onClick={() => save(true)} disabled={saving || !hasContent} className="btn btn-primary" style={{ fontSize: 13, padding: '8px 14px', flexShrink: 0 }}>
-          ↗ Preview &amp; Send
+        <button onClick={() => save(true)} disabled={saving || !hasContent} className="btn btn-primary" style={{ fontSize: 13, padding: '8px 12px', flexShrink: 0 }}>
+          {isMobile ? '↗' : '↗ Preview & Send'}
         </button>
       </div>
 
-      {/* Split layout */}
-      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+      {showInstructions && (
+        <InstructionsPanel
+          docType={docType}
+          docLabel={docLabel}
+          company={company}
+          onSaved={updated => setCompany(updated)}
+          onClose={() => setShowInstructions(false)}
+        />
+      )}
 
-        {/* Chat panel */}
-        <div style={{ width: 300, minWidth: 260, maxWidth: 340, borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', background: 'var(--surface)', flexShrink: 0 }}>
-          <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <button onClick={buildWithClaude} disabled={building || !job}
-              style={{ width: '100%', padding: '10px', borderRadius: 8, fontSize: 13, fontWeight: 700, background: building ? 'var(--surface-2)' : 'var(--accent)', color: building ? 'var(--text-muted)' : '#fff', border: 'none', cursor: building || !job ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, opacity: building || !job ? 0.7 : 1 }}>
-              {building ? <><span className="spinner" /> Building…</> : '✨ Build with Claude'}
+      {isMobile ? (
+        /* ── Mobile: full-width tabs ── */
+        <>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, position: 'relative' }}>
+            {/* Document tab content */}
+            <div style={{ display: mobileTab === 'doc' ? 'flex' : 'none', flex: 1, flexDirection: 'column', minHeight: 0 }}>
+              {docPanelInner}
+            </div>
+            {/* Chat tab content */}
+            <div style={{ display: mobileTab === 'chat' ? 'flex' : 'none', flex: 1, flexDirection: 'column', minHeight: 0, background: 'var(--surface)' }}>
+              {chatPanelInner}
+            </div>
+          </div>
+          {/* Bottom tab bar */}
+          <div style={{ display: 'flex', borderTop: '1px solid var(--border)', background: 'var(--surface)', flexShrink: 0, zIndex: 10 }}>
+            <button onClick={() => setMobileTab('doc')}
+              style={{ flex: 1, padding: '12px 8px', border: 'none', background: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, color: mobileTab === 'doc' ? 'var(--accent)' : 'var(--text-muted)', borderTop: mobileTab === 'doc' ? '2px solid var(--accent)' : '2px solid transparent' }}>
+              <span style={{ fontSize: 20 }}>📄</span>
+              Document
             </button>
-            <button onClick={() => setShowInstructions(true)}
-              style={{ width: '100%', padding: '7px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: 'var(--bg)', color: company?.document_rules?.[docType] ? 'var(--accent)' : 'var(--text-muted)', border: '1px solid var(--border)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
-              📋 {docLabel} Instructions{company?.document_rules?.[docType] ? ' ●' : ''}
+            <button onClick={() => setMobileTab('chat')}
+              style={{ flex: 1, padding: '12px 8px', border: 'none', background: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, color: mobileTab === 'chat' ? 'var(--accent)' : 'var(--text-muted)', borderTop: mobileTab === 'chat' ? '2px solid var(--accent)' : '2px solid transparent', position: 'relative' }}>
+              <span style={{ fontSize: 20 }}>💬</span>
+              Chat
+              {(building || chatting) && <span style={{ position: 'absolute', top: 8, right: '30%', width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)', animation: 'pulse 1s infinite' }} />}
             </button>
-            {['quote','sow','report'].includes(docType) && (
-              <button
-                onClick={() => updateField('include_photos', content.include_photos === false ? true : false)}
-                style={{ width: '100%', padding: '7px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: 'var(--bg)', border: '1px solid var(--border)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, color: content.include_photos === false ? 'var(--text-muted)' : 'var(--accent)' }}>
-                <span style={{ fontSize: 16, lineHeight: 1 }}>{content.include_photos === false ? '🚫' : '📷'}</span>
-                Photos {content.include_photos === false ? 'excluded' : 'included'}
-              </button>
-            )}
           </div>
-
-          <div style={{ flex: 1, overflowY: 'auto', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {messages.length === 0 && !building && (
-              <div style={{ color: 'var(--text-muted)', fontSize: 12, lineHeight: 1.6 }}>
-                {hasContent ? 'Click any section on the right to edit directly, or tell me what to change.' : 'Click ✨ Build with Claude to generate your document.'}
-              </div>
-            )}
-            {messages.length === 0 && hasContent && STARTERS.map(s => (
-              <button key={s} onClick={() => setInput(s)}
-                style={{ textAlign: 'left', padding: '8px 10px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer', lineHeight: 1.4 }}>
-                {s}
-              </button>
-            ))}
-            {messages.map((m, i) => (
-              <div key={i} style={{ alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '88%', padding: '9px 12px', borderRadius: m.role === 'user' ? '12px 12px 3px 12px' : '12px 12px 12px 3px', background: m.role === 'user' ? 'var(--accent)' : 'var(--bg)', color: m.role === 'user' ? '#fff' : 'var(--text)', border: m.role === 'assistant' ? '1px solid var(--border)' : 'none', fontSize: 13, lineHeight: 1.5 }}>
-                {m.text}
-              </div>
-            ))}
-            {chatting && <div style={{ alignSelf: 'flex-start', padding: '9px 14px', borderRadius: '12px 12px 12px 3px', background: 'var(--bg)', border: '1px solid var(--border)', fontSize: 13, color: 'var(--text-muted)', display: 'flex', gap: 6, alignItems: 'center' }}><span className="spinner" /> Updating…</div>}
-            <div ref={chatEndRef} />
+        </>
+      ) : (
+        /* ── Desktop: side-by-side ── */
+        <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+          <div style={{ width: 300, minWidth: 260, maxWidth: 340, borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', background: 'var(--surface)', flexShrink: 0 }}>
+            {chatPanelInner}
           </div>
-
-          <div style={{ padding: '10px 12px', borderTop: '1px solid var(--border)' }}>
-            <div style={{ display: 'flex', gap: 6 }}>
-              <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }}
-                placeholder={hasContent ? 'Tell Claude what to change… (Enter to send)' : 'Build document first…'}
-                disabled={chatting || !hasContent} rows={2}
-                style={{ flex: 1, resize: 'none', fontSize: 13, padding: '8px 10px', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text)', lineHeight: 1.4 }} />
-              <button onClick={sendMessage} disabled={chatting || !input.trim() || !hasContent}
-                style={{ padding: '8px 12px', borderRadius: 8, background: 'var(--accent)', color: '#fff', border: 'none', fontWeight: 700, fontSize: 16, cursor: 'pointer', alignSelf: 'flex-end', opacity: chatting || !input.trim() || !hasContent ? 0.4 : 1, flexShrink: 0 }}>↑</button>
-            </div>
-          </div>
+          {docPanelInner}
         </div>
-
-        {showInstructions && (
-          <InstructionsPanel
-            docType={docType}
-            docLabel={docLabel}
-            company={company}
-            onSaved={updated => setCompany(updated)}
-            onClose={() => setShowInstructions(false)}
-          />
-        )}
-
-        {/* Document panel */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '32px 24px 80px', background: '#e8e8e8' }}>
-          {!hasContent ? (
-            <div style={{ maxWidth: 600, margin: '80px auto', textAlign: 'center', color: 'var(--text-muted)' }}>
-              <div style={{ fontSize: 48, marginBottom: 16 }}>📄</div>
-              <div style={{ fontWeight: 600, fontSize: 16, color: 'var(--text)', marginBottom: 8 }}>Empty document</div>
-              <div style={{ fontSize: 13 }}>Click <strong>✨ Build with Claude</strong> to generate your {docLabel}.</div>
-            </div>
-          ) : (
-            <div style={{ maxWidth: 800, margin: '0 auto', background: '#fff', borderRadius: 4, boxShadow: '0 4px 32px rgba(0,0,0,0.12)', padding: '48px' }}>
-              <DocumentBody type={docType} content={content} company={company} onChange={updateField} />
-            </div>
-          )}
-        </div>
-      </div>
+      )}
     </div>
   )
 }
