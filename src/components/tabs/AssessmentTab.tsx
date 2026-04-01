@@ -1,7 +1,39 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import type { Job, AssessmentData, Area } from '@/lib/types'
+import type { Job, AssessmentData, Area, CustomField } from '@/lib/types'
+
+// Common field labels for quick selection — datalist suggestions
+const FIELD_SUGGESTIONS = [
+  'Insurance Company',
+  'Claim Number',
+  'Policy Number',
+  'Property Owner',
+  'Property Manager',
+  'Agent Contact',
+  'Key Location',
+  'Access Code',
+  'Coroner Released',
+  'Body Removed',
+  'Police Report Number',
+  'Asbestos Suspected',
+  'Meth Residue Testing Required',
+  'Specialist Disposal Required',
+  'Skip Bin Required',
+  'Number of Affected Rooms',
+  'Sewage Category',
+  'Water Damage Classification',
+  'Mould Type',
+  'Council Notification Required',
+  'Environmental Authority Required',
+  'Previous Works Done',
+  'Utilities Isolated',
+  'Pet / Animal on Premises',
+  'Next of Kin Contact',
+  'Funeral Director',
+  'Real Estate Contact',
+  'Body Corporate Notified',
+]
 
 const DEFAULT_ASSESSMENT: AssessmentData = {
   areas: [],
@@ -103,6 +135,25 @@ export default function AssessmentTab({ job, onJobUpdate }: Props) {
 
   function removeArea(index: number) {
     setData(d => ({ ...d, areas: d.areas.filter((_, i) => i !== index) }))
+    setSaved(false)
+  }
+
+  function addCustomField() {
+    setData(d => ({ ...d, custom_fields: [...(d.custom_fields ?? []), { label: '', value: '' }] }))
+    setSaved(false)
+  }
+
+  function updateCustomField(index: number, key: keyof CustomField, value: string) {
+    setData(d => {
+      const fields = [...(d.custom_fields ?? [])]
+      fields[index] = { ...fields[index], [key]: value }
+      return { ...d, custom_fields: fields }
+    })
+    setSaved(false)
+  }
+
+  function removeCustomField(index: number) {
+    setData(d => ({ ...d, custom_fields: (d.custom_fields ?? []).filter((_, i) => i !== index) }))
     setSaved(false)
   }
 
@@ -289,6 +340,64 @@ export default function AssessmentTab({ job, onJobUpdate }: Props) {
           style={{ resize: 'vertical' }}
         />
       </div>
+
+      {/* ── Additional Details (dynamic custom fields) ── */}
+      {section('Additional Details')}
+      <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16, marginTop: -8, lineHeight: 1.5 }}>
+        Capture anything specific to this job — insurance, access, contacts, specialist requirements. All fields feed into generated documents.
+      </p>
+
+      {/* Suggestions datalist */}
+      <datalist id="field-label-suggestions">
+        {FIELD_SUGGESTIONS.map(s => <option key={s} value={s} />)}
+      </datalist>
+
+      {(data.custom_fields ?? []).length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
+          {(data.custom_fields ?? []).map((field, i) => (
+            <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+              <div style={{ flex: '0 0 44%' }}>
+                <input
+                  list="field-label-suggestions"
+                  value={field.label}
+                  onChange={e => updateCustomField(i, 'label', e.target.value)}
+                  placeholder="Field name…"
+                  style={{ fontSize: 13 }}
+                />
+              </div>
+              <div style={{ flex: 1 }}>
+                <input
+                  value={field.value}
+                  onChange={e => updateCustomField(i, 'value', e.target.value)}
+                  placeholder="Value…"
+                  style={{ fontSize: 13 }}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => removeCustomField(i)}
+                style={{
+                  flexShrink: 0, padding: '0 10px', height: 42,
+                  color: 'var(--text-muted)', border: '1px solid var(--border)',
+                  borderRadius: 8, background: 'none', fontSize: 16,
+                  display: 'flex', alignItems: 'center', cursor: 'pointer',
+                }}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <button
+        type="button"
+        className="btn btn-secondary"
+        onClick={addCustomField}
+        style={{ fontSize: 13, marginBottom: 24 }}
+      >
+        + Add Detail
+      </button>
 
       <button
         className="btn btn-primary"

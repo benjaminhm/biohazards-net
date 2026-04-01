@@ -68,6 +68,11 @@ export interface Area {
   description: string
 }
 
+export interface CustomField {
+  label: string
+  value: string
+}
+
 export interface AssessmentData {
   areas: Area[]
   contamination_level: number
@@ -96,6 +101,7 @@ export interface AssessmentData {
   target_price_note?: string
   payment_terms?: string
   terms_and_conditions?: string
+  custom_fields?: CustomField[]
 }
 
 export interface Job {
