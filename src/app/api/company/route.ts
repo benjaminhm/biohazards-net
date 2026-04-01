@@ -1,13 +1,30 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 
-export async function GET() {
+function extractSubdomain(host: string): string | null {
+  // brisbanebiohazardcleaning.biohazards.net → brisbanebiohazardcleaning
+  // app.brisbanebiohazardcleaning.com.au → null (custom domain lookup instead)
+  const bhMatch = host.match(/^([^.]+)\.biohazards\.net$/)
+  return bhMatch ? bhMatch[1] : null
+}
+
+export async function GET(req: NextRequest) {
   const supabase = createServiceClient()
-  const { data, error } = await supabase
-    .from('company_profile')
-    .select('*')
-    .limit(1)
-    .single()
+  const tenantHost = req.headers.get('x-tenant-host')
+
+  let query = supabase.from('company_profile').select('*')
+
+  if (tenantHost) {
+    const subdomain = extractSubdomain(tenantHost)
+    if (subdomain) {
+      query = query.eq('subdomain', subdomain)
+    } else {
+      // Custom domain (e.g. app.brisbanebiohazardcleaning.com.au)
+      query = query.eq('custom_domain', tenantHost)
+    }
+  }
+
+  const { data, error } = await query.limit(1).single()
 
   if (error && error.code !== 'PGRST116') {
     return NextResponse.json({ error: error.message }, { status: 500 })
