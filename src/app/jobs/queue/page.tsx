@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import type { Job, JobStatus } from '@/lib/types'
+import { useUser, canSeeAssessment } from '@/lib/userContext'
 
 const STATUS_ORDER: JobStatus[] = [
   'lead', 'assessed', 'quoted', 'accepted', 'scheduled', 'underway',
@@ -112,6 +113,9 @@ function DeleteModal({ clientName, onConfirm, onCancel }: {
 function JobCard({ job, onDelete }: { job: Job; onDelete: (id: string) => void }) {
   const [showModal, setShowModal] = useState(false)
   const [deleted, setDeleted] = useState(false)
+  const { role } = useUser()
+  const price = job.assessment_data?.target_price
+  const priceNote = job.assessment_data?.target_price_note
 
   async function handleConfirm() {
     await fetch(`/api/jobs/${job.id}`, { method: 'DELETE' })
@@ -147,6 +151,11 @@ function JobCard({ job, onDelete }: { job: Job; onDelete: (id: string) => void }
           </Link>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, flexShrink: 0 }}>
             <span className={`badge badge-${job.status}`}>{STATUS_LABELS[job.status]}</span>
+            {canSeeAssessment(role) && price && (
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#10B981' }}>
+                ${price.toLocaleString('en-AU')}{priceNote ? ` ${priceNote}` : ''}
+              </span>
+            )}
             <button
               onClick={e => { e.preventDefault(); e.stopPropagation(); setShowModal(true) }}
               title="Delete job"
