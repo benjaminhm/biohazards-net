@@ -12,8 +12,23 @@ export interface OrgResult {
  * - If slug is 'app' or missing → query org_users WHERE clerk_user_id = clerkUserId, join orgs
  */
 export async function getOrgId(req: Request, clerkUserId: string | null): Promise<OrgResult> {
-  const slug = req.headers.get('x-org-slug')
+  const slug       = req.headers.get('x-org-slug')
+  const customHost = req.headers.get('x-org-host')
 
+  // Custom domain (e.g. app.brisbanebiohazardcleaning.com.au)
+  if (customHost) {
+    const supabase = createServiceClient()
+    const { data, error } = await supabase
+      .from('orgs')
+      .select('id, slug')
+      .eq('custom_domain', customHost)
+      .eq('is_active', true)
+      .single()
+    if (error || !data) return { orgId: null, orgSlug: null }
+    return { orgId: data.id as string, orgSlug: data.slug as string }
+  }
+
+  // Subdomain slug (e.g. brisbanebiohazardcleaning.biohazards.net)
   if (slug && slug !== 'app') {
     const supabase = createServiceClient()
     const { data, error } = await supabase
@@ -22,14 +37,12 @@ export async function getOrgId(req: Request, clerkUserId: string | null): Promis
       .eq('slug', slug)
       .eq('is_active', true)
       .single()
-
     if (error || !data) return { orgId: null, orgSlug: null }
     return { orgId: data.id as string, orgSlug: data.slug as string }
   }
 
-  // slug is 'app' or missing — resolve from user membership
+  // app.biohazards.net — resolve from user membership
   if (!clerkUserId) return { orgId: null, orgSlug: null }
-
   return getOrgResultForUser(clerkUserId)
 }
 

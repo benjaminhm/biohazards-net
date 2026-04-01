@@ -20,11 +20,15 @@ export default clerkMiddleware(async (auth, request: NextRequest) => {
   const host = request.headers.get('host') ?? ''
   const requestHeaders = new Headers(request.headers)
 
-  // Detect subdomain on biohazards.net
+  // Detect subdomain on biohazards.net or custom domain
   const subdomainMatch = host.match(/^([^.]+)\.biohazards\.net$/)
   const slug = subdomainMatch ? subdomainMatch[1] : null
+  const isCustomDomain = !host.endsWith('.biohazards.net') && host !== 'biohazards.net'
 
-  if (slug === 'app') {
+  if (isCustomDomain) {
+    // Custom domain e.g. app.brisbanebiohazardcleaning.com.au
+    requestHeaders.set('x-org-host', host)
+  } else if (slug === 'app') {
     requestHeaders.set('x-org-slug', 'app')
   } else if (slug && !EXCLUDED_SUBDOMAINS.has(slug)) {
     requestHeaders.set('x-org-slug', slug)
