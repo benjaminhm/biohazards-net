@@ -47,6 +47,12 @@ export default clerkMiddleware(async (auth, request: NextRequest) => {
     if (!adminIds.includes(userId)) {
       return new NextResponse('Forbidden — not a platform admin', { status: 403 })
     }
+
+    // Redirect admin subdomain root to /admin
+    const { pathname } = request.nextUrl
+    if (pathname === '/') {
+      return NextResponse.redirect(new URL('/admin', request.url))
+    }
   }
 
   if (!isPublicRoute(request)) {
