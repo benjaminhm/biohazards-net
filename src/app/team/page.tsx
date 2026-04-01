@@ -51,10 +51,41 @@ export default function TeamPage() {
   const [showAdd, setShowAdd] = useState(false)
   const [form, setForm] = useState({ name: '', email: '', phone: '', role: 'subcontractor' })
   const [saving, setSaving] = useState(false)
+  const [inviteLink, setInviteLink] = useState('')
+  const [inviteRole, setInviteRole] = useState('field')
+  const [showInvite, setShowInvite] = useState(false)
+  const [generatingInvite, setGeneratingInvite] = useState(false)
+  const [inviteCopied, setInviteCopied] = useState(false)
 
   useEffect(() => {
     fetch('/api/people').then(r => r.json()).then(d => { setPeople(d.people ?? []); setLoading(false) })
   }, [])
+
+  async function generateInvite() {
+    setGeneratingInvite(true)
+    setInviteLink('')
+    setInviteCopied(false)
+    try {
+      const res = await fetch('/api/invites', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: inviteRole }),
+      })
+      const data = await res.json()
+      if (data.token) {
+        const link = `${window.location.origin}/invite/${data.token}`
+        setInviteLink(link)
+      }
+    } finally {
+      setGeneratingInvite(false)
+    }
+  }
+
+  function copyInvite() {
+    navigator.clipboard.writeText(inviteLink)
+    setInviteCopied(true)
+    setTimeout(() => setInviteCopied(false), 2000)
+  }
 
   async function addPerson() {
     if (!form.name.trim()) return
@@ -78,8 +109,11 @@ export default function TeamPage() {
           <div style={{ fontWeight: 700, fontSize: 16 }}>Team</div>
           <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{active.length} active</div>
         </div>
+        <button onClick={() => { setShowInvite(true); setInviteLink('') }} style={{ padding: '9px 16px', borderRadius: 10, background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+          📤 Invite
+        </button>
         <button onClick={() => setShowAdd(true)} style={{ padding: '9px 16px', borderRadius: 10, background: 'var(--accent)', color: '#fff', border: 'none', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
-          + Add Person
+          + Add
         </button>
       </div>
 
@@ -156,6 +190,63 @@ export default function TeamPage() {
           </div>
         )}
       </div>
+
+      {/* Invite link modal */}
+      {showInvite && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 100, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+          <div style={{ background: 'var(--surface)', borderRadius: '20px 20px 0 0', padding: '24px 20px 40px', width: '100%', maxWidth: 500 }}>
+            <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 6 }}>Generate Invite Link</div>
+            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20 }}>
+              Send this link to a new team member. It expires in 7 days and can only be used once.
+            </div>
+
+            {/* Role selector */}
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Access Level</div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {[
+                  { value: 'field', label: '👷 Field Worker' },
+                  { value: 'operator', label: '🔧 Operator' },
+                  { value: 'admin', label: '🛡 Admin' },
+                ].map(r => (
+                  <button key={r.value} onClick={() => setInviteRole(r.value)}
+                    style={{ flex: 1, padding: '10px 8px', borderRadius: 10, border: `2px solid ${inviteRole === r.value ? 'var(--accent)' : 'var(--border)'}`, background: inviteRole === r.value ? 'rgba(255,107,53,0.1)' : 'var(--bg)', color: inviteRole === r.value ? 'var(--accent)' : 'var(--text)', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>
+                    {r.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Generated link */}
+            {inviteLink ? (
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Invite Link</div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input
+                    readOnly
+                    value={inviteLink}
+                    style={{ flex: 1, padding: '10px 12px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text-muted)', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis' }}
+                  />
+                  <button onClick={copyInvite}
+                    style={{ padding: '10px 16px', borderRadius: 10, background: inviteCopied ? '#10B981' : 'var(--accent)', color: '#fff', border: 'none', fontWeight: 700, fontSize: 13, cursor: 'pointer', flexShrink: 0 }}>
+                    {inviteCopied ? '✓ Copied' : 'Copy'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={generateInvite} disabled={generatingInvite}
+                style={{ width: '100%', padding: '13px', borderRadius: 10, background: 'var(--accent)', color: '#fff', border: 'none', fontWeight: 700, fontSize: 14, cursor: 'pointer', marginBottom: 20, opacity: generatingInvite ? 0.6 : 1 }}>
+                {generatingInvite ? 'Generating…' : '🔗 Generate Link'}
+              </button>
+            )}
+
+            <button onClick={() => { setShowInvite(false); setInviteLink('') }}
+              style={{ width: '100%', padding: '13px', borderRadius: 10, border: '1px solid var(--border)', background: 'none', color: 'var(--text)', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>
+              Close
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Add person modal */}
       {showAdd && (

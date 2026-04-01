@@ -25,6 +25,7 @@ export async function GET() {
     name,
     role: orgUser?.role ?? 'owner',
     org_id: orgUser?.org_id ?? null,
+    has_org: !!orgUser,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     org: (orgUser as any)?.orgs ?? null,
   })

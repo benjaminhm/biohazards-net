@@ -2,8 +2,11 @@
 
 import { useState } from 'react'
 
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.biohazards.net'
-const INTAKE_URL = `${APP_URL}/new-client`
+// Always use the current domain — works for any subdomain automatically
+function getIntakeUrl() {
+  if (typeof window === 'undefined') return '/new-client'
+  return `${window.location.origin}/new-client`
+}
 
 const DEFAULT_MESSAGE = `Thanks for your call. To get started, please fill in your details using the link below and we'll get back to you shortly.`
 
@@ -17,6 +20,7 @@ export default function IntakeSendPage() {
   const [smsSent, setSmsSent] = useState(false)
   const [error, setError] = useState('')
 
+  const INTAKE_URL = getIntakeUrl()
   const smsBody = encodeURIComponent(`${message}\n\n${INTAKE_URL}\n\n— Brisbane Biohazard Cleaning`)
   const cleanPhone = phone.replace(/\s/g, '')
 
@@ -28,7 +32,7 @@ export default function IntakeSendPage() {
       const res = await fetch('/api/send-intake-link', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, name, message }),
+        body: JSON.stringify({ email, name, message, intakeUrl: INTAKE_URL }),
       })
       if (!res.ok) throw new Error()
       setEmailSent(true)

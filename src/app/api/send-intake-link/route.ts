@@ -2,13 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { Resend } from 'resend'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.biohazards.net'
 
 export async function POST(req: NextRequest) {
-  const { email, name, message } = await req.json()
+  const { email, name, message, intakeUrl: clientIntakeUrl } = await req.json()
   if (!email) return NextResponse.json({ error: 'Email required' }, { status: 400 })
 
-  const intakeUrl = `${APP_URL}/new-client`
+  // Use the URL passed from the client (which is the current subdomain)
+  const intakeUrl = clientIntakeUrl ?? `${process.env.NEXT_PUBLIC_APP_URL ?? 'https://brisbanebiohazardcleaning.biohazards.net'}/new-client`
   const greeting = name ? `Hi ${name},` : 'Hi,'
 
   await resend.emails.send({
