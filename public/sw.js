@@ -1,13 +1,13 @@
-const CACHE_NAME = 'biohazard-v1'
+const CACHE_NAME = 'biohazard-v2'
+
+// Only cache truly static public assets — NOT '/' which requires auth
 const STATIC_ASSETS = [
-  '/',
   '/manifest.json',
   '/icon-192.png',
   '/icon-512.png',
   '/apple-touch-icon.png',
 ]
 
-// Install — cache static assets
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
@@ -15,7 +15,6 @@ self.addEventListener('install', (event) => {
   self.skipWaiting()
 })
 
-// Activate — clean up old caches
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
@@ -25,13 +24,13 @@ self.addEventListener('activate', (event) => {
   self.clients.claim()
 })
 
-// Fetch — network first, fall back to cache
 self.addEventListener('fetch', (event) => {
-  // Skip non-GET and API/Supabase requests — always go to network
+  // Only handle GET requests for same-origin pages
   if (
     event.request.method !== 'GET' ||
     event.request.url.includes('/api/') ||
     event.request.url.includes('supabase.co') ||
+    event.request.url.includes('clerk') ||
     event.request.url.includes('anthropic')
   ) {
     return
@@ -40,20 +39,14 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     fetch(event.request)
       .then((response) => {
-        // Cache successful page responses
-        if (response.status === 200) {
+        if (response.status === 200 && response.type === 'basic') {
           const clone = response.clone()
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone))
         }
         return response
       })
       .catch(() => {
-        // Offline fallback — serve from cache
-        return caches.match(event.request).then((cached) => {
-          if (cached) return cached
-          // Last resort — return the root page
-          return caches.match('/')
-        })
+        return caches.match(event.request).then((cached) => cached ?? Response.error())
       })
   )
 })
