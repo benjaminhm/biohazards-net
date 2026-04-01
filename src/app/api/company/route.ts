@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
+import { getOrgId } from '@/lib/org'
 
 function extractSubdomain(host: string): string | null {
   // brisbanebiohazardcleaning.biohazards.net → brisbanebiohazardcleaning
@@ -11,7 +13,32 @@ function extractSubdomain(host: string): string | null {
 export async function GET(req: NextRequest) {
   const supabase = createServiceClient()
   const tenantHost = req.headers.get('x-tenant-host')
+  const orgSlugHeader = req.headers.get('x-org-slug')
 
+  // If we have an org slug from middleware, try to find company_profile by org_id
+  if (orgSlugHeader && orgSlugHeader !== 'app' && orgSlugHeader !== 'admin') {
+    const { data: org } = await supabase
+      .from('orgs')
+      .select('id')
+      .eq('slug', orgSlugHeader)
+      .eq('is_active', true)
+      .single()
+
+    if (org?.id) {
+      const { data, error } = await supabase
+        .from('company_profile')
+        .select('*')
+        .eq('org_id', org.id)
+        .limit(1)
+        .single()
+
+      if (!error || error.code === 'PGRST116') {
+        return NextResponse.json({ company: data ?? null })
+      }
+    }
+  }
+
+  // Fall back to legacy subdomain / custom domain lookup
   let query = supabase.from('company_profile').select('*')
 
   if (tenantHost) {
@@ -33,16 +60,19 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ company: data ?? null })
 }
 
-export async function PATCH(req: Request) {
+export async function PATCH(req: NextRequest) {
   const supabase = createServiceClient()
   const body = await req.json()
 
-  // Get existing row id
-  const { data: existing } = await supabase
-    .from('company_profile')
-    .select('id')
-    .limit(1)
-    .single()
+  const { userId } = await auth()
+  const { orgId } = await getOrgId(req, userId ?? null)
+
+  let existingQuery = supabase.from('company_profile').select('id')
+  if (orgId) {
+    existingQuery = existingQuery.eq('org_id', orgId)
+  }
+
+  const { data: existing } = await existingQuery.limit(1).single()
 
   let data, error
 
@@ -56,7 +86,7 @@ export async function PATCH(req: Request) {
   } else {
     ;({ data, error } = await supabase
       .from('company_profile')
-      .insert({ ...body })
+      .insert({ ...body, org_id: orgId ?? undefined })
       .select()
       .single())
   }

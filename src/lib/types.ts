@@ -347,3 +347,26 @@ export type AnyDocContent =
 export interface PhotoWithData extends Photo {
   dataUrl?: string
 }
+
+// ── Multi-tenant ──────────────────────────────────────────────────────────────
+
+export interface Org {
+  id: string
+  name: string
+  slug: string
+  custom_domain?: string
+  plan: 'solo' | 'team' | 'business'
+  seat_limit: number
+  features: Record<string, boolean>
+  is_active: boolean
+  created_at: string
+}
+
+export interface OrgUser {
+  id: string
+  org_id: string
+  clerk_user_id: string
+  role: 'owner' | 'operator' | 'field'
+  is_active: boolean
+  created_at: string
+}

@@ -1,13 +1,19 @@
 import { NextResponse } from 'next/server'
+import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
+import { getOrgId } from '@/lib/org'
 
 export async function GET(req: Request) {
   try {
+    const { userId } = await auth()
+    const { orgId } = await getOrgId(req, userId ?? null)
+    if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
     const { searchParams } = new URL(req.url)
     const upcoming = searchParams.get('upcoming') === 'true'
     const supabase = createServiceClient()
 
-    let query = supabase.from('jobs').select('*')
+    let query = supabase.from('jobs').select('*').eq('org_id', orgId)
 
     if (upcoming) {
       query = query
@@ -30,6 +36,10 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
+    const { userId } = await auth()
+    const { orgId } = await getOrgId(req, userId ?? null)
+    if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
     const body = await req.json()
     const { client_name, client_phone, client_email, site_address, job_type, urgency } = body
 
@@ -50,6 +60,7 @@ export async function POST(req: Request) {
         status: 'lead',
         notes: '',
         assessment_data: null,
+        org_id: orgId,
       })
       .select()
       .single()

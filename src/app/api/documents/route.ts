@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
+import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
+import { getOrgId } from '@/lib/org'
 
 export async function GET(req: Request) {
   try {
@@ -7,13 +9,21 @@ export async function GET(req: Request) {
     const jobId = searchParams.get('jobId')
     if (!jobId) return NextResponse.json({ error: 'Missing jobId' }, { status: 400 })
 
+    const { userId } = await auth()
+    const { orgId } = await getOrgId(req, userId ?? null)
+
     const supabase = createServiceClient()
-    const { data, error } = await supabase
+    let query = supabase
       .from('documents')
       .select('*')
       .eq('job_id', jobId)
       .order('created_at', { ascending: false })
 
+    if (orgId) {
+      query = query.eq('org_id', orgId)
+    }
+
+    const { data, error } = await query
     if (error) throw error
     return NextResponse.json({ documents: data })
   } catch (err: unknown) {
@@ -24,6 +34,9 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
+    const { userId } = await auth()
+    const { orgId } = await getOrgId(req, userId ?? null)
+
     const { job_id, type, content, file_url } = await req.json()
     if (!job_id || !type || !content) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
@@ -32,7 +45,7 @@ export async function POST(req: Request) {
     const supabase = createServiceClient()
     const { data, error } = await supabase
       .from('documents')
-      .insert({ job_id, type, content, file_url: file_url ?? null })
+      .insert({ job_id, type, content, file_url: file_url ?? null, org_id: orgId ?? undefined })
       .select()
       .single()
 
