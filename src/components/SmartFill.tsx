@@ -16,10 +16,11 @@ interface Props {
   onApply: (fields: Record<string, string>) => void
   sourceText?: string
   onSourceText?: (text: string) => void
+  defaultOpen?: boolean
 }
 
-export default function SmartFill({ onApply, sourceText, onSourceText }: Props) {
-  const [open, setOpen] = useState(false)
+export default function SmartFill({ onApply, sourceText, onSourceText, defaultOpen = false }: Props) {
+  const [open, setOpen] = useState(defaultOpen)
   const [pastedText, setPastedText] = useState(sourceText ?? '')
   const [extracting, setExtracting] = useState(false)
   const [extracted, setExtracted] = useState<Record<string, string> | null>(null)
@@ -74,19 +75,21 @@ export default function SmartFill({ onApply, sourceText, onSourceText }: Props) 
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          padding: '13px 16px',
-          background: 'rgba(255,107,53,0.08)',
+          padding: '15px 16px',
+          background: open ? 'rgba(255,107,53,0.12)' : 'var(--accent)',
           border: 'none',
           cursor: 'pointer',
           gap: 8,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 16 }}>⚡</span>
-          <span style={{ color: 'var(--accent)', fontWeight: 700, fontSize: 14 }}>Smart Fill</span>
-          <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>paste a text, email or voicemail</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 20 }}>⚡</span>
+          <div style={{ textAlign: 'left' }}>
+            <div style={{ color: open ? 'var(--accent)' : '#fff', fontWeight: 800, fontSize: 15 }}>Smart Fill</div>
+            <div style={{ color: open ? 'var(--text-muted)' : 'rgba(255,255,255,0.75)', fontSize: 12 }}>Paste a text, email or voicemail — Claude fills the form</div>
+          </div>
         </div>
-        <span style={{ color: 'var(--text-muted)', fontSize: 12, flexShrink: 0 }}>
+        <span style={{ color: open ? 'var(--text-muted)' : 'rgba(255,255,255,0.8)', fontSize: 12, flexShrink: 0 }}>
           {open ? '▲ Close' : '▼ Open'}
         </span>
       </button>

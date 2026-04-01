@@ -74,6 +74,7 @@ export default function NewJobPage() {
 
       <div className="container" style={{ paddingTop: 32, paddingBottom: 60, maxWidth: 540 }}>
         <SmartFill
+          defaultOpen
           onApply={fields => {
             const allowed = ['client_name', 'client_phone', 'client_email', 'site_address', 'job_type', 'urgency']
             const updates: Partial<typeof form> = {}
