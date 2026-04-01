@@ -8,6 +8,7 @@ import DetailsTab from '@/components/tabs/DetailsTab'
 import AssessmentTab from '@/components/tabs/AssessmentTab'
 import PhotosTab from '@/components/tabs/PhotosTab'
 import DocumentsTab from '@/components/tabs/DocumentsTab'
+import { useUser, canSeeAssessment, canCreateDocuments } from '@/lib/userContext'
 
 type Tab = 'details' | 'assessment' | 'photos' | 'documents'
 
@@ -26,6 +27,7 @@ export default function JobPage() {
   const { id }       = useParams<{ id: string }>()
   const router       = useRouter()
   const searchParams = useSearchParams()
+  const { role }     = useUser()
 
   const [job,       setJob]       = useState<Job | null>(null)
   const [photos,    setPhotos]    = useState<Photo[]>([])
@@ -71,12 +73,13 @@ export default function JobPage() {
     )
   }
 
-  const tabs: { id: Tab; label: string }[] = [
-    { id: 'details',    label: 'Details' },
-    { id: 'assessment', label: 'Assessment' },
-    { id: 'photos',     label: `Photos${photos.length ? ` (${photos.length})` : ''}` },
-    { id: 'documents',  label: `Documents${documents.length ? ` (${documents.length})` : ''}` },
+  const allTabs: { id: Tab; label: string; show: boolean }[] = [
+    { id: 'details',    label: 'Details',                                                          show: true },
+    { id: 'assessment', label: 'Assessment',                                                       show: canSeeAssessment(role) },
+    { id: 'photos',     label: `Photos${photos.length ? ` (${photos.length})` : ''}`,             show: true },
+    { id: 'documents',  label: `Documents${documents.length ? ` (${documents.length})` : ''}`,    show: canCreateDocuments(role) },
   ]
+  const tabs = allTabs.filter(t => t.show)
 
   return (
     <div style={{ minHeight: '100vh', paddingBottom: 40 }}>

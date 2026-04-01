@@ -3,6 +3,7 @@ import { ClerkProvider } from '@clerk/nextjs'
 import './globals.css'
 import ServiceWorkerRegistration from '@/components/ServiceWorkerRegistration'
 import { DevModeProvider } from '@/lib/devMode'
+import { UserProvider } from '@/lib/userContext'
 import DevToggle from '@/components/DevToggle'
 import DevOverlay from '@/components/DevOverlay'
 
@@ -35,10 +36,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <html lang="en">
         <body>
           <DevModeProvider>
-            <ServiceWorkerRegistration />
-            {children}
-            <DevToggle />
-            <DevOverlay />
+            <UserProvider>
+              <ServiceWorkerRegistration />
+              {children}
+              <DevToggle />
+              <DevOverlay />
+            </UserProvider>
           </DevModeProvider>
         </body>
       </html>

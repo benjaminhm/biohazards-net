@@ -2,7 +2,9 @@
 
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { useClerk } from '@clerk/nextjs'
+import { useUser } from '@/lib/userContext'
 import type { CompanyProfile, Job } from '@/lib/types'
 
 function fmtBooking(iso: string) {
@@ -21,6 +23,12 @@ export default function HomePage() {
   const [time, setTime]             = useState('')
   const [upcoming, setUpcoming]     = useState<Job[]>([])
   const { signOut } = useClerk()
+  const { role, loading: userLoading } = useUser()
+  const router = useRouter()
+
+  useEffect(() => {
+    if (!userLoading && role === 'field') router.replace('/field')
+  }, [userLoading, role, router])
 
   useEffect(() => {
     fetch('/api/company')
