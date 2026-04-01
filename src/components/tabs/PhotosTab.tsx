@@ -141,7 +141,8 @@ export default function PhotosTab({ jobId, photos, areas = [], onPhotosUpdate }:
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState<Record<string, 'waiting' | 'uploading' | 'done' | 'error'>>({})
   const [uploadError, setUploadError] = useState('')
-  const fileRef = useRef<HTMLInputElement>(null)
+  const fileRef    = useRef<HTMLInputElement>(null)
+  const cameraRef  = useRef<HTMLInputElement>(null)
 
   async function onFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? [])
@@ -259,15 +260,32 @@ export default function PhotosTab({ jobId, photos, areas = [], onPhotosUpdate }:
           </div>
         </div>
 
-        <input type="file" ref={fileRef} onChange={onFileSelect} accept="image/*" multiple style={{ display: 'none' }} />
+        {/* Hidden inputs */}
+        <input type="file" ref={cameraRef} onChange={onFileSelect} accept="image/*" capture="environment" style={{ display: 'none' }} />
+        <input type="file" ref={fileRef}   onChange={onFileSelect} accept="image/*" multiple            style={{ display: 'none' }} />
 
-        <button
-          className="btn btn-secondary"
-          onClick={() => fileRef.current?.click()}
-          style={{ width: '100%', padding: 16, borderStyle: 'dashed', fontSize: 14, marginBottom: 12 }}
-        >
-          📷 Select Photos {pending.length > 0 ? `(${pending.length} queued — add more)` : '— tap to select one or many'}
-        </button>
+        {/* Camera + Gallery buttons */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+          <button
+            className="btn btn-primary"
+            onClick={() => cameraRef.current?.click()}
+            style={{ padding: '14px 8px', fontSize: 15, fontWeight: 700, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+          >
+            📷 Camera
+          </button>
+          <button
+            className="btn btn-secondary"
+            onClick={() => fileRef.current?.click()}
+            style={{ padding: '14px 8px', fontSize: 15, fontWeight: 700, borderRadius: 12, borderStyle: 'dashed', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+          >
+            🖼 Gallery
+          </button>
+        </div>
+        {pending.length > 0 && (
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', marginBottom: 8 }}>
+            {pending.length} photo{pending.length > 1 ? 's' : ''} queued — tap Camera or Gallery to add more
+          </div>
+        )}
 
         {/* Apply-all category bar */}
         {pending.length > 1 && (
