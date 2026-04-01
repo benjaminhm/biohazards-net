@@ -60,6 +60,13 @@ export default function HomePage() {
       color: '#3B82F6',
     },
     {
+      href: '/team',
+      icon: '👥',
+      label: 'Team',
+      sub: 'Staff & subcontractors',
+      color: '#10B981',
+    },
+    {
       href: '/new-client',
       icon: '👤',
       label: 'New Client',
