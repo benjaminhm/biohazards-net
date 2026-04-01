@@ -8,7 +8,7 @@ function getIntakeUrl() {
   return `${window.location.origin}/new-client`
 }
 
-const DEFAULT_MESSAGE = `Thanks for your call. To get started, please fill in your details using the link below and we'll get back to you shortly.`
+const DEFAULT_MESSAGE = `Hi, thanks for reaching out to Brisbane Biohazard Cleaning. Please use the link below to send us your details and we'll be in touch shortly.`
 
 export default function IntakeSendPage() {
   const [name, setName] = useState('')
@@ -76,9 +76,9 @@ export default function IntakeSendPage() {
           display: 'flex', alignItems: 'center', gap: 10,
         }}>
           <span style={{ fontSize: 18 }}>🔗</span>
-          <div>
+          <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>Intake form link</div>
-            <div style={{ fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}>{INTAKE_URL}</div>
+            <div style={{ fontSize: 13, color: 'var(--accent)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{INTAKE_URL}</div>
           </div>
         </div>
 
