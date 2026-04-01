@@ -35,6 +35,7 @@ function certStatus(docs: PersonDoc[]) {
 }
 
 const ROLE_COLORS: Record<string, string> = {
+  admin: '#FF6B35',
   employee: '#3B82F6',
   subcontractor: '#8B5CF6',
 }
@@ -171,11 +172,15 @@ export default function TeamPage() {
               <input value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
                 placeholder="Email" type="email"
                 style={{ padding: '12px 14px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 15 }} />
-              <div style={{ display: 'flex', gap: 8 }}>
-                {['subcontractor','employee'].map(r => (
-                  <button key={r} onClick={() => setForm(f => ({ ...f, role: r }))}
-                    style={{ flex: 1, padding: '11px', borderRadius: 10, border: `2px solid ${form.role === r ? 'var(--accent)' : 'var(--border)'}`, background: form.role === r ? 'var(--accent)' : 'var(--bg)', color: form.role === r ? '#fff' : 'var(--text)', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
-                    {r === 'employee' ? '👷 Employee' : '🔧 Subcontractor'}
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {[
+                  { value: 'admin', label: '🛡 Admin' },
+                  { value: 'employee', label: '👷 Employee' },
+                  { value: 'subcontractor', label: '🔧 Subcontractor' },
+                ].map(r => (
+                  <button key={r.value} onClick={() => setForm(f => ({ ...f, role: r.value }))}
+                    style={{ flex: 1, minWidth: 90, padding: '11px', borderRadius: 10, border: `2px solid ${form.role === r.value ? ROLE_COLORS[r.value] : 'var(--border)'}`, background: form.role === r.value ? ROLE_COLORS[r.value] : 'var(--bg)', color: form.role === r.value ? '#fff' : 'var(--text)', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+                    {r.label}
                   </button>
                 ))}
               </div>

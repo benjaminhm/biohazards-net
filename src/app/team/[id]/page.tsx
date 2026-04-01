@@ -176,11 +176,15 @@ export default function PersonPage() {
               <input value={person.name} onChange={e => updateField('name', e.target.value)} style={inputStyle} />
             </Field>
             <Field label="Role">
-              <div style={{ display: 'flex', gap: 8 }}>
-                {['employee','subcontractor'].map(r => (
-                  <button key={r} onClick={() => updateField('role', r)}
-                    style={{ flex: 1, padding: '10px', borderRadius: 8, border: `2px solid ${person.role === r ? 'var(--accent)' : 'var(--border)'}`, background: person.role === r ? 'var(--accent)' : 'var(--bg)', color: person.role === r ? '#fff' : 'var(--text)', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
-                    {r === 'employee' ? '👷 Employee' : '🔧 Subcontractor'}
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {[
+                  { value: 'admin', label: '🛡 Admin', color: '#FF6B35' },
+                  { value: 'employee', label: '👷 Employee', color: '#3B82F6' },
+                  { value: 'subcontractor', label: '🔧 Subcontractor', color: '#8B5CF6' },
+                ].map(r => (
+                  <button key={r.value} onClick={() => updateField('role', r.value)}
+                    style={{ flex: 1, minWidth: 90, padding: '10px', borderRadius: 8, border: `2px solid ${person.role === r.value ? r.color : 'var(--border)'}`, background: person.role === r.value ? r.color : 'var(--bg)', color: person.role === r.value ? '#fff' : 'var(--text)', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+                    {r.label}
                   </button>
                 ))}
               </div>
