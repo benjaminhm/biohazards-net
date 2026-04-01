@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import type { Job, AssessmentData, Area, CustomField } from '@/lib/types'
 
 // Common field labels for quick selection — datalist suggestions
@@ -102,6 +102,22 @@ function mergeWithDefaults(saved: AssessmentData | null): AssessmentData {
   return { ...DEFAULT_ASSESSMENT, ...(saved ?? {}) }
 }
 
+// Speech recognition type shim
+type SpeechRecognitionInstance = {
+  continuous: boolean
+  interimResults: boolean
+  lang: string
+  onresult: (e: SpeechRecognitionEvent) => void
+  onerror: (e: { error: string }) => void
+  onend: () => void
+  start: () => void
+  stop: () => void
+}
+type SpeechRecognitionEvent = {
+  resultIndex: number
+  results: { isFinal: boolean; 0: { transcript: string } }[]
+}
+
 export default function AssessmentTab({ job, onJobUpdate }: Props) {
   const [data, setData] = useState<AssessmentData>(mergeWithDefaults(job.assessment_data))
   const [saving, setSaving] = useState(false)
@@ -110,6 +126,9 @@ export default function AssessmentTab({ job, onJobUpdate }: Props) {
   const [extracting, setExtracting] = useState(false)
   const [extractError, setExtractError] = useState('')
   const [justExtracted, setJustExtracted] = useState(false)
+  const [recording, setRecording] = useState(false)
+  const [interimText, setInterimText] = useState('')
+  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null)
 
   useEffect(() => {
     setData(mergeWithDefaults(job.assessment_data))
@@ -159,6 +178,53 @@ export default function AssessmentTab({ job, onJobUpdate }: Props) {
   function removeCustomField(index: number) {
     setData(d => ({ ...d, custom_fields: (d.custom_fields ?? []).filter((_, i) => i !== index) }))
     setSaved(false)
+  }
+
+  function startRecording() {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    if (!SR) {
+      setExtractError('Voice recording is not supported in this browser. Use Chrome.')
+      return
+    }
+    const recognition: SpeechRecognitionInstance = new SR()
+    recognition.continuous = true
+    recognition.interimResults = true
+    recognition.lang = 'en-AU'
+
+    recognition.onresult = (e: SpeechRecognitionEvent) => {
+      let finalChunk = ''
+      let interim = ''
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const transcript = e.results[i][0].transcript
+        if (e.results[i].isFinal) finalChunk += transcript + ' '
+        else interim += transcript
+      }
+      if (finalChunk) setSmartText(t => t + finalChunk)
+      setInterimText(interim)
+    }
+
+    recognition.onerror = (e: { error: string }) => {
+      if (e.error !== 'no-speech') setExtractError(`Mic error: ${e.error}`)
+      setRecording(false)
+      setInterimText('')
+    }
+
+    recognition.onend = () => {
+      setRecording(false)
+      setInterimText('')
+    }
+
+    recognitionRef.current = recognition
+    recognition.start()
+    setRecording(true)
+    setExtractError('')
+  }
+
+  function stopRecording() {
+    recognitionRef.current?.stop()
+    setRecording(false)
+    setInterimText('')
   }
 
   async function extractFromText() {
@@ -251,29 +317,81 @@ export default function AssessmentTab({ job, onJobUpdate }: Props) {
           </div>
         ) : (
           <>
-            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>SmartFill</div>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12, lineHeight: 1.5 }}>
-              Paste an email thread, voice memo transcript, or site notes. Claude will extract and populate the fields below.
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+              <div style={{ fontWeight: 700, fontSize: 14 }}>SmartFill</div>
+              {/* Mic button */}
+              <button
+                type="button"
+                onClick={recording ? stopRecording : startRecording}
+                title={recording ? 'Stop recording' : 'Speak your site notes'}
+                style={{
+                  width: 38, height: 38, borderRadius: '50%',
+                  border: `2px solid ${recording ? '#EF4444' : 'var(--border-2)'}`,
+                  background: recording ? 'rgba(239,68,68,0.1)' : 'var(--surface-3)',
+                  color: recording ? '#EF4444' : 'var(--text-muted)',
+                  fontSize: 16, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  transition: 'all 0.15s',
+                  animation: recording ? 'pulse 1.2s ease-in-out infinite' : 'none',
+                }}
+              >
+                🎙
+              </button>
             </div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12, lineHeight: 1.5 }}>
+              {recording
+                ? 'Listening — speak your site notes, then tap 🎙 to stop'
+                : 'Tap 🎙 to speak, or paste an email thread or notes below'}
+            </div>
+
+            {/* Live interim transcript shown while speaking */}
+            {recording && interimText && (
+              <div style={{
+                background: 'rgba(255,107,53,0.06)', border: '1px dashed rgba(255,107,53,0.3)',
+                borderRadius: 8, padding: '10px 12px', marginBottom: 10,
+                fontSize: 13, color: 'var(--text-muted)', fontStyle: 'italic', lineHeight: 1.6,
+              }}>
+                {interimText}
+              </div>
+            )}
+
             <textarea
               value={smartText}
               onChange={e => setSmartText(e.target.value)}
-              placeholder="Paste email, notes, or voice memo here…&#10;&#10;e.g. &quot;Attended site at 42 Smith St. Two rooms affected — master bedroom approx 4sqm blood contamination, ensuite 2sqm. Insurance with Suncorp, claim SUN-12345. Body removed by QPS. Coroner released 14 March. Will need full PPE, skip bin required...&quot;"
-              rows={5}
+              placeholder={recording ? 'Transcript will appear here as you speak…' : 'Or paste email, notes, or voice memo transcript here…'}
+              rows={4}
               style={{ resize: 'vertical', fontSize: 13, lineHeight: 1.6, marginBottom: 10 }}
             />
             {extractError && (
               <div style={{ fontSize: 12, color: '#F87171', marginBottom: 8 }}>{extractError}</div>
             )}
-            <button
-              type="button"
-              onClick={extractFromText}
-              disabled={!smartText.trim() || extracting}
-              className="btn btn-primary"
-              style={{ fontSize: 13, padding: '10px 20px', opacity: !smartText.trim() ? 0.4 : 1 }}
-            >
-              {extracting ? <><span className="spinner" style={{ width: 14, height: 14 }} /> Extracting…</> : '⚡ Extract Fields'}
-            </button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                type="button"
+                onClick={extractFromText}
+                disabled={!smartText.trim() || extracting || recording}
+                className="btn btn-primary"
+                style={{ fontSize: 13, padding: '10px 20px', opacity: (!smartText.trim() || recording) ? 0.4 : 1 }}
+              >
+                {extracting ? <><span className="spinner" style={{ width: 14, height: 14 }} /> Extracting…</> : '⚡ Extract Fields'}
+              </button>
+              {smartText && !recording && (
+                <button
+                  type="button"
+                  onClick={() => setSmartText('')}
+                  style={{ fontSize: 13, padding: '10px 14px', color: 'var(--text-muted)', border: '1px solid var(--border)', borderRadius: 8, background: 'none', cursor: 'pointer' }}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+
+            <style>{`
+              @keyframes pulse {
+                0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.4); }
+                50% { box-shadow: 0 0 0 6px rgba(239,68,68,0); }
+              }
+            `}</style>
           </>
         )}
       </div>

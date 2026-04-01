@@ -7,6 +7,43 @@ import SmartFill from '@/components/SmartFill'
 interface Person { id: string; name: string; role: string; phone: string; email: string; status: string }
 interface Assignment { id: string; person_id: string; people: Person }
 
+// ── Phone normalisation ──────────────────────────────────────────────────────
+// Converts any AU mobile format to 04xxxxxxxx
+function normalizeAUPhone(raw: string): string {
+  if (!raw) return raw
+  const cleaned = raw.replace(/[\s\-\(\)\.]/g, '')
+  if (cleaned.startsWith('+614')) return '0' + cleaned.slice(3)   // +614xx → 04xx
+  if (cleaned.startsWith('+61')) return '0' + cleaned.slice(3)    // +610x  → 0x
+  if (cleaned.startsWith('614')) return '0' + cleaned.slice(2)    // 614xx  → 04xx
+  return cleaned
+}
+
+// Converts 04xxxxxxxx to +61xxxxxxxx (E.164 international format)
+function toE164(phone: string): string {
+  if (!phone) return ''
+  const cleaned = phone.replace(/\s/g, '')
+  if (cleaned.startsWith('0')) return '+61' + cleaned.slice(1)
+  if (cleaned.startsWith('+61')) return cleaned
+  return cleaned
+}
+
+// Extracts suburb from an Australian address string
+// "42 Smith St, Newstead QLD 4006" → "Newstead"
+function extractSuburb(address: string): string {
+  if (!address) return ''
+  const parts = address.split(',')
+  if (parts.length >= 2) {
+    // Second part typically: "Newstead QLD 4006" or " Suburb State Postcode"
+    const raw = parts[1].trim()
+    return raw.replace(/\b(QLD|NSW|VIC|WA|SA|TAS|ACT|NT)\b.*/i, '').replace(/\d{4,}.*/, '').trim()
+  }
+  // No comma — try last word group before state/postcode
+  const match = address.match(/([A-Za-z\s]+?)(?:\s+(?:QLD|NSW|VIC|WA|SA|TAS|ACT|NT))?(?:\s+\d{4})?$/i)
+  return match ? match[1].trim().split(/\s+/).slice(-2).join(' ') : ''
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 const JOB_TYPES: { value: JobType; label: string }[] = [
   { value: 'crime_scene', label: 'Crime Scene' },
   { value: 'hoarding', label: 'Hoarding' },
@@ -154,14 +191,25 @@ export default function DetailsTab({ job, onJobUpdate }: Props) {
   }
 
   function downloadVCard() {
+    const serviceLabel = JOB_TYPES.find(t => t.value === job.job_type)?.label ?? job.job_type
+    const suburb = extractSuburb(job.site_address)
+    // Contact name: "John Smith · Unattended Death · Newstead"
+    const contactName = [job.client_name, serviceLabel, suburb].filter(Boolean).join(' · ')
+
+    // Store both AU formats so phone matches incoming texts from either +61 or 04xx
+    const phone04  = normalizeAUPhone(job.client_phone)
+    const phone61  = toE164(phone04)
+
     const vcard = [
       'BEGIN:VCARD',
       'VERSION:3.0',
-      `FN:${job.client_name}`,
-      job.client_phone ? `TEL;TYPE=CELL:${job.client_phone}` : '',
+      `FN:${contactName}`,
+      `N:${job.client_name};;;;`,
+      phone04 ? `TEL;TYPE=CELL:${phone04}` : '',
+      phone61 && phone61 !== phone04 ? `TEL;TYPE=CELL:${phone61}` : '',
       job.client_email ? `EMAIL:${job.client_email}` : '',
       job.site_address ? `ADR;TYPE=HOME:;;${job.site_address};;;;` : '',
-      `NOTE:${job.job_type.replace(/_/g, ' ')} — biohazards.net`,
+      `NOTE:${serviceLabel}${suburb ? ' · ' + suburb : ''} — biohazards.net`,
       'END:VCARD',
     ].filter(Boolean).join('\n')
 
@@ -169,9 +217,15 @@ export default function DetailsTab({ job, onJobUpdate }: Props) {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${job.client_name.replace(/\s+/g, '_')}.vcf`
+    a.download = `${contactName.replace(/[^a-zA-Z0-9]+/g, '_')}.vcf`
     a.click()
     URL.revokeObjectURL(url)
+  }
+
+  // Auto-normalise phone to 04xx when saving
+  async function updatePhone(raw: string) {
+    const normalised = normalizeAUPhone(raw)
+    await updateField('client_phone', normalised)
   }
 
   const urgencies: JobUrgency[] = ['standard', 'urgent', 'emergency']
@@ -228,12 +282,12 @@ export default function DetailsTab({ job, onJobUpdate }: Props) {
           <label>Phone</label>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             <div style={{ flex: 1 }}>
-              <EditableField label="" value={job.client_phone} onChange={v => updateField('client_phone', v)} type="tel" />
+              <EditableField label="" value={job.client_phone} onChange={v => updatePhone(v)} type="tel" />
             </div>
             {job.client_phone && (
               <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                <a href={`tel:${job.client_phone.replace(/\s/g, '')}`} title="Call" style={actionBtn}>📞</a>
-                <a href={`sms:${job.client_phone.replace(/\s/g, '')}`} title="Text" style={actionBtn}>💬</a>
+                <a href={`tel:${toE164(normalizeAUPhone(job.client_phone))}`} title="Call" style={actionBtn}>📞</a>
+                <a href={`sms:${toE164(normalizeAUPhone(job.client_phone))}`} title="Text" style={actionBtn}>💬</a>
               </div>
             )}
           </div>
