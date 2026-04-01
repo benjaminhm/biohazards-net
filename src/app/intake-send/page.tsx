@@ -8,7 +8,7 @@ function getIntakeUrl() {
   return `${window.location.origin}/new-client`
 }
 
-const DEFAULT_MESSAGE = `Hi, thanks for reaching out to Brisbane Biohazard Cleaning. Please use the link below to send us your details and we'll be in touch shortly.`
+const DEFAULT_MESSAGE = `Hi, thanks for getting in touch. Please fill in your details using the link below — it helps us understand what you need and respond quickly. Everything you share is confidential.`
 
 export default function IntakeSendPage() {
   const [name, setName] = useState('')

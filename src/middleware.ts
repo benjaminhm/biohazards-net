@@ -10,6 +10,7 @@ const isPublicRoute = createRouteMatcher([
   '/pending(.*)',
   '/invite/(.*)',
   '/api/intake(.*)',
+  '/api/intake/upload-url(.*)',
   '/api/accept/(.*)',
   '/api/notify-lead(.*)',
   '/api/company(.*)',
