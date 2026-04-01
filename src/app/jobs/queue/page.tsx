@@ -197,11 +197,14 @@ export default function JobQueuePage() {
       {/* Header */}
       <div style={{ borderBottom: '1px solid var(--border)', padding: '16px 0' }}>
         <div className="container" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--accent)', marginBottom: 2 }}>
-              Brisbane Biohazard Cleaning
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Link href="/" style={{ fontSize: 20, color: 'var(--text-muted)', textDecoration: 'none', lineHeight: 1, padding: '2px 4px' }}>←</Link>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--accent)', marginBottom: 2 }}>
+                Brisbane Biohazard Cleaning
+              </div>
+              <h1 style={{ fontSize: 22, fontWeight: 700 }}>Job Queue</h1>
             </div>
-            <h1 style={{ fontSize: 22, fontWeight: 700 }}>Job Queue</h1>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
