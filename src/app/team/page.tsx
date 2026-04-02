@@ -226,9 +226,9 @@ export default function TeamPage() {
                   style={{
                     padding: '12px 14px',
                     borderRadius: 10,
-                    border: '1px solid var(--accent)',
-                    background: 'rgba(255,107,53,0.06)',
-                    color: 'var(--text)',
+                    border: '1px solid #d1d5db',
+                    background: '#fff',
+                    color: '#111',
                     fontSize: 13,
                     lineHeight: 1.6,
                     wordBreak: 'break-all',
