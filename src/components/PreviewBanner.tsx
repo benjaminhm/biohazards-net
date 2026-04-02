@@ -2,9 +2,17 @@
 
 import { useUser } from '@/lib/userContext'
 
+function getPreviewName(): string | null {
+  if (typeof window === 'undefined') return null
+  return localStorage.getItem('preview_name')
+}
+
 export default function PreviewBanner() {
   const { previewMode, exitPreview } = useUser()
   if (!previewMode) return null
+
+  const name = getPreviewName()
+  const label = name ? `👁 Previewing as ${name}` : '👁 Previewing as Team Member'
 
   return (
     <>
@@ -14,7 +22,7 @@ export default function PreviewBanner() {
         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
         padding: '8px 16px', fontSize: 12, fontWeight: 600, flexWrap: 'wrap',
       }}>
-        <span>👁 Previewing as Team Member</span>
+        <span>{label}</span>
         <span style={{ opacity: 0.5, fontSize: 10 }}>|</span>
         <span style={{ opacity: 0.75, fontWeight: 400 }}>You are still an Administrator</span>
         <button

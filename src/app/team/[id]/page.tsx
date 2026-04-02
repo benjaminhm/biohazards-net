@@ -570,10 +570,29 @@ export default function PersonPage() {
                   </div>
                 )}
 
-                <button onClick={saveAccess} disabled={savingAccess}
-                  style={{ width: '100%', padding: 14, borderRadius: 10, background: 'var(--accent)', color: '#fff', border: 'none', fontWeight: 700, fontSize: 15, cursor: 'pointer', opacity: savingAccess ? 0.6 : 1 }}>
-                  {savingAccess ? 'Saving…' : accessSaved ? '✓ Saved' : 'Save Access Settings'}
-                </button>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button
+                    onClick={() => {
+                      const previewCaps = appRole === 'admin' ? null : caps
+                      if (previewCaps) {
+                        localStorage.setItem('preview_caps', JSON.stringify(previewCaps))
+                        localStorage.setItem('preview_name', person.name.split(' ')[0])
+                      } else {
+                        // Admin role — preview with full caps (no-op effectively but show banner)
+                        localStorage.removeItem('preview_caps')
+                        localStorage.removeItem('preview_name')
+                      }
+                      window.location.href = '/'
+                    }}
+                    style={{ flex: 1, padding: 14, borderRadius: 10, background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border)', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}
+                  >
+                    👁 Preview
+                  </button>
+                  <button onClick={saveAccess} disabled={savingAccess}
+                    style={{ flex: 2, padding: 14, borderRadius: 10, background: 'var(--accent)', color: '#fff', border: 'none', fontWeight: 700, fontSize: 15, cursor: 'pointer', opacity: savingAccess ? 0.6 : 1 }}>
+                    {savingAccess ? 'Saving…' : accessSaved ? '✓ Saved' : 'Save'}
+                  </button>
+                </div>
               </>
             )}
           </div>
