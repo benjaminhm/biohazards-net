@@ -5,13 +5,8 @@ import { useRouter } from 'next/navigation'
 
 interface PersonDoc { id: string; doc_type: string; label: string; expiry_date?: string }
 interface Person {
-  id: string
-  name: string
-  email?: string
-  phone?: string
-  role: string
-  status: string
-  people_documents?: PersonDoc[]
+  id: string; name: string; email?: string; phone?: string
+  role: string; status: string; people_documents?: PersonDoc[]
 }
 
 function initials(name: string) {
@@ -20,8 +15,7 @@ function initials(name: string) {
 
 function certStatus(docs: PersonDoc[]) {
   if (!docs || docs.length === 0) return 'none'
-  const now = new Date()
-  const soon = new Date(); soon.setDate(now.getDate() + 30)
+  const now = new Date(); const soon = new Date(); soon.setDate(now.getDate() + 30)
   let expired = false, expiring = false
   for (const d of docs) {
     if (!d.expiry_date) continue
@@ -34,68 +28,35 @@ function certStatus(docs: PersonDoc[]) {
   return 'ok'
 }
 
-const ROLE_COLORS: Record<string, string> = {
-  admin: '#FF6B35',
-  employee: '#3B82F6',
-  subcontractor: '#8B5CF6',
-}
-
-const AVATAR_COLORS = [
-  '#FF6B35','#3B82F6','#8B5CF6','#10B981','#F59E0B','#EF4444','#06B6D4',
-]
+const AVATAR_COLORS = ['#FF6B35','#3B82F6','#8B5CF6','#10B981','#F59E0B','#EF4444','#06B6D4']
 
 export default function TeamPage() {
   const router = useRouter()
   const [people, setPeople] = useState<Person[]>([])
   const [loading, setLoading] = useState(true)
-  const [showAdd, setShowAdd] = useState(false)
-  const [form, setForm] = useState({ name: '', email: '', phone: '', role: 'subcontractor' })
+  const [showCreate, setShowCreate] = useState(false)
+  const [form, setForm] = useState({ name: '', phone: '', email: '', role: 'employee' })
   const [saving, setSaving] = useState(false)
-  const [inviteLink, setInviteLink] = useState('')
-  const [inviteRole, setInviteRole] = useState('field')
-  const [showInvite, setShowInvite] = useState(false)
-  const [generatingInvite, setGeneratingInvite] = useState(false)
-  const [inviteCopied, setInviteCopied] = useState(false)
-  const [companyName, setCompanyName] = useState('the team')
 
   useEffect(() => {
     fetch('/api/people').then(r => r.json()).then(d => { setPeople(d.people ?? []); setLoading(false) })
-    fetch('/api/company').then(r => r.json()).then(d => { if (d.company?.name) setCompanyName(d.company.name) })
   }, [])
 
-  async function generateInvite() {
-    setGeneratingInvite(true)
-    setInviteLink('')
-    setInviteCopied(false)
-    try {
-      const res = await fetch('/api/invites', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role: inviteRole }),
-      })
-      const data = await res.json()
-      if (data.token) {
-        const link = `${window.location.origin}/invite/${data.token}`
-        setInviteLink(link)
-      }
-    } finally {
-      setGeneratingInvite(false)
-    }
-  }
-
-  function copyInvite() {
-    const message = `Hi,\n\nYou've been invited to join the ${companyName} app. Please click the link below to get started.\n\n${inviteLink}\n\nThanks,\nAdministrator\n${companyName}`
-    navigator.clipboard.writeText(message)
-    setInviteCopied(true)
-    setTimeout(() => setInviteCopied(false), 2000)
-  }
-
-  async function addPerson() {
+  async function createProfile() {
     if (!form.name.trim()) return
     setSaving(true)
-    const res = await fetch('/api/people', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) })
+    const res = await fetch('/api/people', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(form),
+    })
     const data = await res.json()
-    if (data.person) { setPeople(p => [...p, { ...data.person, people_documents: [] }]); setShowAdd(false); setForm({ name: '', email: '', phone: '', role: 'subcontractor' }) }
+    if (data.person) {
+      setPeople(p => [...p, { ...data.person, people_documents: [] }])
+      setShowCreate(false)
+      setForm({ name: '', phone: '', email: '', role: 'employee' })
+      router.push(`/team/${data.person.id}`)
+    }
     setSaving(false)
   }
 
@@ -112,11 +73,11 @@ export default function TeamPage() {
           <div style={{ fontWeight: 700, fontSize: 16 }}>Team</div>
           <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{active.length} active</div>
         </div>
-        <button onClick={() => { setShowInvite(true); setInviteLink('') }} style={{ padding: '9px 16px', borderRadius: 10, background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
-          📤 Invite
-        </button>
-        <button onClick={() => setShowAdd(true)} style={{ padding: '9px 16px', borderRadius: 10, background: 'var(--accent)', color: '#fff', border: 'none', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
-          + Add
+        <button
+          onClick={() => setShowCreate(true)}
+          style={{ padding: '9px 16px', borderRadius: 10, background: 'var(--accent)', color: '#fff', border: 'none', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}
+        >
+          + Create Profile
         </button>
       </div>
 
@@ -128,7 +89,10 @@ export default function TeamPage() {
           <div style={{ textAlign: 'center', padding: '80px 20px', color: 'var(--text-muted)' }}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>👥</div>
             <div style={{ fontWeight: 600, fontSize: 16, color: 'var(--text)', marginBottom: 8 }}>No team members yet</div>
-            <div style={{ fontSize: 13 }}>Add your employees and subcontractors to manage their profiles, documents and job assignments.</div>
+            <div style={{ fontSize: 13, marginBottom: 24 }}>Create a profile for each employee or subcontractor. Once created, open the profile to invite them into the app.</div>
+            <button onClick={() => setShowCreate(true)} style={{ padding: '12px 24px', borderRadius: 10, background: 'var(--accent)', color: '#fff', border: 'none', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>
+              + Create First Profile
+            </button>
           </div>
         )}
 
@@ -141,23 +105,15 @@ export default function TeamPage() {
               return (
                 <div key={p.id} onClick={() => router.push(`/team/${p.id}`)}
                   style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '16px', display: 'flex', alignItems: 'center', gap: 14, cursor: 'pointer' }}>
-                  {/* Avatar */}
                   <div style={{ width: 48, height: 48, borderRadius: '50%', background: avatarColor, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 16, flexShrink: 0 }}>
                     {initials(p.name)}
                   </div>
-                  {/* Info */}
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                      <span style={{ fontWeight: 700, fontSize: 15 }}>{p.name}</span>
-                      <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20, background: ROLE_COLORS[p.role] + '20', color: ROLE_COLORS[p.role] }}>
-                        {p.role === 'employee' ? 'Employee' : 'Subcontractor'}
-                      </span>
-                    </div>
+                    <div style={{ fontWeight: 700, fontSize: 15 }}>{p.name}</div>
                     <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {p.phone || p.email || 'No contact info'}
                     </div>
                   </div>
-                  {/* Cert status */}
                   <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
                     {cs === 'expired'  && <span title="Certificate expired"  style={{ fontSize: 18 }}>🔴</span>}
                     {cs === 'expiring' && <span title="Certificate expiring" style={{ fontSize: 18 }}>🟡</span>}
@@ -184,7 +140,7 @@ export default function TeamPage() {
                   </div>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 600, fontSize: 14 }}>{p.name}</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{p.role}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{p.phone || p.email || 'No contact info'}</div>
                   </div>
                   <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Inactive ›</span>
                 </div>
@@ -194,106 +150,66 @@ export default function TeamPage() {
         )}
       </div>
 
-      {/* Invite link modal */}
-      {showInvite && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 100, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
-          <div style={{ background: 'var(--surface)', borderRadius: '20px 20px 0 0', padding: '24px 20px 40px', width: '100%', maxWidth: 500 }}>
-            <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 6 }}>Generate Invite Link</div>
+      {/* Create profile modal */}
+      {showCreate && (
+        <div
+          onClick={e => { if (e.target === e.currentTarget) setShowCreate(false) }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 100, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
+        >
+          <div style={{ background: 'var(--surface)', borderRadius: '20px 20px 0 0', padding: '24px 20px 44px', width: '100%', maxWidth: 500 }}>
+            <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 6 }}>Create Profile</div>
             <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20 }}>
-              Send this link to a new team member. It expires in 7 days and can only be used once.
+              Add their name and contact details. You can invite them into the app from their profile once created.
             </div>
-
-            {/* Role selector */}
-            <div style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Access Level</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <input
+                value={form.name}
+                onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                placeholder="Full name *"
+                autoFocus
+                onKeyDown={e => { if (e.key === 'Enter') createProfile() }}
+                style={{ padding: '12px 14px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 15, width: '100%', boxSizing: 'border-box' }}
+              />
+              <input
+                value={form.phone}
+                onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
+                placeholder="Phone"
+                type="tel"
+                style={{ padding: '12px 14px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 15, width: '100%', boxSizing: 'border-box' }}
+              />
+              <input
+                value={form.email}
+                onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
+                placeholder="Email"
+                type="email"
+                style={{ padding: '12px 14px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 15, width: '100%', boxSizing: 'border-box' }}
+              />
               <div style={{ display: 'flex', gap: 8 }}>
                 {[
-                  { value: 'field', label: '👷 Field Worker' },
-                  { value: 'operator', label: '🔧 Operator' },
-                  { value: 'admin', label: '🛡 Admin' },
-                ].map(r => (
-                  <button key={r.value} onClick={() => setInviteRole(r.value)}
-                    style={{ flex: 1, padding: '10px 8px', borderRadius: 10, border: `2px solid ${inviteRole === r.value ? 'var(--accent)' : 'var(--border)'}`, background: inviteRole === r.value ? 'rgba(255,107,53,0.1)' : 'var(--bg)', color: inviteRole === r.value ? 'var(--accent)' : 'var(--text)', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>
-                    {r.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Generated link */}
-            {inviteLink ? (
-              <div style={{ marginBottom: 20 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Invite Link</div>
-                {/* Selectable text block */}
-                <div
-                  style={{
-                    padding: '14px 16px',
-                    borderRadius: 10,
-                    border: '1px solid #d1d5db',
-                    background: '#fff',
-                    color: '#111',
-                    fontSize: 13,
-                    lineHeight: 1.8,
-                    wordBreak: 'break-all',
-                    userSelect: 'text',
-                    WebkitUserSelect: 'text',
-                    marginBottom: 10,
-                    cursor: 'text',
-                    whiteSpace: 'pre-wrap',
-                  }}
-                >{`Hi,\n\nYou've been invited to join the ${companyName} app. Please click the link below to get started.\n\n${inviteLink}\n\nThanks,\nAdministrator\n${companyName}`}</div>
-                <button onClick={copyInvite}
-                  style={{ width: '100%', padding: '12px', borderRadius: 10, background: inviteCopied ? '#10B981' : 'var(--accent)', color: '#fff', border: 'none', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>
-                  {inviteCopied ? '✓ Copied to Clipboard' : '📋 Copy Link'}
-                </button>
-              </div>
-            ) : (
-              <button onClick={generateInvite} disabled={generatingInvite}
-                style={{ width: '100%', padding: '13px', borderRadius: 10, background: 'var(--accent)', color: '#fff', border: 'none', fontWeight: 700, fontSize: 14, cursor: 'pointer', marginBottom: 20, opacity: generatingInvite ? 0.6 : 1 }}>
-                {generatingInvite ? 'Generating…' : '🔗 Generate Link'}
-              </button>
-            )}
-
-            <button onClick={() => { setShowInvite(false); setInviteLink('') }}
-              style={{ width: '100%', padding: '13px', borderRadius: 10, border: '1px solid var(--border)', background: 'none', color: 'var(--text)', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>
-              Close
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Add person modal */}
-      {showAdd && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 100, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
-          <div style={{ background: 'var(--surface)', borderRadius: '20px 20px 0 0', padding: '24px 20px 40px', width: '100%', maxWidth: 500 }}>
-            <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 20 }}>Add Team Member</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                placeholder="Full name *" autoFocus
-                style={{ padding: '12px 14px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 15 }} />
-              <input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
-                placeholder="Phone" type="tel"
-                style={{ padding: '12px 14px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 15 }} />
-              <input value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
-                placeholder="Email" type="email"
-                style={{ padding: '12px 14px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 15 }} />
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {[
-                  { value: 'admin', label: '🛡 Admin' },
-                  { value: 'employee', label: '👷 Employee' },
+                  { value: 'employee',      label: '👷 Employee' },
                   { value: 'subcontractor', label: '🔧 Subcontractor' },
                 ].map(r => (
                   <button key={r.value} onClick={() => setForm(f => ({ ...f, role: r.value }))}
-                    style={{ flex: 1, minWidth: 90, padding: '11px', borderRadius: 10, border: `2px solid ${form.role === r.value ? ROLE_COLORS[r.value] : 'var(--border)'}`, background: form.role === r.value ? ROLE_COLORS[r.value] : 'var(--bg)', color: form.role === r.value ? '#fff' : 'var(--text)', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+                    style={{
+                      flex: 1, padding: '11px', borderRadius: 10,
+                      border: `2px solid ${form.role === r.value ? 'var(--accent)' : 'var(--border)'}`,
+                      background: form.role === r.value ? 'rgba(255,107,53,0.1)' : 'var(--bg)',
+                      color: form.role === r.value ? 'var(--accent)' : 'var(--text)',
+                      fontWeight: 600, fontSize: 13, cursor: 'pointer',
+                    }}>
                     {r.label}
                   </button>
                 ))}
               </div>
             </div>
             <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
-              <button onClick={() => setShowAdd(false)} style={{ flex: 1, padding: '13px', borderRadius: 10, border: '1px solid var(--border)', background: 'none', color: 'var(--text)', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>Cancel</button>
-              <button onClick={addPerson} disabled={saving || !form.name.trim()} style={{ flex: 2, padding: '13px', borderRadius: 10, background: 'var(--accent)', color: '#fff', border: 'none', fontWeight: 700, fontSize: 14, cursor: 'pointer', opacity: saving || !form.name.trim() ? 0.5 : 1 }}>
-                {saving ? 'Adding…' : 'Add'}
+              <button onClick={() => setShowCreate(false)}
+                style={{ flex: 1, padding: '13px', borderRadius: 10, border: '1px solid var(--border)', background: 'none', color: 'var(--text)', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>
+                Cancel
+              </button>
+              <button onClick={createProfile} disabled={saving || !form.name.trim()}
+                style={{ flex: 2, padding: '13px', borderRadius: 10, background: 'var(--accent)', color: '#fff', border: 'none', fontWeight: 700, fontSize: 14, cursor: 'pointer', opacity: saving || !form.name.trim() ? 0.5 : 1 }}>
+                {saving ? 'Creating…' : 'Create & Open Profile'}
               </button>
             </div>
           </div>
