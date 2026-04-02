@@ -56,9 +56,11 @@ export default function TeamPage() {
   const [showInvite, setShowInvite] = useState(false)
   const [generatingInvite, setGeneratingInvite] = useState(false)
   const [inviteCopied, setInviteCopied] = useState(false)
+  const [companyName, setCompanyName] = useState('the team')
 
   useEffect(() => {
     fetch('/api/people').then(r => r.json()).then(d => { setPeople(d.people ?? []); setLoading(false) })
+    fetch('/api/company').then(r => r.json()).then(d => { if (d.company?.name) setCompanyName(d.company.name) })
   }, [])
 
   async function generateInvite() {
@@ -82,7 +84,8 @@ export default function TeamPage() {
   }
 
   function copyInvite() {
-    navigator.clipboard.writeText(inviteLink)
+    const message = `Hi,\n\nYou've been invited to join the ${companyName} app. Please click the link below to get started.\n\n${inviteLink}\n\nThanks,\nAdministrator\n${companyName}`
+    navigator.clipboard.writeText(message)
     setInviteCopied(true)
     setTimeout(() => setInviteCopied(false), 2000)
   }
@@ -224,22 +227,21 @@ export default function TeamPage() {
                 {/* Selectable text block */}
                 <div
                   style={{
-                    padding: '12px 14px',
+                    padding: '14px 16px',
                     borderRadius: 10,
                     border: '1px solid #d1d5db',
                     background: '#fff',
                     color: '#111',
                     fontSize: 13,
-                    lineHeight: 1.6,
+                    lineHeight: 1.8,
                     wordBreak: 'break-all',
                     userSelect: 'text',
                     WebkitUserSelect: 'text',
                     marginBottom: 10,
                     cursor: 'text',
+                    whiteSpace: 'pre-wrap',
                   }}
-                >
-                  {inviteLink}
-                </div>
+                >{`Hi,\n\nYou've been invited to join the ${companyName} app. Please click the link below to get started.\n\n${inviteLink}\n\nThanks,\nAdministrator\n${companyName}`}</div>
                 <button onClick={copyInvite}
                   style={{ width: '100%', padding: '12px', borderRadius: 10, background: inviteCopied ? '#10B981' : 'var(--accent)', color: '#fff', border: 'none', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>
                   {inviteCopied ? '✓ Copied to Clipboard' : '📋 Copy Link'}
