@@ -35,7 +35,7 @@ export default function TeamPage() {
   const [people, setPeople] = useState<Person[]>([])
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
-  const [form, setForm] = useState({ name: '', phone: '', email: '', role: 'employee' })
+  const [form, setForm] = useState({ name: '', phone: '', email: '', role: 'subcontractor' })
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
