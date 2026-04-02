@@ -221,17 +221,29 @@ export default function TeamPage() {
             {inviteLink ? (
               <div style={{ marginBottom: 20 }}>
                 <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Invite Link</div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <input
-                    readOnly
-                    value={inviteLink}
-                    style={{ flex: 1, padding: '10px 12px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text-muted)', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis' }}
-                  />
-                  <button onClick={copyInvite}
-                    style={{ padding: '10px 16px', borderRadius: 10, background: inviteCopied ? '#10B981' : 'var(--accent)', color: '#fff', border: 'none', fontWeight: 700, fontSize: 13, cursor: 'pointer', flexShrink: 0 }}>
-                    {inviteCopied ? '✓ Copied' : 'Copy'}
-                  </button>
+                {/* Selectable text block */}
+                <div
+                  style={{
+                    padding: '12px 14px',
+                    borderRadius: 10,
+                    border: '1px solid var(--accent)',
+                    background: 'rgba(255,107,53,0.06)',
+                    color: 'var(--text)',
+                    fontSize: 13,
+                    lineHeight: 1.6,
+                    wordBreak: 'break-all',
+                    userSelect: 'text',
+                    WebkitUserSelect: 'text',
+                    marginBottom: 10,
+                    cursor: 'text',
+                  }}
+                >
+                  {inviteLink}
                 </div>
+                <button onClick={copyInvite}
+                  style={{ width: '100%', padding: '12px', borderRadius: 10, background: inviteCopied ? '#10B981' : 'var(--accent)', color: '#fff', border: 'none', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>
+                  {inviteCopied ? '✓ Copied to Clipboard' : '📋 Copy Link'}
+                </button>
               </div>
             ) : (
               <button onClick={generateInvite} disabled={generatingInvite}
