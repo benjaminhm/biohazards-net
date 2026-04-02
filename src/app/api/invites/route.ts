@@ -25,12 +25,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { role = 'field', label } = await req.json()
+  const { role = 'member', label, person_id } = await req.json()
   const token = randomBytes(32).toString('hex')
 
   const { data, error } = await supabase
     .from('invites')
-    .insert({ org_id: orgId, role, label: label || null, invited_by: userId, token })
+    .insert({ org_id: orgId, role, label: label || null, invited_by: userId, token, person_id: person_id || null })
     .select('token')
     .single()
 

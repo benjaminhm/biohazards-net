@@ -5,6 +5,7 @@ import { useRouter, useParams } from 'next/navigation'
 import type { TeamCapabilities } from '@/lib/types'
 import { DEFAULT_MEMBER_CAPABILITIES } from '@/lib/types'
 import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
+import { useUser } from '@/lib/userContext'
 
 interface PersonDoc { id: string; doc_type: string; label: string; expiry_date?: string; file_url?: string }
 interface Person {
@@ -118,6 +119,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 export default function PersonPage() {
   const router = useRouter()
   const { id } = useParams() as { id: string }
+  const { org } = useUser()
   const [person, setPerson] = useState<Person | null>(null)
   const [tab, setTab]       = useState<'profile' | 'access' | 'docs' | 'jobs'>('profile')
   const [saving, setSaving] = useState(false)
@@ -131,6 +133,10 @@ export default function PersonPage() {
   const [savingAccess, setSavingAccess] = useState(false)
   const [accessError, setAccessError]   = useState('')
   const [accessSaved, setAccessSaved]   = useState(false)
+
+  // Invite state
+  const [inviteLink, setInviteLink]   = useState('')
+  const [generatingInvite, setGeneratingInvite] = useState(false)
 
   // Doc state
   const [showAddDoc, setShowAddDoc] = useState(false)
@@ -219,6 +225,26 @@ export default function PersonPage() {
     setDeleting(true)
     await fetch(`/api/people/${id}`, { method: 'DELETE' })
     router.push('/team')
+  }
+
+  async function generateInvite() {
+    if (!person) return
+    setGeneratingInvite(true)
+    const res = await fetch('/api/invites', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role: 'member', person_id: person.id }),
+    })
+    const data = await res.json()
+    if (data.token) {
+      const url = `${window.location.origin}/invite/${data.token}`
+      const firstName = person.name.split(' ')[0]
+      const company = org?.name ?? 'the team'
+      setInviteLink(
+        `Hi ${firstName}, you've been invited to join the ${company} app. Please click the link below to sign in and get started.\n\n${url}\n\nThanks,\n${company} Administrator`
+      )
+    }
+    setGeneratingInvite(false)
   }
 
   if (!person) return (
@@ -332,10 +358,53 @@ export default function PersonPage() {
             {accessLoading && <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: 40 }}>Loading…</div>}
 
             {!accessLoading && !access && (
-              <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
-                <div style={{ fontSize: 40, marginBottom: 12 }}>📵</div>
-                <div style={{ fontWeight: 600, fontSize: 15, color: 'var(--text)', marginBottom: 8 }}>Not linked to an app account</div>
-                <div style={{ fontSize: 13, marginBottom: 20 }}>Send an invite link so {person.name.split(' ')[0]} can sign in and claim this profile.</div>
+              <div style={{ padding: '40px 0 20px' }}>
+                <div style={{ textAlign: 'center', marginBottom: 28 }}>
+                  <div style={{ fontSize: 40, marginBottom: 12 }}>📵</div>
+                  <div style={{ fontWeight: 600, fontSize: 15, color: 'var(--text)', marginBottom: 8 }}>Not linked to an app account</div>
+                  <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 24 }}>
+                    Send {person.name.split(' ')[0]} an invite link so they can sign in and claim this profile.
+                  </div>
+                  {!inviteLink && (
+                    <button
+                      onClick={generateInvite}
+                      disabled={generatingInvite}
+                      style={{ padding: '12px 28px', borderRadius: 10, background: 'var(--accent)', color: '#fff', border: 'none', fontWeight: 700, fontSize: 14, cursor: 'pointer', opacity: generatingInvite ? 0.6 : 1 }}
+                    >
+                      {generatingInvite ? 'Generating…' : '📨 Generate Invite Link'}
+                    </button>
+                  )}
+                </div>
+                {inviteLink && (
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8 }}>
+                      Copy and send this message:
+                    </div>
+                    <div
+                      style={{
+                        background: '#fff', color: '#111', padding: '16px', borderRadius: 10,
+                        fontSize: 13, lineHeight: 1.6, whiteSpace: 'pre-wrap',
+                        border: '1px solid #ddd', userSelect: 'text', cursor: 'text',
+                      }}
+                    >
+                      {inviteLink}
+                    </div>
+                    <div style={{ marginTop: 12, display: 'flex', gap: 10 }}>
+                      <button
+                        onClick={() => navigator.clipboard.writeText(inviteLink)}
+                        style={{ flex: 1, padding: '11px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
+                      >
+                        📋 Copy
+                      </button>
+                      <button
+                        onClick={() => { setInviteLink(''); generateInvite() }}
+                        style={{ flex: 1, padding: '11px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text-muted)', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
+                      >
+                        🔄 New link
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
