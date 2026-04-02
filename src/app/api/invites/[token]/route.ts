@@ -48,10 +48,10 @@ export async function POST(
 
   const supabase = createServiceClient()
 
-  // Fetch invite
+  // Fetch invite (include person_id so we can link profiles)
   const { data: invite, error: fetchErr } = await supabase
     .from('invites')
-    .select('id, org_id, role, claimed_by, expires_at')
+    .select('id, org_id, role, claimed_by, expires_at, person_id')
     .eq('token', token)
     .single()
 
@@ -59,21 +59,44 @@ export async function POST(
   if (invite.claimed_by)   return NextResponse.json({ error: 'Already claimed' }, { status: 410 })
   if (new Date(invite.expires_at) < new Date()) return NextResponse.json({ error: 'Expired' }, { status: 410 })
 
-  // Check if user is already in an org
+  // Check if user already belongs to an org
   const { data: existing } = await supabase
     .from('org_users')
-    .select('id')
+    .select('id, org_id')
     .eq('clerk_user_id', userId)
     .single()
 
   if (existing) {
-    return NextResponse.json({ error: 'You are already a member of an organisation' }, { status: 409 })
+    if (existing.org_id !== invite.org_id) {
+      // Different org — genuinely can't join two orgs
+      return NextResponse.json({ error: 'You are already a member of a different organisation' }, { status: 409 })
+    }
+    // Same org — just link the person profile if the invite carries one
+    if (invite.person_id) {
+      await supabase
+        .from('org_users')
+        .update({ person_id: invite.person_id })
+        .eq('id', existing.id)
+    }
+    // Mark invite claimed and return
+    await supabase
+      .from('invites')
+      .update({ claimed_by: userId, claimed_at: new Date().toISOString() })
+      .eq('id', invite.id)
+
+    const { data: org } = await supabase.from('orgs').select('slug').eq('id', invite.org_id).single()
+    return NextResponse.json({ ok: true, org_slug: org?.slug ?? null, role: existing.org_id })
   }
 
-  // Create org_users record
+  // New user — create org_users record
   const { error: insertErr } = await supabase
     .from('org_users')
-    .insert({ clerk_user_id: userId, org_id: invite.org_id, role: invite.role })
+    .insert({
+      clerk_user_id: userId,
+      org_id: invite.org_id,
+      role: invite.role,
+      person_id: invite.person_id ?? null,
+    })
 
   if (insertErr) return NextResponse.json({ error: insertErr.message }, { status: 500 })
 
