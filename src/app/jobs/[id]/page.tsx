@@ -9,7 +9,7 @@ import AssessmentTab from '@/components/tabs/AssessmentTab'
 import QuoteTab from '@/components/tabs/QuoteTab'
 import PhotosTab from '@/components/tabs/PhotosTab'
 import DocumentsTab from '@/components/tabs/DocumentsTab'
-import { useUser, canSeeAssessment, canCreateDocuments } from '@/lib/userContext'
+import { useUser } from '@/lib/userContext'
 
 type Tab = 'details' | 'assessment' | 'quote' | 'photos' | 'documents'
 
@@ -27,7 +27,7 @@ const STATUS_LABELS: Record<JobStatus, string> = {
 export default function JobPage() {
   const { id }       = useParams<{ id: string }>()
   const searchParams = useSearchParams()
-  const { role }     = useUser()
+  const { caps }     = useUser()
 
   const [job,       setJob]       = useState<Job | null>(null)
   const [photos,    setPhotos]    = useState<Photo[]>([])
@@ -75,10 +75,10 @@ export default function JobPage() {
 
   const allTabs: { id: Tab; label: string; show: boolean }[] = [
     { id: 'details',    label: 'Details',                                                          show: true },
-    { id: 'assessment', label: 'Assessment',                                                       show: canSeeAssessment(role) },
-    { id: 'quote',      label: 'Quote',                                                            show: canSeeAssessment(role) },
-    { id: 'photos',     label: `Photos${photos.length ? ` (${photos.length})` : ''}`,             show: true },
-    { id: 'documents',  label: `Docs${documents.length ? ` (${documents.length})` : ''}`,         show: canCreateDocuments(role) },
+    { id: 'assessment', label: 'Assessment',                                                       show: caps.view_assessment },
+    { id: 'quote',      label: 'Quote',                                                            show: caps.view_quote },
+    { id: 'photos',     label: `Photos${photos.length ? ` (${photos.length})` : ''}`,             show: caps.upload_photos_assigned || caps.upload_photos_any },
+    { id: 'documents',  label: `Docs${documents.length ? ` (${documents.length})` : ''}`,         show: caps.generate_documents },
   ]
   const tabs = allTabs.filter(t => t.show)
 

@@ -2,24 +2,31 @@
 
 import { createContext, useContext, useEffect, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
+import type { TeamCapabilities } from './types'
+import { ALL_CAPABILITIES, DEFAULT_MEMBER_CAPABILITIES } from './types'
 
-export type UserRole = 'owner' | 'admin' | 'operator' | 'field'
+export type UserRole = 'admin' | 'member'
 
 interface UserCtx {
   userId: string
   name: string
   role: UserRole
+  isAdmin: boolean
+  caps: TeamCapabilities
   org_id: string | null
   has_org: boolean
   org: { name: string; slug: string } | null
   loading: boolean
 }
 
-const defaultCtx: UserCtx = { userId: '', name: '', role: 'owner', org_id: null, has_org: false, org: null, loading: true }
+const defaultCtx: UserCtx = {
+  userId: '', name: '', role: 'member', isAdmin: false,
+  caps: DEFAULT_MEMBER_CAPABILITIES,
+  org_id: null, has_org: false, org: null, loading: true,
+}
 
 const UserContext = createContext<UserCtx>(defaultCtx)
 
-// Paths where no redirect should happen even if user has no org
 const PENDING_EXEMPT = ['/pending', '/invite/', '/login', '/sign-in', '/new-client', '/accept/']
 
 export function UserProvider({ children }: { children: React.ReactNode }) {
@@ -30,11 +37,17 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     fetch('/api/me')
       .then(r => r.json())
-      .then(d => setCtx({ ...d, loading: false }))
+      .then(d => {
+        const role: UserRole = d.role === 'admin' ? 'admin' : 'member'
+        const isAdmin = role === 'admin'
+        const caps: TeamCapabilities = isAdmin
+          ? ALL_CAPABILITIES
+          : { ...DEFAULT_MEMBER_CAPABILITIES, ...(d.capabilities ?? {}) }
+        setCtx({ ...d, role, isAdmin, caps, loading: false })
+      })
       .catch(() => setCtx(c => ({ ...c, loading: false })))
   }, [])
 
-  // Redirect to /pending if user is authenticated but has no org assignment
   useEffect(() => {
     if (ctx.loading) return
     if (!ctx.userId) return
@@ -47,10 +60,3 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 }
 
 export function useUser() { return useContext(UserContext) }
-
-// Permission helpers
-export function canSeeAssessment(role: UserRole) { return role === 'owner' || role === 'admin' || role === 'operator' }
-export function canSeeClientDetails(role: UserRole) { return role === 'owner' || role === 'admin' || role === 'operator' }
-export function canCreateDocuments(role: UserRole) { return role === 'owner' || role === 'admin' || role === 'operator' }
-export function canSeeSettings(role: UserRole) { return role === 'owner' || role === 'admin' }
-export function isFieldWorker(role: UserRole) { return role === 'field' }

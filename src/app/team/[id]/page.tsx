@@ -2,34 +2,82 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter, useParams } from 'next/navigation'
+import type { TeamCapabilities } from '@/lib/types'
+import { DEFAULT_MEMBER_CAPABILITIES } from '@/lib/types'
 
-interface PersonDoc {
-  id: string
-  doc_type: string
-  label: string
-  expiry_date?: string
-  file_url?: string
-}
+interface PersonDoc { id: string; doc_type: string; label: string; expiry_date?: string; file_url?: string }
 interface Person {
-  id: string
-  name: string
-  email?: string
-  phone?: string
-  role: string
-  status: string
-  notes?: string
-  emergency_contact?: string
-  emergency_phone?: string
+  id: string; name: string; email?: string; phone?: string
+  role: string; status: string; notes?: string
+  emergency_contact?: string; emergency_phone?: string
   people_documents?: PersonDoc[]
 }
+interface Access { id: string; role: 'admin' | 'member'; capabilities: TeamCapabilities } | null
 
 const DOC_TYPES = [
-  { value: 'whs_cert',   label: '🦺 WHS Certificate' },
-  { value: 'induction',  label: '📋 Induction' },
-  { value: 'nda',        label: '🔒 NDA' },
-  { value: 'licence',    label: '🪪 Licence' },
-  { value: 'first_aid',  label: '🩺 First Aid' },
-  { value: 'other',      label: '📄 Other' },
+  { value: 'whs_cert',  label: '🦺 WHS Certificate' },
+  { value: 'induction', label: '📋 Induction' },
+  { value: 'nda',       label: '🔒 NDA' },
+  { value: 'licence',   label: '🪪 Licence' },
+  { value: 'first_aid', label: '🩺 First Aid' },
+  { value: 'other',     label: '📄 Other' },
+]
+
+const CAP_GROUPS: { label: string; items: { key: keyof TeamCapabilities; label: string; sub?: string }[] }[] = [
+  {
+    label: 'Jobs',
+    items: [
+      { key: 'view_all_jobs',     label: 'View all jobs',       sub: 'Off = only their assigned jobs' },
+      { key: 'create_jobs',       label: 'Create new jobs' },
+      { key: 'edit_job_details',  label: 'Edit job details' },
+      { key: 'change_job_status', label: 'Change job status' },
+    ],
+  },
+  {
+    label: 'Assessment',
+    items: [
+      { key: 'view_assessment',  label: 'View assessment' },
+      { key: 'edit_assessment',  label: 'Edit & save assessment' },
+      { key: 'use_smartfill',    label: 'Use SmartFill / voice' },
+    ],
+  },
+  {
+    label: 'Quote',
+    items: [
+      { key: 'view_quote', label: 'View quote & pricing' },
+      { key: 'edit_quote', label: 'Edit quote & pricing' },
+    ],
+  },
+  {
+    label: 'Documents',
+    items: [
+      { key: 'generate_documents', label: 'Generate documents' },
+      { key: 'edit_documents',     label: 'Edit documents' },
+      { key: 'send_documents',     label: 'Send documents to clients' },
+    ],
+  },
+  {
+    label: 'Photos',
+    items: [
+      { key: 'upload_photos_assigned', label: 'Upload to assigned job' },
+      { key: 'upload_photos_any',      label: 'Upload to any job' },
+    ],
+  },
+  {
+    label: 'Team',
+    items: [
+      { key: 'invite_team_members', label: 'Invite new team members' },
+      { key: 'view_team_profiles',  label: 'View other team profiles' },
+    ],
+  },
+  {
+    label: 'Messaging',
+    items: [{ key: 'send_sms', label: 'Send SMS to clients' }],
+  },
+  {
+    label: 'Settings',
+    items: [{ key: 'edit_settings', label: 'Edit company profile & settings' }],
+  },
 ]
 
 function expiryColor(date?: string) {
@@ -42,31 +90,52 @@ function expiryColor(date?: string) {
 }
 function expiryLabel(date?: string) {
   if (!date) return 'No expiry'
-  const exp = new Date(date)
-  const now = new Date()
+  const exp = new Date(date); const now = new Date()
   if (exp < now) return `Expired ${exp.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })}`
   const days = Math.ceil((exp.getTime() - now.getTime()) / 86400000)
   if (days <= 30) return `Expires in ${days} days`
   return exp.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })
 }
+function initials(name: string) { return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) }
+const AVATAR_COLORS = ['#FF6B35','#3B82F6','#8B5CF6','#10B981','#F59E0B']
 
-function initials(name: string) {
-  return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
+const inputStyle: React.CSSProperties = {
+  width: '100%', padding: '12px 14px', borderRadius: 10,
+  border: '1px solid var(--border)', background: 'var(--bg)',
+  color: 'var(--text)', fontSize: 14, boxSizing: 'border-box',
 }
 
-const AVATAR_COLORS = ['#FF6B35','#3B82F6','#8B5CF6','#10B981','#F59E0B']
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</label>
+      {children}
+    </div>
+  )
+}
 
 export default function PersonPage() {
   const router = useRouter()
   const { id } = useParams() as { id: string }
   const [person, setPerson] = useState<Person | null>(null)
-  const [tab, setTab] = useState<'profile' | 'docs' | 'jobs'>('profile')
+  const [tab, setTab]       = useState<'profile' | 'access' | 'docs' | 'jobs'>('profile')
   const [saving, setSaving] = useState(false)
   const [saveOk, setSaveOk] = useState(false)
+
+  // Access state
+  const [access, setAccess]           = useState<Access | null>(null)
+  const [accessLoading, setAccessLoading] = useState(false)
+  const [caps, setCaps]               = useState<TeamCapabilities>(DEFAULT_MEMBER_CAPABILITIES)
+  const [appRole, setAppRole]         = useState<'admin' | 'member'>('member')
+  const [savingAccess, setSavingAccess] = useState(false)
+  const [accessError, setAccessError]   = useState('')
+  const [accessSaved, setAccessSaved]   = useState(false)
+
+  // Doc state
   const [showAddDoc, setShowAddDoc] = useState(false)
-  const [docForm, setDocForm] = useState({ doc_type: 'whs_cert', label: '', expiry_date: '' })
-  const [addingDoc, setAddingDoc] = useState(false)
-  const [deleting, setDeleting] = useState(false)
+  const [docForm, setDocForm]       = useState({ doc_type: 'whs_cert', label: '', expiry_date: '' })
+  const [addingDoc, setAddingDoc]   = useState(false)
+  const [deleting, setDeleting]     = useState(false)
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/people/${id}`)
@@ -76,8 +145,28 @@ export default function PersonPage() {
 
   useEffect(() => { load() }, [load])
 
+  useEffect(() => {
+    if (tab !== 'access') return
+    setAccessLoading(true)
+    fetch(`/api/people/${id}/access`)
+      .then(r => r.json())
+      .then(d => {
+        setAccess(d.access)
+        if (d.access) {
+          setAppRole(d.access.role)
+          setCaps({ ...DEFAULT_MEMBER_CAPABILITIES, ...(d.access.capabilities ?? {}) })
+        }
+      })
+      .finally(() => setAccessLoading(false))
+  }, [tab, id])
+
   function updateField(key: keyof Person, val: string) {
     setPerson(p => p ? { ...p, [key]: val } : p)
+  }
+
+  function toggleCap(key: keyof TeamCapabilities) {
+    if (key === 'assign_team_members') return // handled separately
+    setCaps(c => ({ ...c, [key]: !c[key] }))
   }
 
   async function save() {
@@ -86,6 +175,25 @@ export default function PersonPage() {
     const { id: _id, people_documents: _docs, ...fields } = person
     await fetch(`/api/people/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fields) })
     setSaving(false); setSaveOk(true); setTimeout(() => setSaveOk(false), 2000)
+  }
+
+  async function saveAccess() {
+    setSavingAccess(true)
+    setAccessError('')
+    const res = await fetch(`/api/people/${id}/access`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role: appRole, capabilities: caps }),
+    })
+    const data = await res.json()
+    if (data.error) {
+      setAccessError(data.error)
+    } else {
+      setAccess(data.access)
+      setAccessSaved(true)
+      setTimeout(() => setAccessSaved(false), 2000)
+    }
+    setSavingAccess(false)
   }
 
   async function addDoc() {
@@ -113,9 +221,7 @@ export default function PersonPage() {
   }
 
   if (!person) return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
-      Loading…
-    </div>
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>Loading…</div>
   )
 
   const avatarColor = AVATAR_COLORS[person.name.charCodeAt(0) % AVATAR_COLORS.length]
@@ -132,9 +238,11 @@ export default function PersonPage() {
           <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'capitalize' }}>{person.role}</div>
         </div>
         {saveOk && <span style={{ fontSize: 12, color: '#4ADE80' }}>✓ Saved</span>}
-        <button onClick={save} disabled={saving} style={{ padding: '8px 14px', borderRadius: 8, background: 'var(--accent)', color: '#fff', border: 'none', fontWeight: 700, fontSize: 13, cursor: 'pointer', opacity: saving ? 0.5 : 1 }}>
-          {saving ? '…' : '💾 Save'}
-        </button>
+        {tab === 'profile' && (
+          <button onClick={save} disabled={saving} style={{ padding: '8px 14px', borderRadius: 8, background: 'var(--accent)', color: '#fff', border: 'none', fontWeight: 700, fontSize: 13, cursor: 'pointer', opacity: saving ? 0.5 : 1 }}>
+            {saving ? '…' : '💾 Save'}
+          </button>
+        )}
       </div>
 
       {/* Avatar hero */}
@@ -144,9 +252,8 @@ export default function PersonPage() {
         </div>
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 700, fontSize: 18 }}>{person.name}</div>
-          <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }}>{person.phone} {person.phone && person.email ? '·' : ''} {person.email}</div>
+          <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }}>{person.phone}{person.phone && person.email ? ' · ' : ''}{person.email}</div>
         </div>
-        {/* Active toggle */}
         <button onClick={() => updateField('status', person.status === 'active' ? 'inactive' : 'active')}
           style={{ padding: '7px 14px', borderRadius: 20, border: 'none', fontWeight: 600, fontSize: 12, cursor: 'pointer',
             background: person.status === 'active' ? '#10B98120' : '#EF444420',
@@ -156,34 +263,38 @@ export default function PersonPage() {
       </div>
 
       {/* Tabs */}
-      <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
-        {(['profile','docs','jobs'] as const).map(t => (
-          <button key={t} onClick={() => setTab(t)}
-            style={{ flex: 1, padding: '13px 8px', border: 'none', background: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600,
-              color: tab === t ? 'var(--accent)' : 'var(--text-muted)',
-              borderBottom: tab === t ? '2px solid var(--accent)' : '2px solid transparent' }}>
-            {t === 'profile' ? '👤 Profile' : t === 'docs' ? `📋 Documents${docs.length ? ` (${docs.length})` : ''}` : '🔧 Jobs'}
+      <div className="tab-slider" style={{ display: 'flex', overflowX: 'auto', borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
+        {([
+          { id: 'profile', label: '👤 Profile' },
+          { id: 'access',  label: '🔐 App Access' },
+          { id: 'docs',    label: `📋 Docs${docs.length ? ` (${docs.length})` : ''}` },
+          { id: 'jobs',    label: '🔧 Jobs' },
+        ] as const).map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)}
+            style={{ flexShrink: 0, padding: '13px 18px', border: 'none', background: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600,
+              color: tab === t.id ? 'var(--accent)' : 'var(--text-muted)',
+              borderBottom: tab === t.id ? '2px solid var(--accent)' : '2px solid transparent' }}>
+            {t.label}
           </button>
         ))}
       </div>
 
       <div style={{ maxWidth: 600, margin: '0 auto', padding: '20px 16px' }}>
 
-        {/* ── Profile tab ── */}
+        {/* ── Profile ── */}
         {tab === 'profile' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <Field label="Full Name">
               <input value={person.name} onChange={e => updateField('name', e.target.value)} style={inputStyle} />
             </Field>
-            <Field label="Role">
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <Field label="Employment Type">
+              <div style={{ display: 'flex', gap: 8 }}>
                 {[
-                  { value: 'admin', label: '🛡 Admin', color: '#FF6B35' },
-                  { value: 'employee', label: '👷 Employee', color: '#3B82F6' },
+                  { value: 'employee',      label: '👷 Employee',      color: '#3B82F6' },
                   { value: 'subcontractor', label: '🔧 Subcontractor', color: '#8B5CF6' },
                 ].map(r => (
                   <button key={r.value} onClick={() => updateField('role', r.value)}
-                    style={{ flex: 1, minWidth: 90, padding: '10px', borderRadius: 8, border: `2px solid ${person.role === r.value ? r.color : 'var(--border)'}`, background: person.role === r.value ? r.color : 'var(--bg)', color: person.role === r.value ? '#fff' : 'var(--text)', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+                    style={{ flex: 1, padding: '10px', borderRadius: 8, border: `2px solid ${person.role === r.value ? r.color : 'var(--border)'}`, background: person.role === r.value ? r.color : 'var(--bg)', color: person.role === r.value ? '#fff' : 'var(--text)', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
                     {r.label}
                   </button>
                 ))}
@@ -202,12 +313,9 @@ export default function PersonPage() {
               <input value={person.emergency_phone ?? ''} onChange={e => updateField('emergency_phone', e.target.value)} type="tel" style={inputStyle} />
             </Field>
             <Field label="Notes">
-              <textarea value={person.notes ?? ''} onChange={e => updateField('notes', e.target.value)} rows={3}
-                style={{ ...inputStyle, resize: 'vertical' }} />
+              <textarea value={person.notes ?? ''} onChange={e => updateField('notes', e.target.value)} rows={3} style={{ ...inputStyle, resize: 'vertical' }} />
             </Field>
-
-            {/* Danger zone */}
-            <div style={{ marginTop: 20, padding: '16px', borderRadius: 12, border: '1px solid #EF444440', background: '#EF444408' }}>
+            <div style={{ marginTop: 12, padding: '16px', borderRadius: 12, border: '1px solid #EF444440', background: '#EF444408' }}>
               <div style={{ fontWeight: 600, fontSize: 13, color: '#EF4444', marginBottom: 8 }}>Danger Zone</div>
               <button onClick={deletePerson} disabled={deleting}
                 style={{ padding: '9px 16px', borderRadius: 8, border: '1px solid #EF4444', background: 'none', color: '#EF4444', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
@@ -217,7 +325,149 @@ export default function PersonPage() {
           </div>
         )}
 
-        {/* ── Documents tab ── */}
+        {/* ── App Access ── */}
+        {tab === 'access' && (
+          <div>
+            {accessLoading && <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: 40 }}>Loading…</div>}
+
+            {!accessLoading && !access && (
+              <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
+                <div style={{ fontSize: 40, marginBottom: 12 }}>📵</div>
+                <div style={{ fontWeight: 600, fontSize: 15, color: 'var(--text)', marginBottom: 8 }}>Not linked to an app account</div>
+                <div style={{ fontSize: 13, marginBottom: 20 }}>Send an invite link so {person.name.split(' ')[0]} can sign in and claim this profile.</div>
+              </div>
+            )}
+
+            {!accessLoading && access && (
+              <>
+                {/* Admin toggle */}
+                <div style={{ marginBottom: 28 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent)', marginBottom: 12 }}>
+                    App Role
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    {([
+                      { value: 'member', label: '👤 Team Member', sub: 'Access controlled by toggles below' },
+                      { value: 'admin',  label: '🛡 Administrator', sub: 'Full access to everything' },
+                    ] as const).map(r => (
+                      <button key={r.value} onClick={() => setAppRole(r.value)}
+                        style={{
+                          flex: 1, padding: '12px', borderRadius: 10, textAlign: 'left',
+                          border: `2px solid ${appRole === r.value ? 'var(--accent)' : 'var(--border)'}`,
+                          background: appRole === r.value ? 'rgba(255,107,53,0.1)' : 'var(--bg)',
+                          cursor: 'pointer',
+                        }}>
+                        <div style={{ fontWeight: 700, fontSize: 13, color: appRole === r.value ? 'var(--accent)' : 'var(--text)' }}>{r.label}</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>{r.sub}</div>
+                      </button>
+                    ))}
+                  </div>
+                  {appRole === 'member' && (
+                    <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+                      Capabilities below apply when role is Team Member.
+                    </div>
+                  )}
+                  {appRole === 'admin' && (
+                    <div style={{ marginTop: 8, padding: '10px 12px', borderRadius: 8, background: 'rgba(255,107,53,0.06)', border: '1px solid rgba(255,107,53,0.2)', fontSize: 12, color: 'var(--accent)' }}>
+                      Administrators have full access. To remove this person as admin, another admin must exist first.
+                    </div>
+                  )}
+                </div>
+
+                {/* Assign team members — 3-state */}
+                {appRole === 'member' && (
+                  <>
+                    <div style={{ marginBottom: 24 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent)', marginBottom: 12 }}>
+                        Assign Team Members
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {([
+                          { value: 'none', label: 'No access',             sub: 'Cannot assign anyone' },
+                          { value: 'own',  label: 'Own assignments only',  sub: 'Can assign on jobs they are part of' },
+                          { value: 'all',  label: 'All jobs',              sub: 'Full visibility — manager level' },
+                        ] as const).map(o => (
+                          <button key={o.value}
+                            onClick={() => setCaps(c => ({ ...c, assign_team_members: o.value }))}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: 12,
+                              padding: '12px 14px', borderRadius: 10, textAlign: 'left',
+                              border: `2px solid ${caps.assign_team_members === o.value ? 'var(--accent)' : 'var(--border)'}`,
+                              background: caps.assign_team_members === o.value ? 'rgba(255,107,53,0.08)' : 'var(--bg)',
+                              cursor: 'pointer', width: '100%',
+                            }}>
+                            <div style={{
+                              width: 18, height: 18, borderRadius: '50%', flexShrink: 0,
+                              border: `2px solid ${caps.assign_team_members === o.value ? 'var(--accent)' : 'var(--border)'}`,
+                              background: caps.assign_team_members === o.value ? 'var(--accent)' : 'transparent',
+                            }} />
+                            <div>
+                              <div style={{ fontWeight: 600, fontSize: 13, color: caps.assign_team_members === o.value ? 'var(--accent)' : 'var(--text)' }}>{o.label}</div>
+                              <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{o.sub}</div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Capability toggles */}
+                    {CAP_GROUPS.map(group => (
+                      <div key={group.label} style={{ marginBottom: 24 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent)', marginBottom: 10 }}>
+                          {group.label}
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                          {group.items.map(item => {
+                            const isOn = !!caps[item.key]
+                            return (
+                              <button key={item.key} onClick={() => toggleCap(item.key)}
+                                style={{
+                                  display: 'flex', alignItems: 'center', gap: 14,
+                                  padding: '12px 14px', borderRadius: 10, border: '1px solid var(--border)',
+                                  background: isOn ? 'rgba(255,107,53,0.06)' : 'var(--bg)',
+                                  cursor: 'pointer', textAlign: 'left', width: '100%',
+                                }}>
+                                {/* Toggle pill */}
+                                <div style={{
+                                  width: 40, height: 22, borderRadius: 11, flexShrink: 0,
+                                  background: isOn ? 'var(--accent)' : 'var(--border)',
+                                  position: 'relative', transition: 'background 0.2s',
+                                }}>
+                                  <div style={{
+                                    position: 'absolute', top: 3, left: isOn ? 21 : 3,
+                                    width: 16, height: 16, borderRadius: '50%', background: '#fff',
+                                    transition: 'left 0.2s',
+                                  }} />
+                                </div>
+                                <div>
+                                  <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)' }}>{item.label}</div>
+                                  {item.sub && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>{item.sub}</div>}
+                                </div>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                )}
+
+                {accessError && (
+                  <div style={{ padding: '10px 14px', borderRadius: 8, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#F87171', fontSize: 13, marginBottom: 16 }}>
+                    {accessError}
+                  </div>
+                )}
+
+                <button onClick={saveAccess} disabled={savingAccess}
+                  style={{ width: '100%', padding: 14, borderRadius: 10, background: 'var(--accent)', color: '#fff', border: 'none', fontWeight: 700, fontSize: 15, cursor: 'pointer', opacity: savingAccess ? 0.6 : 1 }}>
+                  {savingAccess ? 'Saving…' : accessSaved ? '✓ Saved' : 'Save Access Settings'}
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ── Documents ── */}
         {tab === 'docs' && (
           <div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
@@ -226,7 +476,6 @@ export default function PersonPage() {
                 + Add Document
               </button>
             </div>
-
             {docs.length === 0 && (
               <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
                 <div style={{ fontSize: 40, marginBottom: 12 }}>📋</div>
@@ -234,7 +483,6 @@ export default function PersonPage() {
                 <div style={{ fontSize: 13 }}>Add WHS certificates, inductions, licences and more.</div>
               </div>
             )}
-
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {docs.map(doc => {
                 const color = expiryColor(doc.expiry_date)
@@ -246,16 +494,8 @@ export default function PersonPage() {
                       <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{typeLabel}</div>
                       <div style={{ fontSize: 12, color, marginTop: 4, fontWeight: 600 }}>{expiryLabel(doc.expiry_date)}</div>
                     </div>
-                    {doc.file_url && (
-                      <a href={doc.file_url} target="_blank" rel="noreferrer"
-                        style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', fontSize: 12, color: 'var(--accent)', textDecoration: 'none' }}>
-                        View
-                      </a>
-                    )}
-                    <button onClick={() => deleteDoc(doc.id)}
-                      style={{ padding: '6px 10px', borderRadius: 6, border: 'none', background: 'none', color: '#EF4444', cursor: 'pointer', fontSize: 16 }}>
-                      🗑
-                    </button>
+                    {doc.file_url && <a href={doc.file_url} target="_blank" rel="noreferrer" style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', fontSize: 12, color: 'var(--accent)', textDecoration: 'none' }}>View</a>}
+                    <button onClick={() => deleteDoc(doc.id)} style={{ padding: '6px 10px', borderRadius: 6, border: 'none', background: 'none', color: '#EF4444', cursor: 'pointer', fontSize: 16 }}>🗑</button>
                   </div>
                 )
               })}
@@ -263,7 +503,7 @@ export default function PersonPage() {
           </div>
         )}
 
-        {/* ── Jobs tab ── */}
+        {/* ── Jobs ── */}
         {tab === 'jobs' && (
           <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
             <div style={{ fontSize: 40, marginBottom: 12 }}>🔧</div>
@@ -283,8 +523,7 @@ export default function PersonPage() {
                 style={{ padding: '12px 14px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 14 }}>
                 {DOC_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
               </select>
-              <input value={docForm.label} onChange={e => setDocForm(f => ({ ...f, label: e.target.value }))}
-                placeholder="Label (e.g. Asbestos Awareness 2025) *"
+              <input value={docForm.label} onChange={e => setDocForm(f => ({ ...f, label: e.target.value }))} placeholder="Label (e.g. Asbestos Awareness 2025) *"
                 style={{ padding: '12px 14px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 14 }} />
               <div>
                 <label style={{ fontSize: 12, color: 'var(--text-muted)', display: 'block', marginBottom: 6 }}>Expiry date</label>
@@ -303,24 +542,4 @@ export default function PersonPage() {
       )}
     </div>
   )
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</label>
-      {children}
-    </div>
-  )
-}
-
-const inputStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '12px 14px',
-  borderRadius: 10,
-  border: '1px solid var(--border)',
-  background: 'var(--bg)',
-  color: 'var(--text)',
-  fontSize: 14,
-  boxSizing: 'border-box',
 }

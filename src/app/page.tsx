@@ -24,12 +24,13 @@ export default function HomePage() {
   const [time, setTime]         = useState('')
   const [upcoming, setUpcoming] = useState<Job[]>([])
   const { signOut } = useClerk()
-  const { role, loading: userLoading } = useUser()
+  const { caps, isAdmin, loading: userLoading } = useUser()
   const router = useRouter()
 
+  // Non-admins without view_all_jobs go to their field view
   useEffect(() => {
-    if (!userLoading && role === 'field') router.replace('/field')
-  }, [userLoading, role, router])
+    if (!userLoading && !isAdmin && !caps.view_all_jobs) router.replace('/field')
+  }, [userLoading, isAdmin, caps.view_all_jobs, router])
 
   useEffect(() => {
     fetch('/api/company')
@@ -79,7 +80,7 @@ export default function HomePage() {
             <span className="num" style={{ fontSize: 20, fontWeight: 300, color: 'var(--text-muted)', letterSpacing: '-0.02em' }}>
               {time}
             </span>
-            {(role === 'owner' || role === 'admin') && (
+            {isAdmin && (
               <button
                 onClick={() => {
                   localStorage.setItem('preview_as_field', '1')

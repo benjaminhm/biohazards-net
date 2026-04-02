@@ -9,7 +9,7 @@ export async function GET() {
   const supabase = createServiceClient()
   const { data: orgUser } = await supabase
     .from('org_users')
-    .select('role, org_id, orgs(name, slug)')
+    .select('role, org_id, capabilities, orgs(name, slug)')
     .eq('clerk_user_id', userId)
     .single()
 
@@ -20,10 +20,13 @@ export async function GET() {
     name = [user.firstName, user.lastName].filter(Boolean).join(' ') || user.emailAddresses[0]?.emailAddress || ''
   } catch { name = '' }
 
+  const role = orgUser?.role === 'admin' ? 'admin' : 'member'
+
   return NextResponse.json({
     userId,
     name,
-    role: orgUser?.role ?? 'owner',
+    role,
+    capabilities: orgUser?.capabilities ?? {},
     org_id: orgUser?.org_id ?? null,
     has_org: !!orgUser,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

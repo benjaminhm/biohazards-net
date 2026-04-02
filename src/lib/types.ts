@@ -374,11 +374,65 @@ export interface Org {
   created_at: string
 }
 
+export interface TeamCapabilities {
+  // Jobs
+  view_all_jobs:       boolean
+  create_jobs:         boolean
+  edit_job_details:    boolean
+  change_job_status:   boolean
+  assign_team_members: 'none' | 'own' | 'all'
+  // Assessment
+  view_assessment:     boolean
+  edit_assessment:     boolean
+  use_smartfill:       boolean
+  // Quote
+  view_quote:          boolean
+  edit_quote:          boolean
+  // Documents
+  generate_documents:  boolean
+  edit_documents:      boolean
+  send_documents:      boolean
+  // Photos
+  upload_photos_assigned: boolean
+  upload_photos_any:   boolean
+  // Team
+  invite_team_members: boolean
+  view_team_profiles:  boolean
+  // Messaging
+  send_sms:            boolean
+  // Settings
+  edit_settings:       boolean
+}
+
+export const ALL_CAPABILITIES: TeamCapabilities = {
+  view_all_jobs: true, create_jobs: true, edit_job_details: true,
+  change_job_status: true, assign_team_members: 'all',
+  view_assessment: true, edit_assessment: true, use_smartfill: true,
+  view_quote: true, edit_quote: true,
+  generate_documents: true, edit_documents: true, send_documents: true,
+  upload_photos_assigned: true, upload_photos_any: true,
+  invite_team_members: true, view_team_profiles: true,
+  send_sms: true, edit_settings: true,
+}
+
+export const DEFAULT_MEMBER_CAPABILITIES: TeamCapabilities = {
+  view_all_jobs: false, create_jobs: false, edit_job_details: false,
+  change_job_status: false, assign_team_members: 'none',
+  view_assessment: false, edit_assessment: false, use_smartfill: false,
+  view_quote: false, edit_quote: false,
+  generate_documents: false, edit_documents: false, send_documents: false,
+  upload_photos_assigned: true, upload_photos_any: false,
+  invite_team_members: false, view_team_profiles: false,
+  send_sms: false, edit_settings: false,
+}
+
 export interface OrgUser {
   id: string
   org_id: string
   clerk_user_id: string
-  role: 'owner' | 'operator' | 'field'
+  role: 'admin' | 'member'
+  capabilities: TeamCapabilities
+  person_id: string | null
   is_active: boolean
   created_at: string
 }

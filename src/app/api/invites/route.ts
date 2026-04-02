@@ -21,7 +21,7 @@ export async function POST(req: Request) {
     .eq('org_id', orgId)
     .single()
 
-  if (!orgUser || !['owner', 'admin'].includes(orgUser.role)) {
+  if (!orgUser || orgUser.role !== 'admin') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 

@@ -39,7 +39,7 @@ function fmtSchedule(iso: string) {
 
 export default function FieldPage() {
   const router = useRouter()
-  const { name, role, org, loading: userLoading } = useUser()
+  const { name, isAdmin, org, loading: userLoading } = useUser()
   const [jobs, setJobs]       = useState<Job[]>([])
   const [loading, setLoading] = useState(true)
   const [isPreview, setIsPreview] = useState(false)
@@ -56,12 +56,12 @@ export default function FieldPage() {
   useEffect(() => {
     if (userLoading) return
     const preview = localStorage.getItem('preview_as_field') === '1'
-    if ((role === 'owner' || role === 'admin') && !preview) { router.replace('/'); return }
+    if (isAdmin && !preview) { router.replace('/'); return }
     fetch('/api/jobs')
       .then(r => r.json())
       .then(d => setJobs((d.jobs ?? []).filter((j: Job) => ACTIVE_STATUSES.includes(j.status))))
       .finally(() => setLoading(false))
-  }, [userLoading, role, router])
+  }, [userLoading, isAdmin, router])
 
   const todayStr  = new Date().toDateString()
   const todayJobs = jobs.filter(j => j.scheduled_at && new Date(j.scheduled_at).toDateString() === todayStr)
