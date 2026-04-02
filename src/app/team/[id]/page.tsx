@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import type { TeamCapabilities } from '@/lib/types'
 import { DEFAULT_MEMBER_CAPABILITIES } from '@/lib/types'
+import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
 
 interface PersonDoc { id: string; doc_type: string; label: string; expiry_date?: string; file_url?: string }
 interface Person {
@@ -136,6 +137,7 @@ export default function PersonPage() {
   const [docForm, setDocForm]       = useState({ doc_type: 'whs_cert', label: '', expiry_date: '' })
   const [addingDoc, setAddingDoc]   = useState(false)
   const [deleting, setDeleting]     = useState(false)
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/people/${id}`)
@@ -214,7 +216,6 @@ export default function PersonPage() {
   }
 
   async function deletePerson() {
-    if (!confirm(`Delete ${person?.name}? This cannot be undone.`)) return
     setDeleting(true)
     await fetch(`/api/people/${id}`, { method: 'DELETE' })
     router.push('/team')
@@ -317,9 +318,9 @@ export default function PersonPage() {
             </Field>
             <div style={{ marginTop: 12, padding: '16px', borderRadius: 12, border: '1px solid #EF444440', background: '#EF444408' }}>
               <div style={{ fontWeight: 600, fontSize: 13, color: '#EF4444', marginBottom: 8 }}>Danger Zone</div>
-              <button onClick={deletePerson} disabled={deleting}
+              <button onClick={() => setShowDeleteModal(true)}
                 style={{ padding: '9px 16px', borderRadius: 8, border: '1px solid #EF4444', background: 'none', color: '#EF4444', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
-                {deleting ? 'Deleting…' : '🗑 Delete Profile'}
+                🗑 Delete Profile
               </button>
             </div>
           </div>
@@ -512,6 +513,17 @@ export default function PersonPage() {
           </div>
         )}
       </div>
+
+      {/* Delete person modal */}
+      {showDeleteModal && person && (
+        <ConfirmDeleteModal
+          title={`Delete ${person.name}?`}
+          description="This will permanently remove their profile and all associated documents. This cannot be undone."
+          confirmName={person.name}
+          onConfirm={deletePerson}
+          onCancel={() => setShowDeleteModal(false)}
+        />
+      )}
 
       {/* Add document modal */}
       {showAddDoc && (

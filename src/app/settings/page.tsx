@@ -6,6 +6,7 @@ import Image from 'next/image'
 import type { CompanyProfile, DocType } from '@/lib/types'
 import { DOC_TYPE_LABELS } from '@/lib/types'
 import { useUser } from '@/lib/userContext'
+import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
 
 interface Admin { id: string; clerk_user_id: string; name: string; email: string }
 
@@ -49,6 +50,7 @@ export default function SettingsPage() {
   // Administrators
   const [admins, setAdmins]             = useState<Admin[]>([])
   const [removingId, setRemovingId]     = useState<string | null>(null)
+  const [confirmAdmin, setConfirmAdmin] = useState<Admin | null>(null)
   const [adminError, setAdminError]     = useState('')
   const [inviteLink, setInviteLink]     = useState('')
   const [inviteCopied, setInviteCopied] = useState(false)
@@ -387,11 +389,11 @@ export default function SettingsPage() {
                     <span style={{ fontSize: 11, color: 'var(--text-muted)', fontStyle: 'italic', flexShrink: 0 }}>Locked</span>
                   ) : (
                     <button
-                      onClick={() => removeAdmin(admin.id)}
+                      onClick={() => setConfirmAdmin(admin)}
                       disabled={removingId === admin.id}
-                      style={{ flexShrink: 0, padding: '6px 12px', borderRadius: 8, border: '1px solid rgba(239,68,68,0.4)', background: 'none', color: '#EF4444', fontSize: 12, fontWeight: 600, cursor: 'pointer', opacity: removingId === admin.id ? 0.5 : 1 }}
+                      style={{ flexShrink: 0, padding: '6px 12px', borderRadius: 8, border: '1px solid rgba(239,68,68,0.4)', background: 'none', color: '#EF4444', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
                     >
-                      {removingId === admin.id ? '…' : 'Remove'}
+                      Remove
                     </button>
                   )}
                 </div>
@@ -442,6 +444,19 @@ export default function SettingsPage() {
           These details appear on every generated Quote, SOW and Report
         </div>
       </div>
+
+      {confirmAdmin && (
+        <ConfirmDeleteModal
+          title={`Remove ${confirmAdmin.name} as Administrator?`}
+          description="They will be demoted to Team Member. You can re-promote them at any time from their profile."
+          confirmName={confirmAdmin.name}
+          onConfirm={async () => {
+            await removeAdmin(confirmAdmin.id)
+            setConfirmAdmin(null)
+          }}
+          onCancel={() => setConfirmAdmin(null)}
+        />
+      )}
     </div>
   )
 }
