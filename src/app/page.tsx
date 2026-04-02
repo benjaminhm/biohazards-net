@@ -69,8 +69,19 @@ export default function HomePage() {
       <header style={{ padding: '28px 20px 20px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
-            <div className="eyebrow" style={{ marginBottom: 6, color: 'var(--accent)' }}>
-              {name}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+              <div className="eyebrow" style={{ color: 'var(--accent)' }}>
+                {name}
+              </div>
+              <span style={{
+                fontSize: 10, fontWeight: 700, letterSpacing: '0.06em',
+                textTransform: 'uppercase', padding: '2px 7px', borderRadius: 4,
+                background: isAdmin ? 'rgba(255,107,53,0.15)' : 'rgba(255,255,255,0.08)',
+                color: isAdmin ? 'var(--accent)' : 'var(--text-muted)',
+                border: `1px solid ${isAdmin ? 'rgba(255,107,53,0.3)' : 'var(--border)'}`,
+              }}>
+                {isAdmin ? 'Administrator' : 'Team Member'}
+              </span>
             </div>
             <h1 style={{ fontSize: 32, fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1 }}>
               Dashboard
