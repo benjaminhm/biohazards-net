@@ -12,7 +12,7 @@ interface Person {
   emergency_contact?: string; emergency_phone?: string
   people_documents?: PersonDoc[]
 }
-interface Access { id: string; role: 'admin' | 'member'; capabilities: TeamCapabilities } | null
+type Access = { id: string; role: 'admin' | 'member'; capabilities: TeamCapabilities } | null
 
 const DOC_TYPES = [
   { value: 'whs_cert',  label: '🦺 WHS Certificate' },
