@@ -273,20 +273,62 @@ export default function PersonPage() {
       </div>
 
       {/* Avatar hero */}
-      <div style={{ background: 'var(--surface)', padding: '24px 20px', display: 'flex', alignItems: 'center', gap: 16, borderBottom: '1px solid var(--border)' }}>
-        <div style={{ width: 64, height: 64, borderRadius: '50%', background: avatarColor, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 22, flexShrink: 0 }}>
-          {initials(person.name)}
+      <div style={{ background: 'var(--surface)', padding: '20px 20px 0', borderBottom: '1px solid var(--border)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16 }}>
+          <div style={{ width: 64, height: 64, borderRadius: '50%', background: avatarColor, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 22, flexShrink: 0 }}>
+            {initials(person.name)}
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 18 }}>{person.name}</div>
+            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }}>{person.phone}{person.phone && person.email ? ' · ' : ''}{person.email}</div>
+          </div>
+          <button onClick={() => updateField('status', person.status === 'active' ? 'inactive' : 'active')}
+            style={{ padding: '7px 14px', borderRadius: 20, border: 'none', fontWeight: 600, fontSize: 12, cursor: 'pointer', flexShrink: 0,
+              background: person.status === 'active' ? '#10B98120' : '#EF444420',
+              color: person.status === 'active' ? '#10B981' : '#EF4444' }}>
+            {person.status === 'active' ? '● Active' : '○ Inactive'}
+          </button>
         </div>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontWeight: 700, fontSize: 18 }}>{person.name}</div>
-          <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }}>{person.phone}{person.phone && person.email ? ' · ' : ''}{person.email}</div>
+        {/* Quick actions */}
+        <div style={{ display: 'flex', gap: 8, paddingBottom: 16 }}>
+          {person.phone && (
+            <a href={`tel:${person.phone}`}
+              style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '10px 6px', borderRadius: 10, background: 'var(--bg)', border: '1px solid var(--border)', textDecoration: 'none', color: 'var(--text)' }}>
+              <span style={{ fontSize: 18 }}>📞</span>
+              <span style={{ fontSize: 11, fontWeight: 600 }}>Call</span>
+            </a>
+          )}
+          {person.phone && (
+            <a href={`sms:${person.phone}`}
+              style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '10px 6px', borderRadius: 10, background: 'var(--bg)', border: '1px solid var(--border)', textDecoration: 'none', color: 'var(--text)' }}>
+              <span style={{ fontSize: 18 }}>💬</span>
+              <span style={{ fontSize: 11, fontWeight: 600 }}>Message</span>
+            </a>
+          )}
+          {person.email && (
+            <a href={`mailto:${person.email}`}
+              style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '10px 6px', borderRadius: 10, background: 'var(--bg)', border: '1px solid var(--border)', textDecoration: 'none', color: 'var(--text)' }}>
+              <span style={{ fontSize: 18 }}>✉️</span>
+              <span style={{ fontSize: 11, fontWeight: 600 }}>Email</span>
+            </a>
+          )}
+          <button
+            onClick={() => {
+              const lines = ['BEGIN:VCARD', 'VERSION:3.0', `FN:${person.name}`]
+              if (person.phone) lines.push(`TEL:${person.phone}`)
+              if (person.email) lines.push(`EMAIL:${person.email}`)
+              lines.push('END:VCARD')
+              const blob = new Blob([lines.join('\n')], { type: 'text/vcard' })
+              const url = URL.createObjectURL(blob)
+              const a = document.createElement('a')
+              a.href = url; a.download = `${person.name}.vcf`; a.click()
+              URL.revokeObjectURL(url)
+            }}
+            style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '10px 6px', borderRadius: 10, background: 'var(--bg)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--text)' }}>
+            <span style={{ fontSize: 18 }}>👤</span>
+            <span style={{ fontSize: 11, fontWeight: 600 }}>Save</span>
+          </button>
         </div>
-        <button onClick={() => updateField('status', person.status === 'active' ? 'inactive' : 'active')}
-          style={{ padding: '7px 14px', borderRadius: 20, border: 'none', fontWeight: 600, fontSize: 12, cursor: 'pointer',
-            background: person.status === 'active' ? '#10B98120' : '#EF444420',
-            color: person.status === 'active' ? '#10B981' : '#EF4444' }}>
-          {person.status === 'active' ? '● Active' : '○ Inactive'}
-        </button>
       </div>
 
       {/* Tabs */}
