@@ -1,4 +1,4 @@
-const CACHE_NAME = 'biohazard-v2'
+const CACHE_NAME = 'biohazard-v3'
 
 // Only cache truly static public assets — NOT '/' which requires auth
 const STATIC_ASSETS = [
