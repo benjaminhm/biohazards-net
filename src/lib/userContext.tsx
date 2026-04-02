@@ -17,22 +17,39 @@ interface UserCtx {
   has_org: boolean
   org: { name: string; slug: string } | null
   loading: boolean
+  previewMode: boolean
+  exitPreview: () => void
 }
 
 const defaultCtx: UserCtx = {
   userId: '', name: '', role: 'member', isAdmin: false,
   caps: DEFAULT_MEMBER_CAPABILITIES,
   org_id: null, has_org: false, org: null, loading: true,
+  previewMode: false,
+  exitPreview: () => {},
 }
 
 const UserContext = createContext<UserCtx>(defaultCtx)
 
 const PENDING_EXEMPT = ['/pending', '/invite/', '/login', '/sign-in', '/new-client', '/accept/']
 
+function getPreviewCaps(): TeamCapabilities | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = localStorage.getItem('preview_caps')
+    return raw ? JSON.parse(raw) : null
+  } catch { return null }
+}
+
 export function UserProvider({ children }: { children: React.ReactNode }) {
   const [ctx, setCtx] = useState<UserCtx>(defaultCtx)
   const pathname = usePathname()
   const router = useRouter()
+
+  function exitPreview() {
+    localStorage.removeItem('preview_caps')
+    window.location.reload()
+  }
 
   useEffect(() => {
     fetch('/api/me')
@@ -40,10 +57,11 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       .then(d => {
         const role: UserRole = d.role === 'admin' ? 'admin' : 'member'
         const isAdmin = role === 'admin'
-        const caps: TeamCapabilities = isAdmin
-          ? ALL_CAPABILITIES
-          : { ...DEFAULT_MEMBER_CAPABILITIES, ...(d.capabilities ?? {}) }
-        setCtx({ ...d, role, isAdmin, caps, loading: false })
+        const previewCaps = isAdmin ? getPreviewCaps() : null
+        const previewMode = !!previewCaps
+        const caps: TeamCapabilities = previewCaps
+          ?? (isAdmin ? ALL_CAPABILITIES : { ...DEFAULT_MEMBER_CAPABILITIES, ...(d.capabilities ?? {}) })
+        setCtx({ ...d, role, isAdmin, caps, loading: false, previewMode, exitPreview })
       })
       .catch(() => setCtx(c => ({ ...c, loading: false })))
   }, [])

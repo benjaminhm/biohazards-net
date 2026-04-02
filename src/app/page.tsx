@@ -5,7 +5,8 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useClerk } from '@clerk/nextjs'
 import { useUser } from '@/lib/userContext'
-import type { CompanyProfile, Job } from '@/lib/types'
+import type { CompanyProfile, Job, TeamCapabilities } from '@/lib/types'
+import { DEFAULT_MEMBER_CAPABILITIES } from '@/lib/types'
 
 function fmtBooking(iso: string) {
   const d = new Date(iso)
@@ -24,7 +25,8 @@ export default function HomePage() {
   const [time, setTime]         = useState('')
   const [upcoming, setUpcoming] = useState<Job[]>([])
   const { signOut } = useClerk()
-  const { caps, isAdmin, loading: userLoading } = useUser()
+  const { caps, isAdmin, loading: userLoading, previewMode } = useUser()
+  const [showPreviewPicker, setShowPreviewPicker] = useState(false)
   const router = useRouter()
 
   // Non-admins without view_all_jobs go to their field view
@@ -91,19 +93,16 @@ export default function HomePage() {
             <span className="num" style={{ fontSize: 20, fontWeight: 300, color: 'var(--text-muted)', letterSpacing: '-0.02em' }}>
               {time}
             </span>
-            {isAdmin && (
+            {isAdmin && !previewMode && (
               <button
-                onClick={() => {
-                  localStorage.setItem('preview_as_field', '1')
-                  window.location.href = '/field'
-                }}
-                title="Preview field worker view"
+                onClick={() => setShowPreviewPicker(true)}
+                title="Preview as team member"
                 style={{
                   width: 34, height: 34, borderRadius: 8,
                   border: '1px solid var(--border-2)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   color: 'var(--text-muted)', fontSize: 14,
-                  transition: 'all 0.12s',
+                  transition: 'all 0.12s', background: 'none', cursor: 'pointer',
                 }}
               >
                 👁
@@ -288,6 +287,60 @@ export default function HomePage() {
       }}>
         <span className="eyebrow" style={{ opacity: 0.35 }}>biohazards.net</span>
       </div>
+
+      {/* ── Preview Picker Modal ── */}
+      {showPreviewPicker && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 200, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+          <div style={{ background: 'var(--surface)', borderRadius: '20px 20px 0 0', padding: '24px 20px 48px', width: '100%', maxWidth: 480 }}>
+            <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 6 }}>👁 Preview as Team Member</div>
+            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 24 }}>
+              Temporarily view the app with a team member&apos;s capabilities. You remain an Administrator — exit preview to restore full access.
+            </div>
+
+            {([
+              {
+                label: 'Default Team Member',
+                sub: 'Upload photos to assigned jobs only. No financial or doc access.',
+                caps: DEFAULT_MEMBER_CAPABILITIES,
+              },
+              {
+                label: 'Field + Assessment',
+                sub: 'View all jobs, upload photos, view and edit assessment.',
+                caps: { ...DEFAULT_MEMBER_CAPABILITIES, view_all_jobs: true, view_assessment: true, edit_assessment: true, use_smartfill: true, upload_photos_any: true } as TeamCapabilities,
+              },
+              {
+                label: 'Senior Team Member',
+                sub: 'Most access except admin settings and financial data.',
+                caps: { ...DEFAULT_MEMBER_CAPABILITIES, view_all_jobs: true, create_jobs: true, edit_job_details: true, change_job_status: true, view_assessment: true, edit_assessment: true, use_smartfill: true, generate_documents: true, edit_documents: true, send_documents: true, upload_photos_assigned: true, upload_photos_any: true, view_team_profiles: true, send_sms: true } as TeamCapabilities,
+              },
+            ] as { label: string; sub: string; caps: TeamCapabilities }[]).map(preset => (
+              <button
+                key={preset.label}
+                onClick={() => {
+                  localStorage.setItem('preview_caps', JSON.stringify(preset.caps))
+                  window.location.reload()
+                }}
+                style={{
+                  display: 'block', width: '100%', textAlign: 'left',
+                  padding: '13px 14px', borderRadius: 10, marginBottom: 8,
+                  border: '1px solid var(--border)', background: 'var(--bg)',
+                  cursor: 'pointer',
+                }}
+              >
+                <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)' }}>{preset.label}</div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>{preset.sub}</div>
+              </button>
+            ))}
+
+            <button
+              onClick={() => setShowPreviewPicker(false)}
+              style={{ width: '100%', marginTop: 8, padding: '13px', borderRadius: 10, border: '1px solid var(--border)', background: 'none', color: 'var(--text-muted)', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

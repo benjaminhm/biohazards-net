@@ -1,0 +1,35 @@
+'use client'
+
+import { useUser } from '@/lib/userContext'
+
+export default function PreviewBanner() {
+  const { previewMode, exitPreview } = useUser()
+  if (!previewMode) return null
+
+  return (
+    <>
+      <div style={{
+        position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9999,
+        background: '#7C3AED', color: '#fff',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+        padding: '8px 16px', fontSize: 12, fontWeight: 600, flexWrap: 'wrap',
+      }}>
+        <span>👁 Previewing as Team Member</span>
+        <span style={{ opacity: 0.5, fontSize: 10 }}>|</span>
+        <span style={{ opacity: 0.75, fontWeight: 400 }}>You are still an Administrator</span>
+        <button
+          onClick={exitPreview}
+          style={{
+            marginLeft: 4, padding: '3px 10px', borderRadius: 6,
+            background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.4)',
+            color: '#fff', fontWeight: 700, fontSize: 11, cursor: 'pointer',
+          }}
+        >
+          Exit Preview
+        </button>
+      </div>
+      {/* Spacer so page content isn't hidden under the fixed banner */}
+      <div style={{ height: 37 }} />
+    </>
+  )
+}

@@ -3,6 +3,7 @@ import { ClerkProvider } from '@clerk/nextjs'
 import './globals.css'
 import ServiceWorkerRegistration from '@/components/ServiceWorkerRegistration'
 import { UserProvider } from '@/lib/userContext'
+import PreviewBanner from '@/components/PreviewBanner'
 
 export const metadata: Metadata = {
   title: 'Brisbane Biohazard Cleaning',
@@ -33,6 +34,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <html lang="en">
         <body>
           <UserProvider>
+            <PreviewBanner />
             <ServiceWorkerRegistration />
             {children}
           </UserProvider>
