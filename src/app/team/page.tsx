@@ -184,23 +184,6 @@ export default function TeamPage() {
                 type="email"
                 style={{ padding: '12px 14px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 15, width: '100%', boxSizing: 'border-box' }}
               />
-              <div style={{ display: 'flex', gap: 8 }}>
-                {[
-                  { value: 'employee',      label: '👷 Employee' },
-                  { value: 'subcontractor', label: '🔧 Subcontractor' },
-                ].map(r => (
-                  <button key={r.value} onClick={() => setForm(f => ({ ...f, role: r.value }))}
-                    style={{
-                      flex: 1, padding: '11px', borderRadius: 10,
-                      border: `2px solid ${form.role === r.value ? 'var(--accent)' : 'var(--border)'}`,
-                      background: form.role === r.value ? 'rgba(255,107,53,0.1)' : 'var(--bg)',
-                      color: form.role === r.value ? 'var(--accent)' : 'var(--text)',
-                      fontWeight: 600, fontSize: 13, cursor: 'pointer',
-                    }}>
-                    {r.label}
-                  </button>
-                ))}
-              </div>
             </div>
             <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
               <button onClick={() => setShowCreate(false)}
