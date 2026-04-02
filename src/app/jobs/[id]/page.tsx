@@ -1,16 +1,17 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useParams, useRouter, useSearchParams } from 'next/navigation'
+import React, { useEffect, useState } from 'react'
+import { useParams, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import type { Job, Photo, Document, JobStatus } from '@/lib/types'
 import DetailsTab from '@/components/tabs/DetailsTab'
 import AssessmentTab from '@/components/tabs/AssessmentTab'
+import QuoteTab from '@/components/tabs/QuoteTab'
 import PhotosTab from '@/components/tabs/PhotosTab'
 import DocumentsTab from '@/components/tabs/DocumentsTab'
 import { useUser, canSeeAssessment, canCreateDocuments } from '@/lib/userContext'
 
-type Tab = 'details' | 'assessment' | 'photos' | 'documents'
+type Tab = 'details' | 'assessment' | 'quote' | 'photos' | 'documents'
 
 const JOB_TYPE_LABELS: Record<string, string> = {
   crime_scene: 'Crime Scene', hoarding: 'Hoarding', mold: 'Mold', sewage: 'Sewage',
@@ -25,7 +26,6 @@ const STATUS_LABELS: Record<JobStatus, string> = {
 
 export default function JobPage() {
   const { id }       = useParams<{ id: string }>()
-  const router       = useRouter()
   const searchParams = useSearchParams()
   const { role }     = useUser()
 
@@ -76,8 +76,9 @@ export default function JobPage() {
   const allTabs: { id: Tab; label: string; show: boolean }[] = [
     { id: 'details',    label: 'Details',                                                          show: true },
     { id: 'assessment', label: 'Assessment',                                                       show: canSeeAssessment(role) },
+    { id: 'quote',      label: 'Quote',                                                            show: canSeeAssessment(role) },
     { id: 'photos',     label: `Photos${photos.length ? ` (${photos.length})` : ''}`,             show: true },
-    { id: 'documents',  label: `Documents${documents.length ? ` (${documents.length})` : ''}`,    show: canCreateDocuments(role) },
+    { id: 'documents',  label: `Docs${documents.length ? ` (${documents.length})` : ''}`,         show: canCreateDocuments(role) },
   ]
   const tabs = allTabs.filter(t => t.show)
 
@@ -101,14 +102,26 @@ export default function JobPage() {
             </div>
           </div>
 
-          {/* Tabs */}
-          <div data-devid="P2-E3" style={{ display: 'flex', gap: 2, borderBottom: '1px solid var(--border)', marginBottom: -1 }}>
+          {/* Tabs — horizontal scroll slider */}
+          <div data-devid="P2-E3" className="tab-slider" style={{
+            display: 'flex',
+            gap: 0,
+            overflowX: 'auto',
+            borderBottom: '1px solid var(--border)',
+            marginBottom: -1,
+            marginLeft: -16,
+            marginRight: -16,
+            paddingLeft: 16,
+            paddingRight: 16,
+          }}>
             {tabs.map(t => (
               <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
-                padding: '8px 14px', fontSize: 13, fontWeight: 600,
+                padding: '8px 16px', fontSize: 13, fontWeight: 600,
                 color: activeTab === t.id ? 'var(--accent)' : 'var(--text-muted)',
                 borderBottom: activeTab === t.id ? '2px solid var(--accent)' : '2px solid transparent',
-                transition: 'all 0.15s', whiteSpace: 'nowrap',
+                transition: 'color 0.15s, border-color 0.15s',
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
               }}>
                 {t.label}
               </button>
@@ -124,6 +137,9 @@ export default function JobPage() {
         )}
         {activeTab === 'assessment' && (
           <AssessmentTab job={job} onJobUpdate={setJob} />
+        )}
+        {activeTab === 'quote' && (
+          <QuoteTab job={job} documents={documents} onJobUpdate={setJob} />
         )}
         {activeTab === 'photos' && (
           <PhotosTab

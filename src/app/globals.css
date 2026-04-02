@@ -243,6 +243,10 @@ label {
 ::-webkit-scrollbar-thumb   { background: var(--border-2); border-radius: 99px; }
 ::-webkit-scrollbar-thumb:hover { background: #3A3A3A; }
 
+/* Hide scrollbar on tab sliders while keeping scroll functionality */
+.tab-slider::-webkit-scrollbar { display: none; }
+.tab-slider { scrollbar-width: none; -ms-overflow-style: none; }
+
 /* ─────────────────────────────────────────────
    PAGE TRANSITIONS (subtle)
    ───────────────────────────────────────────── */

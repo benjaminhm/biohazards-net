@@ -51,9 +51,6 @@ const DEFAULT_ASSESSMENT: AssessmentData = {
   estimated_waste_litres: 0,
   access_restrictions: '',
   observations: '',
-  target_price: undefined,
-  target_price_note: '',
-  payment_terms: '50% deposit required prior to works commencing. Remainder due on completion, net 7 days.',
 }
 
 interface Props {
@@ -475,68 +472,6 @@ export default function AssessmentTab({ job, onJobUpdate }: Props) {
           <input type="number" value={data.estimated_waste_litres || ''} onChange={e => setField('estimated_waste_litres', parseFloat(e.target.value) || 0)} placeholder="0" min="0" />
         </div>
       </div>
-      {/* Target quote price */}
-      {section('Quote Pricing')}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
-        <div className="field">
-          <label>
-            Target Amount
-            <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 6 }}>
-              Claude works line items back from this
-            </span>
-          </label>
-          <div style={{ position: 'relative' }}>
-            <span style={{
-              position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
-              color: 'var(--text-muted)', fontSize: 15, fontWeight: 600, pointerEvents: 'none',
-            }}>$</span>
-            <input
-              type="number"
-              value={data.target_price || ''}
-              onChange={e => {
-                const n = parseFloat(e.target.value)
-                setField('target_price', isNaN(n) ? undefined : n)
-              }}
-              placeholder="0.00"
-              min="0"
-              step="50"
-              style={{ paddingLeft: 24 }}
-            />
-          </div>
-        </div>
-        <div className="field">
-          <label>GST Note</label>
-          <input
-            type="text"
-            value={data.target_price_note || ''}
-            onChange={e => setField('target_price_note', e.target.value)}
-            placeholder="e.g. inc. GST  or  + GST"
-          />
-        </div>
-      </div>
-      <div className="field">
-        <label>Payment Terms</label>
-        <textarea
-          value={data.payment_terms ?? ''}
-          onChange={e => setField('payment_terms', e.target.value)}
-          rows={2}
-          style={{ resize: 'vertical' }}
-        />
-      </div>
-
-      <div className="field">
-        <label>
-          Terms &amp; Conditions
-          <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 6 }}>included in Quote &amp; Engagement Agreement</span>
-        </label>
-        <textarea
-          value={data.terms_and_conditions ?? '50% deposit required to confirm booking. Remainder payable on completion within 7 days of invoice. Late payments attract interest at 10% p.a. All biohazardous waste disposed of in accordance with applicable legislation. Contractor not liable for pre-existing structural damage. Client warrants authority to engage contractor for works at the stated premises.'}
-          onChange={e => setField('terms_and_conditions', e.target.value)}
-          rows={5}
-          style={{ resize: 'vertical', fontSize: 13 }}
-        />
-      </div>
-
       <div className="field">
         <label>Access Restrictions</label>
         <input value={data.access_restrictions} onChange={e => setField('access_restrictions', e.target.value)} placeholder="e.g. Key with property manager, code required..." />
