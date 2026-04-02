@@ -2,6 +2,7 @@ import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import { NextResponse } from 'next/server'
+import { randomBytes } from 'crypto'
 
 export async function POST(req: Request) {
   const { userId } = await auth()
@@ -25,10 +26,11 @@ export async function POST(req: Request) {
   }
 
   const { role = 'field', label } = await req.json()
+  const token = randomBytes(32).toString('hex')
 
   const { data, error } = await supabase
     .from('invites')
-    .insert({ org_id: orgId, role, label: label || null, invited_by: userId })
+    .insert({ org_id: orgId, role, label: label || null, invited_by: userId, token })
     .select('token')
     .single()
 
