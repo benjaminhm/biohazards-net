@@ -20,6 +20,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useClerk } from '@clerk/nextjs'
 import { useUser } from '@/lib/userContext'
 import type { Job } from '@/lib/types'
 
@@ -57,7 +58,9 @@ function fmtSchedule(iso: string) {
 
 export default function FieldPage() {
   const router = useRouter()
+  const { signOut } = useClerk()
   const { name, isAdmin, org, loading: userLoading } = useUser()
+  const [showMenu, setShowMenu] = useState(false)
   const [jobs, setJobs]       = useState<Job[]>([])
   const [loading, setLoading] = useState(true)
   const [isPreview, setIsPreview] = useState(false)
@@ -123,7 +126,7 @@ export default function FieldPage() {
       )}
 
       {/* ── Header ── */}
-      <div style={{ padding: '28px 20px 24px', borderBottom: '1px solid var(--border)' }}>
+      <div style={{ padding: '28px 20px 24px', borderBottom: '1px solid var(--border)', position: 'relative' }}>
         <div className="eyebrow" style={{ marginBottom: 8 }}>
           {org?.name ?? 'Biohazard Cleaning'}
         </div>
@@ -134,6 +137,42 @@ export default function FieldPage() {
           {todayJobs.length > 0
             ? `${todayJobs.length} job${todayJobs.length > 1 ? 's' : ''} scheduled for today`
             : 'No jobs scheduled today'}
+        </div>
+
+        {/* Account menu — top right */}
+        <div style={{ position: 'absolute', top: 20, right: 20 }}>
+          <button
+            onClick={() => setShowMenu(m => !m)}
+            style={{
+              background: 'var(--surface)', border: '1px solid var(--border)',
+              borderRadius: 99, width: 36, height: 36,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 16, cursor: 'pointer', color: 'var(--text-muted)',
+            }}
+          >
+            ···
+          </button>
+          {showMenu && (
+            <div style={{
+              position: 'absolute', top: 44, right: 0,
+              background: 'var(--surface)', border: '1px solid var(--border-2)',
+              borderRadius: 12, minWidth: 160, zIndex: 100,
+              boxShadow: '0 8px 24px rgba(0,0,0,0.25)',
+              overflow: 'hidden',
+            }}>
+              <button
+                onClick={() => signOut({ redirectUrl: '/login' })}
+                style={{
+                  width: '100%', textAlign: 'left',
+                  padding: '13px 16px', background: 'none', border: 'none',
+                  fontSize: 14, color: 'var(--text-muted)', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 10,
+                }}
+              >
+                <span>→</span> Sign out
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
