@@ -73,6 +73,13 @@ export default function SettingsPage() {
   const logoRef = useRef<HTMLInputElement>(null)
 
   // Administrators
+  // Website launch state
+  const [servicesText, setServicesText]   = useState('')   // one service per line
+  const [areasText, setAreasText]         = useState('')   // one area per line
+  const [websiteLive, setWebsiteLive]     = useState(false)
+  const [launching, setLaunching]         = useState(false)
+  const [launchDone, setLaunchDone]       = useState(false)
+
   const [admins, setAdmins]             = useState<Admin[]>([])
   const [removingId, setRemovingId]     = useState<string | null>(null)
   const [confirmAdmin, setConfirmAdmin] = useState<Admin | null>(null)
@@ -140,6 +147,14 @@ export default function SettingsPage() {
             custom_domain: data.company.custom_domain ?? '',
             document_rules: data.company.document_rules ?? DEFAULT_PROFILE.document_rules,
           })
+          // Load website fields — stored as arrays, edited as line-separated text
+          if (Array.isArray(data.company.services)) {
+            setServicesText((data.company.services as string[]).join('\n'))
+          }
+          if (Array.isArray(data.company.areas_served)) {
+            setAreasText((data.company.areas_served as string[]).join('\n'))
+          }
+          setWebsiteLive(data.company.website_live ?? false)
         }
         setLoading(false)
       })
@@ -150,10 +165,14 @@ export default function SettingsPage() {
     setSaving(true)
     setError('')
     try {
+      // Convert line-separated text back to arrays for services / areas
+      const services = servicesText.split('\n').map(s => s.trim()).filter(Boolean)
+      const areas_served = areasText.split('\n').map(s => s.trim()).filter(Boolean)
+
       const res = await fetch('/api/company', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(profile),
+        body: JSON.stringify({ ...profile, services, areas_served }),
       })
       const data = await res.json()
       if (data.error) throw new Error(data.error)
@@ -163,6 +182,26 @@ export default function SettingsPage() {
       setError(err instanceof Error ? err.message : 'Save failed')
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function launchWebsite() {
+    setLaunching(true)
+    try {
+      // Save latest services/areas then flip website_live
+      const services = servicesText.split('\n').map(s => s.trim()).filter(Boolean)
+      const areas_served = areasText.split('\n').map(s => s.trim()).filter(Boolean)
+      await fetch('/api/company', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...profile, services, areas_served, website_live: true }),
+      })
+      setWebsiteLive(true)
+      setLaunchDone(true)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Launch failed')
+    } finally {
+      setLaunching(false)
     }
   }
 
@@ -377,6 +416,94 @@ export default function SettingsPage() {
           )}
           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 10 }}>
             💡 To upload a style guide PDF, open the document editor and click <strong>📋 Instructions</strong>
+          </div>
+        </div>
+
+        {/* ── Website ── */}
+        <div className="card" style={{ marginBottom: 24 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent)' }}>
+              Public Website
+            </div>
+            {websiteLive && (
+              <a
+                href={`https://${profile.subdomain || 'your-company'}.biohazards.net`}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ fontSize: 12, color: '#4ADE80', fontWeight: 700, textDecoration: 'none' }}
+              >
+                ● Live ↗
+              </a>
+            )}
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16 }}>
+            {websiteLive
+              ? `Your website is live at ${profile.subdomain || 'your-company'}.biohazards.net`
+              : 'Complete all fields below then launch your public website. Clients can find you, see your services, and request a callback.'}
+          </div>
+
+          {/* Checklist */}
+          {!websiteLive && (() => {
+            const checks = [
+              { label: 'Company name',  ok: !!profile.name.trim() },
+              { label: 'Phone number',  ok: !!profile.phone.trim() },
+              { label: 'Email address', ok: !!profile.email.trim() },
+              { label: 'Tagline',       ok: !!profile.tagline.trim() },
+              { label: 'Services (add below)',    ok: servicesText.trim().length > 0 },
+              { label: 'Areas served (add below)', ok: areasText.trim().length > 0 },
+            ]
+            const allDone = checks.every(c => c.ok)
+            return (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
+                  {checks.map(c => (
+                    <div key={c.label} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                      <span style={{ fontSize: 14, color: c.ok ? '#4ADE80' : 'var(--text-dim)' }}>
+                        {c.ok ? '✓' : '○'}
+                      </span>
+                      <span style={{ color: c.ok ? 'var(--text)' : 'var(--text-muted)' }}>{c.label}</span>
+                    </div>
+                  ))}
+                </div>
+                <button
+                  onClick={launchWebsite}
+                  disabled={!allDone || launching}
+                  style={{
+                    width: '100%', padding: '13px', borderRadius: 10, border: 'none',
+                    background: allDone ? '#4ADE80' : 'var(--surface-2)',
+                    color: allDone ? '#111' : 'var(--text-dim)',
+                    fontWeight: 800, fontSize: 15, cursor: allDone ? 'pointer' : 'not-allowed',
+                    opacity: launching ? 0.7 : 1, transition: 'all 0.15s',
+                  }}
+                >
+                  {launching ? '🚀 Launching…' : launchDone ? '✓ Website Launched!' : '🚀 Launch Website'}
+                </button>
+              </div>
+            )
+          })()}
+
+          {/* Services */}
+          <div className="field" style={{ marginBottom: 12 }}>
+            <label>Services <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(one per line)</span></label>
+            <textarea
+              value={servicesText}
+              onChange={e => setServicesText(e.target.value)}
+              placeholder={'Biohazard Cleaning\nCrime Scene & Trauma Cleanup\nUnattended Death Restoration\nForensic Cleaning\nSewage Cleaning'}
+              rows={5}
+              style={{ width: '100%', resize: 'vertical', fontSize: 13, lineHeight: 1.6, background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px', color: 'var(--text)', fontFamily: 'inherit', boxSizing: 'border-box' }}
+            />
+          </div>
+
+          {/* Areas served */}
+          <div className="field">
+            <label>Areas Served <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(one per line)</span></label>
+            <textarea
+              value={areasText}
+              onChange={e => setAreasText(e.target.value)}
+              placeholder={'Brisbane\nLogan\nGold Coast\nIpswich\nMoreton Bay'}
+              rows={4}
+              style={{ width: '100%', resize: 'vertical', fontSize: 13, lineHeight: 1.6, background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px', color: 'var(--text)', fontFamily: 'inherit', boxSizing: 'border-box' }}
+            />
           </div>
         </div>
 
