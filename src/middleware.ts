@@ -1,3 +1,30 @@
+/*
+ * middleware.ts
+ *
+ * Next.js edge middleware — runs on every request before any route handler.
+ * Responsibilities:
+ *
+ * 1. Subdomain / custom domain detection: reads the Host header and sets
+ *    x-org-slug or x-org-host request headers so API routes and pages can
+ *    identify the current tenant without another DB lookup.
+ *
+ * 2. admin.biohazards.net gate: requires the requesting Clerk user to be in
+ *    the PLATFORM_ADMIN_CLERK_IDS env var — platform staff only, not org admins.
+ *
+ * 3. Authentication enforcement: redirects unauthenticated users to /login
+ *    for all non-public routes (Clerk handles session verification).
+ *
+ * Public routes (no auth required) include:
+ *   - /new-client     (client intake form)
+ *   - /accept/:id     (online quote acceptance)
+ *   - /invite/:token  (team invite claim)
+ *   - /api/intake     (intake form API)
+ *   - /api/print      (document print/PDF)
+ *   - /api/sms/inbound (Twilio webhook — must be public)
+ *
+ * The matcher excludes static assets to avoid running middleware on
+ * _next/static, images, and favicon.
+ */
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
@@ -25,7 +52,7 @@ export default clerkMiddleware(async (auth, request: NextRequest) => {
   const host = request.headers.get('host') ?? ''
   const requestHeaders = new Headers(request.headers)
 
-  // Detect subdomain on biohazards.net or custom domain
+  // Capture the leftmost label of biohazards.net hosts (e.g. 'brisbane' from brisbane.biohazards.net)
   const subdomainMatch = host.match(/^([^.]+)\.biohazards\.net$/)
   const slug = subdomainMatch ? subdomainMatch[1] : null
   const isCustomDomain = !host.endsWith('.biohazards.net') && host !== 'biohazards.net'
@@ -48,6 +75,8 @@ export default clerkMiddleware(async (auth, request: NextRequest) => {
       return NextResponse.redirect('https://app.biohazards.net/login?redirect_url=https://admin.biohazards.net')
     }
 
+    // PLATFORM_ADMIN_CLERK_IDS is a comma-separated list of Clerk user IDs
+    // for internal platform staff — separate from org-level admin role
     const adminIds = (process.env.PLATFORM_ADMIN_CLERK_IDS ?? '')
       .split(',')
       .map((s) => s.trim())

@@ -1,3 +1,23 @@
+/*
+ * app/accept/[jobId]/page.tsx
+ *
+ * Public quote acceptance page — no authentication required. Clients open this
+ * URL from the quote PDF's "Accept This Quote" button/link.
+ *
+ * On load, POST /api/accept/[jobId] is called immediately (no user interaction
+ * needed) to mark the job as accepted. The API is idempotent — calling it twice
+ * does not create duplicate records or send duplicate emails.
+ *
+ * The page renders three states:
+ *   - Loading: while the acceptance POST is in flight.
+ *   - Success: shows a confirmation with the job reference and next steps.
+ *   - Error: shows a fallback message with a contact phone number.
+ *
+ * Quote line items and pricing are fetched and displayed so the client can
+ * see what they've accepted without needing the original PDF.
+ *
+ * Company branding is applied to match the org's subdomain identity.
+ */
 'use client'
 
 import { useEffect, useState } from 'react'

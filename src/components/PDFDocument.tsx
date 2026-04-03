@@ -1,3 +1,28 @@
+/*
+ * components/PDFDocument.tsx
+ *
+ * @react-pdf/renderer component tree that produces binary PDF output when
+ * consumed by /api/pdf (server-side renderToBuffer). NOT a browser component —
+ * it renders to a PDF byte stream, not to the DOM.
+ *
+ * Exported: JobPDFDocument — the top-level entry point for the /api/pdf route.
+ * Supports DocType 'quote', 'sow', and 'report'.
+ *
+ * Architecture:
+ *   - QuotePDF: renders the line-items pricing table, GST totals, an online
+ *     acceptance block (clickable link in the PDF), and a physical signature block.
+ *   - SOWOrReportPDF: renders text sections from the content object. Section
+ *     keys differ between sow and report so each has its own key array.
+ *   - Header/Footer: shared across all document types. Header uses company logo
+ *     if available; falls back to company name text. Footer shows page numbers
+ *     via @react-pdf's render prop (evaluated at PDF render time, not React time).
+ *   - PhotoSection: 2-up grid of photos. Photos must be pre-fetched as base64
+ *     dataUrl (PhotoWithData) because @react-pdf can't load URLs behind auth.
+ *     The /api/image-proxy route handles CORS-blocked Supabase Storage URLs.
+ *
+ * All monetary values use en-AU locale formatting for Australian dollar display.
+ * Photos are capped at 6 per section to keep file size manageable.
+ */
 import React from 'react'
 import {
   Document, Page, View, Text, Image, Link, StyleSheet,

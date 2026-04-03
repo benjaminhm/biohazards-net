@@ -1,3 +1,23 @@
+/*
+ * app/admin/page.tsx
+ *
+ * Platform super-admin dashboard — only accessible to PLATFORM_ADMIN_CLERK_IDS.
+ * The middleware enforces this at the edge; the API routes double-check server-side.
+ *
+ * Three tabs:
+ *   - Orgs: lists all orgs on the platform. Allows creating new orgs (name + slug),
+ *     editing plan/seat_limit/is_active via PATCH /api/admin/orgs/[id].
+ *   - Admins: lists all org_users across all orgs, enriched with Clerk names.
+ *   - Pending: Clerk users who exist but have no org_users row yet. The admin
+ *     can assign them to an org with a role via POST /api/admin/users/pending.
+ *
+ * PLATFORM_OWNER_ID is hard-coded as a last-resort admin ID separate from the
+ * env var so the platform owner can always access the dashboard even if the env
+ * var is misconfigured. This is intentional and scoped only to this page's UI.
+ *
+ * All mutations call the /api/admin/* routes which re-validate the caller's identity
+ * server-side, so this page's client-side guard is UX only, not a security boundary.
+ */
 'use client'
 
 import { useEffect, useState } from 'react'

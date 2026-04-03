@@ -1,3 +1,13 @@
+/*
+ * app/api/sms/send/route.ts
+ *
+ * POST /api/sms/send — send an outbound SMS via Twilio and store it in messages.
+ *
+ * Verifies the job belongs to the current org before sending — prevents a user
+ * sending messages impersonating another org's Twilio number.
+ * Outbound messages are marked read_at = now() immediately because the sender
+ * already knows the content; only inbound messages start as unread.
+ */
 import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'

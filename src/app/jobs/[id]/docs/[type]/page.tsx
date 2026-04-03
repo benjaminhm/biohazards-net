@@ -1,3 +1,27 @@
+/*
+ * app/jobs/[id]/docs/[type]/page.tsx
+ *
+ * Document generation and editing page for a specific doc type on a job.
+ * This is the full-featured successor to GenerateModal — it provides:
+ *
+ *   1. Document generation via POST /api/build-document (streaming or single-shot).
+ *   2. A chat-based editing interface powered by POST /api/chat-document.
+ *      Each message round-trips to Claude with the full conversation history.
+ *   3. A live preview pane that renders the current content as HTML via buildPrintHTML.
+ *   4. An InstructionsPanel for editing per-type document_rules (AI style guide)
+ *      without leaving the page.
+ *   5. Save to DB and print/share via /api/documents + /api/print/[docId].
+ *
+ * The page auto-generates on first load if no existing document of that type
+ * exists for the job (?generate=1 query param is set by the DocumentsTab link).
+ * If an existing document is found, it's loaded into draft for editing instead.
+ *
+ * The chat panel history includes the initial generation as the first assistant
+ * message so subsequent edits have full context of the original content.
+ *
+ * Wrapped in <Suspense> because useSearchParams() is used inside and Next.js
+ * requires Suspense for client components that read search params.
+ */
 'use client'
 
 import { useEffect, useState, useRef, useCallback, Suspense } from 'react'

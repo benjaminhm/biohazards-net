@@ -1,3 +1,25 @@
+/*
+ * app/jobs/[id]/page.tsx
+ *
+ * Job detail page — the primary work surface for a single job. Hosts all six tabs
+ * as independent components with shared job/photos/documents state managed here.
+ *
+ * Tab state is persisted in the ?tab= query parameter so refreshing or deep-linking
+ * returns to the same tab. Active tab is initialised from searchParams on mount.
+ *
+ * Unread SMS badge is fetched separately from the messages API so the Messages tab
+ * header can show a red dot even before the user opens that tab.
+ *
+ * All tab components receive callback props (onJobUpdate, onPhotosUpdate,
+ * onDocumentDeleted) to bubble state changes back here rather than each tab
+ * managing its own API responses and causing stale views.
+ *
+ * Capability checks (caps) gate which tabs are visible:
+ *   - view_assessment requires the Assessment tab.
+ *   - view_documents requires Documents.
+ *   - send_sms requires Messages.
+ * Admins see all tabs regardless of caps.
+ */
 'use client'
 
 import React, { useEffect, useState } from 'react'

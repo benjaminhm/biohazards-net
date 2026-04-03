@@ -1,3 +1,26 @@
+/*
+ * app/api/sms/inbound/route.ts
+ *
+ * Twilio webhook for incoming SMS messages. Twilio POSTs here with
+ * application/x-www-form-urlencoded body when a client replies to the
+ * org's Twilio number.
+ *
+ * Flow:
+ * 1. Parse the Twilio webhook body (From, To, Body, MessageSid)
+ * 2. Normalise the sender's number to last 9 digits to match against DB
+ *    (Twilio sends +61400123456; DB might have 0400123456 or 0400 123 456)
+ * 3. Find the most recent job with a matching client_phone
+ * 4. Insert an inbound message record (read_at = null = unread)
+ * 5. Return an empty TwiML response (no auto-reply)
+ *
+ * This route is intentionally public (listed in middleware isPublicRoute)
+ * because Twilio cannot authenticate via Clerk. Twilio request signature
+ * validation is temporarily disabled (see comment below) — re-enable in
+ * production by validating X-Twilio-Signature with twilio.validateRequest().
+ *
+ * If no matching job is found but a single org exists, the message is still
+ * stored against that org (single-tenant fallback).
+ */
 import { createServiceClient } from '@/lib/supabase'
 
 // Signature validation temporarily disabled for debugging
@@ -17,10 +40,11 @@ export async function POST(req: Request) {
 
   const supabase = createServiceClient()
 
-  // Normalise the incoming number to last 9 digits for matching
-  // Twilio sends +61400000000, DB might have 0400000000 or 0400 000 000
+  // Strip all non-digits then take last 9 to produce a format-agnostic suffix
+  // that matches regardless of whether DB has 0400123456 or +61400123456.
+  // e.g. +61400123456 → 400123456, 0400123456 → 400123456
   const digitsOnly = from.replace(/\D/g, '')
-  const last9 = digitsOnly.slice(-9) // e.g. 400000000
+  const last9 = digitsOnly.slice(-9)
 
   const { data: jobs } = await supabase
     .from('jobs')

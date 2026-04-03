@@ -1,3 +1,12 @@
+/*
+ * app/api/jobs/[id]/team/route.ts
+ *
+ * GET  /api/jobs/[id]/team — list people assigned to this job (with person details)
+ * POST /api/jobs/[id]/team — assign a person to a job
+ *
+ * Uses the job_assignments join table. Returns 409 on duplicate assignment
+ * (Postgres unique constraint code 23505).
+ */
 import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
 import { NextResponse } from 'next/server'

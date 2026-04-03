@@ -1,3 +1,16 @@
+/*
+ * app/api/invites/route.ts
+ *
+ * POST /api/invites — create a new invite token for the current org.
+ * Only org admins can create invites.
+ *
+ * Generates a cryptographically random 32-byte hex token (64 chars) as the
+ * invite URL token. The token is stored in the invites table with the org,
+ * role, and optional person_id so the claim step can link the person profile
+ * automatically when the invite is accepted.
+ *
+ * The invite URL is constructed client-side as: /invite/[token]
+ */
 import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'

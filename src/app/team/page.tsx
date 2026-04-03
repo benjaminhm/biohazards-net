@@ -1,3 +1,21 @@
+/*
+ * app/team/page.tsx
+ *
+ * Team directory page — lists all people (staff profiles from the `people` table).
+ *
+ * Each team member card shows their initials avatar, role, status, and a
+ * certification health indicator (certStatus):
+ *   - "ok": all certs valid and not expiring within 30 days.
+ *   - "expiring": at least one cert expires within 30 days.
+ *   - "expired": at least one cert has already passed its expiry date.
+ *   - "none": no compliance documents on record.
+ *
+ * Tapping a card navigates to /team/[id] for the full profile and access management.
+ * The "+ Add Person" button navigates to /team/new (separate page, not included here).
+ *
+ * This page does not check capabilities — it's assumed all authenticated org users
+ * can see the team directory. Detailed access controls are on the individual profile page.
+ */
 'use client'
 
 import { useEffect, useState } from 'react'

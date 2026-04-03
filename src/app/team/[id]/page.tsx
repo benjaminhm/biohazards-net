@@ -1,3 +1,26 @@
+/*
+ * app/team/[id]/page.tsx
+ *
+ * Individual team member profile page. Combines data from two tables:
+ *   - `people` (staff profile: name, phone, email, notes, emergency contact).
+ *   - `org_users` via GET /api/people/[id]/access (role + capabilities).
+ *
+ * Sections (tabs within the page, not the job tab pattern):
+ *   1. Profile — editable personal info via PATCH /api/people/[id].
+ *   2. Access — role (admin/member) and per-capability toggles. Admins get
+ *      ALL_CAPABILITIES automatically; members start from DEFAULT_MEMBER_CAPABILITIES
+ *      merged with any saved custom capabilities from org_users.capabilities.
+ *   3. Compliance Documents — licences, WHS certs, inductions, etc. Managed via
+ *      GET/POST/DELETE /api/people/[id]/documents.
+ *
+ * CAP_GROUPS organises the TeamCapabilities keys into labelled sections (Jobs,
+ * Documents, Team, SMS, Field) so the capability checkboxes are scannable.
+ *
+ * Admin guard: only admins can see and edit the Access section. Non-admins
+ * can view their own profile but not change roles or capabilities.
+ *
+ * ConfirmDeleteModal guards person deletion (DELETE /api/people/[id]).
+ */
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'

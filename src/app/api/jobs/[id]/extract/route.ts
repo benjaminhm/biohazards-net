@@ -1,3 +1,15 @@
+/*
+ * app/api/jobs/[id]/extract/route.ts
+ *
+ * POST /api/jobs/[id]/extract
+ *
+ * SmartFill extraction for job details (client name, phone, address, job type,
+ * urgency). Accepts raw text (email, voicemail transcript, note) and returns
+ * structured fields via Claude.
+ *
+ * Used by the SmartFill component on the Details tab and New Job form.
+ * For assessment-specific extraction, see extract-assessment/route.ts.
+ */
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 

@@ -1,3 +1,16 @@
+/*
+ * app/login/[[...sign-in]]/page.tsx
+ *
+ * Login page — wraps Clerk's <SignIn> component in a branded shell.
+ * The [[...sign-in]] catch-all route allows Clerk's embedded routing to handle
+ * multi-step flows (OTP, social auth, etc.) within the same URL path.
+ *
+ * routing="path" + path="/login" tells Clerk to use path-based routing rather
+ * than hash routing, which is required for Next.js App Router.
+ *
+ * After sign-in, Clerk redirects to the URL in the afterSignInUrl env var
+ * (set to "/") which UserProvider then interprets based on has_org + role.
+ */
 import { SignIn } from '@clerk/nextjs'
 
 export default function LoginPage() {

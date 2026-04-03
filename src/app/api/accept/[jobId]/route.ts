@@ -1,3 +1,19 @@
+/*
+ * app/api/accept/[jobId]/route.ts
+ *
+ * Public endpoint for online quote acceptance. Linked from PDF quotes and emails.
+ *
+ * GET  — returns job summary + latest quote for the /accept/[jobId] confirmation page.
+ *   No auth required — client accesses this directly from an emailed/PDF link.
+ *
+ * POST — marks the job as 'accepted', sends an internal email notification,
+ *   and appends a timestamped note to the job's notes log.
+ *
+ * Idempotent: if the job is already 'accepted', returns { alreadyAccepted: true }
+ * without making any changes — safe to call multiple times from the same link.
+ *
+ * Email failures are caught and logged but do not block the acceptance response.
+ */
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import { sendQuoteAcceptedEmail } from '@/lib/email'

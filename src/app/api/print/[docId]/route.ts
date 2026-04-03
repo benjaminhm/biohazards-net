@@ -1,3 +1,18 @@
+/*
+ * app/api/print/[docId]/route.ts
+ *
+ * GET /api/print/[docId] — renders a document as a full HTML page.
+ *
+ * Publicly accessible — the URL is shared with clients via email/SMS.
+ * On screen, an action bar provides Print/Save PDF, Email, Text Link, and
+ * Copy Link buttons. In print media, the action bar is hidden via CSS.
+ *
+ * Fetches document, company profile, photos (for before/after grids), and
+ * job client info in parallel. Passes all to buildPrintHTML() which returns
+ * a complete HTML document string.
+ *
+ * Cache-Control: no-store prevents proxies from caching stale document versions.
+ */
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import { buildPrintHTML } from '@/lib/printDocument'

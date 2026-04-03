@@ -1,3 +1,23 @@
+/*
+ * lib/printDocument.ts
+ *
+ * Generates print-ready HTML for all 11 document types.
+ * The output is served directly by /api/print/[docId] — clients open the URL
+ * in a browser and use Print / Save as PDF to get a hard copy.
+ *
+ * Architecture decisions:
+ * - Pure HTML+CSS string generation (no React) so it works in any Node context.
+ * - All user content is HTML-escaped via esc() to prevent injection.
+ * - The action bar (email/print/copy link buttons) is hidden in @media print
+ *   so it doesn't appear in printed PDFs.
+ * - riskBadge() colour-codes H/M/L risk ratings consistently across SWMS,
+ *   JSA, and Risk Assessment tables.
+ * - Photos are embedded via their public Supabase Storage URLs; for PDFs
+ *   that need embedded images, use PDFDocument.tsx + /api/pdf instead.
+ *
+ * Entry point: buildPrintHTML() — switches on DocType and delegates to the
+ * appropriate builder function.
+ */
 import type {
   DocType, Photo, CompanyProfile,
   QuoteContent, SOWContent, SWMSContent, AuthorityToProceedContent,
@@ -6,12 +26,14 @@ import type {
   WorkStep, RiskRow, WasteItem,
 } from './types'
 
+// en-AU locale produces comma separators and dollar sign (e.g. $4,500.00)
 const fmtMoney = (n: number) =>
   '$' + Number(n).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 const todayStr = () =>
   new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })
 
+// Minimal HTML escaping — prevents XSS from user-entered content rendered into the document
 const esc = (s: unknown): string =>
   String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
 
@@ -199,6 +221,8 @@ function photoGrid(photos: Photo[], heading: string): string {
   `
 }
 
+/* Colour-codes a risk level string — H=red, M=amber, L=green.
+   Checks only the first character so values like "High", "H", "Medium" all match. */
 function riskBadge(r: string): string {
   const cls = r?.toUpperCase().startsWith('H') ? 'risk-H' : r?.toUpperCase().startsWith('M') ? 'risk-M' : 'risk-L'
   return `<span class="${cls}">${esc(r)}</span>`
@@ -539,6 +563,18 @@ function buildRAHTML(c: RiskAssessmentContent, company: CompanyProfile | null, c
 
 // ── Entry point ───────────────────────────────────────────────────────────────
 
+/**
+ * Main export. Converts stored document content + job photos into a full
+ * HTML document ready to serve as a print/PDF page.
+ *
+ * @param type     - One of the 11 DocType values
+ * @param content  - The JSON document content blob from the documents table
+ * @param photos   - Photos for this job (filtered by category inside each builder)
+ * @param company  - Company profile for branding; falls back to hardcoded defaults
+ * @param jobId    - Used to construct the quote accept URL
+ * @param appUrl   - Base URL for accept/print links
+ * @param client   - Optional client info for the screen-only action bar (email/SMS)
+ */
 export function buildPrintHTML(
   type: DocType,
   content: Record<string, unknown>,

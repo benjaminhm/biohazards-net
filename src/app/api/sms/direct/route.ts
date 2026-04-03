@@ -1,3 +1,13 @@
+/*
+ * app/api/sms/direct/route.ts
+ *
+ * POST /api/sms/direct — send a one-off SMS not tied to any job.
+ * Used for sending invite links or admin notifications via SMS.
+ *
+ * Restricted to org admins only (role check against org_users).
+ * Unlike /api/sms/send, this does NOT store a message record because
+ * there is no job to associate it with.
+ */
 import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'

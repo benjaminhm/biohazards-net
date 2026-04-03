@@ -1,3 +1,14 @@
+/*
+ * app/api/image-proxy/route.ts
+ *
+ * GET /api/image-proxy?url=... — proxies an external image through the server.
+ *
+ * Used when @react-pdf/renderer needs to embed photos that are behind CORS
+ * restrictions (Supabase Storage). The proxy fetches the image server-side
+ * and re-serves it with permissive CORS headers + 24h cache.
+ *
+ * Only used in the PDF generation path — HTML documents use URLs directly.
+ */
 import { NextRequest, NextResponse } from 'next/server'
 
 export async function GET(req: NextRequest) {

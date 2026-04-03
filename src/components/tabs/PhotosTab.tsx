@@ -1,3 +1,26 @@
+/*
+ * components/tabs/PhotosTab.tsx
+ *
+ * The Photos tab on the job detail page. Manages the job's photo library with
+ * a three-step upload pattern:
+ *   1. User selects file(s) — browser generates an object URL for preview.
+ *   2. "Upload" sends POST /api/photos/upload-url to get a signed Supabase Storage URL.
+ *   3. File is PUT directly to Storage; public URL is then POSTed to /api/photos.
+ *
+ * Photos are categorised as before/assessment/during/after to control which
+ * appear in which document types. Each photo can have a caption and an area_ref
+ * linking it to an area defined in AssessmentTab.
+ *
+ * PendingPhoto holds the pre-upload state: the local File object, object URL for
+ * the <Image> preview, user-selected category, caption, and area ref. Multiple
+ * photos can be staged simultaneously and uploaded together.
+ *
+ * Deletion sends DELETE /api/photos/[id] which also removes the Storage object.
+ *
+ * Area refs in the area selector come from the job's assessment_data.areas names
+ * (passed down as the `areas` prop) so photo-to-area linking stays in sync with
+ * the AssessmentTab's area list.
+ */
 'use client'
 
 import { useState, useRef } from 'react'

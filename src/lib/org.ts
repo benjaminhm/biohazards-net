@@ -1,3 +1,17 @@
+/*
+ * lib/org.ts
+ *
+ * Tenant resolution for authenticated API routes. Reads org context from
+ * request headers set by middleware (x-org-slug or x-org-host) and maps
+ * them to an org_id from the orgs table.
+ *
+ * The middleware injects these headers before any API handler runs:
+ *   x-org-host  — set when request comes from a custom domain
+ *   x-org-slug  — set when request comes from a subdomain (or 'app' for main)
+ *
+ * When slug is 'app' (the platform's own subdomain), org is resolved by
+ * looking up the user's org_users membership record — one user, one org.
+ */
 import { createServiceClient } from '@/lib/supabase'
 
 export interface OrgResult {
@@ -46,6 +60,8 @@ export async function getOrgId(req: Request, clerkUserId: string | null): Promis
   return getOrgResultForUser(clerkUserId)
 }
 
+/* Supabase returns orgs as array or object depending on join type —
+   normalise to a single object here. */
 async function getOrgResultForUser(clerkUserId: string): Promise<OrgResult> {
   const supabase = createServiceClient()
   const { data, error } = await supabase

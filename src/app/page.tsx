@@ -1,3 +1,23 @@
+/*
+ * app/page.tsx
+ *
+ * Dashboard / home page — the main job list for admins and members with
+ * the view_all_jobs capability.
+ *
+ * Non-admins without view_all_jobs are redirected to /field (their personal
+ * schedule view) immediately on load. This check runs client-side in a useEffect
+ * so the redirect is smooth rather than causing a server-side 302 loop.
+ *
+ * Features:
+ *   - Upcoming jobs section (next 7 days with scheduled_at set).
+ *   - Full job list grouped by status (active first, closed at bottom).
+ *   - Capability preview picker for admins — sets preview_caps + preview_name
+ *     in localStorage, which UserProvider picks up to simulate a team member's view.
+ *   - Live clock (fmtBooking) that labels bookings as "Today"/"Tomorrow" for
+ *     the field schedule section.
+ *
+ * Company profile is fetched to personalise the header with the business name.
+ */
 'use client'
 
 import Link from 'next/link'

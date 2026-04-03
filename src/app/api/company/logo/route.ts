@@ -1,3 +1,13 @@
+/*
+ * app/api/company/logo/route.ts
+ *
+ * POST /api/company/logo — generates a signed upload URL for a company logo.
+ * Returns both the signed upload URL and the resulting public URL so the
+ * client can display the logo immediately after upload without a reload.
+ *
+ * Logos are stored in the 'company-assets' bucket under the 'logo/' prefix.
+ * After upload, the caller should PATCH /api/company with { logo_url: publicUrl }.
+ */
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 

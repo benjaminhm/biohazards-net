@@ -1,3 +1,27 @@
+/*
+ * components/SmartFill.tsx
+ *
+ * Collapsible AI form-fill panel used on the new-job form (and potentially
+ * other forms). Accepts freeform text — either typed/pasted or dictated via
+ * the Web Speech API — and sends it to /api/extract, which uses Claude to
+ * extract structured job fields from the unstructured input.
+ *
+ * Workflow:
+ *   1. User opens the panel and types/pastes text or clicks the mic to dictate.
+ *   2. "Extract Details" calls /api/extract with the text.
+ *   3. Claude returns a { extracted: Record<string, string> } object.
+ *   4. Non-null fields are shown as a review list.
+ *   5. "Apply to Form" passes the extracted object up via onApply() so the
+ *      parent form can merge the values into its own state.
+ *
+ * Voice recording uses Web Speech API (webkit-prefixed fallback) with en-AU
+ * locale. Interim (unconfirmed) words are shown below the textarea in italic
+ * while the recognition session is still in progress. Final words append to
+ * pastedText so editing across multiple utterances is seamless.
+ *
+ * The component is purely presentational — it owns no server state. The parent
+ * is responsible for persisting sourceText if it should survive tab changes.
+ */
 'use client'
 
 import { useState, useRef } from 'react'

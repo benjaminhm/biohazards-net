@@ -1,3 +1,17 @@
+/*
+ * components/ConfirmDeleteModal.tsx
+ *
+ * A slide-up bottom sheet that requires the user to type a specific name
+ * before the destructive action is enabled. Used for deleting jobs, documents,
+ * and team members where accidental deletion would be costly.
+ *
+ * The confirmName prop is typically the record's primary display name
+ * (e.g. job reference or person's name) so users must consciously identify
+ * what they are deleting rather than just clicking through a generic "Are you sure?".
+ *
+ * The Delete button stays greyed-out until typed === confirmName exactly.
+ * The backdrop click cancels the modal so it behaves like a native sheet.
+ */
 'use client'
 
 import { useState } from 'react'

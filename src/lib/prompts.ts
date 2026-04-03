@@ -1,5 +1,20 @@
+/*
+ * lib/prompts.ts
+ *
+ * Prompt builders for the legacy /api/generate/[type] route (quote, sow, report).
+ * This is the older generation path — newer document types use /api/build-document
+ * which has its own inline prompt schema (lib/build-document route).
+ *
+ * These functions convert structured job data into rich plain-text context that
+ * Claude can use to produce specific, evidence-backed documents rather than
+ * generic templates. Photo captions are treated as direct site evidence.
+ */
 import type { Job, Photo } from './types'
 
+/**
+ * Formats job and assessment data into a text block injected into every prompt.
+ * Converts underscore keys to spaces for readability in Claude's context window.
+ */
 function buildJobDataBlock(job: Job): string {
   const a = job.assessment_data!
   const totalSqm = a.areas.reduce((s, x) => s + x.sqm, 0)
@@ -35,6 +50,10 @@ Access Notes: ${a.access_restrictions || 'none'}
 Technician Observations: "${a.observations}"`
 }
 
+/**
+ * Groups photos by area and formats them as a labelled evidence block.
+ * Only includes photos in the specified categories (e.g. ['before', 'assessment']).
+ */
 function buildPhotoEvidenceBlock(photos: Photo[], categories: string[]): string {
   const relevant = photos.filter(p => categories.includes(p.category))
   if (relevant.length === 0) return ''
@@ -102,6 +121,8 @@ ${(() => {
   if (!tp) {
     return `PRICING: Use realistic Australian market rates for biohazard work ($120–$250/hr depending on contamination level). Base labour on contamination level (${a.contamination_level}/5) and estimated hours (${a.estimated_hours}hrs). Ensure subtotal + GST (10%) = total.`
   }
+  // Detect whether target_price_note signals ex-GST — if so, add 10% on top;
+  // otherwise treat the target as inc. GST and back-calculate subtotal.
   const isExGST = note.includes('ex') || note.includes('excl') || note.includes('+ gst') || note.includes('+gst')
   let subtotal: number, gstAmt: number, total: number
   if (isExGST) {

@@ -1,3 +1,25 @@
+/*
+ * app/new-client/page.tsx
+ *
+ * Public client intake form — no authentication required. Used when a staff
+ * member sends the intake link to a client via /intake-send.
+ *
+ * The form collects client details, job type, and up to 10 site photos. Photos
+ * are uploaded using the same signed URL pattern as the internal photos tab:
+ *   1. POST /api/intake/upload-url → signed Supabase Storage URL.
+ *   2. PUT file directly to Storage from the browser.
+ *   3. Public URL stored locally, then submitted with the form.
+ *
+ * On submit, POST /api/intake creates a job record with status='lead' and
+ * fires a background lead notification to the internal team (notify-lead).
+ *
+ * A session ID (generateSessionId) is generated on mount and sent with photos
+ * to namespace Storage objects for this submission, preventing collisions if the
+ * same client reloads and tries to upload again.
+ *
+ * Company branding (name, logo) is fetched from /api/company so the form
+ * matches the org's identity on their subdomain.
+ */
 'use client'
 
 import { useEffect, useRef, useState } from 'react'

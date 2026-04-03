@@ -1,3 +1,22 @@
+/*
+ * components/tabs/DocumentsTab.tsx
+ *
+ * The Documents tab on the job detail page. Lists all saved Document records
+ * for the job and provides a "Generate" button for each of the 11 document types.
+ *
+ * Document types are grouped using DOC_TYPE_GROUPS from lib/types.ts so the UI
+ * presents them in logical sections (Quotes, Scope of Works, Reports, etc.)
+ * rather than as a flat alphabetical list.
+ *
+ * Each saved document (DocRow) shows the document type label, its creation date,
+ * and action buttons:
+ *   - Copy Link: writes the /api/print/[docId] URL to clipboard.
+ *   - Edit: navigates to /jobs/[jobId]/docs/[type] for the chat-based editor.
+ *   - Delete: sends DELETE /api/documents/[id] with an inline confirmation.
+ *
+ * Generation navigates to /jobs/[jobId]/docs/[type] rather than opening a modal.
+ * That page hosts the full GenerateModal with the chat interface and preview.
+ */
 'use client'
 
 import { useState } from 'react'

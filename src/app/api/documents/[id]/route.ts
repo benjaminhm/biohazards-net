@@ -1,3 +1,15 @@
+/*
+ * app/api/documents/[id]/route.ts
+ *
+ * GET    /api/documents/[id] — fetch a single document by ID (no auth required —
+ *   used by the print route and GenerateModal to reload saved state)
+ * PATCH  /api/documents/[id] — update document content (only the content field)
+ * DELETE /api/documents/[id] — hard delete the document record
+ *
+ * These routes have no auth guard because documents are accessed via the
+ * print route (/api/print/[docId]) which is intentionally public. In future,
+ * add token-based or signed-URL access for document security.
+ */
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 

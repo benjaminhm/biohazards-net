@@ -1,3 +1,20 @@
+/*
+ * app/api/company/route.ts
+ *
+ * GET   /api/company — fetch company profile for the current tenant
+ * PATCH /api/company — upsert company profile (update if exists, insert if not)
+ *
+ * GET resolution order (most specific to least):
+ *   1. x-org-slug header (set by middleware for subdomain requests)
+ *   2. x-tenant-host header → extract subdomain or match custom_domain
+ *   3. Single-row fallback (limit 1)
+ *
+ * PGRST116 is the Supabase error code for "no rows found" on a .single() call —
+ * treated as a valid empty result rather than an error.
+ *
+ * PATCH uses an upsert pattern: find existing row by org_id, then update
+ * or insert. This avoids SQL upsert conflicts on the unique org_id constraint.
+ */
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'

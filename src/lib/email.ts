@@ -1,3 +1,14 @@
+/*
+ * lib/email.ts
+ *
+ * Transactional email helpers using the Resend SDK.
+ * Currently handles a single notification type: quote accepted by client.
+ * The email goes to the internal NOTIFY_EMAIL address (not the client) so
+ * the team is alerted immediately when an online quote acceptance arrives.
+ *
+ * Note: the from address uses the Resend onboarding sandbox domain. Update
+ * to a verified sending domain before going to production.
+ */
 import { Resend } from 'resend'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
@@ -13,8 +24,13 @@ export interface QuoteAcceptedData {
   total: number
 }
 
+/**
+ * Send an internal alert email when a client accepts a quote via the online link.
+ * The email links directly back to the job in the app for fast follow-up.
+ */
 export async function sendQuoteAcceptedEmail(data: QuoteAcceptedData) {
   const jobUrl = `${APP_URL}/jobs/${data.jobId}`
+  // en-AU locale formats numbers with commas and two decimal places (e.g. $4,500.00)
   const fmt = (n: number) => `$${Number(n).toLocaleString('en-AU', { minimumFractionDigits: 2 })}`
 
   const html = `

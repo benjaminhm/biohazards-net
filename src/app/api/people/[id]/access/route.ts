@@ -1,3 +1,21 @@
+/*
+ * app/api/people/[id]/access/route.ts
+ *
+ * Manages the org_users record for a people profile — i.e. the app access
+ * and capabilities of a team member.
+ *
+ * GET  /api/people/[id]/access — returns the linked org_users row (role + capabilities)
+ * PATCH /api/people/[id]/access — update role and/or capabilities for this person
+ *
+ * Both endpoints require the requesting user to be an org admin.
+ *
+ * Role demotion guard: if demoting to 'member', we verify at least one other
+ * admin remains in the org to prevent accidental lockout.
+ *
+ * Note: the GET endpoint looks up by person_id first. If the org_users row has
+ * not been linked (person_id is null), there is no fallback via Clerk email
+ * without a full Clerk API call — returns null in that case.
+ */
 import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'

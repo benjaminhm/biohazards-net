@@ -1,3 +1,27 @@
+/*
+ * components/tabs/AssessmentTab.tsx
+ *
+ * The Assessment tab on the job detail page. Manages the `assessment_data`
+ * JSON blob stored on the jobs row. Contains three sub-sections:
+ *
+ *   1. Areas — the rooms/zones affected by the biohazard event. Each area has
+ *      a name, size (m²), and contamination level. These feed the QuoteTab's
+ *      target pricing and the AI document generation prompts.
+ *
+ *   2. Checklists — PPE required and special risks (sharps, chemicals, etc.).
+ *      Presented as checkbox grids. These appear verbatim in SOW documents.
+ *
+ *   3. Custom Fields — a dynamic key/value list for site-specific data
+ *      (insurance claim numbers, coroner release status, etc.). FIELD_SUGGESTIONS
+ *      is a datalist so staff can pick common fields without free-typing every time.
+ *
+ * SmartFill is available on this tab too — the extract-assessment endpoint
+ * extracts AssessmentData fields from voice or text input and merges them in.
+ *
+ * All changes are saved via PATCH /api/jobs/[id] by merging the new assessment_data
+ * into the existing job record. Fields not present in the tab (e.g. target_price,
+ * which lives in QuoteTab) are preserved via the merge.
+ */
 'use client'
 
 import { useState, useEffect, useRef } from 'react'

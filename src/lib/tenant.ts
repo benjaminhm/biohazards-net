@@ -1,3 +1,17 @@
+/*
+ * lib/tenant.ts
+ *
+ * Utility functions for resolving the company/tenant profile from an HTTP host
+ * header. Used by the public intake form and document print routes where auth
+ * is not available and the tenant must be identified from the URL alone.
+ *
+ * Resolution order:
+ *   1. custom_domain exact match (e.g. app.brisbanebiohazardcleaning.com.au)
+ *   2. subdomain match on biohazards.net (e.g. brisbane.biohazards.net)
+ *   3. Single-row fallback — for single-tenant deployments
+ *
+ * For authenticated API routes, use lib/org.ts instead.
+ */
 import { createServiceClient } from './supabase'
 import { CompanyProfile } from './types'
 

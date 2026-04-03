@@ -1,3 +1,16 @@
+/*
+ * components/DevToggle.tsx
+ *
+ * A persistent "DEV" button fixed to the bottom-right of the screen that
+ * toggles developer overlay mode. The button turns orange when dev mode is
+ * active to make the current state obvious at a glance.
+ *
+ * This is the only entry point for enabling DevOverlay — both components
+ * share the same devMode context from lib/devMode.tsx so toggling here
+ * immediately shows/hides all data-devid badges in DevOverlay.
+ *
+ * Positioned above the mobile nav bar (bottom: 72) so it doesn't overlap it.
+ */
 'use client'
 import { useDevMode } from '@/lib/devMode'
 

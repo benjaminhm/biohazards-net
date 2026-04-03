@@ -1,3 +1,16 @@
+/*
+ * app/api/people/[id]/documents/route.ts
+ *
+ * Manages compliance documents (licences, certificates, tickets) attached
+ * to a staff member's people profile.
+ *
+ * POST   /api/people/[id]/documents — upload a document record (file URL + metadata)
+ * DELETE /api/people/[id]/documents — delete a specific document by docId in body
+ *
+ * Documents are stored in the people_documents table with person_id + org_id.
+ * File upload itself happens via the Supabase Storage signed URL pattern
+ * (handled separately); this route just records the resulting public URL.
+ */
 import { auth } from '@clerk/nextjs/server'
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'

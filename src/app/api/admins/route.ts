@@ -1,3 +1,14 @@
+/*
+ * app/api/admins/route.ts
+ *
+ * GET    /api/admins — list all admin users for the org (enriched with Clerk names)
+ * DELETE /api/admins — demote an admin to member (org admin only)
+ *
+ * Names come from Clerk because org_users only stores clerk_user_id, not PII.
+ * Enrichment is done with Promise.all() — one Clerk API call per admin in parallel.
+ *
+ * Last-admin guard: if demoting would leave zero admins, returns 400.
+ */
 import { auth, clerkClient } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'

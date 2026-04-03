@@ -1,3 +1,17 @@
+/*
+ * app/api/extract/route.ts
+ *
+ * POST /api/extract — SmartFill extraction for the new-job creation form.
+ * Accepts freeform text (email, SMS, voicemail transcript) and returns
+ * structured job fields via Claude.
+ *
+ * Used by the SmartFill component on /new-client and /jobs/new.
+ * For extraction within an existing job's Details tab, see
+ * /api/jobs/[id]/extract. Both routes use the same prompt logic.
+ *
+ * The regex /\{[\s\S]*\}/ extracts the JSON object from Claude's response
+ * even if there is surrounding text — defensive against verbose completions.
+ */
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 

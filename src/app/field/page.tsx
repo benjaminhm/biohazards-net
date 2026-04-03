@@ -1,3 +1,21 @@
+/*
+ * app/field/page.tsx
+ *
+ * Field worker view — a simplified job schedule for team members who don't
+ * need the full job list. Shows only the jobs assigned to the current user
+ * that are in an active status (lead → underway). Completed/paid jobs are omitted
+ * to keep the view focused on what needs doing today.
+ *
+ * Admins who land here are redirected back to the dashboard (/). Members with
+ * view_all_jobs also redirect because they have a richer dashboard experience.
+ * Only members without view_all_jobs are meant to stay on this page.
+ *
+ * ACTIVE_STATUSES is the filter — it excludes 'completed', 'report_sent', 'paid'
+ * so the field worker sees a short actionable list rather than job history.
+ *
+ * fmtSchedule() shows relative time labels ("Today", "Tomorrow", day name) so
+ * field workers can scan their schedule at a glance without reading full dates.
+ */
 'use client'
 
 import { useEffect, useState } from 'react'

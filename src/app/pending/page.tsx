@@ -1,3 +1,19 @@
+/*
+ * app/pending/page.tsx
+ *
+ * Holding page for users who have signed up (exist in Clerk) but have not
+ * yet been linked to any org (no org_users row). UserProvider redirects here
+ * when /api/me returns has_org: false.
+ *
+ * The page tells the user to ask their manager for an invite link and provides
+ * a sign-out button in case they need to log in with a different account.
+ *
+ * Displays the user's email address from Clerk so they can confirm they're
+ * signed in with the right account before contacting their admin.
+ *
+ * This is a dead-end page — the user can't do anything here except sign out
+ * or wait for the platform admin to add them via the admin dashboard.
+ */
 'use client'
 
 import { useEffect, useState } from 'react'

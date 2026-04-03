@@ -1,3 +1,14 @@
+/*
+ * app/api/people/[id]/route.ts
+ *
+ * GET    /api/people/[id] — fetch a single person with their compliance documents
+ * PATCH  /api/people/[id] — update person profile fields
+ * DELETE /api/people/[id] — remove a team member from the org
+ *
+ * Note: this route does not scope queries by org_id on GET/PATCH/DELETE —
+ * Clerk auth is the only guard. Add org_id scoping if the app adds
+ * multi-tenant team management (currently single-org per user).
+ */
 import { auth } from '@clerk/nextjs/server'
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'

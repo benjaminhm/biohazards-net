@@ -1,3 +1,13 @@
+/*
+ * app/api/sms/messages/route.ts
+ *
+ * GET /api/sms/messages?job_id=... — fetch all messages for a job and mark
+ * unread inbound messages as read in a single follow-up update.
+ *
+ * Messages are returned oldest-first (ascending) for chat UI rendering.
+ * The read_at update runs after the fetch — the fetch result is returned
+ * immediately so the UI is not blocked by the mark-read write.
+ */
 import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'

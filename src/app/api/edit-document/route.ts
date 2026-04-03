@@ -1,3 +1,16 @@
+/*
+ * app/api/edit-document/route.ts
+ *
+ * POST /api/edit-document — apply a plain-English instruction to a document
+ * and return the updated JSON.
+ *
+ * Older editing endpoint (uses claude-opus-4-5) — superseded by
+ * /api/chat-document which uses claude-sonnet-4-6 and also returns a
+ * conversational reply message. Both remain in use; edit-document is
+ * called from GenerateModal's instruction bar.
+ *
+ * Markdown fences are stripped from the response for robustness.
+ */
 import { NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 

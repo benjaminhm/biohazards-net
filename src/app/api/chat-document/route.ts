@@ -1,3 +1,19 @@
+/*
+ * app/api/chat-document/route.ts
+ *
+ * POST /api/chat-document — conversational document editing via Claude.
+ * Accepts a natural-language instruction and the current document JSON,
+ * returns { reply, content } where:
+ *   - reply: 1-2 sentence confirmation of what was changed
+ *   - content: the updated document JSON (same structure as input)
+ *
+ * Used by the document editor chat bar in GenerateModal and the doc editor page.
+ * The system prompt instructs Claude to return a wrapper JSON containing both
+ * the reply and the updated content, parsed with /\{[\s\S]*\}/ regex.
+ *
+ * Document rules (biohazards.md) are optionally injected if provided in the
+ * request, ensuring edits respect org-specific style guidelines.
+ */
 import { NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import type { DocType } from '@/lib/types'

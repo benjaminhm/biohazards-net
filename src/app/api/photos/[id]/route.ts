@@ -1,3 +1,13 @@
+/*
+ * app/api/photos/[id]/route.ts
+ *
+ * DELETE /api/photos/[id] — delete photo from both Storage and the DB.
+ *   Storage path is extracted from the public URL by matching
+ *   /object/public/photos/(.+) — this path format is specific to Supabase's
+ *   public bucket URL structure.
+ *
+ * PATCH  /api/photos/[id] — update photo metadata (caption, area_ref, category)
+ */
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 

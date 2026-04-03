@@ -1,3 +1,16 @@
+/*
+ * app/api/me/route.ts
+ *
+ * Returns the current authenticated user's identity and permissions.
+ * Called on mount by UserProvider (lib/userContext.tsx) to bootstrap
+ * the client-side user context used for all capability checks.
+ *
+ * Response shape: { userId, name, role, capabilities, org_id, has_org, org }
+ *   - capabilities: the raw custom capabilities from org_users (not merged yet)
+ *     — userContext merges with defaults client-side
+ *   - has_org: false means the user is authenticated but not yet in any org
+ *     (they'll be redirected to /pending)
+ */
 import { auth, clerkClient } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
 import { NextResponse } from 'next/server'

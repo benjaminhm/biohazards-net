@@ -1,3 +1,25 @@
+/*
+ * components/GenerateModal.tsx
+ *
+ * Full-screen modal that displays a generated document and lets the user:
+ *   - Preview it as rendered HTML (via buildPrintHTML from lib/printDocument.ts).
+ *   - Edit it via natural-language instructions sent to /api/edit-document.
+ *   - Save it to the database as a Document record via /api/documents.
+ *   - Email it to the client by constructing a mailto: link with the print URL.
+ *
+ * The modal receives `content` as null while Claude is still generating — in
+ * that state it shows a loading animation. Once content arrives the preview
+ * iframe is populated and the action buttons become enabled.
+ *
+ * The in-memory `draft` state is kept as a JSON string so the user can also
+ * manually edit the raw JSON if needed. The preview is regenerated via useMemo
+ * whenever draft, company, photos, or type changes — no debounce needed because
+ * buildPrintHTML is fast (pure string concatenation).
+ *
+ * handleEmail saves the document first, then opens a mailto: link so the staff
+ * member can send a pre-composed email containing the document's print URL.
+ * This avoids needing transactional email configuration for document delivery.
+ */
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'

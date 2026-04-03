@@ -1,3 +1,23 @@
+/*
+ * app/intake-send/page.tsx
+ *
+ * Internal staff tool for sending the client intake link. Instead of entering
+ * client details manually, staff can send the /new-client form link to the client
+ * so they fill it in themselves.
+ *
+ * Two send methods:
+ *   - Email: sends via POST /api/send-intake-link (Resend). Requires client email.
+ *   - SMS: opens a native sms: link with the intake URL pre-filled in the body.
+ *     The sms: link is handled by the device OS — no server involvement, so it
+ *     works on mobile without Twilio credentials.
+ *
+ * getIntakeUrl() always uses the current window.location.origin so it produces
+ * the correct subdomain URL (e.g. brisbanebiohazardcleaning.biohazards.net/new-client)
+ * regardless of which org's subdomain the staff member is browsing from.
+ *
+ * The default message is pre-populated but fully editable — staff can personalise
+ * it before sending.
+ */
 'use client'
 
 import { useState } from 'react'

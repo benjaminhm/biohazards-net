@@ -1,3 +1,15 @@
+/*
+ * app/api/notify-lead/route.ts
+ *
+ * POST /api/notify-lead — sends an internal email alert when a new client
+ * submits the online intake form (/new-client).
+ *
+ * Called by /api/intake as a fire-and-forget background fetch.
+ * The route always returns { ok: true } even if the email fails (errors logged
+ * to console only) so the intake submission is never blocked by email issues.
+ *
+ * Recipient is NOTIFY_EMAIL env var — typically the business owner's inbox.
+ */
 import { NextRequest, NextResponse } from 'next/server'
 import { Resend } from 'resend'
 

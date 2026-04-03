@@ -1,3 +1,25 @@
+/*
+ * components/tabs/DetailsTab.tsx
+ *
+ * The Details tab on the job detail page. Manages all top-level job fields:
+ * client info, site address, job type, status, urgency, scheduled datetime,
+ * notes, and the phone book (PhoneEntry[]). Also shows the assigned team.
+ *
+ * Key behaviours:
+ *   - SmartFill is embedded at the top so staff can paste a text/email/voicemail
+ *     and have Claude pre-fill client_name, client_phone, site_address, etc.
+ *   - Phone entries support multiple contacts per job (next of kin, agent, etc.).
+ *     Each is stored as { label, phone, note } in assessment_data.phones.
+ *   - normalizeAUPhone() and toE164() handle the inconsistent phone formats
+ *     that arrive from clients and third parties.
+ *   - extractSuburb() parses a structured address string to derive a suburb
+ *     token for display badges and SMS templates.
+ *   - All changes are saved via PATCH /api/jobs/[id]. The tab calls onJobUpdate
+ *     with the server response so the parent can keep its own state in sync
+ *     without a full page reload.
+ *
+ * Team assignments are read-only here — managed via the Team tab instead.
+ */
 'use client'
 
 import { useState, useEffect } from 'react'

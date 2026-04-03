@@ -1,3 +1,19 @@
+/*
+ * app/api/pdf/route.ts
+ *
+ * POST /api/pdf — renders a document as a downloadable PDF binary via
+ * @react-pdf/renderer.
+ *
+ * This is an alternative to the HTML print route — produces a true PDF file
+ * rather than relying on browser print-to-PDF. Supports quote, sow, and
+ * report document types via PDFDocument.tsx (JobPDFDocument component).
+ *
+ * runtime = 'nodejs' is required because @react-pdf/renderer uses Node.js
+ * APIs incompatible with the Edge runtime.
+ *
+ * The renderer is imported via require() rather than import because it uses
+ * CommonJS exports that cause issues with Next.js ESM bundling.
+ */
 import { NextResponse } from 'next/server'
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { renderToBuffer } = require('@react-pdf/renderer')

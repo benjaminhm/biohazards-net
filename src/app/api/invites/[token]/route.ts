@@ -1,3 +1,19 @@
+/*
+ * app/api/invites/[token]/route.ts
+ *
+ * Public GET + authenticated POST for the invite claim flow.
+ *
+ * GET  — returns invite metadata (role, org name) for the /invite/[token] page
+ *   to show before the user signs in. Returns 410 if already claimed or expired.
+ *
+ * POST — claims the invite (requires Clerk auth). Handles two cases:
+ *   1. User already in same org → links person profile if invite carries person_id
+ *   2. New user → creates org_users record and marks invite claimed
+ *
+ * An invite cannot be used to join a second org if the user is already in one.
+ * Supabase's orgs join is normalised before use because PostgREST can return
+ * the related row as either an array or object depending on join cardinality.
+ */
 import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
 import { NextResponse } from 'next/server'

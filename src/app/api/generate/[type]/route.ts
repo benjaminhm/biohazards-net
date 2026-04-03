@@ -1,3 +1,19 @@
+/*
+ * app/api/generate/[type]/route.ts
+ *
+ * POST /api/generate/[type] — legacy document generation endpoint.
+ * Supports type = 'quote' | 'sow' | 'report'.
+ *
+ * This is the older generation path used by some UI flows. The newer
+ * /api/build-document route handles all 11 document types with richer
+ * context (company rules, style guide PDFs).
+ *
+ * Fetches job + photos from Supabase, builds a prompt via lib/prompts.ts,
+ * calls Claude, and returns the parsed JSON document content.
+ *
+ * Note: markdown code fences are stripped from the response because Claude
+ * sometimes wraps JSON in ```json blocks despite explicit instructions not to.
+ */
 import { NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { createServiceClient } from '@/lib/supabase'
@@ -45,7 +61,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ type: s
 
     const rawText = message.content[0].type === 'text' ? message.content[0].text : ''
 
-    // Strip any markdown code fences Claude might add despite instructions
+    // Strip markdown fences Claude occasionally prepends despite "no fences" instructions
     const cleaned = rawText
       .replace(/^```(?:json)?\s*/i, '')
       .replace(/\s*```\s*$/, '')

@@ -1,3 +1,14 @@
+/*
+ * app/api/send-intake-link/route.ts
+ *
+ * POST /api/send-intake-link — emails a link to the client intake form.
+ * Used from the intake-send page so staff can ask a client to fill in their
+ * own details rather than entering them manually.
+ *
+ * The intake URL is passed from the client (not constructed server-side) so
+ * it reflects the correct subdomain the staff member is browsing from.
+ * Falls back to the app's default URL if none is provided.
+ */
 import { NextRequest, NextResponse } from 'next/server'
 import { Resend } from 'resend'
 

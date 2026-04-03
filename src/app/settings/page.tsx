@@ -1,3 +1,28 @@
+/*
+ * app/settings/page.tsx
+ *
+ * Company settings page — admin-only. Manages the company's CompanyProfile
+ * record plus the document_rules system that controls how Claude writes documents.
+ *
+ * Two sections:
+ *
+ * 1. Company Profile
+ *    - Basic info: name, ABN, phone, email, address, tagline, licence, website.
+ *    - Logo upload via signed URL pattern (POST /api/company/logo → PUT to Storage).
+ *    - Saved via PATCH /api/company. PGRST116 (no row) is handled by upsert on the server.
+ *
+ * 2. Document Rules (AI Instructions)
+ *    - RULE_TABS maps to each document type plus a "General" tab.
+ *    - Each tab has a free-text instruction field stored in company.document_rules[docType].
+ *    - The "general" tab stores baseline instructions injected into every generation prompt.
+ *    - Per-document-type tabs let admins override Claude's tone, structure, and content
+ *      for that specific document (e.g. "for reports always include a risk matrix").
+ *    - A style guide PDF can be uploaded per doc type; it's base64-fetched by
+ *      /api/build-document and passed to Claude as a vision input for format matching.
+ *
+ * Admin management (promote/demote) is also shown here via GET/DELETE /api/admins.
+ * ConfirmDeleteModal guards the demote action for the last-admin check UX.
+ */
 'use client'
 
 import { useEffect, useRef, useState } from 'react'

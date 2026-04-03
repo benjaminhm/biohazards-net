@@ -1,3 +1,17 @@
+/*
+ * components/PreviewBanner.tsx
+ *
+ * A fixed top banner that appears when an admin has activated preview mode
+ * (simulating a team member's capability set). Renders null when not previewing.
+ *
+ * The banner serves two purposes:
+ *   1. Reminds the admin that they are in preview mode (purple strip + person name).
+ *   2. Provides a quick "Exit Preview" button to restore admin capabilities.
+ *
+ * preview_name is stored in localStorage alongside preview_caps in userContext.tsx.
+ * The spacer div below the fixed strip prevents the page's own content from
+ * being partially hidden underneath the banner.
+ */
 'use client'
 
 import { useUser } from '@/lib/userContext'

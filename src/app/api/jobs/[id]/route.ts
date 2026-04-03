@@ -1,3 +1,13 @@
+/*
+ * app/api/jobs/[id]/route.ts
+ *
+ * GET    /api/jobs/[id]  — fetch a single job + its photos in parallel
+ * PATCH  /api/jobs/[id]  — partial update (status, fields, assessment_data, etc.)
+ * DELETE /api/jobs/[id]  — hard delete the job record
+ *
+ * Every operation enforces org_id scoping (.eq('org_id', orgId)) so a user
+ * in org A cannot access jobs in org B even if they know the UUID.
+ */
 import { NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'

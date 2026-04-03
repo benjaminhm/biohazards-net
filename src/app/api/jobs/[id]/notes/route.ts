@@ -1,3 +1,13 @@
+/*
+ * app/api/jobs/[id]/notes/route.ts
+ *
+ * POST /api/jobs/[id]/notes — appends a timestamped note to jobs.notes.
+ *
+ * Notes are stored as a newline-delimited log of "[timestamp] text" entries
+ * in a single text column. This keeps the audit trail in the primary record
+ * without needing a separate notes table.
+ * Timestamp is formatted in Australia/Brisbane timezone.
+ */
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 

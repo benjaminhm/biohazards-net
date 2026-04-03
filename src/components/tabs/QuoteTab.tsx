@@ -1,3 +1,24 @@
+/*
+ * components/tabs/QuoteTab.tsx
+ *
+ * The Quote tab on the job detail page. Manages the pricing-related fields
+ * that live inside the `assessment_data` JSON blob:
+ *   - target_price: the overall job price (number, in AUD incl. GST).
+ *   - target_price_note: free-text context (e.g. "ex gst", "includes travel").
+ *     The "ex" / "+ gst" keywords are detected by the AI in /api/build-document
+ *     to decide whether to add 10% on top or back-calculate the GST component.
+ *   - payment_terms: injected into Quote documents; defaults to 50% deposit / 7-day net.
+ *   - terms_and_conditions: full T&C block at the bottom of Quote documents.
+ *
+ * This tab does NOT generate documents — it only sets the pricing inputs.
+ * Document generation happens in DocumentsTab (navigates to the docs/[type] page).
+ *
+ * mergeDefaults() fills in standard default strings so the tab always shows
+ * sensible content even for newly created jobs with no assessment_data yet.
+ *
+ * The tab also shows existing Quote documents with links so staff can jump
+ * directly to a saved quote without switching tabs.
+ */
 'use client'
 
 import { useState, useEffect } from 'react'

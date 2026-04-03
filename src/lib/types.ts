@@ -1,3 +1,19 @@
+/*
+ * lib/types.ts
+ *
+ * Central type definitions for the entire application.
+ * Every major domain entity — Jobs, Documents, Assessments, Orgs, Permissions —
+ * lives here. Import from this file rather than defining local types.
+ *
+ * Key architecture decisions:
+ * - org_id is the multi-tenancy partition key on every table.
+ * - TeamCapabilities drives all UI gating; never check role === 'admin' in
+ *   components — check the relevant capability instead.
+ * - ALL_CAPABILITIES is assigned to admins; members receive
+ *   DEFAULT_MEMBER_CAPABILITIES merged with their custom capabilities from DB.
+ * - AssessmentData is stored as a JSON column on the jobs table.
+ */
+
 export type JobStatus =
   | 'lead'
   | 'assessed'
@@ -61,6 +77,7 @@ export const DOC_TYPE_GROUPS: { label: string; types: DocType[] }[] = [
   },
 ]
 
+/* A single contaminated zone within a job site */
 export interface Area {
   name: string
   sqm: number
@@ -68,11 +85,21 @@ export interface Area {
   description: string
 }
 
+/* Freeform key-value pairs captured on the assessment — insurance details,
+   claim numbers, access codes, etc. Rendered in documents as additional fields. */
 export interface CustomField {
   label: string
   value: string
 }
 
+/*
+ * AssessmentData is stored as a single JSON blob in jobs.assessment_data.
+ * It is the primary input for Claude document generation — the richer the
+ * data here, the better the generated quotes, reports, and SWMS.
+ * target_price and target_price_note control how Claude prices quotes:
+ * if set, Claude works line items backward from the target rather than
+ * calculating from market rates.
+ */
 export interface AssessmentData {
   areas: Area[]
   contamination_level: number
@@ -104,6 +131,8 @@ export interface AssessmentData {
   custom_fields?: CustomField[]
 }
 
+/* Secondary phone numbers on a job (beyond the primary client_phone).
+   Stored as client_phones JSON array in the jobs table. */
 export interface PhoneEntry {
   label: string   // "Mobile", "Landline", "Work", "Other"
   number: string
@@ -146,6 +175,10 @@ export interface Document {
   created_at: string
 }
 
+/* Per-org company branding and settings. One row per org in company_profile.
+   document_rules is a JSON object with keys 'general' (applied to all docs)
+   and per-type keys like 'quote', 'swms' etc. Each value is markdown text
+   fed to Claude as a style/rules override during document generation. */
 export interface CompanyProfile {
   id: string
   name: string
@@ -355,13 +388,16 @@ export type AnyDocContent =
   | NDAContent
   | RiskAssessmentContent
 
-// Photo with proxy URL for PDF embedding
+/* Photo with an optional base64 data URL, used when embedding images
+   into react-pdf renders (which cannot fetch remote URLs directly). */
 export interface PhotoWithData extends Photo {
   dataUrl?: string
 }
 
 // ── Multi-tenant ──────────────────────────────────────────────────────────────
 
+/* Top-level tenant record. Every job, person, document, and photo belongs to
+   an org via org_id. is_active is used for soft-delete / suspension. */
 export interface Org {
   id: string
   name: string
@@ -374,6 +410,23 @@ export interface Org {
   created_at: string
 }
 
+/*
+ * TeamCapabilities — capabilities-based permission model.
+ *
+ * Rather than checking role === 'admin' throughout the UI, every permission
+ * gate checks a specific capability here. This allows admins to grant
+ * individual capabilities to members without promoting them to full admin.
+ *
+ * assign_team_members is a 3-level enum:
+ *   'none'  — cannot assign team to any job
+ *   'own'   — can assign on jobs they are already assigned to
+ *   'all'   — can assign on any job
+ *
+ * Admins always receive ALL_CAPABILITIES. Members receive
+ * DEFAULT_MEMBER_CAPABILITIES merged with their custom caps from org_users.capabilities.
+ * Preview mode (admin-only) replaces the in-memory caps with caps from
+ * localStorage 'preview_caps' so admins can test member experience.
+ */
 export interface TeamCapabilities {
   // Jobs
   view_all_jobs:       boolean
@@ -404,6 +457,7 @@ export interface TeamCapabilities {
   edit_settings:       boolean
 }
 
+/* Full access — assigned to every admin. */
 export const ALL_CAPABILITIES: TeamCapabilities = {
   view_all_jobs: true, create_jobs: true, edit_job_details: true,
   change_job_status: true, assign_team_members: 'all',
@@ -415,6 +469,9 @@ export const ALL_CAPABILITIES: TeamCapabilities = {
   send_sms: true, edit_settings: true,
 }
 
+/* Minimum access for a newly invited member. Merged with custom capabilities
+   stored in org_users.capabilities so that admins can selectively unlock
+   features per team member without touching this default. */
 export const DEFAULT_MEMBER_CAPABILITIES: TeamCapabilities = {
   view_all_jobs: false, create_jobs: false, edit_job_details: false,
   change_job_status: false, assign_team_members: 'none',
@@ -426,6 +483,8 @@ export const DEFAULT_MEMBER_CAPABILITIES: TeamCapabilities = {
   send_sms: false, edit_settings: false,
 }
 
+/* Join table linking a Clerk user to an org. person_id links to the people
+   table so a team member's org_user row can reference their staff profile. */
 export interface OrgUser {
   id: string
   org_id: string

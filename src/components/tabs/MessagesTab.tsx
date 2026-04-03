@@ -1,3 +1,24 @@
+/*
+ * components/tabs/MessagesTab.tsx
+ *
+ * The Messages tab on the job detail page. Provides a chat-like SMS interface
+ * between the business and the client via Twilio.
+ *
+ * Key behaviours:
+ *   - On mount, fetches all messages for the job via GET /api/sms/messages?jobId=...
+ *     and marks any unread inbound messages as read (the API handles both in one call).
+ *   - Polls for new messages every 15 seconds via setInterval so staff see incoming
+ *     replies without a full page refresh.
+ *   - Outbound SMS is sent via POST /api/sms/send. The `to_number` field is
+ *     pre-filled with job.client_phone but can be overridden (e.g. to text a NOK).
+ *   - fmtTime() shows "HH:MM" for today's messages and "D MMM HH:MM" for older ones
+ *     so the conversation timeline is readable without full timestamps.
+ *   - Auto-scrolls to the bottom whenever messages change so new messages are
+ *     always visible (bottomRef).
+ *
+ * No optimistic updates — messages refresh after send to show the server-confirmed
+ * outbound record rather than a client-side placeholder.
+ */
 'use client'
 
 import { useEffect, useRef, useState, useCallback } from 'react'

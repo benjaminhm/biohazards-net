@@ -1,3 +1,17 @@
+/*
+ * app/api/admin/orgs/[id]/route.ts
+ *
+ * PATCH  /api/admin/orgs/[id] — update an org's plan, seat_limit, features, or is_active flag.
+ * DELETE /api/admin/orgs/[id] — soft-delete an org by setting is_active = false.
+ *
+ * Both methods are restricted to PLATFORM_ADMIN_CLERK_IDS (super-admin only).
+ *
+ * PATCH accepts a partial body — only the provided fields are applied, so
+ * callers can change just the plan without touching seat_limit, etc.
+ *
+ * DELETE is non-destructive: is_active = false hides the org from the platform
+ * admin UI and prevents login, but all data is preserved for recovery.
+ */
 import { NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'

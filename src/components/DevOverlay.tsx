@@ -1,3 +1,20 @@
+/*
+ * components/DevOverlay.tsx
+ *
+ * Visual overlay for development mode. When devMode is enabled (via DevToggle),
+ * this component scans the DOM every 300ms for elements with a data-devid
+ * attribute and renders a clickable orange badge at each element's position.
+ *
+ * Clicking a badge copies its ID to the clipboard — useful for quickly noting
+ * which element ID to reference in design comments or bug reports.
+ *
+ * PAGE_REGISTRY maps top-level page codes (P1, P2, ...) to human-readable
+ * names and is displayed as a floating legend panel when dev mode is active.
+ *
+ * Uses absolute positioning (not fixed) so badges track elements that scroll
+ * with the page. Polling is necessary because Next.js client navigations and
+ * tab changes don't fire a DOM mutation we can observe cheaply.
+ */
 'use client'
 import { useEffect, useState } from 'react'
 import { useDevMode } from '@/lib/devMode'

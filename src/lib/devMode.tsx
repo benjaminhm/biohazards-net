@@ -1,3 +1,13 @@
+/*
+ * lib/devMode.tsx
+ *
+ * React context that tracks developer mode — a UI overlay state that
+ * displays data-devid attribute badges on interactive elements.
+ * Used during development and design QA to quickly identify components.
+ *
+ * State persists to localStorage so it survives page refreshes.
+ * DevOverlay and DevToggle components consume this context.
+ */
 'use client'
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react'
 

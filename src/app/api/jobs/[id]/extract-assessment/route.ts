@@ -1,3 +1,16 @@
+/*
+ * app/api/jobs/[id]/extract-assessment/route.ts
+ *
+ * POST /api/jobs/[id]/extract-assessment
+ *
+ * SmartFill for the Assessment tab. Accepts unstructured text (voice memo,
+ * email thread, field notes) and returns structured AssessmentData fields.
+ *
+ * The returned object is merged into existing assessment_data on the client —
+ * null values are discarded so existing fields are never overwritten with empties.
+ * custom_fields captures anything not in the standard schema (insurance numbers,
+ * access codes, coroner status, specialist requirements, etc.).
+ */
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 

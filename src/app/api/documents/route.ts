@@ -1,3 +1,17 @@
+/*
+ * app/api/documents/route.ts
+ *
+ * GET  /api/documents?jobId=... — fetch all documents for a job
+ * POST /api/documents           — save a new document record
+ *
+ * Documents are HTML-renderable via /api/print/[id] — the content JSON blob
+ * is passed to buildPrintHTML() in lib/printDocument.ts.
+ *
+ * GET: if orgId is available it is used for scoping; it may be absent on
+ * public print routes so we allow the query without the org filter in that case.
+ * POST: org_id is set if resolved; documents can exist without org_id for
+ * backwards-compatibility with older records.
+ */
 import { NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'

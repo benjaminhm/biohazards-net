@@ -1,9 +1,37 @@
+/*
+ * app/api/build-document/route.ts
+ *
+ * POST /api/build-document — primary document generation endpoint.
+ * Generates all 11 DocType documents using Claude claude-sonnet-4-6.
+ *
+ * Architecture:
+ * - Job + photos + company profile are passed in the request body (not fetched
+ *   here) so the caller controls what data Claude sees.
+ * - jobContext() compiles all assessment data, photo notes, company info,
+ *   and pricing into a structured text block injected into every prompt.
+ * - schemas{} contains per-DocType JSON structure instructions — Claude must
+ *   return exactly matching keys to be renderable by printDocument.ts.
+ * - getRules() injects per-org document rules from company_profile.document_rules
+ *   (biohazards.md system) as a strict override block before the schema.
+ * - If a style guide PDF URL is stored in document_rules[type + '_pdf'],
+ *   the PDF is fetched and attached as a base64 document block so Claude
+ *   can match the client's existing document style.
+ * - The response regex /\{[\s\S]*\}/ extracts JSON from Claude's reply even
+ *   if there is surrounding text.
+ *
+ * GST calculation (quotes): target_price_note is checked for "ex"/"+ gst"
+ * keywords to determine if the target is ex-GST or inc-GST, then the
+ * appropriate subtotal/GST/total split is computed before sending to Claude
+ * so the numbers are exact.
+ */
 import { NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import type { DocType, Job, Photo, CompanyProfile } from '@/lib/types'
 
 const client = new Anthropic()
 
+/* Generates a human-readable document reference (e.g. QTE-20250401-AB12CD)
+   using a per-type prefix + YYYYMMDD + first 6 chars of job UUID. */
 function ref(type: DocType, job: Job): string {
   const prefix: Record<DocType, string> = {
     quote: 'QTE', sow: 'SOW', swms: 'SWMS', authority_to_proceed: 'ATP',
@@ -51,6 +79,12 @@ ${photoNotes}
 `.trim()
 }
 
+/*
+ * Injects company document rules into the prompt as a strict override block.
+ * Rules are stored per-org in company_profile.document_rules as a JSON object:
+ *   { general: "...", quote: "...", swms: "..." }
+ * 'general' applies to all doc types; type-specific keys override for that type.
+ */
 function getRules(type: DocType, company: CompanyProfile | null): string {
   const rules = company?.document_rules ?? {}
   const parts = [rules.general, rules[type]].filter(Boolean)
@@ -244,6 +278,8 @@ ${schemas[type]}
 Be specific — reference the actual site, job type, and assessment data. Do not be generic. Return ONLY the JSON object, no other text.`
 }
 
+/* Fetches a PDF from a public URL and returns it as a base64 string
+   for inclusion as a Claude document block (style guide reference). */
 async function fetchPdfBase64(url: string): Promise<string | null> {
   try {
     const res = await fetch(url)
@@ -270,7 +306,9 @@ export async function POST(req: Request) {
 
     const prompt = buildPrompt(type, job, photos ?? [], company)
 
-    // Build message content — optionally prepend style guide PDF
+    // Optionally prepend a style guide PDF as a Claude document block.
+    // document_rules[type + '_pdf'] stores the public URL of an example
+    // document that Claude should use as a formatting/style reference.
     type ContentBlock =
       | { type: 'text'; text: string }
       | { type: 'document'; source: { type: 'base64'; media_type: 'application/pdf'; data: string }; title?: string; context?: string }

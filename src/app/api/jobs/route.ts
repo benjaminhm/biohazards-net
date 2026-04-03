@@ -1,3 +1,13 @@
+/*
+ * app/api/jobs/route.ts
+ *
+ * GET  /api/jobs          — list all jobs for the current org
+ * POST /api/jobs          — create a new job (status defaults to 'lead')
+ *
+ * GET supports ?upcoming=true to fetch the next 10 scheduled jobs in
+ * chronological order (used by the field schedule view).
+ * All queries are scoped by org_id to enforce tenancy isolation.
+ */
 import { NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'

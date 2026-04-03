@@ -1,3 +1,16 @@
+/*
+ * app/api/photos/upload-url/route.ts
+ *
+ * POST /api/photos/upload-url — generates a signed upload URL for Supabase Storage.
+ *
+ * Client-side upload pattern:
+ *   1. Call this endpoint to get a signed URL + the resulting public URL
+ *   2. PUT the (compressed) file blob directly to the signed URL
+ *   3. Call /api/photos to record the public URL in the database
+ *
+ * Path format: {jobId}/{timestamp}.{ext}
+ * Stored in the 'job-photos' bucket (separate from 'company-assets').
+ */
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 

@@ -1,3 +1,16 @@
+/*
+ * app/api/admin/users/route.ts
+ *
+ * GET /api/admin/users — list all org_users rows across the entire platform,
+ * enriched with name, email, and avatar from Clerk.
+ *
+ * Restricted to PLATFORM_ADMIN_CLERK_IDS (super-admin only).
+ *
+ * Used by the platform admin dashboard to see who is on the platform and
+ * which org they belong to. Supabase join `orgs(name, slug)` gives org context.
+ * Clerk enrichment is done in parallel with Promise.all() — one call per user.
+ * Unknown/deleted Clerk users fall back to empty name/email rather than failing.
+ */
 import { auth, clerkClient } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
 import { NextResponse } from 'next/server'

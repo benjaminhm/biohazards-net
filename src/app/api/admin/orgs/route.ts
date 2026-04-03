@@ -1,3 +1,18 @@
+/*
+ * app/api/admin/orgs/route.ts
+ *
+ * GET  /api/admin/orgs — list all orgs on the platform with their user counts.
+ * POST /api/admin/orgs — provision a new org (name + slug required).
+ *
+ * Both methods are restricted to PLATFORM_ADMIN_CLERK_IDS — this is a
+ * super-admin surface for Biohazards.net staff, not for org-level admins.
+ *
+ * The GET response flattens the Supabase join: org_users(count) is an array
+ * from PostgREST and needs to be unwrapped to a plain number.
+ *
+ * POST defaults plan to 'solo' and seat_limit to 1 if not provided — caller
+ * can override these via the request body.
+ */
 import { NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'

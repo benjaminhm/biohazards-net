@@ -1,3 +1,21 @@
+/*
+ * app/invite/[token]/page.tsx
+ *
+ * Invite claim page. When a staff member follows an invite link, this page
+ * validates the 64-char hex token via GET /api/invites/[token] and shows
+ * which org they're being added to and at what role.
+ *
+ * Claim flow:
+ *   1. If the user is not signed into Clerk, redirect to /login?redirect_url=...
+ *      so they sign in/up first, then land back here.
+ *   2. Once signed in, POST /api/invites/[token] claims the invite, which either
+ *      creates a new org_users row or updates an existing one.
+ *   3. After claim, redirect to / (the dashboard) so the user sees their new org.
+ *
+ * The invite is single-use on the server (token is marked used after claim)
+ * but this page does not enforce that — the API route returns an error if the
+ * token is already claimed, which this page surfaces as an error message.
+ */
 'use client'
 
 import { useEffect, useState } from 'react'

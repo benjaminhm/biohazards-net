@@ -1,3 +1,14 @@
+/*
+ * app/api/company/style-pdf/route.ts
+ *
+ * POST /api/company/style-pdf — generates a signed upload URL for a document
+ * style guide PDF. These PDFs are attached to Claude prompts as example
+ * documents when generating new documents of the same type.
+ *
+ * Stored in 'company-assets' bucket under 'style-guides/' prefix.
+ * After upload, the caller should PATCH /api/company with
+ * { document_rules: { [type + '_pdf']: publicUrl } }.
+ */
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 

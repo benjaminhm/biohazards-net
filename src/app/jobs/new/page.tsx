@@ -1,3 +1,17 @@
+/*
+ * app/jobs/new/page.tsx
+ *
+ * New job creation form. Sends a POST to /api/jobs on submit and redirects
+ * to the new job's detail page so the user can immediately start adding
+ * assessment data, photos, and documents.
+ *
+ * SmartFill is embedded at the top — staff can paste a client email/SMS/voicemail
+ * and have Claude pre-fill client_name, client_phone, client_email, site_address,
+ * job_type, and urgency from the unstructured text before manually reviewing.
+ *
+ * The form deliberately keeps only the essential fields for creation. All other
+ * details (assessment, team, photos, documents) are added on the detail page.
+ */
 'use client'
 
 import { useState } from 'react'

@@ -1,3 +1,16 @@
+/*
+ * app/jobs/queue/page.tsx
+ *
+ * Full job queue / pipeline view — a kanban-style status board showing all
+ * jobs ordered by status pipeline stage (lead → paid). Admins and members
+ * with view_all_jobs see every job. Members without it are redirected to /field.
+ *
+ * STATUS_ORDER determines column ordering in the kanban view. Jobs within each
+ * status group are sorted by created_at descending (newest first).
+ *
+ * This page fetches all jobs (no ?upcoming filter) to provide the complete
+ * operations overview, unlike the dashboard which focuses on upcoming scheduled jobs.
+ */
 'use client'
 
 import { useEffect, useState } from 'react'

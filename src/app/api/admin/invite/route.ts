@@ -1,3 +1,14 @@
+/*
+ * app/api/admin/invite/route.ts
+ *
+ * POST /api/admin/invite — platform-level Clerk invitation.
+ * Restricted to PLATFORM_ADMIN_CLERK_IDS (not org admins — this is for
+ * onboarding new businesses onto the platform).
+ *
+ * Sends a Clerk sign-up invitation email. The redirectUrl takes the new user
+ * directly to their org's subdomain after signup, or the main app if no slug.
+ * ignoreExisting: true prevents errors when re-inviting the same email.
+ */
 import { auth, clerkClient } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
 
