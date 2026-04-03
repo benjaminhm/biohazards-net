@@ -135,8 +135,11 @@ export default function PersonPage() {
   const [accessSaved, setAccessSaved]   = useState(false)
 
   // Invite state
-  const [inviteLink, setInviteLink]   = useState('')
+  const [inviteLink, setInviteLink]       = useState('')
   const [generatingInvite, setGeneratingInvite] = useState(false)
+  const [sendingSms, setSendingSms]       = useState(false)
+  const [smsSent, setSmsSent]             = useState(false)
+  const [smsError, setSmsError]           = useState('')
 
   // Doc state
   const [showAddDoc, setShowAddDoc] = useState(false)
@@ -431,18 +434,51 @@ export default function PersonPage() {
                     >
                       {inviteLink}
                     </div>
-                    <div style={{ marginTop: 12, display: 'flex', gap: 10 }}>
+
+                    {smsError && (
+                      <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#F87171', fontSize: 12 }}>
+                        {smsError}
+                      </div>
+                    )}
+
+                    <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
                       <button
                         onClick={() => navigator.clipboard.writeText(inviteLink)}
                         style={{ flex: 1, padding: '11px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
                       >
                         📋 Copy
                       </button>
+                      {person.phone && (
+                        <button
+                          onClick={async () => {
+                            setSendingSms(true)
+                            setSmsError('')
+                            setSmsSent(false)
+                            const res = await fetch('/api/sms/direct', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ to_number: person.phone, body: inviteLink }),
+                            })
+                            const data = await res.json()
+                            if (data.error) {
+                              setSmsError(data.error)
+                            } else {
+                              setSmsSent(true)
+                              setTimeout(() => setSmsSent(false), 3000)
+                            }
+                            setSendingSms(false)
+                          }}
+                          disabled={sendingSms || smsSent}
+                          style={{ flex: 1, padding: '11px', borderRadius: 10, border: 'none', background: smsSent ? '#10B981' : 'var(--accent)', color: '#fff', fontWeight: 600, fontSize: 13, cursor: 'pointer', opacity: sendingSms ? 0.6 : 1 }}
+                        >
+                          {sendingSms ? 'Sending…' : smsSent ? '✓ Sent!' : '📱 Send SMS'}
+                        </button>
+                      )}
                       <button
-                        onClick={() => { setInviteLink(''); generateInvite() }}
+                        onClick={() => { setInviteLink(''); setSmsSent(false); setSmsError(''); generateInvite() }}
                         style={{ flex: 1, padding: '11px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text-muted)', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
                       >
-                        🔄 New link
+                        🔄 New
                       </button>
                     </div>
                   </div>
