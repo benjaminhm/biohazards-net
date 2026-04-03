@@ -22,6 +22,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useClerk } from '@clerk/nextjs'
 import { useUser } from '@/lib/userContext'
+import OnboardingChecklist from '@/components/OnboardingChecklist'
 import type { Job } from '@/lib/types'
 
 const JOB_TYPE_LABELS: Record<string, string> = {
@@ -103,6 +104,9 @@ export default function FieldPage() {
 
   return (
     <div style={{ minHeight: '100dvh', background: 'var(--bg)', color: 'var(--text)', paddingBottom: 48 }}>
+
+      {/* Onboarding checklist — shown until profile is complete */}
+      {!isPreview && <OnboardingChecklist />}
 
       {/* Preview banner */}
       {isPreview && (

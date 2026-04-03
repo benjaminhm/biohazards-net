@@ -22,7 +22,7 @@ export async function GET() {
   const supabase = createServiceClient()
   const { data: orgUser } = await supabase
     .from('org_users')
-    .select('role, org_id, capabilities, orgs(name, slug)')
+    .select('role, org_id, capabilities, person_id, orgs(name, slug)')
     .eq('clerk_user_id', userId)
     .single()
 
@@ -44,6 +44,7 @@ export async function GET() {
     capabilities: orgUser?.capabilities ?? {},
     org_id: orgUser?.org_id ?? null,
     has_org: !!orgUser,
+    person_id: orgUser?.person_id ?? null,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     org: (orgUser as any)?.orgs ?? null,
   })
