@@ -9,9 +9,10 @@ import AssessmentTab from '@/components/tabs/AssessmentTab'
 import QuoteTab from '@/components/tabs/QuoteTab'
 import PhotosTab from '@/components/tabs/PhotosTab'
 import DocumentsTab from '@/components/tabs/DocumentsTab'
+import MessagesTab from '@/components/tabs/MessagesTab'
 import { useUser } from '@/lib/userContext'
 
-type Tab = 'details' | 'assessment' | 'quote' | 'photos' | 'documents'
+type Tab = 'details' | 'assessment' | 'quote' | 'photos' | 'documents' | 'messages'
 
 const JOB_TYPE_LABELS: Record<string, string> = {
   crime_scene: 'Crime Scene', hoarding: 'Hoarding', mold: 'Mold', sewage: 'Sewage',
@@ -33,6 +34,7 @@ export default function JobPage() {
   const [photos,    setPhotos]    = useState<Photo[]>([])
   const [documents, setDocuments] = useState<Document[]>([])
   const [loading,   setLoading]   = useState(true)
+  const [unreadSms, setUnreadSms] = useState(0)
 
   const initialTab = (searchParams.get('tab') as Tab) ?? 'details'
   const [activeTab, setActiveTab] = useState<Tab>(initialTab)
@@ -42,15 +44,19 @@ export default function JobPage() {
   async function fetchAll() {
     setLoading(true)
     try {
-      const [jobRes, docsRes] = await Promise.all([
+      const [jobRes, docsRes, msgRes] = await Promise.all([
         fetch(`/api/jobs/${id}`),
         fetch(`/api/documents?jobId=${id}`),
+        fetch(`/api/sms/messages?job_id=${id}`),
       ])
       const jobData  = await jobRes.json()
       const docsData = await docsRes.json()
+      const msgData  = await msgRes.json()
       setJob(jobData.job)
       setPhotos(jobData.photos ?? [])
       setDocuments(docsData.documents ?? [])
+      const unread = (msgData.messages ?? []).filter((m: { direction: string; read_at: string | null }) => m.direction === 'inbound' && !m.read_at).length
+      setUnreadSms(unread)
     } finally {
       setLoading(false)
     }
@@ -79,6 +85,7 @@ export default function JobPage() {
     { id: 'quote',      label: 'Quote',                                                            show: caps.view_quote },
     { id: 'photos',     label: `Photos${photos.length ? ` (${photos.length})` : ''}`,             show: caps.upload_photos_assigned || caps.upload_photos_any },
     { id: 'documents',  label: `Docs${documents.length ? ` (${documents.length})` : ''}`,         show: caps.generate_documents },
+    { id: 'messages',   label: unreadSms > 0 ? `💬 SMS (${unreadSms})` : '💬 SMS',               show: caps.send_sms },
   ]
   const tabs = allTabs.filter(t => t.show)
 
@@ -157,6 +164,9 @@ export default function JobPage() {
             clientEmail={job.client_email ?? ''}
             onDocumentDeleted={docId => setDocuments(prev => prev.filter(d => d.id !== docId))}
           />
+        )}
+        {activeTab === 'messages' && (
+          <MessagesTab job={job} />
         )}
       </div>
     </div>
