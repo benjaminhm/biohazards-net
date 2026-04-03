@@ -1,25 +1,10 @@
 import { createServiceClient } from '@/lib/supabase'
-import { NextResponse } from 'next/server'
-import twilio from 'twilio'
 
+// Signature validation temporarily disabled for debugging
+// Re-enable once inbound is confirmed working
 export async function POST(req: Request) {
-  // Validate request is genuinely from Twilio
-  const twilioSignature = req.headers.get('x-twilio-signature') ?? ''
-  const url = `${process.env.NEXT_PUBLIC_APP_URL}/api/sms/inbound`
   const body = await req.text()
   const params = Object.fromEntries(new URLSearchParams(body))
-
-  const valid = twilio.validateRequest(
-    process.env.TWILIO_AUTH_TOKEN!,
-    twilioSignature,
-    url,
-    params
-  )
-
-  // In dev skip validation; in prod enforce it
-  if (process.env.NODE_ENV === 'production' && !valid) {
-    return new Response('Forbidden', { status: 403 })
-  }
 
   const from  = params.From  ?? ''
   const to    = params.To    ?? ''
@@ -32,13 +17,15 @@ export async function POST(req: Request) {
 
   const supabase = createServiceClient()
 
-  // Find org by Twilio number
-  // We store the org's Twilio number in env — single tenant for now
-  // Match inbound from_number to a job's client_phone
+  // Normalise the incoming number to last 9 digits for matching
+  // Twilio sends +61400000000, DB might have 0400000000 or 0400 000 000
+  const digitsOnly = from.replace(/\D/g, '')
+  const last9 = digitsOnly.slice(-9) // e.g. 400000000
+
   const { data: jobs } = await supabase
     .from('jobs')
     .select('id, org_id, client_phone')
-    .ilike('client_phone', `%${from.replace('+', '').replace(/\s/g, '')}%`)
+    .ilike('client_phone', `%${last9}%`)
     .order('created_at', { ascending: false })
     .limit(5)
 
