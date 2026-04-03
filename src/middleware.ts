@@ -2,28 +2,31 @@
  * middleware.ts
  *
  * Next.js edge middleware — runs on every request before any route handler.
- * Responsibilities:
  *
- * 1. Subdomain / custom domain detection: reads the Host header and sets
- *    x-org-slug or x-org-host request headers so API routes and pages can
- *    identify the current tenant without another DB lookup.
+ * Three-tier subdomain architecture:
  *
- * 2. admin.biohazards.net gate: requires the requesting Clerk user to be in
- *    the PLATFORM_ADMIN_CLERK_IDS env var — platform staff only, not org admins.
+ *   platform.biohazards.net  — platform admin dashboard (you only)
+ *                              Gated by PLATFORM_ADMIN_CLERK_IDS env var.
+ *                              Routes to /platform/* pages.
  *
- * 3. Authentication enforcement: redirects unauthenticated users to /login
- *    for all non-public routes (Clerk handles session verification).
+ *   app.biohazards.net       — company + team app (all org users)
+ *                              Full auth enforced. This is the primary
+ *                              login domain for all companies on the platform.
  *
- * Public routes (no auth required) include:
- *   - /new-client     (client intake form)
- *   - /accept/:id     (online quote acceptance)
- *   - /invite/:token  (team invite claim)
- *   - /api/intake     (intake form API)
- *   - /api/print      (document print/PDF)
- *   - /api/sms/inbound (Twilio webhook — must be public)
+ *   [slug].biohazards.net    — public company website (no auth)
+ *                              Sets x-org-slug header so pages/API can
+ *                              fetch the right company's public profile.
+ *                              Routes to /site/* pages (public website template).
+ *                              Google indexed, client-facing, lead capture.
  *
- * The matcher excludes static assets to avoid running middleware on
- * _next/static, images, and favicon.
+ * Custom domains (e.g. app.brisbanebiohazardcleaning.com.au):
+ *   Sets x-org-host header — used by layout.tsx to configure Clerk
+ *   as a satellite domain so auth session is shared from app.biohazards.net.
+ *
+ * Public routes (no auth required):
+ *   - All [slug].biohazards.net requests (public websites)
+ *   - /login, /invite/:token, /new-client, /accept/:id
+ *   - /api/intake, /api/print, /api/sms/inbound, /api/public/*
  */
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
@@ -44,55 +47,72 @@ const isPublicRoute = createRouteMatcher([
   '/api/print/(.*)',
   '/api/invites/(.*)',
   '/api/sms/inbound(.*)',
+  '/api/public/(.*)',  // public company profile data for website template
+  '/site(.*)',         // public website pages
 ])
 
-const EXCLUDED_SUBDOMAINS = new Set(['www', 'admin'])
+// Reserved subdomains that are not company slugs
+const RESERVED_SUBDOMAINS = new Set(['www', 'app', 'platform', 'admin'])
 
 export default clerkMiddleware(async (auth, request: NextRequest) => {
   const host = request.headers.get('host') ?? ''
   const requestHeaders = new Headers(request.headers)
+  const { pathname } = request.nextUrl
 
-  // Capture the leftmost label of biohazards.net hosts (e.g. 'brisbane' from brisbane.biohazards.net)
+  // Match first label of biohazards.net (e.g. 'brisbanebiohazardcleaning' from bbc.biohazards.net)
   const subdomainMatch = host.match(/^([^.]+)\.biohazards\.net$/)
   const slug = subdomainMatch ? subdomainMatch[1] : null
   const isCustomDomain = !host.endsWith('.biohazards.net') && host !== 'biohazards.net'
 
+  // ── Custom domain (e.g. app.brisbanebiohazardcleaning.com.au) ──
   if (isCustomDomain) {
-    // Custom domain e.g. app.brisbanebiohazardcleaning.com.au
     requestHeaders.set('x-org-host', host)
-  } else if (slug === 'app') {
-    requestHeaders.set('x-org-slug', 'app')
-  } else if (slug && !EXCLUDED_SUBDOMAINS.has(slug)) {
-    requestHeaders.set('x-org-slug', slug)
-  } else if (slug === 'admin') {
-    requestHeaders.set('x-org-slug', 'admin')
+  }
 
-    // Require authenticated platform admin
+  // ── platform.biohazards.net — platform admin only ──
+  else if (slug === 'platform') {
+    requestHeaders.set('x-subdomain', 'platform')
     const { userId } = await auth()
 
     if (!userId) {
-      // Redirect to login on main app domain
-      return NextResponse.redirect('https://app.biohazards.net/login?redirect_url=https://admin.biohazards.net')
+      return NextResponse.redirect(
+        `https://app.biohazards.net/login?redirect_url=https://platform.biohazards.net`
+      )
     }
 
-    // PLATFORM_ADMIN_CLERK_IDS is a comma-separated list of Clerk user IDs
-    // for internal platform staff — separate from org-level admin role
     const adminIds = (process.env.PLATFORM_ADMIN_CLERK_IDS ?? '')
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean)
+      .split(',').map(s => s.trim()).filter(Boolean)
 
     if (!adminIds.includes(userId)) {
       return new NextResponse('Forbidden — not a platform admin', { status: 403 })
     }
 
-    // Redirect admin subdomain root to /admin
-    const { pathname } = request.nextUrl
     if (pathname === '/') {
-      return NextResponse.redirect(new URL('/admin', request.url))
+      return NextResponse.redirect(new URL('/platform', request.url))
     }
   }
 
+  // ── app.biohazards.net — company + team app ──
+  else if (slug === 'app' || !slug) {
+    requestHeaders.set('x-subdomain', 'app')
+    // Auth enforced below via isPublicRoute check
+  }
+
+  // ── [slug].biohazards.net — public company website ──
+  else if (slug && !RESERVED_SUBDOMAINS.has(slug)) {
+    requestHeaders.set('x-org-slug', slug)
+    requestHeaders.set('x-subdomain', 'site')
+
+    // Rewrite to /site/* so the public website template is served
+    // while keeping the URL clean in the browser
+    if (!pathname.startsWith('/site') && !pathname.startsWith('/api')) {
+      const url = request.nextUrl.clone()
+      url.pathname = `/site${pathname === '/' ? '' : pathname}`
+      return NextResponse.rewrite(url, { request: { headers: requestHeaders } })
+    }
+  }
+
+  // ── Auth enforcement for app subdomain ──
   if (!isPublicRoute(request)) {
     const { userId } = await auth()
     if (!userId) {
