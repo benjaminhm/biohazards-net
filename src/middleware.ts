@@ -16,6 +16,7 @@ const isPublicRoute = createRouteMatcher([
   '/api/company(.*)',
   '/api/print/(.*)',
   '/api/invites/(.*)',
+  '/api/sms/inbound(.*)',
 ])
 
 const EXCLUDED_SUBDOMAINS = new Set(['www', 'admin'])
