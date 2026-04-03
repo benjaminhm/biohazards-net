@@ -1,24 +1,22 @@
 /*
  * components/OnboardingChecklist.tsx
  *
- * Sticky onboarding checklist shown to team members until their profile
- * is fully complete. Sits at the top of the field page and the dashboard.
+ * Sticky onboarding banner for team members. Sits at the top of the field
+ * page until all required fields are complete.
  *
- * Items:
- *   1. Save app to phone   — self-marked, stored in localStorage (device-specific)
- *   2. Phone number        — from their people record
- *   3. Home address        — from their people record
- *   4. Emergency contact   — emergency_contact + emergency_phone
- *   5. ABN                 — only required if role === 'subcontractor'
+ * Two tiers:
+ *   REQUIRED (red → green): phone, address, email
+ *     — these must be done but don't block app usage
+ *   RECOMMENDED (amber): emergency contact, ABN (subcontractors only)
+ *     — shown below required until filled, then disappear
  *
- * When all items are green the checklist collapses to a small green
- * "Profile complete" pill and disappears after 3 seconds.
- *
- * Tapping an incomplete item opens an inline edit modal so they can
- * fill the field without navigating away.
- *
- * The checklist is not shown if person_id is null (admin without a
- * linked team profile — they don't need to complete this).
+ * Behaviour:
+ *   - Any required field missing → red banner
+ *   - Required done, recommended pending → amber banner
+ *   - Everything done → green "Complete" pill, disappears after 3s
+ *   - Tapping any incomplete item → bottom-sheet edit form
+ *   - 'Save to phone' → shows iOS/Android instructions, self-marked done (localStorage)
+ *   - Hidden entirely if no person_id linked (admin without team profile)
  */
 'use client'
 
@@ -28,6 +26,7 @@ interface Person {
   id: string
   name: string
   phone: string | null
+  email: string | null
   address: string | null
   abn: string | null
   emergency_contact: string | null
@@ -44,13 +43,14 @@ interface EditState {
 }
 
 export default function OnboardingChecklist() {
-  const [person, setPerson]         = useState<Person | null>(null)
-  const [loading, setLoading]       = useState(true)
-  const [appSaved, setAppSaved]     = useState(false)
-  const [expanded, setExpanded]     = useState(true)
-  const [editOpen, setEditOpen]     = useState(false)
-  const [saving, setSaving]         = useState(false)
+  const [person, setPerson]       = useState<Person | null>(null)
+  const [loading, setLoading]     = useState(true)
+  const [appSaved, setAppSaved]   = useState(false)
+  const [expanded, setExpanded]   = useState(true)
+  const [editOpen, setEditOpen]   = useState(false)
+  const [saving, setSaving]       = useState(false)
   const [showInstructions, setShowInstructions] = useState(false)
+  const [gone, setGone]           = useState(false)
 
   const [edit, setEdit] = useState<EditState>({
     phone: '', address: '', abn: '',
@@ -58,9 +58,7 @@ export default function OnboardingChecklist() {
   })
 
   useEffect(() => {
-    // Check localStorage for app-saved flag (device-specific)
     setAppSaved(localStorage.getItem('app_saved_to_phone') === '1')
-
     fetch('/api/me/profile')
       .then(r => r.json())
       .then(d => {
@@ -78,27 +76,50 @@ export default function OnboardingChecklist() {
       .finally(() => setLoading(false))
   }, [])
 
-  if (loading) return null
-  // No linked profile — admin without a people record, skip checklist
-  if (!person) return null
+  if (loading || !person || gone) return null
 
   const isSubcontractor = person.role === 'subcontractor'
 
-  const checks = [
-    { key: 'app',       label: 'Save app to your phone',  ok: appSaved },
-    { key: 'phone',     label: 'Mobile number',           ok: !!person.phone?.trim() },
-    { key: 'address',   label: 'Home address',            ok: !!person.address?.trim() },
-    { key: 'emergency', label: 'Emergency contact',       ok: !!person.emergency_contact?.trim() && !!person.emergency_phone?.trim() },
+  // Required — must complete, banner is red until done
+  const required = [
+    { key: 'app',     label: 'Save app to your phone', ok: appSaved },
+    { key: 'phone',   label: 'Mobile number',          ok: !!person.phone?.trim() },
+    { key: 'address', label: 'Home address',           ok: !!person.address?.trim() },
+    { key: 'email',   label: 'Email address',          ok: !!person.email?.trim() },
+  ]
+
+  // Recommended — amber nudge after required done
+  const recommended = [
+    { key: 'emergency', label: 'Emergency contact', ok: !!person.emergency_contact?.trim() && !!person.emergency_phone?.trim() },
     ...(isSubcontractor ? [{ key: 'abn', label: 'ABN', ok: !!person.abn?.trim() }] : []),
   ]
 
-  const doneCount = checks.filter(c => c.ok).length
-  const allDone   = doneCount === checks.length
+  const requiredDone     = required.every(c => c.ok)
+  const recommendedDone  = recommended.every(c => c.ok)
+  const allDone          = requiredDone && recommendedDone
 
-  // Once complete, show green pill briefly then hide
-  if (allDone && !expanded) return null
+  // All done — brief green flash then disappear
+  if (allDone) {
+    setTimeout(() => setGone(true), 3000)
+  }
 
-  const accentColor = allDone ? '#22C55E' : '#EF4444'
+  const bannerColor = allDone ? '#14532D'
+    : requiredDone ? '#78350F'   // amber bg
+    : '#1a0a0a'                  // red bg
+
+  const accentColor = allDone ? '#22C55E'
+    : requiredDone ? '#F59E0B'
+    : '#EF4444'
+
+  const visibleItems = requiredDone
+    ? (allDone ? [] : recommended.filter(c => !c.ok))
+    : required
+
+  const statusText = allDone
+    ? 'Profile complete — you\'re all set!'
+    : requiredDone
+      ? `Almost done — ${recommended.filter(c => !c.ok).length} recommended field${recommended.filter(c => !c.ok).length > 1 ? 's' : ''} remaining`
+      : `${required.filter(c => !c.ok).length} required field${required.filter(c => !c.ok).length > 1 ? 's' : ''} to complete`
 
   async function saveProfile() {
     setSaving(true)
@@ -109,12 +130,8 @@ export default function OnboardingChecklist() {
         body: JSON.stringify(edit),
       })
       const d = await res.json()
-      if (d.person) {
-        setPerson(d.person)
-        setEditOpen(false)
-      }
-    } finally {
-      setSaving(false) }
+      if (d.person) { setPerson(d.person); setEditOpen(false) }
+    } finally { setSaving(false) }
   }
 
   function markAppSaved() {
@@ -128,9 +145,9 @@ export default function OnboardingChecklist() {
       {/* ── Sticky banner ── */}
       <div style={{
         position: 'sticky', top: 0, zIndex: 50,
-        background: allDone ? '#14532D' : '#1a0a0a',
+        background: bannerColor,
         borderBottom: `2px solid ${accentColor}`,
-        transition: 'background 0.3s, border-color 0.3s',
+        transition: 'background 0.4s, border-color 0.4s',
       }}>
         {/* Header row */}
         <button
@@ -147,65 +164,57 @@ export default function OnboardingChecklist() {
               width: 28, height: 28, borderRadius: 99,
               background: accentColor,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 13, fontWeight: 800, color: '#fff', flexShrink: 0,
-              transition: 'background 0.3s',
+              fontSize: 12, fontWeight: 800, color: allDone ? '#fff' : '#000',
+              flexShrink: 0, transition: 'background 0.4s',
             }}>
-              {allDone ? '✓' : `${doneCount}/${checks.length}`}
+              {allDone ? '✓' : required.filter(c => c.ok).length + '/' + required.length}
             </div>
-            <span style={{ fontWeight: 700, fontSize: 14 }}>
-              {allDone ? 'Profile complete — you\'re all set!' : 'Complete your setup'}
-            </span>
+            <span style={{ fontWeight: 700, fontSize: 14 }}>{statusText}</span>
           </div>
-          <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', transition: 'transform 0.15s', display: 'inline-block', transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)' }}>
-            ▲
-          </span>
+          {!allDone && (
+            <span style={{
+              fontSize: 12, color: 'rgba(255,255,255,0.4)',
+              display: 'inline-block',
+              transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
+              transition: 'transform 0.15s',
+            }}>▲</span>
+          )}
         </button>
 
         {/* Checklist items */}
-        {expanded && !allDone && (
+        {expanded && !allDone && visibleItems.length > 0 && (
           <div style={{ padding: '0 20px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {checks.map(c => (
+            {visibleItems.map(c => (
               <button
                 key={c.key}
                 onClick={() => {
                   if (c.key === 'app') { setShowInstructions(true); return }
                   setEditOpen(true)
                 }}
-                disabled={c.ok}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 12,
                   padding: '10px 14px', borderRadius: 10,
-                  background: c.ok ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)',
-                  border: `1px solid ${c.ok ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}`,
-                  cursor: c.ok ? 'default' : 'pointer',
-                  textAlign: 'left', width: '100%',
-                  transition: 'all 0.15s',
+                  background: `rgba(${requiredDone ? '245,158,11' : '239,68,68'},0.08)`,
+                  border: `1px solid rgba(${requiredDone ? '245,158,11' : '239,68,68'},0.25)`,
+                  cursor: 'pointer', textAlign: 'left', width: '100%',
                 }}
               >
                 <span style={{
-                  width: 22, height: 22, borderRadius: 99, flexShrink: 0,
-                  background: c.ok ? '#22C55E' : 'transparent',
-                  border: `2px solid ${c.ok ? '#22C55E' : '#EF4444'}`,
+                  width: 20, height: 20, borderRadius: 99, flexShrink: 0,
+                  border: `2px solid ${accentColor}`,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 11, color: '#fff', fontWeight: 800,
-                }}>
-                  {c.ok ? '✓' : ''}
+                }} />
+                <span style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>{c.label}</span>
+                <span style={{ marginLeft: 'auto', fontSize: 12, color: accentColor, fontWeight: 700 }}>
+                  Tap →
                 </span>
-                <span style={{ fontSize: 14, fontWeight: 600, color: c.ok ? 'rgba(255,255,255,0.5)' : '#fff' }}>
-                  {c.label}
-                </span>
-                {!c.ok && (
-                  <span style={{ marginLeft: 'auto', fontSize: 12, color: '#EF4444', fontWeight: 700 }}>
-                    Tap to complete →
-                  </span>
-                )}
               </button>
             ))}
           </div>
         )}
       </div>
 
-      {/* ── Edit profile modal ── */}
+      {/* ── Edit modal (bottom sheet) ── */}
       {editOpen && (
         <div
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 200, display: 'flex', alignItems: 'flex-end' }}
@@ -217,14 +226,14 @@ export default function OnboardingChecklist() {
           >
             <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 4 }}>Complete Your Profile</div>
             <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 24 }}>
-              This information is kept private and used for team records only.
+              Kept private — used for team records only.
             </div>
 
             {[
-              { label: 'Mobile number', key: 'phone', type: 'tel', placeholder: '04XX XXX XXX' },
-              { label: 'Home address', key: 'address', type: 'text', placeholder: '123 Example St, Brisbane QLD 4000' },
-              { label: 'Emergency contact name', key: 'emergency_contact', type: 'text', placeholder: 'Jane Smith' },
-              { label: 'Emergency contact phone', key: 'emergency_phone', type: 'tel', placeholder: '04XX XXX XXX' },
+              { label: 'Mobile number',           key: 'phone',             type: 'tel',  placeholder: '04XX XXX XXX' },
+              { label: 'Home address',             key: 'address',           type: 'text', placeholder: '123 Example St, Brisbane QLD 4000' },
+              { label: 'Emergency contact name',   key: 'emergency_contact', type: 'text', placeholder: 'Jane Smith' },
+              { label: 'Emergency contact phone',  key: 'emergency_phone',   type: 'tel',  placeholder: '04XX XXX XXX' },
               ...(isSubcontractor ? [{ label: 'ABN', key: 'abn', type: 'text', placeholder: '12 345 678 901' }] : []),
             ].map(f => (
               <div key={f.key} style={{ marginBottom: 14 }}>
@@ -234,7 +243,7 @@ export default function OnboardingChecklist() {
                 <input
                   type={f.type}
                   value={edit[f.key as keyof EditState]}
-                  onChange={e => setEdit(prev => ({ ...prev, [f.key]: e.target.value }))}
+                  onChange={e => setEdit(p => ({ ...p, [f.key]: e.target.value }))}
                   placeholder={f.placeholder}
                   style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 15, boxSizing: 'border-box' }}
                 />
@@ -246,13 +255,13 @@ export default function OnboardingChecklist() {
               disabled={saving}
               style={{ width: '100%', padding: 14, borderRadius: 12, border: 'none', background: 'var(--accent)', color: '#fff', fontWeight: 800, fontSize: 16, cursor: 'pointer', marginTop: 8, opacity: saving ? 0.7 : 1 }}
             >
-              {saving ? 'Saving…' : 'Save Profile'}
+              {saving ? 'Saving…' : 'Save'}
             </button>
           </div>
         </div>
       )}
 
-      {/* ── Add to home screen instructions ── */}
+      {/* ── Save to phone instructions ── */}
       {showInstructions && (
         <div
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 200, display: 'flex', alignItems: 'flex-end' }}
@@ -263,25 +272,22 @@ export default function OnboardingChecklist() {
             onClick={e => e.stopPropagation()}
           >
             <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 20 }}>Save App to Your Phone</div>
-
             <div style={{ marginBottom: 20 }}>
               <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10, color: 'var(--accent)' }}>iPhone (Safari)</div>
-              <div style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.7 }}>
-                1. Tap the <strong style={{ color: 'var(--text)' }}>Share</strong> button (box with arrow) at the bottom of Safari<br />
-                2. Scroll down and tap <strong style={{ color: 'var(--text)' }}>Add to Home Screen</strong><br />
-                3. Tap <strong style={{ color: 'var(--text)' }}>Add</strong> — done
+              <div style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.8 }}>
+                1. Tap the <strong style={{ color: 'var(--text)' }}>Share</strong> button at the bottom of Safari<br />
+                2. Tap <strong style={{ color: 'var(--text)' }}>Add to Home Screen</strong><br />
+                3. Tap <strong style={{ color: 'var(--text)' }}>Add</strong>
               </div>
             </div>
-
             <div style={{ marginBottom: 28 }}>
               <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10, color: 'var(--accent)' }}>Android (Chrome)</div>
-              <div style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.7 }}>
-                1. Tap the <strong style={{ color: 'var(--text)' }}>⋮ menu</strong> (top right)<br />
+              <div style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.8 }}>
+                1. Tap the <strong style={{ color: 'var(--text)' }}>⋮ menu</strong> top right<br />
                 2. Tap <strong style={{ color: 'var(--text)' }}>Add to Home screen</strong><br />
-                3. Tap <strong style={{ color: 'var(--text)' }}>Add</strong> — done
+                3. Tap <strong style={{ color: 'var(--text)' }}>Add</strong>
               </div>
             </div>
-
             <button
               onClick={markAppSaved}
               style={{ width: '100%', padding: 14, borderRadius: 12, border: 'none', background: '#22C55E', color: '#fff', fontWeight: 800, fontSize: 16, cursor: 'pointer' }}

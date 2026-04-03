@@ -47,6 +47,8 @@ export default function HomePage() {
   const { signOut } = useClerk()
   const { caps, isAdmin, loading: userLoading, previewMode } = useUser()
   const [showPreviewPicker, setShowPreviewPicker] = useState(false)
+  const [actions, setActions] = useState<{ type: string; title: string; description: string; href: string; severity: string }[]>([])
+  const [actionsExpanded, setActionsExpanded] = useState(true)
   const router = useRouter()
 
   // Non-admins without view_all_jobs go to their field view
@@ -58,6 +60,12 @@ export default function HomePage() {
     fetch('/api/company')
       .then(r => r.json())
       .then(d => setCompany(d.company ?? null))
+      .catch(() => {})
+
+    // Fetch admin action items (incomplete profiles, expiring certs etc)
+    fetch('/api/admin/actions')
+      .then(r => r.json())
+      .then(d => setActions(d.actions ?? []))
       .catch(() => {})
 
     fetch('/api/jobs?upcoming=true')
@@ -142,6 +150,75 @@ export default function HomePage() {
           </div>
         </div>
       </header>
+
+      {/* ── Action Required ── admin only, shown when there are items ── */}
+      {isAdmin && !previewMode && actions.length > 0 && (
+        <div style={{ padding: '0 20px 4px' }}>
+          <div style={{
+            background: 'rgba(239,68,68,0.06)',
+            border: '1px solid rgba(239,68,68,0.2)',
+            borderRadius: 16, overflow: 'hidden',
+          }}>
+            {/* Header */}
+            <button
+              onClick={() => setActionsExpanded(e => !e)}
+              style={{
+                width: '100%', display: 'flex', alignItems: 'center',
+                justifyContent: 'space-between', padding: '14px 18px',
+                background: 'none', border: 'none', cursor: 'pointer',
+                color: 'var(--text)', textAlign: 'left',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{
+                  background: '#EF4444', color: '#fff',
+                  borderRadius: 99, fontSize: 11, fontWeight: 800,
+                  padding: '2px 8px', lineHeight: 1.5,
+                }}>
+                  {actions.length}
+                </span>
+                <span style={{ fontWeight: 700, fontSize: 15 }}>Action Required</span>
+              </div>
+              <span style={{
+                fontSize: 12, color: 'var(--text-dim)',
+                display: 'inline-block',
+                transform: actionsExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                transition: 'transform 0.15s',
+              }}>▲</span>
+            </button>
+
+            {/* Items */}
+            {actionsExpanded && (
+              <div style={{ borderTop: '1px solid rgba(239,68,68,0.15)' }}>
+                {actions.map((a, i) => (
+                  <Link key={i} href={a.href} style={{ textDecoration: 'none' }}>
+                    <div style={{
+                      display: 'flex', alignItems: 'center', gap: 12,
+                      padding: '12px 18px',
+                      borderBottom: i < actions.length - 1 ? '1px solid rgba(239,68,68,0.1)' : 'none',
+                      transition: 'background 0.12s',
+                    }}>
+                      <div style={{
+                        width: 8, height: 8, borderRadius: 99, flexShrink: 0,
+                        background: a.severity === 'high' ? '#EF4444' : '#F59E0B',
+                      }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)' }}>
+                          {a.title}
+                        </div>
+                        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 1 }}>
+                          {a.description}
+                        </div>
+                      </div>
+                      <span style={{ fontSize: 16, color: 'var(--text-dim)', flexShrink: 0 }}>›</span>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── Job Queue — Hero tile ── */}
       <div style={{ padding: '0 20px 4px' }}>
