@@ -33,7 +33,7 @@ export async function GET(
   // Get public-safe company profile fields
   const { data: profile } = await supabase
     .from('company_profile')
-    .select('name, phone, email, abn, logo_url, tagline, services, areas_served')
+    .select('name, phone, email, abn, logo_url, tagline, services, areas_served, website_live')
     .eq('org_id', org.id)
     .single()
 
@@ -48,6 +48,7 @@ export async function GET(
       tagline: profile?.tagline ?? null,
       services: profile?.services ?? null,
       areas_served: profile?.areas_served ?? null,
+      website_live: profile?.website_live ?? false,
     }
   })
 }
