@@ -12,11 +12,11 @@
  * theme colour and full-screen display.
  */
 import type { Metadata, Viewport } from 'next'
-import { ClerkProvider } from '@clerk/nextjs'
 import './globals.css'
 import ServiceWorkerRegistration from '@/components/ServiceWorkerRegistration'
 import { UserProvider } from '@/lib/userContext'
 import PreviewBanner from '@/components/PreviewBanner'
+import ClerkProviderWrapper from '@/components/ClerkProviderWrapper'
 
 export const metadata: Metadata = {
   title: 'Brisbane Biohazard Cleaning',
@@ -43,7 +43,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <ClerkProvider>
+    <ClerkProviderWrapper>
       <html lang="en">
         <body>
           <UserProvider>
@@ -53,6 +53,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </UserProvider>
         </body>
       </html>
-    </ClerkProvider>
+    </ClerkProviderWrapper>
   )
 }
