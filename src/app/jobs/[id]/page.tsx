@@ -101,13 +101,18 @@ export default function JobPage() {
     )
   }
 
+  // SMS is only relevant on active jobs — no point messaging a client on a closed file,
+  // and hiding it on completed/report_sent/paid jobs prevents accidental Twilio spend.
+  const CLOSED_STATUSES: JobStatus[] = ['completed', 'report_sent', 'paid']
+  const isActiveJob = !CLOSED_STATUSES.includes(job.status)
+
   const allTabs: { id: Tab; label: string; show: boolean }[] = [
     { id: 'details',    label: 'Details',                                                          show: true },
     { id: 'assessment', label: 'Assessment',                                                       show: caps.view_assessment },
     { id: 'quote',      label: 'Quote',                                                            show: caps.view_quote },
     { id: 'photos',     label: `Photos${photos.length ? ` (${photos.length})` : ''}`,             show: caps.upload_photos_assigned || caps.upload_photos_any },
     { id: 'documents',  label: `Docs${documents.length ? ` (${documents.length})` : ''}`,         show: caps.generate_documents },
-    { id: 'messages',   label: unreadSms > 0 ? `💬 SMS (${unreadSms})` : '💬 SMS',               show: caps.send_sms },
+    { id: 'messages',   label: unreadSms > 0 ? `💬 SMS (${unreadSms})` : '💬 SMS',               show: caps.send_sms && isActiveJob },
   ]
   const tabs = allTabs.filter(t => t.show)
 
