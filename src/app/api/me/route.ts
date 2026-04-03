@@ -33,7 +33,9 @@ export async function GET() {
     name = [user.firstName, user.lastName].filter(Boolean).join(' ') || user.emailAddresses[0]?.emailAddress || ''
   } catch { name = '' }
 
-  const role = orgUser?.role === 'admin' ? 'admin' : 'member'
+  // 'owner' and 'admin' both get full admin access — 'owner' is the initial
+  // role assigned when a company is first created on the platform.
+  const role = (orgUser?.role === 'admin' || orgUser?.role === 'owner') ? 'admin' : 'member'
 
   return NextResponse.json({
     userId,
