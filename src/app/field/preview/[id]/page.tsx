@@ -60,6 +60,7 @@ export default function FieldPreviewPage() {
   const [jobs, setJobs]       = useState<Job[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedJob, setSelectedJob] = useState<Job | null>(null)
+  const [activeTab, setActiveTab]     = useState('details')
 
   // Guard — admins only
   useEffect(() => {
@@ -114,19 +115,20 @@ export default function FieldPreviewPage() {
     </div>
   )
 
+  const visibleTabs = [
+    { id: 'details',    label: 'Details',    show: true },
+    { id: 'assessment', label: 'Assessment', show: caps.view_assessment },
+    { id: 'quote',      label: 'Quote',      show: caps.view_quote },
+    { id: 'photos',     label: 'Photos',     show: caps.upload_photos_assigned || caps.upload_photos_any },
+    { id: 'documents',  label: 'Docs',       show: caps.generate_documents },
+    { id: 'messages',   label: '💬 SMS',     show: caps.send_sms },
+  ].filter(t => t.show)
+
+  // Reset to details tab when navigating to a different job
+  useEffect(() => { setActiveTab('details') }, [selectedJob?.id])
+
   // ── Job detail view ──────────────────────────────────────────────────────────
   if (selectedJob) {
-    const visibleTabs = [
-      { id: 'details',    label: 'Details',    show: true },
-      { id: 'assessment', label: 'Assessment', show: caps.view_assessment },
-      { id: 'quote',      label: 'Quote',      show: caps.view_quote },
-      { id: 'photos',     label: `Photos`,     show: caps.upload_photos_assigned || caps.upload_photos_any },
-      { id: 'documents',  label: 'Docs',       show: caps.generate_documents },
-      { id: 'messages',   label: '💬 SMS',     show: caps.send_sms },
-    ].filter(t => t.show)
-
-    const [activeTab, setActiveTab] = useState('details')
-
     return (
       <div style={{ minHeight: '100dvh', background: 'var(--bg)', paddingBottom: 40 }}>
         {/* Preview banner */}
