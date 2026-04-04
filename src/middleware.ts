@@ -35,6 +35,7 @@ import type { NextRequest } from 'next/server'
 const isPublicRoute = createRouteMatcher([
   '/login(.*)',
   '/sign-in(.*)',
+  '/sign-up(.*)',
   '/new-client(.*)',
   '/accept/(.*)',
   '/pending(.*)',

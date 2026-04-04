@@ -63,7 +63,9 @@ export default function InvitePage() {
     if (!isLoaded) return
     if (!isSignedIn && !loading) {
       const returnUrl = encodeURIComponent(`/invite/${token}`)
-      router.replace(`/login?redirect_url=${returnUrl}`)
+      // Send to /sign-up so new team members land on SignUp not SignIn
+      // (SignIn shows "couldn't find account" for first-time users)
+      router.replace(`/sign-up?redirect_url=${returnUrl}`)
     }
   }, [isLoaded, isSignedIn, loading, token, router])
 
