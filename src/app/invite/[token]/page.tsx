@@ -61,10 +61,10 @@ export default function InvitePage() {
   // If not signed in, redirect to login with return URL
   useEffect(() => {
     if (!isLoaded) return
-    if (!isSignedIn && !loading) {
+    if (!isSignedIn) {
       const returnUrl = encodeURIComponent(`/invite/${token}`)
-      // Send to /sign-up so new team members land on SignUp not SignIn
-      // (SignIn shows "couldn't find account" for first-time users)
+      // Redirect immediately — don't wait for invite fetch to complete.
+      // Waiting caused the invite UI to flash briefly before redirecting.
       router.replace(`/sign-up?redirect_url=${returnUrl}`)
     }
   }, [isLoaded, isSignedIn, loading, token, router])
