@@ -164,6 +164,12 @@ export default function PersonPage() {
   const [smsSent, setSmsSent]             = useState(false)
   const [smsError, setSmsError]           = useState('')
 
+  // Jobs tab state
+  const [allJobs, setAllJobs]             = useState<{ id: string; client_name: string; site_address: string; status: string; job_type: string; scheduled_at: string | null }[]>([])
+  const [assignedJobIds, setAssignedJobIds] = useState<Set<string>>(new Set())
+  const [jobsLoading, setJobsLoading]     = useState(false)
+  const [togglingJobId, setTogglingJobId] = useState<string | null>(null)
+
   // Doc state
   const [showAddDoc, setShowAddDoc] = useState(false)
   const [docForm, setDocForm]       = useState({ doc_type: 'whs_cert', label: '', expiry_date: '' })
@@ -193,6 +199,47 @@ export default function PersonPage() {
       })
       .finally(() => setAccessLoading(false))
   }, [tab, id])
+
+  // Load all active jobs + this person's assignments when Jobs tab opens
+  useEffect(() => {
+    if (tab !== 'jobs' || !person) return
+    setJobsLoading(true)
+    const ACTIVE = ['lead','assessed','quoted','accepted','scheduled','underway']
+    fetch('/api/jobs')
+      .then(r => r.json())
+      .then(async d => {
+        const active = (d.jobs ?? []).filter((j: { status: string }) => ACTIVE.includes(j.status))
+        setAllJobs(active)
+        // For each job, check if this person is assigned
+        const assigned = new Set<string>()
+        await Promise.all(active.map(async (j: { id: string }) => {
+          const res = await fetch(`/api/jobs/${j.id}/team`)
+          const td = await res.json()
+          const isAssigned = (td.assignments ?? []).some((a: { people: { id: string } }) => a.people?.id === person.id)
+          if (isAssigned) assigned.add(j.id)
+        }))
+        setAssignedJobIds(assigned)
+      })
+      .finally(() => setJobsLoading(false))
+  }, [tab, person])
+
+  async function toggleJobAssignment(jobId: string) {
+    if (!person) return
+    setTogglingJobId(jobId)
+    const isAssigned = assignedJobIds.has(jobId)
+    try {
+      await fetch(`/api/jobs/${jobId}/team`, {
+        method: isAssigned ? 'DELETE' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ person_id: person.id }),
+      })
+      setAssignedJobIds(prev => {
+        const next = new Set(prev)
+        isAssigned ? next.delete(jobId) : next.add(jobId)
+        return next
+      })
+    } finally { setTogglingJobId(null) }
+  }
 
   function updateField(key: keyof Person, val: string) {
     setPerson(p => p ? { ...p, [key]: val } : p)
@@ -695,10 +742,74 @@ export default function PersonPage() {
 
         {/* ── Jobs ── */}
         {tab === 'jobs' && (
-          <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
-            <div style={{ fontSize: 40, marginBottom: 12 }}>🔧</div>
-            <div style={{ fontWeight: 600, marginBottom: 6 }}>Job assignments</div>
-            <div style={{ fontSize: 13 }}>Assign this person to jobs from the job detail page.</div>
+          <div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16, lineHeight: 1.5 }}>
+              Toggle to assign or remove {person?.name.split(' ')[0]} from any active job. Changes reflect immediately in their app view.
+            </div>
+
+            {jobsLoading ? (
+              <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>
+                <div className="spinner" />
+              </div>
+            ) : allJobs.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '48px 20px', color: 'var(--text-muted)' }}>
+                <div style={{ fontSize: 36, marginBottom: 12 }}>🔧</div>
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>No active jobs</div>
+                <div style={{ fontSize: 13 }}>Create a job first to assign team members.</div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {allJobs.map(job => {
+                  const assigned = assignedJobIds.has(job.id)
+                  const toggling = togglingJobId === job.id
+                  return (
+                    <div key={job.id} style={{
+                      display: 'flex', alignItems: 'center', gap: 12,
+                      padding: '14px 16px', borderRadius: 12,
+                      background: assigned ? 'rgba(34,197,94,0.06)' : 'var(--surface)',
+                      border: `1px solid ${assigned ? 'rgba(34,197,94,0.2)' : 'var(--border)'}`,
+                      transition: 'all 0.15s',
+                    }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 2 }}>
+                          {job.client_name}
+                        </div>
+                        <div style={{ fontSize: 12, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {job.site_address}
+                        </div>
+                        {job.scheduled_at && (
+                          <div style={{ fontSize: 11, color: 'var(--accent)', marginTop: 3, fontWeight: 600 }}>
+                            {new Date(job.scheduled_at).toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => toggleJobAssignment(job.id)}
+                        disabled={toggling}
+                        style={{
+                          flexShrink: 0,
+                          width: 52, height: 28, borderRadius: 99,
+                          background: assigned ? '#22C55E' : 'var(--surface-2)',
+                          border: `1px solid ${assigned ? '#22C55E' : 'var(--border-2)'}`,
+                          cursor: toggling ? 'not-allowed' : 'pointer',
+                          position: 'relative', transition: 'all 0.2s',
+                          opacity: toggling ? 0.6 : 1,
+                        }}
+                      >
+                        <div style={{
+                          position: 'absolute', top: 3,
+                          left: assigned ? 26 : 3,
+                          width: 20, height: 20, borderRadius: 99,
+                          background: '#fff',
+                          transition: 'left 0.2s',
+                          boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                        }} />
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
         )}
       </div>

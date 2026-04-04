@@ -119,3 +119,26 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   return NextResponse.json({ assignment: data })
 }
+
+// DELETE /api/jobs/[id]/team — remove a person from a job
+export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id: jobId } = await params
+  const { userId } = await auth()
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const orgId = await getOrgId(userId)
+  if (!orgId) return NextResponse.json({ error: 'No org' }, { status: 403 })
+
+  const { person_id } = await req.json()
+  if (!person_id) return NextResponse.json({ error: 'person_id required' }, { status: 400 })
+
+  const supabase = createServiceClient()
+  const { error } = await supabase
+    .from('job_assignments')
+    .delete()
+    .eq('job_id', jobId)
+    .eq('person_id', person_id)
+    .eq('org_id', orgId)
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ ok: true })
+}
