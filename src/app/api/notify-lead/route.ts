@@ -12,6 +12,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { Resend } from 'resend'
+import { FROM_EMAIL } from '@/lib/email'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 
@@ -20,7 +21,7 @@ export async function POST(req: NextRequest) {
 
   try {
     await resend.emails.send({
-      from: 'onboarding@resend.dev',
+      from: `biohazards.net <${FROM_EMAIL}>`,
       to: process.env.NOTIFY_EMAIL!,
       subject: `New Lead — ${client_name} — ${job_type.replace(/_/g, ' ')}`,
       html: `

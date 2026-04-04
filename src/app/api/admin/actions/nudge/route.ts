@@ -20,6 +20,7 @@ import { NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { Resend } from 'resend'
 import twilio from 'twilio'
+import { FROM_EMAIL } from '@/lib/email'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 const resend = new Resend(process.env.RESEND_API_KEY!)
@@ -98,7 +99,7 @@ export async function POST(req: Request) {
 
   if (hasEmail) {
     await resend.emails.send({
-      from: 'onboarding@resend.dev',
+      from: `biohazards.net <${FROM_EMAIL}>`,
       to: person.email!,
       subject: `Action needed — please complete your profile`,
       html: `

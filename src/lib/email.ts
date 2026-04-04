@@ -14,6 +14,7 @@ import { Resend } from 'resend'
 const resend = new Resend(process.env.RESEND_API_KEY)
 const NOTIFY_EMAIL = process.env.NOTIFY_EMAIL!
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://biohazards-net.vercel.app'
+export const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev'
 
 export interface QuoteAcceptedData {
   jobId: string
@@ -82,7 +83,7 @@ export async function sendQuoteAcceptedEmail(data: QuoteAcceptedData) {
   `
 
   await resend.emails.send({
-    from: 'Brisbane Biohazard Cleaning <onboarding@resend.dev>',
+    from: `biohazards.net <${FROM_EMAIL}>`,
     to: NOTIFY_EMAIL,
     subject: `Quote Accepted — ${data.clientName} — ${data.reference}`,
     html,

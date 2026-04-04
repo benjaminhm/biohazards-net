@@ -15,6 +15,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import { Resend } from 'resend'
+import { FROM_EMAIL } from '@/lib/email'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 
@@ -50,7 +51,7 @@ export async function POST(req: NextRequest) {
     const companyName = profile?.name ?? org.name
 
     await resend.emails.send({
-      from: 'notifications@biohazards.net',
+      from: `biohazards.net <${FROM_EMAIL}>`,
       to: toEmail,
       subject: `📞 Callback Request — ${name}`,
       html: `

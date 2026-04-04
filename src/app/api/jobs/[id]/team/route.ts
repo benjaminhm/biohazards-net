@@ -16,6 +16,7 @@ import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
 import { NextResponse } from 'next/server'
 import { Resend } from 'resend'
+import { FROM_EMAIL } from '@/lib/email'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 
@@ -99,7 +100,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       : 'TBC'
 
     resend.emails.send({
-      from: 'notifications@biohazards.net',
+      from: `biohazards.net <${FROM_EMAIL}>`,
       to: person.email,
       subject: `You've been assigned to a job — ${job?.client_name ?? 'New Job'}`,
       html: `
