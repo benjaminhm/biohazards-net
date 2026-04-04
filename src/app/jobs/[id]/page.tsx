@@ -50,7 +50,7 @@ const STATUS_LABELS: Record<JobStatus, string> = {
 export default function JobPage() {
   const { id }       = useParams<{ id: string }>()
   const searchParams = useSearchParams()
-  const { caps }     = useUser()
+  const { caps, isAdmin } = useUser()
 
   const [job,       setJob]       = useState<Job | null>(null)
   const [photos,    setPhotos]    = useState<Photo[]>([])
@@ -127,7 +127,9 @@ export default function JobPage() {
             </Link>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 700, fontSize: 17, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {job.client_name} — {JOB_TYPE_LABELS[job.job_type] ?? job.job_type}
+                {isAdmin || caps.edit_job_details
+                  ? `${job.client_name} — ${JOB_TYPE_LABELS[job.job_type] ?? job.job_type}`
+                  : `${JOB_TYPE_LABELS[job.job_type] ?? job.job_type} · ${job.site_address.split(',')[0]}`}
               </div>
             </div>
             <div data-devid="P2-E2" style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
@@ -167,7 +169,7 @@ export default function JobPage() {
       {/* Tab content */}
       <div data-devid="P2-E4" className="container" style={{ paddingTop: 24 }}>
         {activeTab === 'details' && (
-          <DetailsTab job={job} onJobUpdate={setJob} />
+          <DetailsTab job={job} onJobUpdate={setJob} readOnly={!isAdmin && !caps.edit_job_details} />
         )}
         {activeTab === 'assessment' && (
           <AssessmentTab job={job} onJobUpdate={setJob} />

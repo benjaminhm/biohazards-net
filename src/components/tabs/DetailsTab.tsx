@@ -92,6 +92,7 @@ const STATUSES: { value: JobStatus; label: string }[] = [
 interface Props {
   job: Job
   onJobUpdate: (job: Job) => void
+  readOnly?: boolean
 }
 
 function EditableField({
@@ -146,7 +147,7 @@ function EditableField({
   )
 }
 
-export default function DetailsTab({ job, onJobUpdate }: Props) {
+export default function DetailsTab({ job, onJobUpdate, readOnly }: Props) {
   const [saving, setSaving] = useState(false)
   const [noteText, setNoteText] = useState('')
   const [addingNote, setAddingNote] = useState(false)
@@ -288,6 +289,11 @@ export default function DetailsTab({ job, onJobUpdate }: Props) {
   const urgencies: JobUrgency[] = ['standard', 'urgent', 'emergency']
   const urgencyLabels = { standard: '⚪ Standard', urgent: '🟠 Urgent', emergency: '🔴 Emergency' }
   const noteLines = job.notes ? job.notes.split('\n').filter(Boolean) : []
+
+  // ── Field-worker read-only view ──────────────────────────────────────────────
+  if (readOnly) {
+    return <FieldWorkerView job={job} />
+  }
 
   return (
     <div style={{ paddingBottom: 40 }}>
@@ -552,6 +558,181 @@ export default function DetailsTab({ job, onJobUpdate }: Props) {
     </div>
   )
 }
+
+// ── FieldWorkerView ──────────────────────────────────────────────────────────
+// Minimal sanitised view for team members — no client PII, just what they need
+// to show up and do the job.
+function FieldWorkerView({ job }: { job: Job }) {
+  const serviceLabel = JOB_TYPES.find(t => t.value === job.job_type)?.label ?? job.job_type
+  const mapsUrl = `https://maps.google.com/?q=${encodeURIComponent(job.site_address)}`
+
+  const urgencyConfig: Record<string, { label: string; color: string }> = {
+    standard:  { label: 'Standard',  color: '#60A5FA' },
+    urgent:    { label: 'Urgent',    color: '#F59E0B' },
+    emergency: { label: 'Emergency', color: '#EF4444' },
+  }
+  const urgency = urgencyConfig[job.urgency] ?? urgencyConfig.standard
+
+  const scheduledDate = job.scheduled_at
+    ? new Date(job.scheduled_at).toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+    : null
+  const scheduledTime = job.scheduled_at
+    ? new Date(job.scheduled_at).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' })
+    : null
+
+  const STATUS_LABELS_SHORT: Record<string, string> = {
+    lead: 'Lead', assessed: 'Assessed', quoted: 'Quoted', accepted: 'Accepted',
+    scheduled: 'Scheduled', underway: 'Underway', completed: 'Completed',
+    report_sent: 'Report Sent', paid: 'Paid',
+  }
+
+  return (
+    <div style={{ paddingBottom: 40 }}>
+
+      {/* Job type + status badges */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 24 }}>
+        <span style={{
+          fontSize: 13, fontWeight: 700, padding: '5px 12px', borderRadius: 99,
+          background: `${urgency.color}18`, color: urgency.color, border: `1px solid ${urgency.color}30`,
+        }}>
+          {urgency.label}
+        </span>
+        <span style={{
+          fontSize: 13, fontWeight: 700, padding: '5px 12px', borderRadius: 99,
+          background: 'var(--surface-2)', color: 'var(--text-muted)', border: '1px solid var(--border)',
+        }}>
+          {STATUS_LABELS_SHORT[job.status] ?? job.status}
+        </span>
+      </div>
+
+      {/* Job type */}
+      <InfoCard icon="🧹" title="Job Type">
+        <div style={{ fontSize: 18, fontWeight: 700 }}>{serviceLabel}</div>
+      </InfoCard>
+
+      {/* Address */}
+      <InfoCard icon="📍" title="Site Address">
+        <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 10, lineHeight: 1.4 }}>{job.site_address}</div>
+        <a
+          href={mapsUrl}
+          target="_blank"
+          rel="noreferrer"
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            padding: '9px 16px', borderRadius: 8,
+            background: 'var(--accent)', color: '#fff',
+            textDecoration: 'none', fontWeight: 700, fontSize: 13,
+          }}
+        >
+          Open in Maps →
+        </a>
+      </InfoCard>
+
+      {/* Schedule */}
+      {(scheduledDate || job.schedule_note) && (
+        <InfoCard icon="📅" title="Schedule">
+          {scheduledDate && (
+            <div style={{ marginBottom: 4 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--accent)' }}>{scheduledDate}</div>
+              {scheduledTime && (
+                <div style={{ fontSize: 14, color: 'var(--text-muted)', marginTop: 2, fontWeight: 600 }}>{scheduledTime}</div>
+              )}
+            </div>
+          )}
+          {job.schedule_note && (
+            <div style={{
+              marginTop: scheduledDate ? 12 : 0,
+              padding: '10px 12px', borderRadius: 8,
+              background: 'rgba(255,107,53,0.06)', border: '1px solid rgba(255,107,53,0.2)',
+              fontSize: 13, lineHeight: 1.5, color: 'var(--text)',
+            }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Access Details</span>
+              {job.schedule_note}
+            </div>
+          )}
+        </InfoCard>
+      )}
+
+      {/* Team contacts */}
+      <FieldTeamContacts jobId={job.id} />
+
+    </div>
+  )
+}
+
+function InfoCard({ icon, title, children }: { icon: string; title: string; children: React.ReactNode }) {
+  return (
+    <div style={{
+      background: 'var(--surface)', border: '1px solid var(--border)',
+      borderRadius: 14, padding: '16px 18px', marginBottom: 14,
+    }}>
+      <div style={{
+        fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em',
+        color: 'var(--text-muted)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6,
+      }}>
+        <span>{icon}</span> {title}
+      </div>
+      {children}
+    </div>
+  )
+}
+
+function FieldTeamContacts({ jobId }: { jobId: string }) {
+  const [assignments, setAssignments] = useState<Assignment[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetch(`/api/jobs/${jobId}/team`)
+      .then(r => r.json())
+      .then(d => setAssignments(d.assignments ?? []))
+      .finally(() => setLoading(false))
+  }, [jobId])
+
+  if (loading) return null
+  if (assignments.length === 0) return null
+
+  return (
+    <InfoCard icon="👥" title="Team Contacts">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {assignments.map((a, idx) => {
+          const p = a.people
+          const isFirst = idx === 0
+          return (
+            <div key={a.id} style={{
+              display: 'flex', alignItems: 'center', gap: 12,
+              padding: '12px 14px', borderRadius: 10,
+              background: isFirst ? 'rgba(255,107,53,0.06)' : 'var(--bg)',
+              border: `1px solid ${isFirst ? 'rgba(255,107,53,0.25)' : 'var(--border)'}`,
+            }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>
+                  {p.name}
+                  {isFirst && <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--accent)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Lead</span>}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 1, textTransform: 'capitalize' }}>{p.role}</div>
+                {p.phone && <div style={{ fontSize: 13, color: 'var(--text)', marginTop: 2, fontWeight: 600 }}>{p.phone}</div>}
+              </div>
+              {p.phone && (
+                <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                  <a href={`tel:${p.phone.replace(/\s/g, '')}`}
+                    style={{ width: 40, height: 40, borderRadius: 99, background: '#10B98118', border: '1px solid #10B98130', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, textDecoration: 'none' }}>
+                    📞
+                  </a>
+                  <a href={`sms:${p.phone.replace(/\s/g, '')}`}
+                    style={{ width: 40, height: 40, borderRadius: 99, background: '#3B82F618', border: '1px solid #3B82F630', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, textDecoration: 'none' }}>
+                    💬
+                  </a>
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </InfoCard>
+  )
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 
 function TeamSection({ jobId }: { jobId: string }) {
   const [assignments, setAssignments] = useState<Assignment[]>([])
