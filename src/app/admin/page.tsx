@@ -42,7 +42,13 @@ interface PendingUser {
 }
 
 const PLAN_OPTIONS = ['solo', 'team', 'business']
-type Tab = 'orgs' | 'admins' | 'pending'
+type Tab = 'orgs' | 'admins' | 'pending' | 'reviews'
+
+interface PlatformReview {
+  id: string; org_id: string; rating: number; body: string | null
+  reviewer_name: string | null; is_published: boolean; created_at: string
+  orgs: { name: string; slug: string } | null
+}
 
 export default function AdminPage() {
   const [tab, setTab] = useState<Tab>('orgs')
@@ -75,6 +81,9 @@ export default function AdminPage() {
 
   const [pending, setPending]               = useState<PendingUser[]>([])
   const [loadingPending, setLoadingPending] = useState(false)
+
+  const [reviews, setReviews]               = useState<PlatformReview[]>([])
+  const [loadingReviews, setLoadingReviews] = useState(false)
   const [assigningId, setAssigningId]       = useState<string | null>(null)
   const [assignOrg, setAssignOrg]           = useState('')
   const [assignRole, setAssignRole]         = useState('owner')
@@ -113,9 +122,27 @@ export default function AdminPage() {
     } finally { setLoadingPending(false) }
   }
 
+  async function fetchReviews() {
+    setLoadingReviews(true)
+    try {
+      const res = await fetch('/api/admin/reviews')
+      const json = await res.json()
+      setReviews(json.reviews ?? [])
+    } finally { setLoadingReviews(false) }
+  }
+
+  async function handleTogglePublish(review: PlatformReview) {
+    await fetch(`/api/admin/reviews/${review.id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_published: !review.is_published }),
+    })
+    await fetchReviews()
+  }
+
   useEffect(() => { fetchOrgs() }, [])
   useEffect(() => { if (tab === 'admins') fetchAdmins() }, [tab])
   useEffect(() => { if (tab === 'pending') fetchPending() }, [tab])
+  useEffect(() => { if (tab === 'reviews') fetchReviews() }, [tab])
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault(); setSubmitting(true)
@@ -260,7 +287,7 @@ export default function AdminPage() {
         padding: '0 28px',
         display: 'flex', gap: 0,
       }}>
-        {(['orgs', 'admins', 'pending'] as Tab[]).map(t => (
+        {(['orgs', 'admins', 'pending', 'reviews'] as Tab[]).map(t => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -274,7 +301,7 @@ export default function AdminPage() {
               display: 'flex', alignItems: 'center', gap: 7,
             }}
           >
-            {t === 'orgs' ? 'Organisations' : t === 'admins' ? 'Administrators' : 'Pending'}
+            {t === 'orgs' ? 'Organisations' : t === 'admins' ? 'Administrators' : t === 'pending' ? 'Pending' : 'Reviews'}
             {t === 'pending' && pending.length > 0 && (
               <span style={{
                 background: '#EF4444', color: '#fff',
@@ -523,6 +550,62 @@ export default function AdminPage() {
                   ))}
                 </tbody>
               </table>
+            )}
+          </div>
+        )}
+
+        {/* ── Reviews tab ── */}
+        {tab === 'reviews' && (
+          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
+            {loadingReviews ? <EmptyState>Loading…</EmptyState>
+            : reviews.length === 0 ? <EmptyState>No reviews submitted yet.</EmptyState>
+            : (
+              <div>
+                {reviews.map((r, i) => {
+                  const orgName = Array.isArray(r.orgs) ? (r.orgs as unknown as { name: string }[])[0]?.name : r.orgs?.name
+                  return (
+                    <div key={r.id} style={{
+                      padding: '18px 20px',
+                      borderBottom: i < reviews.length - 1 ? '1px solid var(--border)' : 'none',
+                      display: 'flex', gap: 16, alignItems: 'flex-start',
+                    }}>
+                      {/* Stars */}
+                      <div style={{ fontSize: 18, lineHeight: 1, flexShrink: 0, paddingTop: 2 }}>
+                        {'⭐'.repeat(r.rating)}{'☆'.repeat(5 - r.rating)}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4, flexWrap: 'wrap' }}>
+                          <span style={{ fontWeight: 700, fontSize: 14 }}>
+                            {r.reviewer_name || orgName || 'Anonymous'}
+                          </span>
+                          {orgName && r.reviewer_name && (
+                            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{orgName}</span>
+                          )}
+                          <span style={{ fontSize: 11, color: 'var(--text-dim)', marginLeft: 'auto' }}>
+                            {new Date(r.created_at).toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' })}
+                          </span>
+                        </div>
+                        {r.body && (
+                          <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 10px', lineHeight: 1.6 }}>
+                            &ldquo;{r.body}&rdquo;
+                          </p>
+                        )}
+                        <button
+                          onClick={() => handleTogglePublish(r)}
+                          style={{
+                            padding: '5px 12px', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                            border: 'none',
+                            background: r.is_published ? 'rgba(34,197,94,0.15)' : 'var(--surface-2)',
+                            color: r.is_published ? '#4ADE80' : 'var(--text-muted)',
+                          }}
+                        >
+                          {r.is_published ? '✓ Published' : 'Publish'}
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
             )}
           </div>
         )}

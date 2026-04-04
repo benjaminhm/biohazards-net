@@ -49,6 +49,7 @@ export default function HomePage() {
   const [showPreviewPicker, setShowPreviewPicker] = useState(false)
   const [actions, setActions] = useState<{ type: string; title: string; description: string; href: string; severity: string }[]>([])
   const [actionsExpanded, setActionsExpanded] = useState(true)
+  const [review, setReview] = useState<object | null | 'loading'>('loading')
   const router = useRouter()
 
   // Non-admins without view_all_jobs go to their field view
@@ -67,6 +68,11 @@ export default function HomePage() {
       .then(r => r.json())
       .then(d => setActions(d.actions ?? []))
       .catch(() => {})
+
+    fetch('/api/review')
+      .then(r => r.json())
+      .then(d => setReview(d.review ?? null))
+      .catch(() => setReview(null))
 
     fetch('/api/jobs?upcoming=true')
       .then(r => r.json())
@@ -375,6 +381,13 @@ export default function HomePage() {
         </div>
       )}
 
+      {/* ── Review card — admin only, disappears once submitted ── */}
+      {isAdmin && !previewMode && review === null && (
+        <div style={{ padding: '0 20px 20px' }}>
+          <ReviewCard onSubmitted={() => setReview({})} />
+        </div>
+      )}
+
       {/* ── Footer ── */}
       <div style={{
         padding: '16px 20px',
@@ -438,6 +451,136 @@ export default function HomePage() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+/* ── ReviewCard ── */
+function ReviewCard({ onSubmitted }: { onSubmitted: () => void }) {
+  const [rating, setRating]     = useState(0)
+  const [hovered, setHovered]   = useState(0)
+  const [body, setBody]         = useState('')
+  const [name, setName]         = useState('')
+  const [saving, setSaving]     = useState(false)
+  const [done, setDone]         = useState(false)
+
+  async function handleSubmit() {
+    if (!rating) return
+    setSaving(true)
+    try {
+      const res = await fetch('/api/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rating, body, reviewer_name: name }),
+      })
+      if (!res.ok) return
+      setDone(true)
+      setTimeout(onSubmitted, 1200)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (done) {
+    return (
+      <div style={{
+        background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.2)',
+        borderRadius: 16, padding: '22px 20px', textAlign: 'center',
+      }}>
+        <div style={{ fontSize: 28, marginBottom: 8 }}>🙏</div>
+        <div style={{ fontWeight: 700, fontSize: 15 }}>Thanks for the feedback!</div>
+      </div>
+    )
+  }
+
+  const display = hovered || rating
+
+  return (
+    <div style={{
+      background: 'var(--surface)',
+      border: '1px solid var(--border)',
+      borderRadius: 16,
+      padding: '20px',
+    }}>
+      <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-dim)', marginBottom: 10 }}>
+        Quick Feedback
+      </div>
+      <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>How is biohazards.net working for you?</div>
+      <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 18, lineHeight: 1.5 }}>
+        Takes 30 seconds. Your feedback helps us improve the platform.
+      </div>
+
+      {/* Stars */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        {[1, 2, 3, 4, 5].map(s => (
+          <button
+            key={s}
+            onMouseEnter={() => setHovered(s)}
+            onMouseLeave={() => setHovered(0)}
+            onClick={() => setRating(s)}
+            style={{
+              fontSize: 28, background: 'none', border: 'none', cursor: 'pointer',
+              padding: '2px 4px', lineHeight: 1,
+              filter: s <= display ? 'none' : 'grayscale(1) opacity(0.3)',
+              transform: s <= display ? 'scale(1.1)' : 'scale(1)',
+              transition: 'transform 0.1s, filter 0.1s',
+            }}
+          >
+            ⭐
+          </button>
+        ))}
+        {rating > 0 && (
+          <span style={{ fontSize: 13, color: 'var(--text-muted)', alignSelf: 'center', marginLeft: 4 }}>
+            {['', 'Poor', 'Fair', 'Good', 'Great', 'Excellent'][rating]}
+          </span>
+        )}
+      </div>
+
+      {/* Optional text */}
+      <textarea
+        value={body}
+        onChange={e => setBody(e.target.value)}
+        placeholder="Any comments? (optional)"
+        rows={2}
+        style={{
+          width: '100%', marginBottom: 10,
+          padding: '10px 12px', borderRadius: 10,
+          border: '1px solid var(--border)',
+          background: 'var(--surface-2)',
+          color: 'var(--text)', fontSize: 13,
+          resize: 'none', boxSizing: 'border-box',
+        }}
+      />
+      <input
+        type="text"
+        value={name}
+        onChange={e => setName(e.target.value)}
+        placeholder="Your name (optional)"
+        style={{
+          width: '100%', marginBottom: 14,
+          padding: '10px 12px', borderRadius: 10,
+          border: '1px solid var(--border)',
+          background: 'var(--surface-2)',
+          color: 'var(--text)', fontSize: 13,
+          boxSizing: 'border-box',
+        }}
+      />
+
+      <button
+        onClick={handleSubmit}
+        disabled={!rating || saving}
+        style={{
+          width: '100%', padding: '13px',
+          borderRadius: 12, border: 'none',
+          background: rating ? 'var(--accent)' : 'var(--surface-3)',
+          color: rating ? '#fff' : 'var(--text-dim)',
+          fontWeight: 700, fontSize: 14, cursor: rating ? 'pointer' : 'default',
+          opacity: saving ? 0.7 : 1,
+          transition: 'background 0.2s',
+        }}
+      >
+        {saving ? 'Saving…' : 'Submit Review'}
+      </button>
     </div>
   )
 }
