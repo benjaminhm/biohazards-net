@@ -80,37 +80,37 @@ export async function POST(req: Request) {
     .map(f => `- ${FIELD_CONTEXT[f] ?? f}`)
     .join('\n')
 
-  // Generate message with Claude Haiku
+  // Generate message with Claude Sonnet for quality
   let messageBody = ''
   try {
-    const prompt = `You are an admin assistant for ${companyName}, a biohazard cleaning company.
-Write a short, warm, professional email to ${firstName} asking them to complete their staff profile on the company app.
+    const prompt = `You are writing a short staff reminder email on behalf of ${companyName}, a biohazard cleaning company in Australia.
 
-The following information is missing from their profile:
+The recipient is ${firstName}, a team member whose staff profile is incomplete.
+
+What is missing and why it matters:
 ${fieldDetails}
 
-Guidelines:
-- Address them by first name
-- Briefly explain why this information is needed (use the context above naturally, don't just list it robotically)
-- Keep it under 100 words
-- Friendly but professional tone
-- No subject line
-- Sign off as "${companyName} Team"
-- Return only the message body, nothing else`
+Write the email body only (no subject line, no headers). It should:
+- Open with "Hi ${firstName},"
+- Sound like it was written by a real person — warm, direct, not corporate
+- Weave in the reason each missing item matters naturally in one or two sentences (don't bullet-point them)
+- Be specific about what they need to do ("tap the button below to open your profile")
+- Stay under 90 words
+- Close with a friendly sign-off from "${companyName} Team"
+
+Do not use phrases like "I hope this email finds you well", "please be advised", or "kindly". Write naturally.
+Return only the email body, nothing else.`
 
     const response = await anthropic.messages.create({
-      model: 'claude-haiku-4-20250514',
-      max_tokens: 250,
+      model: 'claude-sonnet-4-6',
+      max_tokens: 300,
       messages: [{ role: 'user', content: prompt }],
     })
 
     messageBody = (response.content[0] as { text: string }).text.trim()
   } catch {
-    // Fallback if AI fails
-    const fallbackList = missingFields
-      .map(f => FIELD_CONTEXT[f] ?? f)
-      .join(', ')
-    messageBody = `Hi ${firstName},\n\nCould you please take a moment to complete your staff profile on the ${companyName} app? We still need ${fallbackList}.\n\nThanks,\n${companyName} Team`
+    const fallbackList = missingFields.map(f => FIELD_CONTEXT[f] ?? f).join(', ')
+    messageBody = `Hi ${firstName}, could you please complete your staff profile on the ${companyName} app? We still need ${fallbackList}. Thanks, ${companyName} Team`
   }
 
   const hasEmail = person.email?.trim()
