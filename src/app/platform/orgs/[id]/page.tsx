@@ -1,0 +1,387 @@
+/*
+ * app/platform/orgs/[id]/page.tsx
+ *
+ * Company profile page — accessible at platform.biohazards.net/platform/orgs/[id]
+ * Platform admin only (middleware + API double-check).
+ *
+ * Shows:
+ *   - Org details: name, slug, plan, seats, status, created date
+ *   - Administrator person card: name, email, phone
+ *   - Active invite link: copy URL, regenerate if expired or missing
+ *   - App users: clerk-linked accounts in this org
+ */
+'use client'
+
+import { useEffect, useState } from 'react'
+import { useParams, useRouter } from 'next/navigation'
+import { randomBytes } from 'crypto'
+
+// We don't have types imported here — define inline interfaces
+interface OrgRow {
+  id: string
+  name: string
+  slug: string
+  plan: string
+  seat_limit: number
+  is_active: boolean
+  created_at: string
+}
+interface PersonRow {
+  id: string
+  name: string
+  email: string | null
+  phone: string | null
+}
+interface OrgUserRow {
+  id: string
+  clerk_user_id: string
+  role: string
+  person_id: string | null
+}
+interface InviteRow {
+  id: string
+  token: string
+  role: string
+  person_id: string | null
+  claimed_by: string | null
+  expires_at: string
+  created_at: string
+}
+interface OrgProfile {
+  org: OrgRow
+  people: PersonRow[]
+  org_users: OrgUserRow[]
+  invites: InviteRow[]
+}
+
+const PLAN_COLORS: Record<string, { bg: string; fg: string }> = {
+  solo:     { bg: 'rgba(100,100,100,0.12)', fg: '#888' },
+  team:     { bg: 'rgba(59,130,246,0.1)',   fg: '#60A5FA' },
+  business: { bg: 'rgba(255,107,53,0.1)',   fg: 'var(--accent)' },
+}
+
+export default function OrgProfilePage() {
+  const { id } = useParams<{ id: string }>()
+  const router = useRouter()
+
+  const [data, setData]       = useState<OrgProfile | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError]     = useState('')
+  const [copied, setCopied]   = useState(false)
+  const [regenerating, setRegenerating] = useState(false)
+
+  async function load() {
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/admin/orgs/${id}`)
+      const json = await res.json()
+      if (!res.ok) { setError(json.error ?? 'Failed'); return }
+      setData(json)
+    } catch {
+      setError('Failed to load')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { load() }, [id])
+
+  async function handleRegenerateInvite(personId: string) {
+    setRegenerating(true)
+    try {
+      // Create a fresh invite for this person in this org
+      const res = await fetch('/api/admin/provision/invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ org_id: id, person_id: personId }),
+      })
+      if (!res.ok) { const j = await res.json(); alert(j.error ?? 'Failed'); return }
+      await load()
+    } finally {
+      setRegenerating(false)
+    }
+  }
+
+  async function handleToggleActive() {
+    if (!data) return
+    await fetch(`/api/admin/orgs/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_active: !data.org.is_active }),
+    })
+    await load()
+  }
+
+  function copyInvite(url: string) {
+    navigator.clipboard.writeText(url)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  if (loading) {
+    return (
+      <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
+        <span className="spinner" />
+      </div>
+    )
+  }
+
+  if (error || !data) {
+    return (
+      <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', color: 'var(--text)' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: 32, marginBottom: 12 }}>⚠️</div>
+          <div style={{ fontWeight: 700, marginBottom: 8 }}>{error || 'Not found'}</div>
+          <button onClick={() => router.push('/platform')} style={backBtnStyle}>← Back to Platform</button>
+        </div>
+      </div>
+    )
+  }
+
+  const { org, people, org_users, invites } = data
+
+  // Active (unclaimed, non-expired) invites for admin role
+  const now = new Date()
+  const activeInvites = invites.filter(inv => !inv.claimed_by && new Date(inv.expires_at) > now)
+  const claimedInvites = invites.filter(inv => inv.claimed_by)
+
+  const planStyle = PLAN_COLORS[org.plan] ?? PLAN_COLORS.solo
+
+  return (
+    <div style={{ minHeight: '100dvh', background: 'var(--bg)', color: 'var(--text)' }}>
+
+      {/* Header */}
+      <header style={{
+        borderBottom: '1px solid var(--border)',
+        padding: '18px 28px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 16,
+      }}>
+        <button
+          onClick={() => router.push('/platform')}
+          style={{
+            background: 'none', border: '1px solid var(--border)',
+            borderRadius: 8, padding: '7px 12px',
+            color: 'var(--text-muted)', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+          }}
+        >
+          ← Platform
+        </button>
+        <div style={{ flex: 1 }}>
+          <div className="eyebrow" style={{ marginBottom: 3 }}>Company Profile</div>
+          <div style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.02em', display: 'flex', alignItems: 'center', gap: 10 }}>
+            {org.name}
+            <span style={{
+              padding: '2px 8px', borderRadius: 99, fontSize: 11, fontWeight: 700,
+              background: org.is_active ? 'rgba(34,197,94,0.1)' : 'rgba(100,100,100,0.12)',
+              color: org.is_active ? '#4ADE80' : '#666',
+            }}>
+              {org.is_active ? 'Active' : 'Inactive'}
+            </span>
+          </div>
+        </div>
+        <button
+          onClick={handleToggleActive}
+          style={{
+            background: 'var(--surface-2)', border: '1px solid var(--border-2)',
+            borderRadius: 8, padding: '8px 14px',
+            color: 'var(--text-muted)', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+          }}
+        >
+          {org.is_active ? 'Disable' : 'Enable'}
+        </button>
+      </header>
+
+      <main style={{ padding: '28px', maxWidth: 800, display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+        {/* Org details */}
+        <Card title="Organisation">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 16 }}>
+            <Stat label="Slug" value={<span className="mono" style={{ fontSize: 14 }}>{org.slug}</span>} />
+            <Stat label="Plan" value={
+              <span style={{ padding: '3px 9px', borderRadius: 99, fontSize: 12, fontWeight: 700, background: planStyle.bg, color: planStyle.fg, textTransform: 'capitalize' }}>
+                {org.plan}
+              </span>
+            } />
+            <Stat label="Seat limit" value={org.seat_limit} />
+            <Stat label="App users" value={org_users.length} />
+            <Stat label="Created" value={new Date(org.created_at).toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' })} />
+          </div>
+        </Card>
+
+        {/* Administrator person profiles */}
+        <Card title="Team Profiles">
+          {people.length === 0 ? (
+            <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>No team profiles yet.</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {people.map(person => {
+                const linked = org_users.find(u => u.person_id === person.id)
+                // Find active invite for this person
+                const personInvite = activeInvites.find(inv => inv.person_id === person.id)
+                const inviteUrl = personInvite ? `https://app.biohazards.net/invite/${personInvite.token}` : null
+                const hasClaimed = claimedInvites.some(inv => inv.person_id === person.id)
+
+                return (
+                  <div key={person.id} style={{
+                    background: 'var(--surface-2)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 10,
+                    padding: '16px 18px',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{person.name}</div>
+                        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                          {person.email && <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>✉ {person.email}</span>}
+                          {person.phone && <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>📞 {person.phone}</span>}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                        {linked ? (
+                          <span style={{ padding: '3px 9px', borderRadius: 99, fontSize: 11, fontWeight: 700, background: 'rgba(34,197,94,0.1)', color: '#4ADE80' }}>
+                            ✓ Signed in
+                          </span>
+                        ) : hasClaimed ? (
+                          <span style={{ padding: '3px 9px', borderRadius: 99, fontSize: 11, fontWeight: 700, background: 'rgba(59,130,246,0.1)', color: '#60A5FA' }}>
+                            Invite claimed
+                          </span>
+                        ) : (
+                          <span style={{ padding: '3px 9px', borderRadius: 99, fontSize: 11, fontWeight: 700, background: 'rgba(100,100,100,0.12)', color: '#666' }}>
+                            Not signed in
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Invite link section */}
+                    {!linked && (
+                      <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
+                        {inviteUrl ? (
+                          <div>
+                            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-dim)', marginBottom: 8 }}>
+                              Invite Link · Expires {new Date(personInvite!.expires_at).toLocaleDateString('en-AU', { day: '2-digit', month: 'short' })}
+                            </div>
+                            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                              <span style={{
+                                fontFamily: 'monospace', fontSize: 12,
+                                background: 'var(--surface)',
+                                border: '1px solid var(--border)',
+                                borderRadius: 6, padding: '6px 10px',
+                                color: 'var(--text-muted)',
+                                flex: 1, minWidth: 0,
+                                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                              }}>
+                                {inviteUrl}
+                              </span>
+                              <TinyBtn label={copied ? '✓ Copied' : 'Copy'} onClick={() => copyInvite(inviteUrl)} primary />
+                              <TinyBtn label={regenerating ? '…' : 'Refresh'} onClick={() => handleRegenerateInvite(person.id)} />
+                            </div>
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                            <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                              {hasClaimed ? 'Invite was claimed — generate a new one if needed.' : 'No active invite.'}
+                            </span>
+                            <TinyBtn label={regenerating ? '…' : 'Generate Invite'} onClick={() => handleRegenerateInvite(person.id)} primary />
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </Card>
+
+        {/* App users (linked Clerk accounts) */}
+        {org_users.length > 0 && (
+          <Card title="App Users">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {org_users.map(u => (
+                <div key={u.id} style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '10px 14px',
+                  background: 'var(--surface-2)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 8,
+                  fontSize: 13,
+                }}>
+                  <span className="mono" style={{ color: 'var(--text-muted)', fontSize: 11 }}>{u.clerk_user_id}</span>
+                  <span style={{
+                    padding: '2px 8px', borderRadius: 99, fontSize: 11, fontWeight: 700,
+                    background: 'rgba(59,130,246,0.1)', color: '#60A5FA', textTransform: 'capitalize',
+                  }}>
+                    {u.role}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+
+      </main>
+    </div>
+  )
+}
+
+/* ── Sub-components ── */
+
+function Card({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div style={{
+      background: 'var(--surface)',
+      border: '1px solid var(--border)',
+      borderRadius: 12,
+      overflow: 'hidden',
+    }}>
+      <div style={{
+        padding: '14px 20px',
+        borderBottom: '1px solid var(--border)',
+        fontSize: 12,
+        fontWeight: 700,
+        letterSpacing: '0.08em',
+        textTransform: 'uppercase',
+        color: 'var(--text-dim)',
+      }}>
+        {title}
+      </div>
+      <div style={{ padding: '18px 20px' }}>{children}</div>
+    </div>
+  )
+}
+
+function Stat({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div>
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-dim)', marginBottom: 6 }}>
+        {label}
+      </div>
+      <div style={{ fontSize: 15, fontWeight: 600 }}>{value}</div>
+    </div>
+  )
+}
+
+function TinyBtn({ label, onClick, primary }: { label: string; onClick: () => void; primary?: boolean }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        padding: '6px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
+        background: primary ? 'var(--surface-3)' : 'transparent',
+        border: `1px solid ${primary ? 'var(--border-2)' : 'var(--border)'}`,
+        color: primary ? 'var(--text)' : 'var(--text-muted)',
+      }}
+    >
+      {label}
+    </button>
+  )
+}
+
+const backBtnStyle: React.CSSProperties = {
+  padding: '10px 18px', borderRadius: 8, border: '1px solid var(--border-2)',
+  background: 'var(--surface)', color: 'var(--text-muted)',
+  fontSize: 13, fontWeight: 600, cursor: 'pointer', marginTop: 12,
+}

@@ -25,6 +25,42 @@ function isPlatformAdmin(userId: string | null): boolean {
   return adminIds.includes(userId)
 }
 
+export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const { userId } = await auth()
+    if (!isPlatformAdmin(userId ?? null)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
+    const { id } = await params
+    const supabase = createServiceClient()
+
+    const [
+      { data: org, error: orgErr },
+      { data: people },
+      { data: orgUsers },
+      { data: invites },
+    ] = await Promise.all([
+      supabase.from('orgs').select('*').eq('id', id).single(),
+      supabase.from('people').select('*').eq('org_id', id).order('name'),
+      supabase.from('org_users').select('*').eq('org_id', id),
+      supabase.from('invites').select('*').eq('org_id', id).order('created_at', { ascending: false }),
+    ])
+
+    if (orgErr || !org) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+    return NextResponse.json({
+      org,
+      people: people ?? [],
+      org_users: orgUsers ?? [],
+      invites: invites ?? [],
+    })
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Unknown error'
+    return NextResponse.json({ error: msg }, { status: 500 })
+  }
+}
+
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { userId } = await auth()

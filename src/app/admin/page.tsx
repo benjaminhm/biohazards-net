@@ -27,6 +27,10 @@ const PLATFORM_OWNER_ID = 'user_3BkVAf7042IsBwqabQ9MoZdEbvE'
 
 interface OrgWithCount extends Org { user_count: number }
 interface NewOrgForm { name: string; slug: string; plan: string; seat_limit: string }
+interface ProvisionForm {
+  org_name: string; org_slug: string; plan: string; seat_limit: string
+  admin_name: string; admin_email: string; admin_phone: string
+}
 interface AdminUser {
   id: string; clerk_user_id: string; org_id: string; role: string
   email: string; name: string; image_url: string; created_at: string
@@ -51,6 +55,15 @@ export default function AdminPage() {
   const [submitting, setSubmitting]         = useState(false)
   const [editingId, setEditingId]           = useState<string | null>(null)
   const [editForm, setEditForm]             = useState<Partial<Org>>({})
+
+  const [showProvisionModal, setShowProvisionModal] = useState(false)
+  const [provisionForm, setProvisionForm]   = useState<ProvisionForm>({
+    org_name: '', org_slug: '', plan: 'solo', seat_limit: '5',
+    admin_name: '', admin_email: '', admin_phone: '',
+  })
+  const [provisioning, setProvisioning]     = useState(false)
+  const [provisionResult, setProvisionResult] = useState<{ invite_url: string; org_name: string } | null>(null)
+  const [provisionCopied, setProvisionCopied] = useState(false)
 
   const [admins, setAdmins]                 = useState<AdminUser[]>([])
   const [loadingAdmins, setLoadingAdmins]   = useState(false)
@@ -117,6 +130,36 @@ export default function AdminPage() {
     finally { setSubmitting(false) }
   }
 
+  async function handleProvision(e: React.FormEvent) {
+    e.preventDefault(); setProvisioning(true)
+    try {
+      const res = await fetch('/api/admin/provision', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          org_name: provisionForm.org_name,
+          org_slug: provisionForm.org_slug,
+          plan: provisionForm.plan,
+          seat_limit: parseInt(provisionForm.seat_limit, 10) || 5,
+          admin_name: provisionForm.admin_name,
+          admin_email: provisionForm.admin_email,
+          admin_phone: provisionForm.admin_phone || undefined,
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok) { alert(json.error ?? 'Failed'); return }
+      setProvisionResult({ invite_url: json.invite_url, org_name: json.org.name })
+      await fetchOrgs()
+    } catch (e: unknown) { alert(e instanceof Error ? e.message : 'Error') }
+    finally { setProvisioning(false) }
+  }
+
+  function closeProvisionModal() {
+    setShowProvisionModal(false)
+    setProvisionResult(null)
+    setProvisionCopied(false)
+    setProvisionForm({ org_name: '', org_slug: '', plan: 'solo', seat_limit: '5', admin_name: '', admin_email: '', admin_phone: '' })
+  }
+
   async function handleSaveEdit(id: string) {
     try {
       const res = await fetch(`/api/admin/orgs/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(editForm) })
@@ -173,16 +216,28 @@ export default function AdminPage() {
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           {tab === 'orgs' && (
-            <button
-              onClick={() => setShowModal(true)}
-              style={{
-                background: 'var(--surface-2)', border: '1px solid var(--border-2)',
-                borderRadius: 8, padding: '9px 16px',
-                color: 'var(--text)', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-              }}
-            >
-              + New Org
-            </button>
+            <>
+              <button
+                onClick={() => setShowProvisionModal(true)}
+                style={{
+                  background: 'var(--accent)', border: 'none',
+                  borderRadius: 8, padding: '9px 16px',
+                  color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                }}
+              >
+                + Provision Company
+              </button>
+              <button
+                onClick={() => setShowModal(true)}
+                style={{
+                  background: 'var(--surface-2)', border: '1px solid var(--border-2)',
+                  borderRadius: 8, padding: '9px 16px',
+                  color: 'var(--text)', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                }}
+              >
+                + Org Only
+              </button>
+            </>
           )}
           {tab === 'admins' && (
             <button
@@ -337,6 +392,17 @@ export default function AdminPage() {
                               </>
                             ) : (
                               <>
+                                <a
+                                  href={`/platform/orgs/${org.id}`}
+                                  target="_blank"
+                                  style={{
+                                    padding: '5px 11px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+                                    background: 'var(--surface-3)', border: '1px solid var(--border-2)',
+                                    color: 'var(--text)', textDecoration: 'none', display: 'inline-block',
+                                  }}
+                                >
+                                  View ↗
+                                </a>
                                 <TinyButton label="Edit" onClick={() => { setEditingId(org.id); setEditForm({ plan: org.plan, seat_limit: org.seat_limit, is_active: org.is_active }) }} />
                                 <TinyButton label={org.is_active ? 'Disable' : 'Enable'} onClick={() => handleToggleActive(org)} />
                               </>
@@ -461,6 +527,88 @@ export default function AdminPage() {
           </div>
         )}
       </main>
+
+      {/* ── Provision Company Modal ── */}
+      {showProvisionModal && (
+        <AdminModal onClose={closeProvisionModal} title="Provision New Company">
+          {provisionResult ? (
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 36, marginBottom: 12 }}>🎉</div>
+              <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 6 }}>{provisionResult.org_name} is live!</div>
+              <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20, lineHeight: 1.6 }}>
+                Copy the invite link below and send it to the administrator. When they sign in, they'll be linked to this company automatically.
+              </p>
+              <div style={{
+                background: 'var(--surface-2)', border: '1px solid var(--border)',
+                borderRadius: 8, padding: '10px 14px', marginBottom: 16,
+                fontFamily: 'monospace', fontSize: 12, color: 'var(--text-muted)',
+                wordBreak: 'break-all', textAlign: 'left',
+              }}>
+                {provisionResult.invite_url}
+              </div>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+                <button
+                  onClick={() => { navigator.clipboard.writeText(provisionResult.invite_url); setProvisionCopied(true); setTimeout(() => setProvisionCopied(false), 2000) }}
+                  style={{
+                    padding: '10px 20px', borderRadius: 8, border: 'none',
+                    background: 'var(--accent)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer',
+                  }}
+                >
+                  {provisionCopied ? '✓ Copied!' : 'Copy Invite Link'}
+                </button>
+                <button
+                  onClick={closeProvisionModal}
+                  style={{ padding: '10px 18px', borderRadius: 8, border: '1px solid var(--border-2)', background: 'transparent', color: 'var(--text-muted)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+                >
+                  Done
+                </button>
+              </div>
+            </div>
+          ) : (
+            <form onSubmit={handleProvision}>
+              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-dim)', marginBottom: 14 }}>
+                Company
+              </div>
+              <FormField label="Company name">
+                <input type="text" required placeholder="Brisbane Biohazard Cleaning" value={provisionForm.org_name}
+                  onChange={e => setProvisionForm(f => ({ ...f, org_name: e.target.value, org_slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 30) }))} />
+              </FormField>
+              <FormField label="URL slug">
+                <input type="text" required placeholder="brisbanebiohazardcleaning" value={provisionForm.org_slug}
+                  onChange={e => setProvisionForm(f => ({ ...f, org_slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') }))} />
+              </FormField>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <FormField label="Plan">
+                  <select value={provisionForm.plan} onChange={e => setProvisionForm(f => ({ ...f, plan: e.target.value }))}>
+                    {PLAN_OPTIONS.map(p => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                </FormField>
+                <FormField label="Seats">
+                  <input type="number" min={1} value={provisionForm.seat_limit}
+                    onChange={e => setProvisionForm(f => ({ ...f, seat_limit: e.target.value }))} />
+                </FormField>
+              </div>
+              <div style={{ height: 1, background: 'var(--border)', margin: '16px 0' }} />
+              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-dim)', marginBottom: 14 }}>
+                Administrator
+              </div>
+              <FormField label="Full name">
+                <input type="text" required placeholder="Jane Smith" value={provisionForm.admin_name}
+                  onChange={e => setProvisionForm(f => ({ ...f, admin_name: e.target.value }))} />
+              </FormField>
+              <FormField label="Email">
+                <input type="email" required placeholder="jane@company.com.au" value={provisionForm.admin_email}
+                  onChange={e => setProvisionForm(f => ({ ...f, admin_email: e.target.value }))} />
+              </FormField>
+              <FormField label="Phone (optional)">
+                <input type="tel" placeholder="0400 000 000" value={provisionForm.admin_phone}
+                  onChange={e => setProvisionForm(f => ({ ...f, admin_phone: e.target.value }))} />
+              </FormField>
+              <ModalFooter onCancel={closeProvisionModal} submitLabel={provisioning ? 'Provisioning…' : 'Provision & Get Invite Link'} disabled={provisioning} />
+            </form>
+          )}
+        </AdminModal>
+      )}
 
       {/* ── New Org Modal ── */}
       {showModal && (
