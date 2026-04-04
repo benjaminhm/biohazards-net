@@ -181,33 +181,48 @@ export default function OnboardingChecklist() {
           )}
         </button>
 
-        {/* Checklist items */}
-        {expanded && !allDone && visibleItems.length > 0 && (
+        {/* Checklist items — show all, green when done, red/amber when not */}
+        {expanded && !allDone && (
           <div style={{ padding: '0 20px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {visibleItems.map(c => (
+            {(requiredDone ? recommended : required).map(c => (
               <button
                 key={c.key}
                 onClick={() => {
+                  if (c.ok) return
                   if (c.key === 'app') { setShowInstructions(true); return }
                   setEditOpen(true)
                 }}
+                disabled={c.ok}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 12,
                   padding: '10px 14px', borderRadius: 10,
-                  background: `rgba(${requiredDone ? '245,158,11' : '239,68,68'},0.08)`,
-                  border: `1px solid rgba(${requiredDone ? '245,158,11' : '239,68,68'},0.25)`,
-                  cursor: 'pointer', textAlign: 'left', width: '100%',
+                  background: c.ok
+                    ? 'rgba(34,197,94,0.08)'
+                    : `rgba(${requiredDone ? '245,158,11' : '239,68,68'},0.08)`,
+                  border: `1px solid ${c.ok
+                    ? 'rgba(34,197,94,0.25)'
+                    : `rgba(${requiredDone ? '245,158,11' : '239,68,68'},0.25)`}`,
+                  cursor: c.ok ? 'default' : 'pointer',
+                  textAlign: 'left', width: '100%',
                 }}
               >
                 <span style={{
                   width: 20, height: 20, borderRadius: 99, flexShrink: 0,
-                  border: `2px solid ${accentColor}`,
+                  background: c.ok ? '#22C55E' : 'transparent',
+                  border: `2px solid ${c.ok ? '#22C55E' : accentColor}`,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }} />
-                <span style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>{c.label}</span>
-                <span style={{ marginLeft: 'auto', fontSize: 12, color: accentColor, fontWeight: 700 }}>
-                  Tap →
+                  fontSize: 11, color: '#fff', fontWeight: 800,
+                }}>
+                  {c.ok ? '✓' : ''}
                 </span>
+                <span style={{ fontSize: 14, fontWeight: 600, color: c.ok ? 'rgba(255,255,255,0.5)' : '#fff' }}>
+                  {c.label}
+                </span>
+                {!c.ok && (
+                  <span style={{ marginLeft: 'auto', fontSize: 12, color: accentColor, fontWeight: 700 }}>
+                    Tap →
+                  </span>
+                )}
               </button>
             ))}
           </div>
