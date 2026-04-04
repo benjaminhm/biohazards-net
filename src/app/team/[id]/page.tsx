@@ -703,28 +703,14 @@ export default function PersonPage() {
                 )}
 
                 <div style={{ display: 'flex', gap: 10 }}>
-                  <button
-                    onClick={() => {
-                      if (appRole === 'admin') {
-                        // Admin preview — no caps swap needed, just go to dashboard
-                        localStorage.removeItem('preview_caps')
-                        localStorage.removeItem('preview_name')
-                        localStorage.removeItem('preview_as_field')
-                        window.location.href = '/'
-                      } else {
-                        // Member/manager preview — swap caps AND send to /field so the
-                        // admin sees exactly what this person sees (field page redirects
-                        // admins back to / unless preview_as_field is set)
-                        localStorage.setItem('preview_caps', JSON.stringify(caps))
-                        localStorage.setItem('preview_name', person.name.split(' ')[0])
-                        localStorage.setItem('preview_as_field', '1')
-                        window.location.href = '/field'
-                      }
-                    }}
-                    style={{ flex: 1, padding: 14, borderRadius: 10, background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border)', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}
+                  <a
+                    href={`/field/preview/${id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ flex: 1, padding: 14, borderRadius: 10, background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border)', fontWeight: 600, fontSize: 14, cursor: 'pointer', textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
                   >
-                    👁 Preview
-                  </button>
+                    👁 Preview ↗
+                  </a>
                   <button onClick={saveAccess} disabled={savingAccess}
                     style={{ flex: 2, padding: 14, borderRadius: 10, background: 'var(--accent)', color: '#fff', border: 'none', fontWeight: 700, fontSize: 15, cursor: 'pointer', opacity: savingAccess ? 0.6 : 1 }}>
                     {savingAccess ? 'Saving…' : accessSaved ? '✓ Saved' : 'Save'}

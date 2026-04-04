@@ -93,6 +93,7 @@ interface Props {
   job: Job
   onJobUpdate: (job: Job) => void
   readOnly?: boolean
+  skipBriefing?: boolean  // suppress AI call in preview pane
 }
 
 function EditableField({
@@ -147,7 +148,7 @@ function EditableField({
   )
 }
 
-export default function DetailsTab({ job, onJobUpdate, readOnly }: Props) {
+export default function DetailsTab({ job, onJobUpdate, readOnly, skipBriefing }: Props) {
   const [saving, setSaving] = useState(false)
   const [noteText, setNoteText] = useState('')
   const [addingNote, setAddingNote] = useState(false)
@@ -292,7 +293,7 @@ export default function DetailsTab({ job, onJobUpdate, readOnly }: Props) {
 
   // ── Field-worker read-only view ──────────────────────────────────────────────
   if (readOnly) {
-    return <FieldWorkerView job={job} />
+    return <FieldWorkerView job={job} skipBriefing={skipBriefing} />
   }
 
   return (
@@ -562,17 +563,18 @@ export default function DetailsTab({ job, onJobUpdate, readOnly }: Props) {
 // ── FieldWorkerView ──────────────────────────────────────────────────────────
 // Minimal sanitised view for team members — no client PII, just what they need
 // to show up and do the job.
-function FieldWorkerView({ job }: { job: Job }) {
+function FieldWorkerView({ job, skipBriefing }: { job: Job; skipBriefing?: boolean }) {
   const [briefing, setBriefing]         = useState<{ description: string; objective: string } | null>(null)
-  const [briefingLoading, setBriefingLoading] = useState(true)
+  const [briefingLoading, setBriefingLoading] = useState(!skipBriefing)
 
   useEffect(() => {
+    if (skipBriefing) return
     fetch(`/api/jobs/${job.id}/briefing`, { method: 'POST' })
       .then(r => r.json())
       .then(d => setBriefing(d.description ? d : null))
       .catch(() => setBriefing(null))
       .finally(() => setBriefingLoading(false))
-  }, [job.id])
+  }, [job.id, skipBriefing])
 
   const serviceLabel = JOB_TYPES.find(t => t.value === job.job_type)?.label ?? job.job_type
   const mapsUrl = `https://maps.google.com/?q=${encodeURIComponent(job.site_address)}`
@@ -630,7 +632,7 @@ function FieldWorkerView({ job }: { job: Job }) {
         }}>
           <span>📋</span> Job Briefing
         </div>
-        {briefingLoading ? (
+        {briefingLoading && !skipBriefing ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--text-muted)', fontSize: 13 }}>
             <span className="spinner" style={{ width: 14, height: 14 }} />
             Preparing briefing…
