@@ -141,7 +141,7 @@ Return only the email body, nothing else.`
             </ul>
           </div>
 
-          <a href="https://app.biohazards.net"
+          <a href="https://app.biohazards.net/team/${person_id}"
              style="display:inline-block;padding:12px 22px;background:#FF6B35;color:#fff;text-decoration:none;border-radius:7px;font-weight:700;font-size:14px;">
             Complete My Profile →
           </a>

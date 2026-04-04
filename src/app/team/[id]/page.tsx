@@ -31,10 +31,22 @@ import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
 import { useUser } from '@/lib/userContext'
 
 interface PersonDoc { id: string; doc_type: string; label: string; expiry_date?: string; file_url?: string }
+interface InvoiceRow {
+  id: string; invoice_number: string; agreed_amount: number; works_undertaken: string | null
+  bank_account_name: string | null; bank_bsb: string | null; bank_account_number: string | null
+  status: string; sent_at: string | null; created_at: string
+  jobs: { client_name: string; site_address: string; job_type: string } | null
+}
+interface InvoiceForm {
+  job_id: string; works_undertaken: string; agreed_amount: string
+  bank_account_name: string; bank_bsb: string; bank_account_number: string
+}
 interface Person {
   id: string; name: string; email?: string; phone?: string
   role: string; status: string; notes?: string
+  address?: string; abn?: string
   emergency_contact?: string; emergency_phone?: string
+  bank_bsb?: string; bank_account_number?: string; bank_account_name?: string
   people_documents?: PersonDoc[]
 }
 type Access = { id: string; role: 'admin' | 'manager' | 'member'; capabilities: TeamCapabilities } | null
@@ -144,7 +156,7 @@ export default function PersonPage() {
   const { id } = useParams() as { id: string }
   const { org } = useUser()
   const [person, setPerson] = useState<Person | null>(null)
-  const [tab, setTab]       = useState<'profile' | 'access' | 'docs' | 'jobs'>('profile')
+  const [tab, setTab]       = useState<'profile' | 'access' | 'docs' | 'jobs' | 'invoices'>('profile')
   const [saving, setSaving] = useState(false)
   const [saveOk, setSaveOk] = useState(false)
 
@@ -169,6 +181,15 @@ export default function PersonPage() {
   const [assignedJobIds, setAssignedJobIds] = useState<Set<string>>(new Set())
   const [jobsLoading, setJobsLoading]     = useState(false)
   const [togglingJobId, setTogglingJobId] = useState<string | null>(null)
+
+  // Invoice state
+  const [invoices, setInvoices]           = useState<InvoiceRow[]>([])
+  const [invoicesLoading, setInvoicesLoading] = useState(false)
+  const [showInvoiceForm, setShowInvoiceForm] = useState(false)
+  const [invoiceForm, setInvoiceForm]     = useState<InvoiceForm>({ job_id: '', works_undertaken: '', agreed_amount: '', bank_account_name: '', bank_bsb: '', bank_account_number: '' })
+  const [savingInvoice, setSavingInvoice] = useState(false)
+  const [sendingInvoiceId, setSendingInvoiceId] = useState<string | null>(null)
+  const [sentInvoiceIds, setSentInvoiceIds]   = useState<Set<string>>(new Set())
 
   // Doc state
   const [showAddDoc, setShowAddDoc] = useState(false)
@@ -203,7 +224,7 @@ export default function PersonPage() {
 
   // Load all active jobs + this person's assignments when Jobs tab opens
   useEffect(() => {
-    if (tab !== 'jobs' || !person) return
+    if ((tab !== 'jobs' && tab !== 'invoices') || !person) return
     setJobsLoading(true)
     const ACTIVE = ['lead','assessed','quoted','accepted','scheduled','underway']
     fetch('/api/jobs')
@@ -223,6 +244,44 @@ export default function PersonPage() {
       })
       .finally(() => setJobsLoading(false))
   }, [tab, person])
+
+  useEffect(() => {
+    if (tab !== 'invoices') return
+    setInvoicesLoading(true)
+    fetch(`/api/people/${id}/invoices`)
+      .then(r => r.json())
+      .then(d => setInvoices(d.invoices ?? []))
+      .finally(() => setInvoicesLoading(false))
+  }, [tab, id])
+
+  async function createInvoice(e: React.FormEvent) {
+    e.preventDefault()
+    if (!invoiceForm.agreed_amount) return
+    setSavingInvoice(true)
+    try {
+      const res = await fetch(`/api/people/${id}/invoices`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...invoiceForm, agreed_amount: parseFloat(invoiceForm.agreed_amount) }),
+      })
+      const d = await res.json()
+      if (res.ok) {
+        setInvoices(prev => [d.invoice, ...prev])
+        setShowInvoiceForm(false)
+        setInvoiceForm({ job_id: '', works_undertaken: '', agreed_amount: '', bank_account_name: '', bank_bsb: '', bank_account_number: '' })
+      }
+    } finally { setSavingInvoice(false) }
+  }
+
+  async function sendInvoice(invoiceId: string) {
+    setSendingInvoiceId(invoiceId)
+    try {
+      const res = await fetch(`/api/people/${id}/invoices/${invoiceId}/send`, { method: 'POST' })
+      if (res.ok) {
+        setSentInvoiceIds(prev => new Set([...prev, invoiceId]))
+        setInvoices(prev => prev.map(inv => inv.id === invoiceId ? { ...inv, status: 'sent' } : inv))
+      }
+    } finally { setSendingInvoiceId(null) }
+  }
 
   async function toggleJobAssignment(jobId: string) {
     if (!person) return
@@ -408,10 +467,11 @@ export default function PersonPage() {
       {/* Tabs */}
       <div className="tab-slider" style={{ display: 'flex', overflowX: 'auto', borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
         {([
-          { id: 'profile', label: '👤 Profile' },
-          { id: 'access',  label: '🔐 App Access' },
-          { id: 'docs',    label: `📋 Docs${docs.length ? ` (${docs.length})` : ''}` },
-          { id: 'jobs',    label: '🔧 Jobs' },
+          { id: 'profile',  label: '👤 Profile' },
+          { id: 'access',   label: '🔐 App Access' },
+          { id: 'docs',     label: `📋 Docs${docs.length ? ` (${docs.length})` : ''}` },
+          { id: 'jobs',     label: '🔧 Jobs' },
+          { id: 'invoices', label: `🧾 Invoices${invoices.length ? ` (${invoices.length})` : ''}` },
         ] as const).map(t => (
           <button key={t.id} onClick={() => setTab(t.id)}
             style={{ flexShrink: 0, padding: '13px 18px', border: 'none', background: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600,
@@ -822,6 +882,122 @@ export default function PersonPage() {
                           boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
                         }} />
                       </button>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Invoices ── */}
+        {tab === 'invoices' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Subcontractor invoices sent to accounts</div>
+              <button
+                onClick={() => setShowInvoiceForm(v => !v)}
+                style={{ padding: '8px 14px', borderRadius: 8, border: 'none', background: 'var(--accent)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}
+              >
+                {showInvoiceForm ? 'Cancel' : '+ New Invoice'}
+              </button>
+            </div>
+
+            {/* New invoice form */}
+            {showInvoiceForm && (
+              <form onSubmit={createInvoice} style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 12, padding: 18, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-dim)', marginBottom: 2 }}>Job Details</div>
+                <Field label="Linked Job (optional)">
+                  <select value={invoiceForm.job_id} onChange={e => setInvoiceForm(f => ({ ...f, job_id: e.target.value }))} style={inputStyle}>
+                    <option value="">— No specific job —</option>
+                    {allJobs.filter(j => assignedJobIds.has(j.id)).map(j => (
+                      <option key={j.id} value={j.id}>{j.client_name} · {j.site_address}</option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Works Undertaken">
+                  <textarea
+                    value={invoiceForm.works_undertaken}
+                    onChange={e => setInvoiceForm(f => ({ ...f, works_undertaken: e.target.value }))}
+                    placeholder="Describe the work completed…"
+                    rows={3}
+                    style={{ ...inputStyle, resize: 'vertical' }}
+                  />
+                </Field>
+                <Field label="Agreed Amount ($)">
+                  <input
+                    type="number" step="0.01" min="0" required
+                    value={invoiceForm.agreed_amount}
+                    onChange={e => setInvoiceForm(f => ({ ...f, agreed_amount: e.target.value }))}
+                    placeholder="0.00"
+                    style={inputStyle}
+                  />
+                </Field>
+                <div style={{ height: 1, background: 'var(--border)', margin: '2px 0' }} />
+                <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-dim)', marginBottom: 2 }}>Bank Details</div>
+                <Field label="Account Name">
+                  <input value={invoiceForm.bank_account_name} onChange={e => setInvoiceForm(f => ({ ...f, bank_account_name: e.target.value }))} placeholder="Name on account" style={inputStyle} />
+                </Field>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <Field label="BSB">
+                    <input value={invoiceForm.bank_bsb} onChange={e => setInvoiceForm(f => ({ ...f, bank_bsb: e.target.value }))} placeholder="000-000" style={inputStyle} />
+                  </Field>
+                  <Field label="Account Number">
+                    <input value={invoiceForm.bank_account_number} onChange={e => setInvoiceForm(f => ({ ...f, bank_account_number: e.target.value }))} placeholder="12345678" style={inputStyle} />
+                  </Field>
+                </div>
+                <button type="submit" disabled={savingInvoice} style={{ padding: '12px', borderRadius: 10, border: 'none', background: 'var(--accent)', color: '#fff', fontWeight: 700, fontSize: 14, cursor: 'pointer', opacity: savingInvoice ? 0.6 : 1, marginTop: 4 }}>
+                  {savingInvoice ? 'Saving…' : 'Save Invoice'}
+                </button>
+              </form>
+            )}
+
+            {/* Invoice list */}
+            {invoicesLoading ? (
+              <div style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)' }}><span className="spinner" /></div>
+            ) : invoices.length === 0 && !showInvoiceForm ? (
+              <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)', fontSize: 13 }}>No invoices yet</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {invoices.map(inv => {
+                  const job = Array.isArray(inv.jobs) ? (inv.jobs as unknown as { client_name: string; site_address: string }[])[0] : inv.jobs
+                  const isSent = inv.status === 'sent' || sentInvoiceIds.has(inv.id)
+                  const isSending = sendingInvoiceId === inv.id
+                  return (
+                    <div key={inv.id} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: job || inv.works_undertaken ? 10 : 0 }}>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: 15 }}>{inv.invoice_number}</div>
+                          {job && <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{job.client_name} · {job.site_address}</div>}
+                        </div>
+                        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                          <div style={{ fontWeight: 800, fontSize: 18, color: 'var(--accent)' }}>
+                            ${Number(inv.agreed_amount).toLocaleString('en-AU', { minimumFractionDigits: 2 })}
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 2 }}>
+                            {new Date(inv.created_at).toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' })}
+                          </div>
+                        </div>
+                      </div>
+                      {inv.works_undertaken && (
+                        <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 12 }}>{inv.works_undertaken}</div>
+                      )}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 99, background: isSent ? 'rgba(34,197,94,0.1)' : 'rgba(100,100,100,0.1)', color: isSent ? '#4ADE80' : '#888' }}>
+                          {isSent ? `✓ Sent${inv.sent_at ? ' · ' + new Date(inv.sent_at).toLocaleDateString('en-AU', { day: '2-digit', month: 'short' }) : ''}` : 'Draft'}
+                        </span>
+                        {!isSent && (
+                          <button
+                            onClick={() => sendInvoice(inv.id)}
+                            disabled={isSending}
+                            style={{ padding: '7px 14px', borderRadius: 8, border: 'none', background: 'var(--accent)', color: '#fff', fontWeight: 700, fontSize: 12, cursor: 'pointer', opacity: isSending ? 0.6 : 1 }}
+                          >
+                            {isSending ? '…' : '✉ Send to Accounts'}
+                          </button>
+                        )}
+                      </div>
                     </div>
                   )
                 })}
