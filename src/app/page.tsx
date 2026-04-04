@@ -47,8 +47,12 @@ export default function HomePage() {
   const { signOut } = useClerk()
   const { caps, isAdmin, loading: userLoading, previewMode } = useUser()
   const [showPreviewPicker, setShowPreviewPicker] = useState(false)
-  const [actions, setActions] = useState<{ type: string; title: string; description: string; href: string; severity: string }[]>([])
+  const [actions, setActions] = useState<{
+    type: string; title: string; description: string; href: string; severity: string
+    person_id?: string; person_email?: string | null; person_phone?: string | null; missing?: string[]
+  }[]>([])
   const [actionsExpanded, setActionsExpanded] = useState(true)
+  const [nudgeSent, setNudgeSent] = useState<Record<string, 'sending' | 'sent' | 'error'>>({})
   const [review, setReview] = useState<object | null | 'loading'>('loading')
   const router = useRouter()
 
@@ -87,6 +91,21 @@ export default function HomePage() {
     const interval = setInterval(tick, 1000)
     return () => clearInterval(interval)
   }, [])
+
+  async function sendNudge(action: typeof actions[0]) {
+    if (!action.person_id) return
+    setNudgeSent(s => ({ ...s, [action.person_id!]: 'sending' }))
+    try {
+      const res = await fetch('/api/admin/actions/nudge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ person_id: action.person_id, type: action.type, missing: action.missing }),
+      })
+      setNudgeSent(s => ({ ...s, [action.person_id!]: res.ok ? 'sent' : 'error' }))
+    } catch {
+      setNudgeSent(s => ({ ...s, [action.person_id!]: 'error' }))
+    }
+  }
 
   const name = company?.name || 'Brisbane Biohazard Cleaning'
 
@@ -196,30 +215,57 @@ export default function HomePage() {
             {/* Items */}
             {actionsExpanded && (
               <div style={{ borderTop: '1px solid rgba(239,68,68,0.15)' }}>
-                {actions.map((a, i) => (
-                  <Link key={i} href={a.href} style={{ textDecoration: 'none' }}>
-                    <div style={{
+                {actions.map((a, i) => {
+                  const nudgeState = a.person_id ? nudgeSent[a.person_id] : undefined
+                  const canNudge = a.person_id && (a.person_email || a.person_phone)
+                  return (
+                    <div key={i} style={{
                       display: 'flex', alignItems: 'center', gap: 12,
                       padding: '12px 18px',
                       borderBottom: i < actions.length - 1 ? '1px solid rgba(239,68,68,0.1)' : 'none',
-                      transition: 'background 0.12s',
                     }}>
                       <div style={{
                         width: 8, height: 8, borderRadius: 99, flexShrink: 0,
                         background: a.severity === 'high' ? '#EF4444' : '#F59E0B',
                       }} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
+                      <Link href={a.href} style={{ textDecoration: 'none', flex: 1, minWidth: 0 }}>
                         <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)' }}>
                           {a.title}
                         </div>
                         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 1 }}>
                           {a.description}
                         </div>
-                      </div>
-                      <span style={{ fontSize: 16, color: 'var(--text-dim)', flexShrink: 0 }}>›</span>
+                      </Link>
+                      {canNudge && (
+                        nudgeState === 'sent' ? (
+                          <span style={{ fontSize: 11, fontWeight: 700, color: '#4ADE80', flexShrink: 0 }}>
+                            ✓ Sent
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => sendNudge(a)}
+                            disabled={nudgeState === 'sending'}
+                            title={`Send reminder via ${a.person_email ? 'email' : 'SMS'}`}
+                            style={{
+                              flexShrink: 0,
+                              padding: '5px 10px', borderRadius: 6,
+                              border: '1px solid rgba(239,68,68,0.3)',
+                              background: 'rgba(239,68,68,0.06)',
+                              color: nudgeState === 'error' ? '#EF4444' : '#F87171',
+                              fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                              opacity: nudgeState === 'sending' ? 0.6 : 1,
+                            }}
+                          >
+                            {nudgeState === 'sending' ? '…' : nudgeState === 'error' ? 'Failed' : `${a.person_email ? '✉' : '💬'} Remind`}
+                          </button>
+                        )
+                      )}
+                      {!canNudge && (
+                        <span style={{ fontSize: 16, color: 'var(--text-dim)', flexShrink: 0 }}>›</span>
+                      )}
                     </div>
-                  </Link>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>

@@ -40,6 +40,10 @@ export async function GET() {
     description: string
     href: string
     severity: 'high' | 'medium' | 'low'
+    person_id?: string
+    person_email?: string | null
+    person_phone?: string | null
+    missing?: string[]
   }[] = []
 
   // ── Incomplete profiles ──────────────────────────────────────────────────
@@ -57,11 +61,15 @@ export async function GET() {
     if (!person.address?.trim()) missing.push('address')
     if (missing.length > 0) {
       actions.push({
-        type:        'incomplete_profile',
-        title:       person.name,
-        description: `Missing: ${missing.join(', ')}`,
-        href:        `/team/${person.id}`,
-        severity:    missing.length >= 2 ? 'high' : 'medium',
+        type:         'incomplete_profile',
+        title:        person.name,
+        description:  `Missing: ${missing.join(', ')}`,
+        href:         `/team/${person.id}`,
+        severity:     missing.length >= 2 ? 'high' : 'medium',
+        person_id:    person.id,
+        person_email: person.email ?? null,
+        person_phone: person.phone ?? null,
+        missing,
       })
     }
   }
