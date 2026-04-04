@@ -563,6 +563,17 @@ export default function DetailsTab({ job, onJobUpdate, readOnly }: Props) {
 // Minimal sanitised view for team members — no client PII, just what they need
 // to show up and do the job.
 function FieldWorkerView({ job }: { job: Job }) {
+  const [briefing, setBriefing]         = useState<{ description: string; objective: string } | null>(null)
+  const [briefingLoading, setBriefingLoading] = useState(true)
+
+  useEffect(() => {
+    fetch(`/api/jobs/${job.id}/briefing`, { method: 'POST' })
+      .then(r => r.json())
+      .then(d => setBriefing(d.description ? d : null))
+      .catch(() => setBriefing(null))
+      .finally(() => setBriefingLoading(false))
+  }, [job.id])
+
   const serviceLabel = JOB_TYPES.find(t => t.value === job.job_type)?.label ?? job.job_type
   const mapsUrl = `https://maps.google.com/?q=${encodeURIComponent(job.site_address)}`
 
@@ -589,8 +600,8 @@ function FieldWorkerView({ job }: { job: Job }) {
   return (
     <div style={{ paddingBottom: 40 }}>
 
-      {/* Job type + status badges */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 24 }}>
+      {/* Urgency + status badges */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
         <span style={{
           fontSize: 13, fontWeight: 700, padding: '5px 12px', borderRadius: 99,
           background: `${urgency.color}18`, color: urgency.color, border: `1px solid ${urgency.color}30`,
@@ -605,12 +616,52 @@ function FieldWorkerView({ job }: { job: Job }) {
         </span>
       </div>
 
-      {/* Job type */}
-      <InfoCard icon="🧹" title="Job Type">
-        <div style={{ fontSize: 18, fontWeight: 700 }}>{serviceLabel}</div>
-      </InfoCard>
+      {/* Manager contact — most important card, top of page */}
+      <ManagerCard jobId={job.id} />
 
-      {/* Address */}
+      {/* AI job briefing */}
+      <div style={{
+        background: 'var(--surface)', border: '1px solid var(--border)',
+        borderRadius: 14, padding: '16px 18px', marginBottom: 14,
+      }}>
+        <div style={{
+          fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em',
+          color: 'var(--text-muted)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6,
+        }}>
+          <span>📋</span> Job Briefing
+        </div>
+        {briefingLoading ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--text-muted)', fontSize: 13 }}>
+            <span className="spinner" style={{ width: 14, height: 14 }} />
+            Preparing briefing…
+          </div>
+        ) : briefing ? (
+          <div>
+            <div style={{ fontSize: 14, lineHeight: 1.65, color: 'var(--text)', marginBottom: 14 }}>
+              {briefing.description}
+            </div>
+            {briefing.objective && (
+              <div style={{
+                padding: '10px 14px', borderRadius: 10,
+                background: 'rgba(255,107,53,0.06)', border: '1px solid rgba(255,107,53,0.2)',
+              }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--accent)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  Objective
+                </div>
+                <div style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--text)', fontWeight: 500 }}>
+                  {briefing.objective}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+            {serviceLabel} — {job.site_address.split(',')[0]}
+          </div>
+        )}
+      </div>
+
+      {/* Site address */}
       <InfoCard icon="📍" title="Site Address">
         <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 10, lineHeight: 1.4 }}>{job.site_address}</div>
         <a
@@ -646,14 +697,16 @@ function FieldWorkerView({ job }: { job: Job }) {
               background: 'rgba(255,107,53,0.06)', border: '1px solid rgba(255,107,53,0.2)',
               fontSize: 13, lineHeight: 1.5, color: 'var(--text)',
             }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Access Details</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                Access Details
+              </span>
               {job.schedule_note}
             </div>
           )}
         </InfoCard>
       )}
 
-      {/* Team contacts */}
+      {/* Rest of team */}
       <FieldTeamContacts jobId={job.id} />
 
     </div>
@@ -677,6 +730,82 @@ function InfoCard({ icon, title, children }: { icon: string; title: string; chil
   )
 }
 
+// Prominent manager contact card — shown at the very top of the field view.
+// Picks the highest-ranked person (admin > manager > first assigned).
+function ManagerCard({ jobId }: { jobId: string }) {
+  const [manager, setManager] = useState<(Assignment & { app_role?: string }) | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetch(`/api/jobs/${jobId}/team`)
+      .then(r => r.json())
+      .then(d => {
+        const all: (Assignment & { app_role?: string })[] = d.assignments ?? []
+        const rank = (r?: string) => r === 'admin' ? 0 : r === 'manager' ? 1 : 99
+        const sorted = [...all].sort((a, b) => rank(a.app_role) - rank(b.app_role))
+        // Only surface as "manager" if they actually have a manager/admin role
+        const lead = sorted[0]
+        if (lead && (lead.app_role === 'admin' || lead.app_role === 'manager')) {
+          setManager(lead)
+        }
+      })
+      .finally(() => setLoading(false))
+  }, [jobId])
+
+  if (loading || !manager) return null
+
+  const p = manager.people
+  const isAdmin = manager.app_role === 'admin'
+  const accentColor = isAdmin ? '#FF6B35' : '#8B5CF6'
+  const phone = p.phone?.replace(/\s/g, '')
+
+  return (
+    <div style={{
+      background: `linear-gradient(135deg, ${accentColor}10, ${accentColor}05)`,
+      border: `1.5px solid ${accentColor}35`,
+      borderRadius: 16, padding: '18px 18px', marginBottom: 14,
+    }}>
+      <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: accentColor, marginBottom: 12 }}>
+        Your Manager
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+        {/* Avatar */}
+        <div style={{
+          width: 52, height: 52, borderRadius: '50%', flexShrink: 0,
+          background: `${accentColor}22`, border: `2px solid ${accentColor}50`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 18, fontWeight: 800, color: accentColor,
+        }}>
+          {p.name.split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase()}
+        </div>
+        {/* Info */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 800, fontSize: 17, marginBottom: 2 }}>{p.name}</div>
+          <div style={{ fontSize: 13, color: 'var(--text-muted)', textTransform: 'capitalize' }}>{p.role}</div>
+          {p.phone && <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', marginTop: 3 }}>{p.phone}</div>}
+        </div>
+        {/* Actions */}
+        {phone && (
+          <div style={{ display: 'flex', gap: 10, flexShrink: 0 }}>
+            <a href={`tel:${phone}`} style={{
+              width: 48, height: 48, borderRadius: '50%',
+              background: '#10B98120', border: '1.5px solid #10B98140',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 20, textDecoration: 'none',
+            }}>📞</a>
+            <a href={`sms:${phone}`} style={{
+              width: 48, height: 48, borderRadius: '50%',
+              background: '#3B82F620', border: '1.5px solid #3B82F640',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 20, textDecoration: 'none',
+            }}>💬</a>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function FieldTeamContacts({ jobId }: { jobId: string }) {
   const [assignments, setAssignments] = useState<Assignment[]>([])
   const [loading, setLoading] = useState(true)
@@ -686,12 +815,10 @@ function FieldTeamContacts({ jobId }: { jobId: string }) {
       .then(r => r.json())
       .then(d => {
         const raw: Assignment[] = d.assignments ?? []
-        // Sort: admin/manager float to top so the lead contact is always first
-        const sorted = [...raw].sort((a, b) => {
-          const rank = (r?: string) => r === 'admin' ? 0 : r === 'manager' ? 1 : 2
-          return rank(a.app_role) - rank(b.app_role)
-        })
-        setAssignments(sorted)
+        // Exclude the manager/admin — they have their own prominent card above.
+        // Show remaining team members only.
+        const teammates = raw.filter(a => a.app_role !== 'admin' && a.app_role !== 'manager')
+        setAssignments(teammates)
       })
       .finally(() => setLoading(false))
   }, [jobId])
