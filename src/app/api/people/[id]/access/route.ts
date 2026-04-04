@@ -71,8 +71,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
   const { role, capabilities } = await req.json()
 
-  // If demoting to member, ensure at least one other admin exists
-  if (role === 'member') {
+  // If demoting away from admin, ensure at least one other admin remains
+  if (role === 'member' || role === 'manager') {
     const { count } = await supabase
       .from('org_users')
       .select('id', { count: 'exact', head: true })

@@ -457,7 +457,7 @@ export interface TeamCapabilities {
   edit_settings:       boolean
 }
 
-/* Full access — assigned to every admin. */
+/* Full access — assigned to every admin/owner. */
 export const ALL_CAPABILITIES: TeamCapabilities = {
   view_all_jobs: true, create_jobs: true, edit_job_details: true,
   change_job_status: true, assign_team_members: 'all',
@@ -469,9 +469,20 @@ export const ALL_CAPABILITIES: TeamCapabilities = {
   send_sms: true, edit_settings: true,
 }
 
-/* Minimum access for a newly invited member. Merged with custom capabilities
-   stored in org_users.capabilities so that admins can selectively unlock
-   features per team member without touching this default. */
+/* Manager defaults — oversees jobs and team, no admin settings/pricing/docs. */
+export const DEFAULT_MANAGER_CAPABILITIES: TeamCapabilities = {
+  view_all_jobs: true, create_jobs: true, edit_job_details: true,
+  change_job_status: true, assign_team_members: 'all',
+  view_assessment: true, edit_assessment: true, use_smartfill: true,
+  view_quote: true, edit_quote: false,
+  generate_documents: false, edit_documents: false, send_documents: false,
+  upload_photos_assigned: true, upload_photos_any: true,
+  invite_team_members: true, view_team_profiles: true,
+  send_sms: true, edit_settings: false,
+}
+
+/* Minimum access for a field worker. Merged with any custom capabilities
+   stored in org_users.capabilities so admins can selectively unlock more. */
 export const DEFAULT_MEMBER_CAPABILITIES: TeamCapabilities = {
   view_all_jobs: false, create_jobs: false, edit_job_details: false,
   change_job_status: false, assign_team_members: 'none',
@@ -489,7 +500,7 @@ export interface OrgUser {
   id: string
   org_id: string
   clerk_user_id: string
-  role: 'admin' | 'member'
+  role: 'admin' | 'manager' | 'member'
   capabilities: TeamCapabilities
   person_id: string | null
   is_active: boolean

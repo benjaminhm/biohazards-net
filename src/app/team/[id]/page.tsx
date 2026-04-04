@@ -26,7 +26,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import type { TeamCapabilities } from '@/lib/types'
-import { DEFAULT_MEMBER_CAPABILITIES } from '@/lib/types'
+import { DEFAULT_MEMBER_CAPABILITIES, DEFAULT_MANAGER_CAPABILITIES } from '@/lib/types'
 import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
 import { useUser } from '@/lib/userContext'
 
@@ -37,7 +37,7 @@ interface Person {
   emergency_contact?: string; emergency_phone?: string
   people_documents?: PersonDoc[]
 }
-type Access = { id: string; role: 'admin' | 'member'; capabilities: TeamCapabilities } | null
+type Access = { id: string; role: 'admin' | 'manager' | 'member'; capabilities: TeamCapabilities } | null
 
 const DOC_TYPES = [
   { value: 'whs_cert',  label: '🦺 WHS Certificate' },
@@ -152,7 +152,7 @@ export default function PersonPage() {
   const [access, setAccess]           = useState<Access | null>(null)
   const [accessLoading, setAccessLoading] = useState(false)
   const [caps, setCaps]               = useState<TeamCapabilities>(DEFAULT_MEMBER_CAPABILITIES)
-  const [appRole, setAppRole]         = useState<'admin' | 'member'>('member')
+  const [appRole, setAppRole]         = useState<'admin' | 'manager' | 'member'>('member')
   const [savingAccess, setSavingAccess] = useState(false)
   const [accessError, setAccessError]   = useState('')
   const [accessSaved, setAccessSaved]   = useState(false)
@@ -194,7 +194,8 @@ export default function PersonPage() {
         setAccess(d.access)
         if (d.access) {
           setAppRole(d.access.role)
-          setCaps({ ...DEFAULT_MEMBER_CAPABILITIES, ...(d.access.capabilities ?? {}) })
+          const base = d.access.role === 'manager' ? DEFAULT_MANAGER_CAPABILITIES : DEFAULT_MEMBER_CAPABILITIES
+          setCaps({ ...base, ...(d.access.capabilities ?? {}) })
         }
       })
       .finally(() => setAccessLoading(false))
@@ -558,42 +559,67 @@ export default function PersonPage() {
 
             {!accessLoading && access && (
               <>
-                {/* Admin toggle */}
+                {/* Three-tier role selector */}
                 <div style={{ marginBottom: 28 }}>
                   <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent)', marginBottom: 12 }}>
-                    App Role
+                    Position
                   </div>
-                  <div style={{ display: 'flex', gap: 8 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     {([
-                      { value: 'member', label: '👤 Team Member', sub: 'Access controlled by toggles below' },
-                      { value: 'admin',  label: '🛡 Administrator', sub: 'Full access to everything' },
+                      {
+                        value: 'member',
+                        label: '👷 Team Member',
+                        sub: 'Field worker — sees only their assigned jobs. No client contact info.',
+                        color: '#3B82F6',
+                      },
+                      {
+                        value: 'manager',
+                        label: '🗂 Manager',
+                        sub: 'Oversees jobs and team. Sees client details. No billing or settings.',
+                        color: '#8B5CF6',
+                      },
+                      {
+                        value: 'admin',
+                        label: '🛡 Administrator',
+                        sub: 'Full access to everything including settings and pricing.',
+                        color: '#FF6B35',
+                      },
                     ] as const).map(r => (
-                      <button key={r.value} onClick={() => setAppRole(r.value)}
+                      <button
+                        key={r.value}
+                        onClick={() => {
+                          setAppRole(r.value)
+                          // Pre-load default caps when switching tier
+                          if (r.value === 'manager') setCaps({ ...DEFAULT_MANAGER_CAPABILITIES, ...(access?.capabilities ?? {}) })
+                          if (r.value === 'member')  setCaps({ ...DEFAULT_MEMBER_CAPABILITIES,  ...(access?.capabilities ?? {}) })
+                        }}
                         style={{
-                          flex: 1, padding: '12px', borderRadius: 10, textAlign: 'left',
-                          border: `2px solid ${appRole === r.value ? 'var(--accent)' : 'var(--border)'}`,
-                          background: appRole === r.value ? 'rgba(255,107,53,0.1)' : 'var(--bg)',
-                          cursor: 'pointer',
+                          padding: '14px 16px', borderRadius: 12, textAlign: 'left', width: '100%',
+                          border: `2px solid ${appRole === r.value ? r.color : 'var(--border)'}`,
+                          background: appRole === r.value ? `${r.color}12` : 'var(--bg)',
+                          cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12,
                         }}>
-                        <div style={{ fontWeight: 700, fontSize: 13, color: appRole === r.value ? 'var(--accent)' : 'var(--text)' }}>{r.label}</div>
-                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>{r.sub}</div>
+                        <div style={{
+                          width: 18, height: 18, borderRadius: '50%', flexShrink: 0,
+                          border: `2px solid ${appRole === r.value ? r.color : 'var(--border)'}`,
+                          background: appRole === r.value ? r.color : 'transparent',
+                        }} />
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: 14, color: appRole === r.value ? r.color : 'var(--text)' }}>{r.label}</div>
+                          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.4 }}>{r.sub}</div>
+                        </div>
                       </button>
                     ))}
                   </div>
-                  {appRole === 'member' && (
-                    <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
-                      Capabilities below apply when role is Team Member.
-                    </div>
-                  )}
                   {appRole === 'admin' && (
-                    <div style={{ marginTop: 8, padding: '10px 12px', borderRadius: 8, background: 'rgba(255,107,53,0.06)', border: '1px solid rgba(255,107,53,0.2)', fontSize: 12, color: 'var(--accent)' }}>
-                      Administrators have full access. To remove this person as admin, another admin must exist first.
+                    <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 8, background: 'rgba(255,107,53,0.06)', border: '1px solid rgba(255,107,53,0.2)', fontSize: 12, color: 'var(--accent)' }}>
+                      Administrators have full access. Another admin must exist before removing this one.
                     </div>
                   )}
                 </div>
 
-                {/* Assign team members — 3-state */}
-                {appRole === 'member' && (
+                {/* Assign team members + capability toggles — shown for member and manager */}
+                {(appRole === 'member' || appRole === 'manager') && (
                   <>
                     <div style={{ marginBottom: 24 }}>
                       <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent)', marginBottom: 12 }}>

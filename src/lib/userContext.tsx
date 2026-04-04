@@ -21,15 +21,16 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import type { TeamCapabilities } from './types'
-import { ALL_CAPABILITIES, DEFAULT_MEMBER_CAPABILITIES } from './types'
+import { ALL_CAPABILITIES, DEFAULT_MANAGER_CAPABILITIES, DEFAULT_MEMBER_CAPABILITIES } from './types'
 
-export type UserRole = 'admin' | 'member'
+export type UserRole = 'admin' | 'manager' | 'member'
 
 interface UserCtx {
   userId: string
   name: string
   role: UserRole
   isAdmin: boolean
+  isManager: boolean
   caps: TeamCapabilities
   org_id: string | null
   has_org: boolean
@@ -40,7 +41,7 @@ interface UserCtx {
 }
 
 const defaultCtx: UserCtx = {
-  userId: '', name: '', role: 'member', isAdmin: false,
+  userId: '', name: '', role: 'member', isAdmin: false, isManager: false,
   caps: DEFAULT_MEMBER_CAPABILITIES,
   org_id: null, has_org: false, org: null, loading: true,
   previewMode: false,
@@ -79,15 +80,20 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     fetch('/api/me')
       .then(r => r.json())
       .then(d => {
-        const role: UserRole = d.role === 'admin' ? 'admin' : 'member'
-        const isAdmin = role === 'admin'
-        // Only admins can enter preview mode; non-admins never have preview_caps
+        const role: UserRole = d.role === 'admin' ? 'admin' : d.role === 'manager' ? 'manager' : 'member'
+        const isAdmin   = role === 'admin'
+        const isManager = role === 'manager'
+        // Only admins can enter preview mode; managers/members never have preview_caps
         const previewCaps = isAdmin ? getPreviewCaps() : null
         const previewMode = !!previewCaps
-        // Priority: preview caps > admin full caps > member defaults merged with custom
-        const caps: TeamCapabilities = previewCaps
-          ?? (isAdmin ? ALL_CAPABILITIES : { ...DEFAULT_MEMBER_CAPABILITIES, ...(d.capabilities ?? {}) })
-        setCtx({ ...d, role, isAdmin, caps, loading: false, previewMode, exitPreview })
+        // Priority: preview caps > admin full caps > manager defaults (+ custom) > member defaults (+ custom)
+        const baseCaps = isAdmin
+          ? ALL_CAPABILITIES
+          : isManager
+            ? { ...DEFAULT_MANAGER_CAPABILITIES, ...(d.capabilities ?? {}) }
+            : { ...DEFAULT_MEMBER_CAPABILITIES,  ...(d.capabilities ?? {}) }
+        const caps: TeamCapabilities = previewCaps ?? baseCaps
+        setCtx({ ...d, role, isAdmin, isManager, caps, loading: false, previewMode, exitPreview })
       })
       .catch(() => setCtx(c => ({ ...c, loading: false })))
   }, [])

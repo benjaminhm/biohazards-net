@@ -35,7 +35,12 @@ export async function GET() {
 
   // 'owner' and 'admin' both get full admin access — 'owner' is the initial
   // role assigned when a company is first created on the platform.
-  const role = (orgUser?.role === 'admin' || orgUser?.role === 'owner') ? 'admin' : 'member'
+  // 'manager' is passed through as-is for the middle tier.
+  const role = (orgUser?.role === 'admin' || orgUser?.role === 'owner')
+    ? 'admin'
+    : orgUser?.role === 'manager'
+      ? 'manager'
+      : 'member'
 
   return NextResponse.json({
     userId,

@@ -27,7 +27,7 @@ import type { Job, JobStatus, JobType, JobUrgency, PhoneEntry } from '@/lib/type
 import SmartFill from '@/components/SmartFill'
 
 interface Person { id: string; name: string; role: string; phone: string; email: string; status: string }
-interface Assignment { id: string; person_id: string; people: Person }
+interface Assignment { id: string; person_id: string; app_role?: string; people: Person }
 
 // ── Phone normalisation ──────────────────────────────────────────────────────
 // Converts any AU mobile format to 04xxxxxxxx
@@ -684,7 +684,15 @@ function FieldTeamContacts({ jobId }: { jobId: string }) {
   useEffect(() => {
     fetch(`/api/jobs/${jobId}/team`)
       .then(r => r.json())
-      .then(d => setAssignments(d.assignments ?? []))
+      .then(d => {
+        const raw: Assignment[] = d.assignments ?? []
+        // Sort: admin/manager float to top so the lead contact is always first
+        const sorted = [...raw].sort((a, b) => {
+          const rank = (r?: string) => r === 'admin' ? 0 : r === 'manager' ? 1 : 2
+          return rank(a.app_role) - rank(b.app_role)
+        })
+        setAssignments(sorted)
+      })
       .finally(() => setLoading(false))
   }, [jobId])
 
@@ -694,32 +702,44 @@ function FieldTeamContacts({ jobId }: { jobId: string }) {
   return (
     <InfoCard icon="👥" title="Team Contacts">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {assignments.map((a, idx) => {
+        {assignments.map(a => {
           const p = a.people
-          const isFirst = idx === 0
+          const isManager = a.app_role === 'manager' || a.app_role === 'admin'
+          const badge = a.app_role === 'admin' ? 'Admin' : a.app_role === 'manager' ? 'Manager' : null
+          const badgeColor = a.app_role === 'admin' ? '#FF6B35' : '#8B5CF6'
           return (
             <div key={a.id} style={{
               display: 'flex', alignItems: 'center', gap: 12,
-              padding: '12px 14px', borderRadius: 10,
-              background: isFirst ? 'rgba(255,107,53,0.06)' : 'var(--bg)',
-              border: `1px solid ${isFirst ? 'rgba(255,107,53,0.25)' : 'var(--border)'}`,
+              padding: '14px 16px', borderRadius: 12,
+              background: isManager ? 'rgba(139,92,246,0.06)' : 'var(--bg)',
+              border: `1px solid ${isManager ? 'rgba(139,92,246,0.25)' : 'var(--border)'}`,
             }}>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 700, fontSize: 14 }}>
-                  {p.name}
-                  {isFirst && <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--accent)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Lead</span>}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                  <span style={{ fontWeight: 700, fontSize: 15 }}>{p.name}</span>
+                  {badge && (
+                    <span style={{
+                      fontSize: 10, fontWeight: 800, padding: '2px 7px', borderRadius: 99,
+                      background: `${badgeColor}18`, color: badgeColor, border: `1px solid ${badgeColor}30`,
+                      textTransform: 'uppercase', letterSpacing: '0.06em',
+                    }}>
+                      {badge}
+                    </span>
+                  )}
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 1, textTransform: 'capitalize' }}>{p.role}</div>
-                {p.phone && <div style={{ fontSize: 13, color: 'var(--text)', marginTop: 2, fontWeight: 600 }}>{p.phone}</div>}
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', textTransform: 'capitalize' }}>
+                  {p.role}
+                </div>
+                {p.phone && <div style={{ fontSize: 13, color: 'var(--text)', marginTop: 3, fontWeight: 600 }}>{p.phone}</div>}
               </div>
               {p.phone && (
                 <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
                   <a href={`tel:${p.phone.replace(/\s/g, '')}`}
-                    style={{ width: 40, height: 40, borderRadius: 99, background: '#10B98118', border: '1px solid #10B98130', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, textDecoration: 'none' }}>
+                    style={{ width: 42, height: 42, borderRadius: 99, background: '#10B98115', border: '1px solid #10B98130', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, textDecoration: 'none' }}>
                     📞
                   </a>
                   <a href={`sms:${p.phone.replace(/\s/g, '')}`}
-                    style={{ width: 40, height: 40, borderRadius: 99, background: '#3B82F618', border: '1px solid #3B82F630', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, textDecoration: 'none' }}>
+                    style={{ width: 42, height: 42, borderRadius: 99, background: '#3B82F615', border: '1px solid #3B82F630', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, textDecoration: 'none' }}>
                     💬
                   </a>
                 </div>

@@ -41,7 +41,22 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     .order('created_at')
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ assignments: data ?? [] })
+
+  // Enrich with org app_role (manager/admin/member) so field view can badge the manager
+  const assignments = data ?? []
+  if (assignments.length > 0) {
+    const personIds = assignments.map(a => a.person_id).filter(Boolean)
+    const { data: orgRoles } = await supabase
+      .from('org_users')
+      .select('person_id, role')
+      .in('person_id', personIds)
+      .eq('org_id', orgId)
+    const roleMap = Object.fromEntries((orgRoles ?? []).map(r => [r.person_id, r.role]))
+    const enriched = assignments.map(a => ({ ...a, app_role: roleMap[a.person_id] ?? 'member' }))
+    return NextResponse.json({ assignments: enriched })
+  }
+
+  return NextResponse.json({ assignments: [] })
 }
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
