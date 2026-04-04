@@ -79,13 +79,10 @@ export default function InvitePage() {
         return
       }
       setClaimed(true)
-      // Redirect to their org subdomain or /field after 2s
+      // Always redirect to app.biohazards.net — never to the company subdomain
+      // which is the public website, not the app.
       setTimeout(() => {
-        if (data.org_slug) {
-          window.location.href = `https://${data.org_slug}.biohazards.net/${data.role === 'field' ? 'field' : ''}`
-        } else {
-          router.replace(data.role === 'field' ? '/field' : '/')
-        }
+        window.location.href = `https://app.biohazards.net/`
       }, 2000)
     } finally {
       setClaiming(false)
