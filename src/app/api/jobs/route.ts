@@ -20,8 +20,45 @@ export async function GET(req: Request) {
     if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const { searchParams } = new URL(req.url)
-    const upcoming = searchParams.get('upcoming') === 'true'
+    const upcoming      = searchParams.get('upcoming') === 'true'
+    const assignedOnly  = searchParams.get('assigned_only') === 'true'
     const supabase = createServiceClient()
+
+    // assigned_only=true — return only jobs this user is assigned to via job_assignments.
+    // Used by the field page so team members only see their own jobs.
+    if (assignedOnly) {
+      // Get the user's person_id from org_users
+      const { data: orgUser } = await supabase
+        .from('org_users')
+        .select('person_id')
+        .eq('clerk_user_id', userId!)
+        .single()
+
+      if (!orgUser?.person_id) {
+        // No person profile linked — return empty rather than all jobs
+        return NextResponse.json({ jobs: [] })
+      }
+
+      // Fetch job_ids assigned to this person
+      const { data: assignments } = await supabase
+        .from('job_assignments')
+        .select('job_id')
+        .eq('person_id', orgUser.person_id)
+        .eq('org_id', orgId)
+
+      const jobIds = (assignments ?? []).map(a => a.job_id)
+      if (jobIds.length === 0) return NextResponse.json({ jobs: [] })
+
+      const { data, error } = await supabase
+        .from('jobs')
+        .select('*')
+        .eq('org_id', orgId)
+        .in('id', jobIds)
+        .order('scheduled_at', { ascending: true, nullsFirst: false })
+
+      if (error) throw error
+      return NextResponse.json({ jobs: data })
+    }
 
     let query = supabase.from('jobs').select('*').eq('org_id', orgId)
 

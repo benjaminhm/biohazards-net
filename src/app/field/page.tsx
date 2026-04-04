@@ -79,7 +79,8 @@ export default function FieldPage() {
     if (userLoading) return
     const preview = localStorage.getItem('preview_as_field') === '1'
     if (isAdmin && !preview) { router.replace('/'); return }
-    fetch('/api/jobs')
+    // assigned_only=true — field workers only see jobs they are assigned to
+    fetch('/api/jobs?assigned_only=true')
       .then(r => r.json())
       .then(d => setJobs((d.jobs ?? []).filter((j: Job) => ACTIVE_STATUSES.includes(j.status))))
       .finally(() => setLoading(false))
