@@ -169,7 +169,7 @@ export default function OrgProfilePage() {
           ← Platform
         </button>
         <div style={{ flex: 1 }}>
-          <div className="eyebrow" style={{ marginBottom: 3 }}>Company Profile</div>
+          <div className="eyebrow" style={{ marginBottom: 3 }}>Organisation</div>
           <div style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.02em', display: 'flex', alignItems: 'center', gap: 10 }}>
             {org.name}
             <span style={{
@@ -196,7 +196,7 @@ export default function OrgProfilePage() {
       <main style={{ padding: '28px', maxWidth: 800, display: 'flex', flexDirection: 'column', gap: 20 }}>
 
         {/* Org details */}
-        <Card title="Organisation">
+        <Card title="Details">
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 16 }}>
             <Stat label="Slug" value={<span className="mono" style={{ fontSize: 14 }}>{org.slug}</span>} />
             <Stat label="Plan" value={

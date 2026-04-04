@@ -225,7 +225,7 @@ export default function AdminPage() {
                   color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer',
                 }}
               >
-                + Provision Company
+                + New Organisation
               </button>
               <button
                 onClick={() => setShowModal(true)}
@@ -235,7 +235,7 @@ export default function AdminPage() {
                   color: 'var(--text)', fontSize: 13, fontWeight: 600, cursor: 'pointer',
                 }}
               >
-                + Org Only
+                + Without Admin
               </button>
             </>
           )}
@@ -530,7 +530,7 @@ export default function AdminPage() {
 
       {/* ── Provision Company Modal ── */}
       {showProvisionModal && (
-        <AdminModal onClose={closeProvisionModal} title="Provision New Company">
+        <AdminModal onClose={closeProvisionModal} title="New Organisation">
           {provisionResult ? (
             <div style={{ textAlign: 'center' }}>
               <div style={{ fontSize: 36, marginBottom: 12 }}>🎉</div>
@@ -604,7 +604,7 @@ export default function AdminPage() {
                 <input type="tel" placeholder="0400 000 000" value={provisionForm.admin_phone}
                   onChange={e => setProvisionForm(f => ({ ...f, admin_phone: e.target.value }))} />
               </FormField>
-              <ModalFooter onCancel={closeProvisionModal} submitLabel={provisioning ? 'Provisioning…' : 'Provision & Get Invite Link'} disabled={provisioning} />
+              <ModalFooter onCancel={closeProvisionModal} submitLabel={provisioning ? 'Creating…' : 'Create & Get Invite Link'} disabled={provisioning} />
             </form>
           )}
         </AdminModal>
