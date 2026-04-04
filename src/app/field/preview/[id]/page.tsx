@@ -1,11 +1,10 @@
 /*
  * app/field/preview/[id]/page.tsx
  *
- * Admin-only permanent preview URL — renders exactly what a team member sees
- * on their field page, using their real saved caps and assigned jobs.
+ * Admin-only permanent preview URL — renders exactly what a team member sees,
+ * using their real saved caps and assigned jobs.
  *
  * URL: /field/preview/[person_id]
- * Open in a separate window alongside the Access tab. Save caps → Refresh here.
  */
 'use client'
 
@@ -40,26 +39,23 @@ function fmtSchedule(iso: string) {
   return { label: `${day}  ·  ${time}`, isToday }
 }
 
+// ── Main page — manages which view is shown ──────────────────────────────────
 export default function FieldPreviewPage() {
   const { id: personId } = useParams() as { id: string }
   const router = useRouter()
   const { isAdmin, loading: userLoading } = useUser()
 
-  // ── All state/hooks at top — no early returns before this point ──────────────
   const [person,      setPerson]      = useState<Person | null>(null)
   const [caps,        setCaps]        = useState<TeamCapabilities>(DEFAULT_MEMBER_CAPABILITIES)
   const [role,        setRole]        = useState<'admin' | 'manager' | 'member'>('member')
   const [jobs,        setJobs]        = useState<Job[]>([])
   const [loading,     setLoading]     = useState(true)
   const [selectedJob, setSelectedJob] = useState<Job | null>(null)
-  const [activeTab,   setActiveTab]   = useState('details')
 
-  // Guard — admins only
   useEffect(() => {
     if (!userLoading && !isAdmin) router.replace('/')
   }, [userLoading, isAdmin, router])
 
-  // Load person caps + assigned jobs
   useEffect(() => {
     if (userLoading || !isAdmin) return
     setLoading(true)
@@ -76,31 +72,10 @@ export default function FieldPreviewPage() {
         const base = r === 'manager' ? DEFAULT_MANAGER_CAPABILITIES : DEFAULT_MEMBER_CAPABILITIES
         setCaps({ ...base, ...(access.capabilities ?? {}) })
       }
-      const allJobs: Job[] = jobsData.jobs ?? []
-      setJobs(allJobs.filter((j: Job) => ACTIVE_STATUSES.includes(j.status)))
+      setJobs((jobsData.jobs ?? []).filter((j: Job) => ACTIVE_STATUSES.includes(j.status)))
     }).finally(() => setLoading(false))
   }, [personId, userLoading, isAdmin])
 
-  // Reset to Details tab whenever a different job is opened
-  useEffect(() => { setActiveTab('details') }, [selectedJob?.id])
-
-  // ── Derived values (no hooks below this line) ────────────────────────────────
-  const isReadOnly = role !== 'admin' && !caps.edit_job_details
-  const todayStr   = new Date().toDateString()
-  const todayJobs  = jobs.filter(j => j.scheduled_at && new Date(j.scheduled_at).toDateString() === todayStr)
-  const otherJobs  = jobs.filter(j => !j.scheduled_at || new Date(j.scheduled_at).toDateString() !== todayStr)
-  const firstName  = (person?.name ?? '').split(' ')[0] || 'Member'
-
-  const visibleTabs = [
-    { id: 'details',    label: 'Details',    show: true },
-    { id: 'assessment', label: 'Assessment', show: caps.view_assessment },
-    { id: 'quote',      label: 'Quote',      show: caps.view_quote },
-    { id: 'photos',     label: 'Photos',     show: caps.upload_photos_assigned || caps.upload_photos_any },
-    { id: 'documents',  label: 'Docs',       show: caps.generate_documents },
-    { id: 'messages',   label: '💬 SMS',     show: caps.send_sms },
-  ].filter(t => t.show)
-
-  // ── Conditional renders (after all hooks) ────────────────────────────────────
   if (userLoading || loading) {
     return (
       <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
@@ -117,51 +92,109 @@ export default function FieldPreviewPage() {
     )
   }
 
-  // ── Job detail view ──────────────────────────────────────────────────────────
   if (selectedJob) {
     return (
-      <div style={{ minHeight: '100dvh', background: 'var(--bg)', paddingBottom: 40 }}>
-        <PreviewBanner name={person.name} role={role} onBack={() => setSelectedJob(null)} backLabel="← Jobs" />
-
-        {/* Job header + tab bar */}
-        <div style={{ background: 'var(--bg)', borderBottom: '1px solid var(--border)', padding: '12px 16px 0', position: 'sticky', top: 48, zIndex: 9 }}>
-          <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 10 }}>
-            {isReadOnly
-              ? `${JOB_TYPE_LABELS[selectedJob.job_type] ?? selectedJob.job_type} · ${selectedJob.site_address.split(',')[0]}`
-              : `${selectedJob.client_name} — ${JOB_TYPE_LABELS[selectedJob.job_type] ?? selectedJob.job_type}`}
-          </div>
-          <div style={{ display: 'flex', overflowX: 'auto', marginLeft: -16, marginRight: -16, paddingLeft: 16 }}>
-            {visibleTabs.map(t => (
-              <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
-                flexShrink: 0, padding: '8px 14px', fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap',
-                color: activeTab === t.id ? 'var(--accent)' : 'var(--text-muted)',
-                borderBottom: `2px solid ${activeTab === t.id ? 'var(--accent)' : 'transparent'}`,
-                background: 'none', border: 'none', cursor: 'pointer',
-              }}>{t.label}</button>
-            ))}
-          </div>
-        </div>
-
-        <div style={{ maxWidth: 680, margin: '0 auto', padding: '24px 16px' }}>
-          {activeTab === 'details' ? (
-            <DetailsTab job={selectedJob} onJobUpdate={() => {}} readOnly={isReadOnly} />
-          ) : (
-            <div style={{ textAlign: 'center', paddingTop: 60, color: 'var(--text-muted)' }}>
-              <div style={{ fontSize: 48, marginBottom: 16, opacity: 0.5 }}>
-                {activeTab === 'assessment' ? '📋' : activeTab === 'quote' ? '💰' : activeTab === 'photos' ? '📷' : activeTab === 'documents' ? '📄' : '💬'}
-              </div>
-              <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>
-                {activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} tab
-              </div>
-              <div style={{ fontSize: 13 }}>Visible to {firstName} with current permissions.</div>
-            </div>
-          )}
-        </div>
-      </div>
+      <PreviewDetailView
+        job={selectedJob}
+        caps={caps}
+        role={role}
+        personName={person.name}
+        onBack={() => setSelectedJob(null)}
+      />
     )
   }
 
-  // ── Job list view ────────────────────────────────────────────────────────────
+  return (
+    <PreviewListView
+      jobs={jobs}
+      caps={caps}
+      role={role}
+      person={person}
+      personId={personId}
+      onSelect={setSelectedJob}
+    />
+  )
+}
+
+// ── Detail view — own component so activeTab hooks are always consistent ─────
+function PreviewDetailView({ job, caps, role, personName, onBack }: {
+  job: Job
+  caps: TeamCapabilities
+  role: 'admin' | 'manager' | 'member'
+  personName: string
+  onBack: () => void
+}) {
+  const [activeTab, setActiveTab] = useState('details')
+
+  const isReadOnly = role !== 'admin' && !caps.edit_job_details
+
+  const visibleTabs = [
+    { id: 'details',    label: 'Details',    show: true },
+    { id: 'assessment', label: 'Assessment', show: caps.view_assessment },
+    { id: 'quote',      label: 'Quote',      show: caps.view_quote },
+    { id: 'photos',     label: 'Photos',     show: caps.upload_photos_assigned || caps.upload_photos_any },
+    { id: 'documents',  label: 'Docs',       show: caps.generate_documents },
+    { id: 'messages',   label: '💬 SMS',     show: caps.send_sms },
+  ].filter(t => t.show)
+
+  const firstName = personName.split(' ')[0]
+
+  return (
+    <div style={{ minHeight: '100dvh', background: 'var(--bg)', paddingBottom: 40 }}>
+      <PreviewBanner name={personName} role={role} onBack={onBack} backLabel="← Jobs" />
+
+      <div style={{ background: 'var(--bg)', borderBottom: '1px solid var(--border)', padding: '12px 16px 0', position: 'sticky', top: 48, zIndex: 9 }}>
+        <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 10 }}>
+          {isReadOnly
+            ? `${JOB_TYPE_LABELS[job.job_type] ?? job.job_type} · ${job.site_address.split(',')[0]}`
+            : `${job.client_name} — ${JOB_TYPE_LABELS[job.job_type] ?? job.job_type}`}
+        </div>
+        <div style={{ display: 'flex', overflowX: 'auto', marginLeft: -16, marginRight: -16, paddingLeft: 16 }}>
+          {visibleTabs.map(t => (
+            <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
+              flexShrink: 0, padding: '8px 14px', fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap',
+              color: activeTab === t.id ? 'var(--accent)' : 'var(--text-muted)',
+              borderBottom: `2px solid ${activeTab === t.id ? 'var(--accent)' : 'transparent'}`,
+              background: 'none', border: 'none', cursor: 'pointer',
+            }}>{t.label}</button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ maxWidth: 680, margin: '0 auto', padding: '24px 16px' }}>
+        {activeTab === 'details' ? (
+          <DetailsTab job={job} onJobUpdate={() => {}} readOnly={isReadOnly} />
+        ) : (
+          <div style={{ textAlign: 'center', paddingTop: 60, color: 'var(--text-muted)' }}>
+            <div style={{ fontSize: 48, marginBottom: 16, opacity: 0.5 }}>
+              {activeTab === 'assessment' ? '📋' : activeTab === 'quote' ? '💰' : activeTab === 'photos' ? '📷' : activeTab === 'documents' ? '📄' : '💬'}
+            </div>
+            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>
+              {activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} tab
+            </div>
+            <div style={{ fontSize: 13 }}>Visible to {firstName} with current permissions.</div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── List view — own component ────────────────────────────────────────────────
+function PreviewListView({ jobs, caps, role, person, personId, onSelect }: {
+  jobs: Job[]
+  caps: TeamCapabilities
+  role: 'admin' | 'manager' | 'member'
+  person: Person
+  personId: string
+  onSelect: (job: Job) => void
+}) {
+  const router = useRouter()
+  const todayStr  = new Date().toDateString()
+  const todayJobs = jobs.filter(j => j.scheduled_at && new Date(j.scheduled_at).toDateString() === todayStr)
+  const otherJobs = jobs.filter(j => !j.scheduled_at || new Date(j.scheduled_at).toDateString() !== todayStr)
+  const firstName = person.name.split(' ')[0] || 'Member'
+
   return (
     <div style={{ minHeight: '100dvh', background: 'var(--bg)', color: 'var(--text)', paddingBottom: 48 }}>
       <PreviewBanner name={person.name} role={role} onBack={() => router.push(`/team/${personId}`)} backLabel="← Profile" />
@@ -200,23 +233,19 @@ export default function FieldPreviewPage() {
             </div>
           </div>
         )}
-
         {todayJobs.length > 0 && (
           <section style={{ marginBottom: 28 }}>
             <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>Today</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {todayJobs.map(j => <PreviewJobCard key={j.id} job={j} onClick={() => setSelectedJob(j)} highlight />)}
+              {todayJobs.map(j => <PreviewJobCard key={j.id} job={j} onClick={() => onSelect(j)} highlight />)}
             </div>
           </section>
         )}
-
         {otherJobs.length > 0 && (
           <section>
-            {todayJobs.length > 0 && (
-              <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12, marginTop: 4 }}>Active Jobs</div>
-            )}
+            {todayJobs.length > 0 && <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12, marginTop: 4 }}>Active Jobs</div>}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {otherJobs.map(j => <PreviewJobCard key={j.id} job={j} onClick={() => setSelectedJob(j)} />)}
+              {otherJobs.map(j => <PreviewJobCard key={j.id} job={j} onClick={() => onSelect(j)} />)}
             </div>
           </section>
         )}
@@ -225,7 +254,7 @@ export default function FieldPreviewPage() {
   )
 }
 
-// ── Sub-components ───────────────────────────────────────────────────────────
+// ── Shared sub-components ────────────────────────────────────────────────────
 
 function PreviewBanner({ name, role, onBack, backLabel }: {
   name: string; role: string; onBack: () => void; backLabel: string
@@ -265,17 +294,11 @@ function PreviewJobCard({ job, onClick, highlight }: { job: Job; onClick: () => 
     }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
         <div style={{ fontWeight: 800, fontSize: 16 }}>{JOB_TYPE_LABELS[job.job_type] ?? job.job_type}</div>
-        <div style={{ fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 99, background: `${urgencyColor}18`, color: urgencyColor }}>
-          {job.urgency}
-        </div>
+        <div style={{ fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 99, background: `${urgencyColor}18`, color: urgencyColor }}>{job.urgency}</div>
       </div>
-      <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.4, marginBottom: schedule ? 8 : 0 }}>
-        {job.site_address}
-      </div>
+      <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.4, marginBottom: schedule ? 8 : 0 }}>{job.site_address}</div>
       {schedule && (
-        <div style={{ fontSize: 13, fontWeight: 700, color: schedule.isToday ? 'var(--accent)' : 'var(--text-muted)' }}>
-          {schedule.label}
-        </div>
+        <div style={{ fontSize: 13, fontWeight: 700, color: schedule.isToday ? 'var(--accent)' : 'var(--text-muted)' }}>{schedule.label}</div>
       )}
     </button>
   )
