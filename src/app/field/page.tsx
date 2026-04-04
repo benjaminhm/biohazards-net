@@ -61,17 +61,21 @@ export default function FieldPage() {
   const router = useRouter()
   const { signOut } = useClerk()
   const { name, isAdmin, org, loading: userLoading } = useUser()
-  const [showMenu, setShowMenu] = useState(false)
-  const [jobs, setJobs]       = useState<Job[]>([])
-  const [loading, setLoading] = useState(true)
-  const [isPreview, setIsPreview] = useState(false)
+  const [showMenu, setShowMenu]     = useState(false)
+  const [jobs, setJobs]             = useState<Job[]>([])
+  const [loading, setLoading]       = useState(true)
+  const [isPreview, setIsPreview]   = useState(false)
+  const [previewName, setPreviewName] = useState('')
 
   useEffect(() => {
     setIsPreview(localStorage.getItem('preview_as_field') === '1')
+    setPreviewName(localStorage.getItem('preview_name') ?? '')
   }, [])
 
   function exitPreview() {
     localStorage.removeItem('preview_as_field')
+    localStorage.removeItem('preview_caps')
+    localStorage.removeItem('preview_name')
     router.replace('/')
   }
 
@@ -116,7 +120,7 @@ export default function FieldPage() {
           padding: '11px 20px',
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         }}>
-          <span style={{ fontSize: 13, fontWeight: 600 }}>👁 Previewing field worker view</span>
+          <span style={{ fontSize: 13, fontWeight: 600 }}>👁 Previewing as {previewName || 'field worker'}</span>
           <button
             onClick={exitPreview}
             style={{

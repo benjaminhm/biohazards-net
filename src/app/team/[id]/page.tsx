@@ -705,16 +705,21 @@ export default function PersonPage() {
                 <div style={{ display: 'flex', gap: 10 }}>
                   <button
                     onClick={() => {
-                      const previewCaps = appRole === 'admin' ? null : caps
-                      if (previewCaps) {
-                        localStorage.setItem('preview_caps', JSON.stringify(previewCaps))
-                        localStorage.setItem('preview_name', person.name.split(' ')[0])
-                      } else {
-                        // Admin role — preview with full caps (no-op effectively but show banner)
+                      if (appRole === 'admin') {
+                        // Admin preview — no caps swap needed, just go to dashboard
                         localStorage.removeItem('preview_caps')
                         localStorage.removeItem('preview_name')
+                        localStorage.removeItem('preview_as_field')
+                        window.location.href = '/'
+                      } else {
+                        // Member/manager preview — swap caps AND send to /field so the
+                        // admin sees exactly what this person sees (field page redirects
+                        // admins back to / unless preview_as_field is set)
+                        localStorage.setItem('preview_caps', JSON.stringify(caps))
+                        localStorage.setItem('preview_name', person.name.split(' ')[0])
+                        localStorage.setItem('preview_as_field', '1')
+                        window.location.href = '/field'
                       }
-                      window.location.href = '/'
                     }}
                     style={{ flex: 1, padding: 14, borderRadius: 10, background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border)', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}
                   >

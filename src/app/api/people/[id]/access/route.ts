@@ -71,15 +71,26 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
   const { role, capabilities } = await req.json()
 
-  // If demoting away from admin, ensure at least one other admin remains
+  // Only run the demotion guard if this person is currently an admin AND we're
+  // changing them to a lower role. Saving a member/manager who was never admin
+  // must never trigger this check.
   if (role === 'member' || role === 'manager') {
-    const { count } = await supabase
+    const { data: current } = await supabase
       .from('org_users')
-      .select('id', { count: 'exact', head: true })
+      .select('role')
+      .eq('person_id', id)
       .eq('org_id', orgId)
-      .eq('role', 'admin')
-    if ((count ?? 0) <= 1) {
-      return NextResponse.json({ error: 'Cannot remove the last administrator. Assign another admin first.' }, { status: 400 })
+      .single()
+
+    if (current?.role === 'admin') {
+      const { count } = await supabase
+        .from('org_users')
+        .select('id', { count: 'exact', head: true })
+        .eq('org_id', orgId)
+        .eq('role', 'admin')
+      if ((count ?? 0) <= 1) {
+        return NextResponse.json({ error: 'Cannot remove the last administrator. Assign another admin first.' }, { status: 400 })
+      }
     }
   }
 
