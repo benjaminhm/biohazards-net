@@ -1,17 +1,20 @@
 /*
  * app/api/admin/actions/nudge/route.ts
  *
- * POST /api/admin/actions/nudge — send an AI-generated reminder to a team
- * member asking them to complete their profile (or other action type).
+ * POST /api/admin/actions/nudge — send an AI-generated profile completion
+ * reminder to a team member.
  *
  * Flow:
  *   1. Fetch person + company name from DB
- *   2. Use Claude Haiku to generate a short, personalised message
- *   3. If person has email → send via Resend
- *      If no email but has phone → send via Twilio SMS
- *   4. Return { ok, channel: 'email' | 'sms', preview: message }
+ *   2. Build a field-specific context so Claude knows exactly what's missing
+ *      and why each field matters (full name for ID/payroll, phone for
+ *      on-site coordination, address for WHS records)
+ *   3. Claude Haiku writes a short, warm, specific message
+ *   4. If person has email → Resend from team@biohazards.net
+ *      If no email but has phone → Twilio SMS fallback
+ *   5. Return { ok, channel, preview }
  *
- * Admin only — double-checked server-side.
+ * Admin only.
  */
 import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
@@ -20,11 +23,21 @@ import { NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { Resend } from 'resend'
 import twilio from 'twilio'
-import { FROM_EMAIL } from '@/lib/email'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
-const resend = new Resend(process.env.RESEND_API_KEY!)
+const resend    = new Resend(process.env.RESEND_API_KEY!)
 const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID!, process.env.TWILIO_AUTH_TOKEN!)
+
+const FROM_TEAM = process.env.RESEND_FROM_TEAM || process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev'
+
+// Human-readable explanation of why each field matters
+const FIELD_CONTEXT: Record<string, string> = {
+  name:    'their full legal name (required for payroll and compliance records)',
+  phone:   'a mobile phone number (needed for on-site coordination and emergency contact)',
+  email:   'an email address (needed for job notifications and important documents)',
+  address: 'a home or postal address (required for WHS records)',
+  abn:     'their ABN (required for subcontractor invoicing)',
+}
 
 export async function POST(req: Request) {
   const { userId } = await auth()
@@ -36,11 +49,8 @@ export async function POST(req: Request) {
 
   // Verify admin
   const { data: orgUser } = await supabase
-    .from('org_users')
-    .select('role')
-    .eq('clerk_user_id', userId)
-    .eq('org_id', orgId)
-    .single()
+    .from('org_users').select('role')
+    .eq('clerk_user_id', userId).eq('org_id', orgId).single()
 
   if (!orgUser || orgUser.role !== 'admin') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
@@ -49,76 +59,103 @@ export async function POST(req: Request) {
   const { person_id, type, missing } = await req.json()
   if (!person_id) return NextResponse.json({ error: 'person_id required' }, { status: 400 })
 
-  // Fetch person
+  // Fetch person (include all profile fields so AI can see what's actually there)
   const { data: person } = await supabase
     .from('people')
-    .select('name, email, phone')
-    .eq('id', person_id)
-    .eq('org_id', orgId)
-    .single()
+    .select('name, email, phone, address, abn')
+    .eq('id', person_id).eq('org_id', orgId).single()
 
   if (!person) return NextResponse.json({ error: 'Person not found' }, { status: 404 })
 
   // Fetch company name
   const { data: company } = await supabase
-    .from('company_profile')
-    .select('name')
-    .eq('org_id', orgId)
-    .single()
+    .from('company_profile').select('name').eq('org_id', orgId).single()
 
   const companyName = company?.name ?? 'your employer'
-  const firstName = person.name.split(' ')[0]
-  const missingList = (missing as string[] | undefined)?.join(', ') ?? 'some profile details'
+  const firstName   = person.name?.split(' ')[0] || 'Hi'
+  const missingFields = (missing as string[] | undefined) ?? []
+
+  // Build field-specific context for the AI
+  const fieldDetails = missingFields
+    .map(f => `- ${FIELD_CONTEXT[f] ?? f}`)
+    .join('\n')
 
   // Generate message with Claude Haiku
   let messageBody = ''
   try {
-    const prompt = type === 'incomplete_profile'
-      ? `Write a short, friendly reminder SMS/email message to ${firstName} who works for ${companyName}.
-         Ask them to complete their profile on the biohazards.net app — they are missing: ${missingList}.
-         Keep it under 80 words. Warm but professional. No subject line. No placeholders.
-         Sign off as "${companyName} Admin". Return only the message text, nothing else.`
-      : `Write a short, friendly reminder to ${firstName} from ${companyName} regarding: ${type}.
-         Keep it under 80 words. Professional and direct. Return only the message text.`
+    const prompt = `You are an admin assistant for ${companyName}, a biohazard cleaning company.
+Write a short, warm, professional email to ${firstName} asking them to complete their staff profile on the company app.
+
+The following information is missing from their profile:
+${fieldDetails}
+
+Guidelines:
+- Address them by first name
+- Briefly explain why this information is needed (use the context above naturally, don't just list it robotically)
+- Keep it under 100 words
+- Friendly but professional tone
+- No subject line
+- Sign off as "${companyName} Team"
+- Return only the message body, nothing else`
 
     const response = await anthropic.messages.create({
       model: 'claude-haiku-4-20250514',
-      max_tokens: 200,
+      max_tokens: 250,
       messages: [{ role: 'user', content: prompt }],
     })
 
     messageBody = (response.content[0] as { text: string }).text.trim()
   } catch {
-    // Fallback message if AI fails
-    messageBody = `Hi ${firstName}, this is a reminder from ${companyName} to please update your profile on the biohazards.net app. You're missing: ${missingList}. Thanks!`
+    // Fallback if AI fails
+    const fallbackList = missingFields
+      .map(f => FIELD_CONTEXT[f] ?? f)
+      .join(', ')
+    messageBody = `Hi ${firstName},\n\nCould you please take a moment to complete your staff profile on the ${companyName} app? We still need ${fallbackList}.\n\nThanks,\n${companyName} Team`
   }
 
-  // Send via email if available, otherwise SMS
   const hasEmail = person.email?.trim()
   const hasPhone = person.phone?.trim()
 
+  // Send via email
   if (hasEmail) {
+    const missingItems = missingFields
+      .map(f => `<li style="margin-bottom:6px;color:#444;">${FIELD_CONTEXT[f] ?? f}</li>`)
+      .join('')
+
     await resend.emails.send({
-      from: `biohazards.net <${FROM_EMAIL}>`,
+      from: `${companyName} <${FROM_TEAM}>`,
       to: person.email!,
-      subject: `Action needed — please complete your profile`,
+      subject: `Please complete your staff profile — ${companyName}`,
       html: `
-        <div style="font-family:system-ui,sans-serif;max-width:480px;margin:0 auto;padding:24px">
-          <div style="background:#FF6B35;height:3px;border-radius:2px;margin-bottom:24px"></div>
-          <p style="font-size:15px;color:#111;line-height:1.7;white-space:pre-wrap;">${messageBody}</p>
-          <div style="margin-top:24px;padding-top:20px;border-top:1px solid #eee">
-            <a href="https://app.biohazards.net"
-               style="display:inline-block;padding:11px 20px;background:#FF6B35;color:#fff;text-decoration:none;border-radius:6px;font-weight:600;font-size:13px">
-              Open App →
-            </a>
+        <div style="font-family:-apple-system,system-ui,sans-serif;max-width:500px;margin:0 auto;padding:32px 24px;">
+          <div style="background:#FF6B35;height:3px;border-radius:2px;margin-bottom:28px;"></div>
+
+          <p style="font-size:15px;color:#111;line-height:1.75;margin:0 0 24px;white-space:pre-wrap;">${messageBody}</p>
+
+          <div style="background:#f9f9f9;border-radius:8px;padding:16px 20px;margin-bottom:24px;">
+            <div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#999;margin-bottom:10px;">
+              Missing from your profile
+            </div>
+            <ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.6;">
+              ${missingItems}
+            </ul>
           </div>
-          <p style="margin-top:16px;font-size:11px;color:#bbb">biohazards.net</p>
+
+          <a href="https://app.biohazards.net"
+             style="display:inline-block;padding:12px 22px;background:#FF6B35;color:#fff;text-decoration:none;border-radius:7px;font-weight:700;font-size:14px;">
+            Complete My Profile →
+          </a>
+
+          <p style="margin-top:28px;font-size:11px;color:#bbb;border-top:1px solid #eee;padding-top:16px;">
+            ${companyName} · biohazards.net
+          </p>
         </div>
       `,
     })
     return NextResponse.json({ ok: true, channel: 'email', preview: messageBody })
   }
 
+  // SMS fallback
   if (hasPhone) {
     await twilioClient.messages.create({
       from: process.env.TWILIO_PHONE_NUMBER!,
@@ -128,5 +165,5 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, channel: 'sms', preview: messageBody })
   }
 
-  return NextResponse.json({ error: 'No email or phone on file to send reminder' }, { status: 422 })
+  return NextResponse.json({ error: 'No email or phone on file' }, { status: 422 })
 }
