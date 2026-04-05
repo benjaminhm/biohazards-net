@@ -9,7 +9,8 @@
  * (e.g. job reference or person's name) so users must consciously identify
  * what they are deleting rather than just clicking through a generic "Are you sure?".
  *
- * The Delete button stays greyed-out until typed === confirmName exactly.
+ * Match uses trimmed, whitespace-collapsed, NFC-normalized strings (case-insensitive)
+ * so DB quirks (trailing spaces, NBSP) don’t block a correct confirmation.
  * The backdrop click cancels the modal so it behaves like a native sheet.
  */
 'use client'
@@ -24,10 +25,14 @@ interface Props {
   onCancel: () => void
 }
 
+function normalizeConfirmInput(s: string) {
+  return s.trim().replace(/\s+/g, ' ').normalize('NFC').toLowerCase()
+}
+
 export default function ConfirmDeleteModal({ title, description, confirmName, onConfirm, onCancel }: Props) {
   const [typed, setTyped]     = useState('')
   const [deleting, setDeleting] = useState(false)
-  const match = typed === confirmName
+  const match = normalizeConfirmInput(typed) === normalizeConfirmInput(confirmName)
 
   async function handleConfirm() {
     if (!match) return

@@ -206,16 +206,36 @@ export default function JobQueuePage() {
   }, [])
 
   useEffect(() => {
-    fetch('/api/jobs')
-      .then(r => r.json())
-      .then(data => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const r = await fetch('/api/jobs')
+        const data = (await r.json().catch(() => ({}))) as { jobs?: Job[]; error?: string }
+        if (cancelled) return
+        if (!r.ok) {
+          const msg =
+            typeof data.error === 'string' && data.error.trim()
+              ? data.error
+              : r.status === 401
+                ? 'Not signed in or no organisation — try signing out and back in.'
+                : `Could not load jobs (HTTP ${r.status}).`
+          setError(msg)
+          setJobs([])
+          setLoading(false)
+          return
+        }
         setJobs(data.jobs ?? [])
         setLoading(false)
-      })
-      .catch(() => {
-        setError('Failed to load jobs. Check your Supabase configuration.')
-        setLoading(false)
-      })
+      } catch {
+        if (!cancelled) {
+          setError(
+            'Could not load jobs (network error or non-JSON response). Check the Vercel deployment and function logs for /api/jobs.',
+          )
+          setLoading(false)
+        }
+      }
+    })()
+    return () => { cancelled = true }
   }, [])
 
   const brandName = company?.name || ctxOrg?.name || 'Company'
