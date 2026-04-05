@@ -26,7 +26,7 @@ import { useState, useEffect } from 'react'
 import type { Job, JobStatus, JobType, JobUrgency, PhoneEntry } from '@/lib/types'
 import SmartFill from '@/components/SmartFill'
 
-interface Person { id: string; name: string; role: string; phone: string; email: string; status: string }
+interface Person { id: string; name: string; role: string; phone?: string | null; email?: string | null; status: string }
 interface Assignment { id: string; person_id: string; app_role?: string; people: Person }
 
 // ── Phone normalisation ──────────────────────────────────────────────────────
@@ -732,6 +732,25 @@ function InfoCard({ icon, title, children }: { icon: string; title: string; chil
   )
 }
 
+/** Admin > manager > member; ties keep API order. Used by ManagerCard + FieldTeamContacts. */
+function rankAppRole(r?: string) {
+  return r === 'admin' ? 0 : r === 'manager' ? 1 : 99
+}
+
+/** Same lead as ManagerCard: highest-ranked admin/manager row, else none. */
+function managerLeadAssignment(assignments: Assignment[]) {
+  const sorted = [...assignments].sort((a, b) => rankAppRole(a.app_role) - rankAppRole(b.app_role))
+  const lead = sorted[0]
+  if (lead && (lead.app_role === 'admin' || lead.app_role === 'manager')) return lead
+  return null
+}
+
+/** Person shown on ManagerCard — exclude only this id from Team Contacts below. */
+function managerLeadPersonId(assignments: Assignment[]): string | null {
+  const lead = managerLeadAssignment(assignments)
+  return lead?.person_id ?? null
+}
+
 // Prominent manager contact card — shown at the very top of the field view.
 // Picks the highest-ranked person (admin > manager > first assigned).
 function ManagerCard({ jobId }: { jobId: string }) {
@@ -743,13 +762,8 @@ function ManagerCard({ jobId }: { jobId: string }) {
       .then(r => r.json())
       .then(d => {
         const all: (Assignment & { app_role?: string })[] = d.assignments ?? []
-        const rank = (r?: string) => r === 'admin' ? 0 : r === 'manager' ? 1 : 99
-        const sorted = [...all].sort((a, b) => rank(a.app_role) - rank(b.app_role))
-        // Only surface as "manager" if they actually have a manager/admin role
-        const lead = sorted[0]
-        if (lead && (lead.app_role === 'admin' || lead.app_role === 'manager')) {
-          setManager(lead)
-        }
+        const lead = managerLeadAssignment(all)
+        if (lead) setManager(lead)
       })
       .finally(() => setLoading(false))
   }, [jobId])
@@ -817,9 +831,8 @@ function FieldTeamContacts({ jobId }: { jobId: string }) {
       .then(r => r.json())
       .then(d => {
         const raw: Assignment[] = d.assignments ?? []
-        // Exclude the manager/admin — they have their own prominent card above.
-        // Show remaining team members only.
-        const teammates = raw.filter(a => a.app_role !== 'admin' && a.app_role !== 'manager')
+        const skipId = managerLeadPersonId(raw)
+        const teammates = skipId ? raw.filter(a => a.person_id !== skipId) : raw
         setAssignments(teammates)
       })
       .finally(() => setLoading(false))
@@ -860,8 +873,14 @@ function FieldTeamContacts({ jobId }: { jobId: string }) {
                   {p.role}
                 </div>
                 {p.phone && <div style={{ fontSize: 13, color: 'var(--text)', marginTop: 3, fontWeight: 600 }}>{p.phone}</div>}
+                {!p.phone && p.email && (
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+                    No phone on file —{' '}
+                    <a href={`mailto:${p.email}`} style={{ color: 'var(--accent)', fontWeight: 600 }}>email</a>
+                  </div>
+                )}
               </div>
-              {p.phone && (
+              {p.phone ? (
                 <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
                   <a href={`tel:${p.phone.replace(/\s/g, '')}`}
                     style={{ width: 42, height: 42, borderRadius: 99, background: '#10B98115', border: '1px solid #10B98130', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, textDecoration: 'none' }}>
@@ -872,7 +891,13 @@ function FieldTeamContacts({ jobId }: { jobId: string }) {
                     💬
                   </a>
                 </div>
-              )}
+              ) : p.email ? (
+                <a href={`mailto:${p.email}`}
+                  title="Email"
+                  style={{ width: 42, height: 42, borderRadius: 99, background: 'rgba(255,107,53,0.12)', border: '1px solid rgba(255,107,53,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, textDecoration: 'none', flexShrink: 0 }}>
+                  ✉️
+                </a>
+              ) : null}
             </div>
           )
         })}

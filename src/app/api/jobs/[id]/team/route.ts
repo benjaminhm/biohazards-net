@@ -29,6 +29,17 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   if (!orgId) return NextResponse.json({ assignments: [] })
 
   const supabase = createServiceClient()
+
+  const { data: jobRow, error: jobErr } = await supabase
+    .from('jobs')
+    .select('id')
+    .eq('id', jobId)
+    .eq('org_id', orgId)
+    .maybeSingle()
+
+  if (jobErr) return NextResponse.json({ error: jobErr.message }, { status: 500 })
+  if (!jobRow) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
+
   const { data, error } = await supabase
     .from('job_assignments')
     .select('*, people(id, name, role, phone, email, status)')

@@ -28,12 +28,23 @@ export async function POST(req: Request) {
     : `https://app.biohazards.net/`
 
   const clerk = await clerkClient()
-  await clerk.invitations.createInvitation({
+  const created = await clerk.invitations.createInvitation({
     emailAddress: email,
     redirectUrl,
     publicMetadata: { invited_to_org: org_slug ?? null },
     ignoreExisting: true,
   })
 
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({
+    ok: true,
+    invitation: {
+      id: created.id,
+      emailAddress: created.emailAddress,
+      status: created.status,
+      createdAt: created.createdAt,
+      updatedAt: created.updatedAt,
+      url: created.url ?? null,
+      publicMetadata: created.publicMetadata ?? null,
+    },
+  })
 }

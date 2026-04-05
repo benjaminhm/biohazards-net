@@ -14,6 +14,7 @@
  *   - App users (tab id `admins`): lists every org_users row (all roles: owner, admin, member).
  *     Misleading old label was "Administrators". Non–platform-owner rows can use "Move org…"
  *     to reassign (one org per user; moving removes the old membership).
+ *   - Invites: Clerk sign-up invitations — status, copy link, resend, revoke.
  *   - Orgs tab — "Training & debugging": start audited tenant impersonation
  *     (POST /api/admin/impersonate) then open the main app with that org context.
  *
@@ -44,7 +45,18 @@ interface PendingUser {
 }
 
 const PLAN_OPTIONS = ['solo', 'team', 'business']
-type Tab = 'orgs' | 'admins' | 'pending' | 'reviews'
+type Tab = 'orgs' | 'admins' | 'invites' | 'pending' | 'reviews'
+
+interface ClerkInvitationRow {
+  id: string
+  emailAddress: string
+  status: string
+  createdAt: number
+  updatedAt: number
+  url: string | null
+  revoked: boolean
+  publicMetadata: Record<string, unknown> | null
+}
 
 interface PlatformReview {
   id: string; org_id: string; rating: number; body: string | null
@@ -71,6 +83,11 @@ export default function AdminPage() {
   const [inviteOrg, setInviteOrg]           = useState('')
   const [inviting, setInviting]             = useState(false)
   const [inviteOk, setInviteOk]             = useState(false)
+
+  const [clerkInvites, setClerkInvites]     = useState<ClerkInvitationRow[]>([])
+  const [loadingInvites, setLoadingInvites] = useState(false)
+  const [inviteRowBusy, setInviteRowBusy]   = useState<string | null>(null)
+  const [copiedInviteId, setCopiedInviteId] = useState<string | null>(null)
 
   const [pending, setPending]               = useState<PendingUser[]>([])
   const [loadingPending, setLoadingPending] = useState(false)
@@ -111,6 +128,21 @@ export default function AdminPage() {
     } catch (e: unknown) {
       setOrgsError(e instanceof Error ? e.message : 'Unknown error')
     } finally { setLoadingOrgs(false) }
+  }
+
+  async function fetchInvites() {
+    setLoadingInvites(true)
+    try {
+      const res = await fetch('/api/admin/invitations')
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Failed to load invitations')
+      setClerkInvites(json.invitations ?? [])
+    } catch (e: unknown) {
+      console.error(e)
+      setClerkInvites([])
+    } finally {
+      setLoadingInvites(false)
+    }
   }
 
   async function fetchAdmins() {
@@ -160,6 +192,7 @@ export default function AdminPage() {
       .catch(() => setImpSession({ active: false }))
   }, [tab])
   useEffect(() => { if (tab === 'admins') fetchAdmins() }, [tab])
+  useEffect(() => { if (tab === 'invites') void fetchInvites() }, [tab])
   useEffect(() => { if (tab === 'pending') fetchPending() }, [tab])
   useEffect(() => { if (tab === 'reviews') fetchReviews() }, [tab])
 
@@ -195,9 +228,53 @@ export default function AdminPage() {
       const res = await fetch('/api/admin/invite', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: inviteEmail, org_slug: inviteOrg }) })
       if (!res.ok) { const j = await res.json(); throw new Error(j.error ?? 'Failed') }
       setInviteOk(true)
+      void fetchInvites()
       setTimeout(() => { setInviteOk(false); setShowInviteModal(false); setInviteEmail(''); setInviteOrg('') }, 2000)
     } catch (e: unknown) { alert(e instanceof Error ? e.message : 'Error') }
     finally { setInviting(false) }
+  }
+
+  async function revokeClerkInvite(id: string) {
+    if (!window.confirm('Revoke this invitation? They will not be able to use the old link.')) return
+    setInviteRowBusy(id)
+    try {
+      const res = await fetch(`/api/admin/invitations/${encodeURIComponent(id)}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        throw new Error(typeof j.error === 'string' ? j.error : 'Revoke failed')
+      }
+      await fetchInvites()
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Error')
+    } finally {
+      setInviteRowBusy(null)
+    }
+  }
+
+  async function resendClerkInvite(id: string) {
+    if (!window.confirm('Resend? This revokes the current invite and sends a new Clerk email with a fresh link.')) return
+    setInviteRowBusy(id)
+    try {
+      const res = await fetch(`/api/admin/invitations/${encodeURIComponent(id)}/resend`, { method: 'POST' })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(typeof j.error === 'string' ? j.error : 'Resend failed')
+      await fetchInvites()
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Error')
+    } finally {
+      setInviteRowBusy(null)
+    }
+  }
+
+  function copyInviteLink(row: ClerkInvitationRow) {
+    if (!row.url) {
+      alert('No link available for this row (e.g. already accepted or revoked). Send a new invite from the modal.')
+      return
+    }
+    void navigator.clipboard.writeText(row.url).then(() => {
+      setCopiedInviteId(row.id)
+      setTimeout(() => setCopiedInviteId(null), 2000)
+    })
   }
 
   async function assignUserToOrg(
@@ -352,7 +429,7 @@ export default function AdminPage() {
               + New Organisation
             </button>
           )}
-          {tab === 'admins' && (
+          {(tab === 'admins' || tab === 'invites') && (
             <button
               onClick={() => setShowInviteModal(true)}
               style={{
@@ -361,7 +438,7 @@ export default function AdminPage() {
                 color: 'var(--text)', fontSize: 13, fontWeight: 600, cursor: 'pointer',
               }}
             >
-              Invite Administrator
+              Invite user (Clerk)
             </button>
           )}
         </div>
@@ -373,7 +450,7 @@ export default function AdminPage() {
         padding: '0 28px',
         display: 'flex', gap: 0,
       }}>
-        {(['orgs', 'admins', 'pending', 'reviews'] as Tab[]).map(t => (
+        {(['orgs', 'admins', 'invites', 'pending', 'reviews'] as Tab[]).map(t => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -387,7 +464,7 @@ export default function AdminPage() {
               display: 'flex', alignItems: 'center', gap: 7,
             }}
           >
-            {t === 'orgs' ? 'Organisations' : t === 'admins' ? 'App users' : t === 'pending' ? 'Pending' : 'Reviews'}
+            {t === 'orgs' ? 'Organisations' : t === 'admins' ? 'App users' : t === 'invites' ? 'Invites' : t === 'pending' ? 'Pending' : 'Reviews'}
             {t === 'pending' && pending.length > 0 && (
               <span style={{
                 background: '#EF4444', color: '#fff',
@@ -675,6 +752,80 @@ export default function AdminPage() {
           </div>
         )}
 
+        {/* ── Clerk invites tab ── */}
+        {tab === 'invites' && (
+          <div>
+            <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 18, lineHeight: 1.55, maxWidth: 720 }}>
+              Sign-up invitations sent through Clerk (same flow as <strong style={{ color: 'var(--text)' }}>Invite user</strong>). Copy the link to share by SMS or another channel; resend replaces the invite with a new email; revoke cancels the pending link.
+            </p>
+            <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
+              {loadingInvites ? <EmptyState>Loading…</EmptyState>
+              : clerkInvites.length === 0 ? (
+                <EmptyState>No Clerk invitations yet. Send one with &quot;Invite user (Clerk)&quot;.</EmptyState>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                      {['Email', 'Status', 'Landing org', 'Sent', 'Actions'].map(h => (
+                        <th key={h} style={{ padding: '11px 16px', textAlign: 'left', fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-dim)' }}>
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {clerkInvites.map(row => {
+                      const slug = typeof row.publicMetadata?.invited_to_org === 'string' ? row.publicMetadata.invited_to_org : ''
+                      const busy = inviteRowBusy === row.id
+                      const canAct = row.status === 'pending' && !row.revoked
+                      return (
+                        <tr key={row.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                          <td style={{ padding: '12px 16px', fontSize: 14, fontWeight: 600 }}>{row.emailAddress}</td>
+                          <td style={{ padding: '12px 16px' }}>
+                            <span style={{
+                              padding: '3px 9px', borderRadius: 99, fontSize: 11, fontWeight: 700, textTransform: 'capitalize',
+                              background: row.status === 'pending' ? 'rgba(59,130,246,0.12)' : 'var(--surface-3)',
+                              color: row.status === 'pending' ? '#60A5FA' : 'var(--text-muted)',
+                            }}>
+                              {row.status}{row.revoked ? ' (revoked)' : ''}
+                            </span>
+                          </td>
+                          <td style={{ padding: '12px 16px', fontSize: 13, color: 'var(--text-muted)' }}>
+                            {slug ? `${slug}.biohazards.net` : <span style={{ color: 'var(--text-dim)' }}>App only (assign in Pending)</span>}
+                          </td>
+                          <td style={{ padding: '12px 16px', color: 'var(--text-muted)', fontSize: 12 }} className="mono">
+                            {new Date(row.createdAt).toLocaleString('en-AU', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          </td>
+                          <td style={{ padding: '12px 16px' }}>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                              <TinyButton
+                                label={copiedInviteId === row.id ? '✓ Copied' : 'Copy link'}
+                                disabled={!row.url || busy}
+                                onClick={() => copyInviteLink(row)}
+                              />
+                              <TinyButton
+                                label={busy ? '…' : 'Resend'}
+                                disabled={!canAct || busy}
+                                onClick={() => void resendClerkInvite(row.id)}
+                                primary
+                              />
+                              <TinyButton
+                                label={busy ? '…' : 'Revoke'}
+                                disabled={!canAct || busy}
+                                onClick={() => void revokeClerkInvite(row.id)}
+                              />
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* ── Pending tab ── */}
         {tab === 'pending' && (
           <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
@@ -858,7 +1009,7 @@ export default function AdminPage() {
 
       {/* ── Invite Modal ── */}
       {showInviteModal && (
-        <AdminModal onClose={() => setShowInviteModal(false)} title="Invite administrator">
+        <AdminModal onClose={() => setShowInviteModal(false)} title="Invite user (Clerk)">
           <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 24, lineHeight: 1.6 }}>
             Sends a Clerk sign-up invite. Choose an <strong style={{ color: 'var(--text)' }}>existing</strong> organisation so they land in the right company after signup — or leave unassigned and use the <strong style={{ color: 'var(--text)' }}>Pending</strong> tab to place them later.
           </p>
@@ -913,7 +1064,7 @@ function TinyButton({
   return (
     <button
       type="button"
-      disabled={disabled}
+      disabled={!!disabled}
       onClick={onClick}
       style={{
         padding: '5px 11px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer',
