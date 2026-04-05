@@ -21,8 +21,20 @@ import Anthropic from '@anthropic-ai/sdk'
 const MAX_DOC_CONTEXT_CHARS = 7500
 const MAX_NOTE_LINES = 8
 
+/** Haiku 4.5 — see https://docs.anthropic.com/en/docs/about-claude/models */
+const HAIKU_MODEL = 'claude-haiku-4-5'
+
 const anthropicKey = process.env.ANTHROPIC_API_KEY
 const anthropic = anthropicKey ? new Anthropic({ apiKey: anthropicKey }) : null
+
+function formatBriefingAiError(e: unknown): string {
+  const raw = e instanceof Error ? e.message : String(e)
+  if (/not_found_error|model:\s*claude-/i.test(raw) || /^404\b/.test(raw.trim())) {
+    return 'AI model is unavailable or misconfigured. Try again later or contact support.'
+  }
+  if (raw.length > 240) return 'Could not generate job description (AI error).'
+  return raw
+}
 
 const JOB_TYPE_LABELS: Record<string, string> = {
   crime_scene: 'Crime Scene Cleaning',
@@ -297,7 +309,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   try {
     const message = await anthropic.messages.create({
-      model: 'claude-haiku-4-20250514',
+      model: HAIKU_MODEL,
       max_tokens: 600,
       messages: [
         {
@@ -342,8 +354,7 @@ Return ONLY valid JSON with exactly these keys:
       return NextResponse.json({ description: raw, objective: '' })
     }
   } catch (e) {
-    const msg = e instanceof Error ? e.message : 'AI request failed'
     console.error('[briefing]', e)
-    return NextResponse.json({ error: msg }, { status: 502 })
+    return NextResponse.json({ error: formatBriefingAiError(e) }, { status: 502 })
   }
 }
