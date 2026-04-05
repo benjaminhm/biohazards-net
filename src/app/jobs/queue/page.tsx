@@ -15,6 +15,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import type { CompanyProfile, Job, JobStatus } from '@/lib/types'
 import { useUser } from '@/lib/userContext'
 
@@ -188,11 +189,18 @@ function JobCard({ job, onDelete }: { job: Job; onDelete: (id: string) => void }
 }
 
 export default function JobQueuePage() {
+  const router = useRouter()
   const [jobs, setJobs] = useState<Job[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [company, setCompany] = useState<CompanyProfile | null>(null)
-  const { org: ctxOrg } = useUser()
+  const { org: ctxOrg, loading: userLoading, isAdmin, caps } = useUser()
+
+  // Full pipeline board is for admins and members with view_all_jobs only.
+  useEffect(() => {
+    if (userLoading) return
+    if (!isAdmin && !caps.view_all_jobs) router.replace('/field')
+  }, [userLoading, isAdmin, caps.view_all_jobs, router])
 
   function handleDelete(id: string) {
     setJobs(prev => prev.filter(j => j.id !== id))
@@ -206,6 +214,9 @@ export default function JobQueuePage() {
   }, [])
 
   useEffect(() => {
+    if (userLoading) return
+    if (!isAdmin && !caps.view_all_jobs) return
+
     let cancelled = false
     ;(async () => {
       try {
@@ -236,7 +247,7 @@ export default function JobQueuePage() {
       }
     })()
     return () => { cancelled = true }
-  }, [])
+  }, [userLoading, isAdmin, caps.view_all_jobs])
 
   const brandName = company?.name || ctxOrg?.name || 'Company'
 

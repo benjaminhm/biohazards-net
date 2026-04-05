@@ -51,7 +51,12 @@ const STATUS_LABELS: Record<JobStatus, string> = {
 export default function JobPage() {
   const { id }       = useParams<{ id: string }>()
   const searchParams = useSearchParams()
-  const { caps, isAdmin } = useUser()
+  const { caps, isAdmin, loading: userLoading } = useUser()
+  /** Field workers (no view_all_jobs) use /field; ops staff use full queue. */
+  const jobsListHref = userLoading
+    ? '/jobs/queue'
+    : (isAdmin || caps.view_all_jobs ? '/jobs/queue' : '/field')
+  const jobsBackLabel = isAdmin || caps.view_all_jobs ? '← Jobs' : '← My jobs'
 
   const [job,         setJob]         = useState<Job | null>(null)
   const [photos,      setPhotos]      = useState<Photo[]>([])
@@ -101,7 +106,7 @@ export default function JobPage() {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12 }}>
         <div style={{ fontSize: 18, fontWeight: 600 }}>Job not found</div>
-        <Link href="/jobs/queue"><button className="btn btn-secondary">Back to Queue</button></Link>
+        <Link href={jobsListHref}><button className="btn btn-secondary">Back</button></Link>
       </div>
     )
   }
@@ -128,8 +133,8 @@ export default function JobPage() {
       <div data-devid="P2-E1" style={{ borderBottom: '1px solid var(--border)', padding: '14px 0', position: 'sticky', top: 0, background: 'var(--bg)', zIndex: 10 }}>
         <div className="container">
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-            <Link href="/jobs/queue">
-              <button className="btn btn-ghost" style={{ padding: '6px 0', fontSize: 14 }}>← Jobs</button>
+            <Link href={jobsListHref}>
+              <button className="btn btn-ghost" style={{ padding: '6px 0', fontSize: 14 }}>{jobsBackLabel}</button>
             </Link>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 700, fontSize: 17, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
