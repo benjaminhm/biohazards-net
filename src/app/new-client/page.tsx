@@ -154,7 +154,7 @@ export default function NewClientPage() {
     }
   }
 
-  const companyName = company?.name ?? 'Brisbane Biohazard Cleaning'
+  const companyName = company?.name ?? 'Company'
   const companyPhone = company?.phone ?? null
 
   // ── Success screen ──

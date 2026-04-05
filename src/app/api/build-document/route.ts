@@ -26,7 +26,9 @@
  */
 import { NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
+import { auth } from '@clerk/nextjs/server'
 import type { DocType, Job, Photo, CompanyProfile } from '@/lib/types'
+import { getOrgId } from '@/lib/org'
 
 const client = new Anthropic()
 
@@ -293,6 +295,18 @@ async function fetchPdfBase64(url: string): Promise<string | null> {
 
 export async function POST(req: Request) {
   try {
+    const { userId } = await auth()
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    const { orgId } = await getOrgId(req, userId)
+    if (!orgId) {
+      return NextResponse.json(
+        { error: 'Organisation inactive or you have no active organisation' },
+        { status: 403 }
+      )
+    }
+
     const { type, job, photos, company } = await req.json() as {
       type: DocType
       job: Job
@@ -302,6 +316,10 @@ export async function POST(req: Request) {
 
     if (!type || !job) {
       return NextResponse.json({ error: 'type and job are required' }, { status: 400 })
+    }
+
+    if (job.org_id !== orgId) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
     const prompt = buildPrompt(type, job, photos ?? [], company)

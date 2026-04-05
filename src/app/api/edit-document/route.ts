@@ -13,6 +13,8 @@
  */
 import { NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
+import { auth } from '@clerk/nextjs/server'
+import { getOrgId } from '@/lib/org'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -24,6 +26,18 @@ const TYPE_LABELS: Record<string, string> = {
 
 export async function POST(req: Request) {
   try {
+    const { userId } = await auth()
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    const { orgId } = await getOrgId(req, userId)
+    if (!orgId) {
+      return NextResponse.json(
+        { error: 'Organisation inactive or you have no active organisation' },
+        { status: 403 }
+      )
+    }
+
     const { type, content, instruction } = await req.json()
     if (!instruction?.trim()) {
       return NextResponse.json({ error: 'No instruction provided' }, { status: 400 })

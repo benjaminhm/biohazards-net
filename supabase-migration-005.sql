@@ -3,7 +3,10 @@ ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS subdomain TEXT UNIQUE DEFAU
 ALTER TABLE company_profile ADD COLUMN IF NOT EXISTS custom_domain TEXT UNIQUE DEFAULT NULL;
 
 -- Set Brisbane Biohazard Cleaning as the brisbanebiohazardcleaning subdomain
-UPDATE company_profile SET subdomain = 'brisbanebiohazardcleaning' WHERE subdomain IS NULL LIMIT 1;
+-- (PostgreSQL has no UPDATE ... LIMIT; pick one row if several have NULL subdomain.)
+UPDATE company_profile
+SET subdomain = 'brisbanebiohazardcleaning'
+WHERE id = (SELECT id FROM company_profile WHERE subdomain IS NULL LIMIT 1);
 
 -- ─── Multi-tenant platform foundation ────────────────────────────────────────
 

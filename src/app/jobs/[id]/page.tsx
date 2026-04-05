@@ -32,9 +32,10 @@ import QuoteTab from '@/components/tabs/QuoteTab'
 import PhotosTab from '@/components/tabs/PhotosTab'
 import DocumentsTab from '@/components/tabs/DocumentsTab'
 import MessagesTab from '@/components/tabs/MessagesTab'
+import InvoiceTab from '@/components/tabs/InvoiceTab'
 import { useUser } from '@/lib/userContext'
 
-type Tab = 'details' | 'assessment' | 'quote' | 'photos' | 'documents' | 'messages'
+type Tab = 'details' | 'assessment' | 'quote' | 'photos' | 'documents' | 'messages' | 'invoice'
 
 const JOB_TYPE_LABELS: Record<string, string> = {
   crime_scene: 'Crime Scene', hoarding: 'Hoarding', mold: 'Mold', sewage: 'Sewage',
@@ -52,11 +53,12 @@ export default function JobPage() {
   const searchParams = useSearchParams()
   const { caps, isAdmin } = useUser()
 
-  const [job,       setJob]       = useState<Job | null>(null)
-  const [photos,    setPhotos]    = useState<Photo[]>([])
-  const [documents, setDocuments] = useState<Document[]>([])
-  const [loading,   setLoading]   = useState(true)
-  const [unreadSms, setUnreadSms] = useState(0)
+  const [job,         setJob]         = useState<Job | null>(null)
+  const [photos,      setPhotos]      = useState<Photo[]>([])
+  const [documents,   setDocuments]   = useState<Document[]>([])
+  const [loading,     setLoading]     = useState(true)
+  const [unreadSms,   setUnreadSms]   = useState(0)
+  const [canInvoice,  setCanInvoice]  = useState(false)
 
   const initialTab = (searchParams.get('tab') as Tab) ?? 'details'
   const [activeTab, setActiveTab] = useState<Tab>(initialTab)
@@ -66,19 +68,22 @@ export default function JobPage() {
   async function fetchAll() {
     setLoading(true)
     try {
-      const [jobRes, docsRes, msgRes] = await Promise.all([
+      const [jobRes, docsRes, msgRes, invRes] = await Promise.all([
         fetch(`/api/jobs/${id}`),
         fetch(`/api/documents?jobId=${id}`),
         fetch(`/api/sms/messages?job_id=${id}`),
+        fetch(`/api/jobs/${id}/invoices`),
       ])
       const jobData  = await jobRes.json()
       const docsData = await docsRes.json()
       const msgData  = await msgRes.json()
+      const invData  = await invRes.json()
       setJob(jobData.job)
       setPhotos(jobData.photos ?? [])
       setDocuments(docsData.documents ?? [])
       const unread = (msgData.messages ?? []).filter((m: { direction: string; read_at: string | null }) => m.direction === 'inbound' && !m.read_at).length
       setUnreadSms(unread)
+      setCanInvoice(!!invData.can_invoice)
     } finally {
       setLoading(false)
     }
@@ -113,6 +118,7 @@ export default function JobPage() {
     { id: 'photos',     label: `Photos${photos.length ? ` (${photos.length})` : ''}`,             show: caps.upload_photos_assigned || caps.upload_photos_any },
     { id: 'documents',  label: `Docs${documents.length ? ` (${documents.length})` : ''}`,         show: caps.generate_documents },
     { id: 'messages',   label: unreadSms > 0 ? `💬 SMS (${unreadSms})` : '💬 SMS',               show: caps.send_sms && isActiveJob },
+    { id: 'invoice',    label: 'Invoice',                                                          show: canInvoice },
   ]
   const tabs = allTabs.filter(t => t.show)
 
@@ -196,6 +202,9 @@ export default function JobPage() {
         )}
         {activeTab === 'messages' && (
           <MessagesTab job={job} />
+        )}
+        {activeTab === 'invoice' && (
+          <InvoiceTab jobId={id} />
         )}
       </div>
     </div>

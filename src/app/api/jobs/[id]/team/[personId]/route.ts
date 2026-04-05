@@ -7,18 +7,13 @@
 import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
 import { NextResponse } from 'next/server'
+import { getOrgId as resolveOrgId } from '@/lib/org'
 
-async function getOrgId(userId: string) {
-  const supabase = createServiceClient()
-  const { data } = await supabase.from('org_users').select('org_id').eq('clerk_user_id', userId).single()
-  return data?.org_id ?? null
-}
-
-export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string; personId: string }> }) {
+export async function DELETE(req: Request, { params }: { params: Promise<{ id: string; personId: string }> }) {
   const { id: jobId, personId } = await params
   const { userId } = await auth()
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const orgId = await getOrgId(userId)
+  const { orgId } = await resolveOrgId(req, userId)
   if (!orgId) return NextResponse.json({ error: 'No org' }, { status: 403 })
 
   const supabase = createServiceClient()

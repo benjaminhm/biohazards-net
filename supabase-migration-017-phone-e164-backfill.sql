@@ -1,0 +1,13 @@
+-- Migration 017: Phone numbers — E.164 backfill (data fix, not schema)
+--
+-- Legacy rows may store phones as "04xx ...", with spaces, or other formats.
+-- The app now normalizes on insert/update via src/lib/phone (formatToTwilioE164).
+-- Run the one-off script once against production (after backup):
+--
+--   npm run migrate:phones -- --dry-run
+--   npm run migrate:phones
+--
+-- Tables touched: people (phone, emergency_phone), company_profile (phone),
+-- jobs (client_phone, client_phones JSON), messages (from_number, to_number).
+--
+-- No SQL to execute here.

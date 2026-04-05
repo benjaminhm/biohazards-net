@@ -16,13 +16,27 @@
  */
 import { NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
+import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
 import { buildQuotePrompt, buildSOWPrompt, buildReportPrompt } from '@/lib/prompts'
+import { getOrgId } from '@/lib/org'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 export async function POST(req: Request, { params }: { params: Promise<{ type: string }> }) {
   try {
+    const { userId } = await auth()
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    const { orgId } = await getOrgId(req, userId)
+    if (!orgId) {
+      return NextResponse.json(
+        { error: 'Organisation inactive or you have no active organisation' },
+        { status: 403 }
+      )
+    }
+
     const { type } = await params
     if (!['quote', 'sow', 'report'].includes(type)) {
       return NextResponse.json({ error: 'Invalid document type' }, { status: 400 })
@@ -33,7 +47,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ type: s
 
     const supabase = createServiceClient()
     const [jobRes, photosRes] = await Promise.all([
-      supabase.from('jobs').select('*').eq('id', jobId).single(),
+      supabase.from('jobs').select('*').eq('id', jobId).eq('org_id', orgId).single(),
       supabase.from('photos').select('*').eq('job_id', jobId),
     ])
 

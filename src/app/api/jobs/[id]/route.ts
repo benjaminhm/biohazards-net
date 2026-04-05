@@ -12,6 +12,7 @@ import { NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
+import { normalizeOptionalPhoneField } from '@/lib/phone'
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -42,7 +43,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     const { orgId } = await getOrgId(req, userId ?? null)
     if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    const body = await req.json()
+    const body = (await req.json()) as Record<string, unknown>
+    if ('client_phone' in body) {
+      const pr = normalizeOptionalPhoneField(body.client_phone)
+      if (!pr.ok) return NextResponse.json({ error: pr.error }, { status: 400 })
+      if (pr.value === undefined) delete body.client_phone
+      else body.client_phone = pr.value
+    }
     const supabase = createServiceClient()
 
     const { data, error } = await supabase

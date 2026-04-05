@@ -38,6 +38,10 @@ interface UserCtx {
   loading: boolean
   previewMode: boolean
   exitPreview: () => void
+  /** Platform-admin tenant impersonation (see /api/admin/impersonate) */
+  impersonating: boolean
+  impersonationReadOnly: boolean
+  exitImpersonation: () => Promise<void>
 }
 
 const defaultCtx: UserCtx = {
@@ -46,13 +50,17 @@ const defaultCtx: UserCtx = {
   org_id: null, has_org: false, org: null, loading: true,
   previewMode: false,
   exitPreview: () => {},
+  impersonating: false,
+  impersonationReadOnly: false,
+  exitImpersonation: async () => {},
 }
 
 const UserContext = createContext<UserCtx>(defaultCtx)
 
 // Routes that don't require org membership — new users land on /pending while
 // they wait for an admin to invite them to an org.
-const PENDING_EXEMPT = ['/pending', '/invite/', '/login', '/sign-in', '/new-client', '/accept/']
+// Platform super-admins may have no org_users row yet; /platform and /admin must stay reachable.
+const PENDING_EXEMPT = ['/pending', '/invite/', '/login', '/sign-in', '/new-client', '/accept/', '/platform', '/admin']
 
 /*
  * Reads preview capabilities from localStorage — only valid for admins.
@@ -76,6 +84,11 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     window.location.reload()
   }
 
+  async function exitImpersonation() {
+    await fetch('/api/admin/impersonate', { method: 'DELETE' })
+    window.location.reload()
+  }
+
   useEffect(() => {
     fetch('/api/me')
       .then(r => r.json())
@@ -83,8 +96,10 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         const role: UserRole = d.role === 'admin' ? 'admin' : d.role === 'manager' ? 'manager' : 'member'
         const isAdmin   = role === 'admin'
         const isManager = role === 'manager'
+        const impersonating = !!d.impersonating
+        const impersonationReadOnly = !!d.impersonation_read_only
         // Only admins can enter preview mode; managers/members never have preview_caps
-        const previewCaps = isAdmin ? getPreviewCaps() : null
+        const previewCaps = isAdmin && !impersonating ? getPreviewCaps() : null
         const previewMode = !!previewCaps
         // Priority: preview caps > admin full caps > manager defaults (+ custom) > member defaults (+ custom)
         const baseCaps = isAdmin
@@ -93,7 +108,19 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
             ? { ...DEFAULT_MANAGER_CAPABILITIES, ...(d.capabilities ?? {}) }
             : { ...DEFAULT_MEMBER_CAPABILITIES,  ...(d.capabilities ?? {}) }
         const caps: TeamCapabilities = previewCaps ?? baseCaps
-        setCtx({ ...d, role, isAdmin, isManager, caps, loading: false, previewMode, exitPreview })
+        setCtx({
+          ...d,
+          role,
+          isAdmin,
+          isManager,
+          caps,
+          loading: false,
+          previewMode,
+          exitPreview,
+          impersonating,
+          impersonationReadOnly,
+          exitImpersonation,
+        })
       })
       .catch(() => setCtx(c => ({ ...c, loading: false })))
   }, [])

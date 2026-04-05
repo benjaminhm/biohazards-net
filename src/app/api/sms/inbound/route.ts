@@ -7,9 +7,9 @@
  *
  * Flow:
  * 1. Parse the Twilio webhook body (From, To, Body, MessageSid)
- * 2. Normalise the sender's number to last 9 digits to match against DB
- *    (Twilio sends +61400123456; DB might have 0400123456 or 0400 123 456)
- * 3. Find the most recent job with a matching client_phone
+ * 2. Normalise `From` to E.164 to match `jobs.client_phone` (stored E.164 from lib/phone)
+ * 3. Find the most recent job with exact `client_phone` match; fallback to last-9-digit
+ *    match for legacy rows not yet migrated to E.164
  * 4. Insert an inbound message record (read_at = null = unread)
  * 5. Return an empty TwiML response (no auto-reply)
  *
@@ -22,6 +22,7 @@
  * stored against that org (single-tenant fallback).
  */
 import { createServiceClient } from '@/lib/supabase'
+import { normalizeTwilioNumber } from '@/lib/phone'
 
 // Signature validation temporarily disabled for debugging
 // Re-enable once inbound is confirmed working
@@ -40,20 +41,35 @@ export async function POST(req: Request) {
 
   const supabase = createServiceClient()
 
-  // Strip all non-digits then take last 9 to produce a format-agnostic suffix
-  // that matches regardless of whether DB has 0400123456 or +61400123456.
-  // e.g. +61400123456 → 400123456, 0400123456 → 400123456
-  const digitsOnly = from.replace(/\D/g, '')
-  const last9 = digitsOnly.slice(-9)
+  const fromE164 = normalizeTwilioNumber(from)
 
-  const { data: jobs } = await supabase
-    .from('jobs')
-    .select('id, org_id, client_phone')
-    .ilike('client_phone', `%${last9}%`)
-    .order('created_at', { ascending: false })
-    .limit(5)
+  let jobs: { id: string; org_id: string; client_phone: string | null }[] | null = null
 
-  // Pick the most recent active job for this number
+  if (fromE164) {
+    const { data } = await supabase
+      .from('jobs')
+      .select('id, org_id, client_phone')
+      .eq('client_phone', fromE164)
+      .order('created_at', { ascending: false })
+      .limit(5)
+    jobs = data
+  }
+
+  // Legacy: DB may still have spaces/local formats — match last 9 digits
+  if (!jobs?.length) {
+    const digitsOnly = from.replace(/\D/g, '')
+    const last9 = digitsOnly.slice(-9)
+    if (last9.length >= 9) {
+      const { data } = await supabase
+        .from('jobs')
+        .select('id, org_id, client_phone')
+        .ilike('client_phone', `%${last9}%`)
+        .order('created_at', { ascending: false })
+        .limit(5)
+      jobs = data
+    }
+  }
+
   let jobId: string | null = null
   let orgId: string | null = null
 
@@ -62,7 +78,6 @@ export async function POST(req: Request) {
     orgId = jobs[0].org_id
   }
 
-  // If no job found, still try to get org from the first org (single-tenant fallback)
   if (!orgId) {
     const { data: org } = await supabase.from('orgs').select('id').limit(1).single()
     orgId = org?.id ?? null
@@ -72,13 +87,12 @@ export async function POST(req: Request) {
     return new Response('<Response/>', { status: 200, headers: { 'Content-Type': 'text/xml' } })
   }
 
-  // Insert inbound message (unread — read_at null)
   if (jobId) {
     await supabase.from('messages').insert({
       org_id: orgId,
       job_id: jobId,
       direction: 'inbound',
-      from_number: from,
+      from_number: fromE164 ?? from,
       to_number: to,
       body: body2,
       twilio_sid: sid,
@@ -86,7 +100,6 @@ export async function POST(req: Request) {
     })
   }
 
-  // TwiML empty response — don't auto-reply
   return new Response('<Response/>', {
     status: 200,
     headers: { 'Content-Type': 'text/xml' },

@@ -5,6 +5,7 @@
  * Provider hierarchy (outermost to innermost):
  *   ClerkProvider   — Clerk auth session, required for useAuth()/auth()
  *   UserProvider    — custom user context (role, capabilities, org membership)
+ *   ImpersonationBanner — platform admin viewing a tenant org (training/debug)
  *   PreviewBanner   — shows when an admin is simulating member capabilities
  *   ServiceWorkerRegistration — registers /sw.js for PWA offline support
  *
@@ -25,6 +26,7 @@ import './globals.css'
 import ServiceWorkerRegistration from '@/components/ServiceWorkerRegistration'
 import { UserProvider } from '@/lib/userContext'
 import PreviewBanner from '@/components/PreviewBanner'
+import ImpersonationBanner from '@/components/ImpersonationBanner'
 
 const PRIMARY_SIGN_IN_URL = 'https://app.biohazards.net/login'
 
@@ -68,6 +70,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       <html lang="en">
         <body>
           <UserProvider>
+            <ImpersonationBanner />
             <PreviewBanner />
             <ServiceWorkerRegistration />
             {children}

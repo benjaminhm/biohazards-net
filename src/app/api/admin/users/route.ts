@@ -17,6 +17,17 @@ import { NextResponse } from 'next/server'
 
 const PLATFORM_ADMIN_IDS = (process.env.PLATFORM_ADMIN_CLERK_IDS ?? '').split(',').map(s => s.trim()).filter(Boolean)
 
+function emailFromClerkUser(user: {
+  primaryEmailAddress: { emailAddress: string } | null
+  emailAddresses: { emailAddress: string }[]
+}): string {
+  return (
+    user.primaryEmailAddress?.emailAddress?.trim() ||
+    user.emailAddresses?.find(e => e.emailAddress)?.emailAddress?.trim() ||
+    ''
+  )
+}
+
 export async function GET() {
   const { userId } = await auth()
   if (!userId || !PLATFORM_ADMIN_IDS.includes(userId)) {
@@ -37,10 +48,16 @@ export async function GET() {
     orgUsers.map(async (ou: any) => {
       try {
         const user = await clerk.users.getUser(ou.clerk_user_id)
+        const email = emailFromClerkUser(user)
+        const name =
+          user.fullName?.trim() ||
+          [user.firstName, user.lastName].filter(Boolean).join(' ').trim() ||
+          email ||
+          'Unknown'
         return {
           ...ou,
-          email: user.emailAddresses[0]?.emailAddress ?? '',
-          name: ([user.firstName, user.lastName].filter(Boolean).join(' ')) || (user.emailAddresses[0]?.emailAddress ?? 'Unknown'),
+          email,
+          name,
           image_url: user.imageUrl,
         }
       } catch {

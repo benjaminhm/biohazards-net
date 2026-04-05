@@ -13,6 +13,7 @@ import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import { NextResponse } from 'next/server'
 import twilio from 'twilio'
+import { formatToTwilioE164 } from '@/lib/phone'
 
 // Send a one-off SMS not tied to a job (e.g. invite links)
 export async function POST(req: Request) {
@@ -40,6 +41,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
   }
 
+  const toE164 = formatToTwilioE164(String(to_number))
+  if (!toE164) {
+    return NextResponse.json({ error: 'Invalid phone number' }, { status: 400 })
+  }
+
   const client = twilio(
     process.env.TWILIO_ACCOUNT_SID,
     process.env.TWILIO_AUTH_TOKEN
@@ -48,7 +54,7 @@ export async function POST(req: Request) {
   try {
     await client.messages.create({
       from: process.env.TWILIO_PHONE_NUMBER!,
-      to: to_number,
+      to: toE164,
       body: body.trim(),
     })
   } catch (err: unknown) {

@@ -15,7 +15,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import type { Job, JobStatus } from '@/lib/types'
+import type { CompanyProfile, Job, JobStatus } from '@/lib/types'
 import { useUser } from '@/lib/userContext'
 
 const STATUS_ORDER: JobStatus[] = [
@@ -191,10 +191,19 @@ export default function JobQueuePage() {
   const [jobs, setJobs] = useState<Job[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [company, setCompany] = useState<CompanyProfile | null>(null)
+  const { org: ctxOrg } = useUser()
 
   function handleDelete(id: string) {
     setJobs(prev => prev.filter(j => j.id !== id))
   }
+
+  useEffect(() => {
+    fetch('/api/company')
+      .then(r => r.json())
+      .then(d => setCompany(d.company ?? null))
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     fetch('/api/jobs')
@@ -208,6 +217,8 @@ export default function JobQueuePage() {
         setLoading(false)
       })
   }, [])
+
+  const brandName = company?.name || ctxOrg?.name || 'Company'
 
   const grouped = STATUS_ORDER.reduce<Record<JobStatus, Job[]>>((acc, status) => {
     acc[status] = jobs.filter(j => j.status === status)
@@ -223,7 +234,7 @@ export default function JobQueuePage() {
             <Link href="/" style={{ fontSize: 20, color: 'var(--text-muted)', textDecoration: 'none', lineHeight: 1, padding: '2px 4px' }}>←</Link>
             <div>
               <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--accent)', marginBottom: 2 }}>
-                Brisbane Biohazard Cleaning
+                {brandName}
               </div>
               <h1 style={{ fontSize: 22, fontWeight: 700 }}>Job Queue</h1>
             </div>

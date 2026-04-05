@@ -13,11 +13,37 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
+import { auth } from '@clerk/nextjs/server'
+import { createServiceClient } from '@/lib/supabase'
+import { getOrgId } from '@/lib/org'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  await params
+  const { userId } = await auth()
+  if (!userId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const { orgId } = await getOrgId(req, userId)
+  if (!orgId) {
+    return NextResponse.json(
+      { error: 'Organisation inactive or you have no active organisation' },
+      { status: 403 }
+    )
+  }
+
+  const { id: jobId } = await params
+  const supabase = createServiceClient()
+  const { data: jobRow } = await supabase
+    .from('jobs')
+    .select('id')
+    .eq('id', jobId)
+    .eq('org_id', orgId)
+    .maybeSingle()
+  if (!jobRow) {
+    return NextResponse.json({ error: 'Job not found' }, { status: 404 })
+  }
+
   const { text } = await req.json()
   if (!text?.trim()) return NextResponse.json({ error: 'No text provided' }, { status: 400 })
 

@@ -18,6 +18,7 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
+import { normalizeRequiredPhoneField } from '@/lib/phone'
 
 export async function POST(req: Request) {
   try {
@@ -35,8 +36,12 @@ export async function POST(req: Request) {
       photo_urls,
     } = body
 
-    if (!client_name?.trim() || !client_phone?.trim()) {
+    if (!client_name?.trim()) {
       return NextResponse.json({ error: 'Name and phone are required' }, { status: 400 })
+    }
+    const phoneRes = normalizeRequiredPhoneField(client_phone)
+    if (!phoneRes.ok) {
+      return NextResponse.json({ error: phoneRes.error }, { status: 400 })
     }
 
     // Build notes from all context fields
@@ -55,7 +60,7 @@ export async function POST(req: Request) {
       .from('jobs')
       .insert({
         client_name:   client_name.trim(),
-        client_phone:  client_phone.trim(),
+        client_phone:  phoneRes.value,
         client_email:  client_email?.trim() || null,
         site_address:  site_address?.trim() || null,
         job_type:      job_type || 'other',

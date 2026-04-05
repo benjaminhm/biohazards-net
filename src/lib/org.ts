@@ -13,6 +13,7 @@
  * looking up the user's org_users membership record — one user, one org.
  */
 import { createServiceClient } from '@/lib/supabase'
+import { verifyImpersonationFromRequest } from '@/lib/impersonation'
 
 export interface OrgResult {
   orgId: string | null
@@ -55,8 +56,21 @@ export async function getOrgId(req: Request, clerkUserId: string | null): Promis
     return { orgId: data.id as string, orgSlug: data.slug as string }
   }
 
-  // app.biohazards.net — resolve from user membership
+  // app.biohazards.net — platform-admin impersonation (training / debugging) or membership
   if (!clerkUserId) return { orgId: null, orgSlug: null }
+
+  const imp = await verifyImpersonationFromRequest(req, clerkUserId)
+  if (imp) {
+    const supabase = createServiceClient()
+    const { data: org } = await supabase
+      .from('orgs')
+      .select('id, slug')
+      .eq('id', imp.orgId)
+      .eq('is_active', true)
+      .maybeSingle()
+    if (org) return { orgId: org.id as string, orgSlug: org.slug as string }
+  }
+
   return getOrgResultForUser(clerkUserId)
 }
 
@@ -64,23 +78,25 @@ export async function getOrgId(req: Request, clerkUserId: string | null): Promis
    normalise to a single object here. */
 async function getOrgResultForUser(clerkUserId: string): Promise<OrgResult> {
   const supabase = createServiceClient()
-  const { data, error } = await supabase
+  const { data: row, error } = await supabase
     .from('org_users')
-    .select('org_id, orgs(id, slug)')
+    .select('org_id')
     .eq('clerk_user_id', clerkUserId)
     .eq('is_active', true)
     .limit(1)
-    .single()
+    .maybeSingle()
 
-  if (error || !data) return { orgId: null, orgSlug: null }
+  if (error || !row?.org_id) return { orgId: null, orgSlug: null }
 
-  const orgData = data.orgs
-  const orgs = Array.isArray(orgData)
-    ? (orgData[0] as { id: string; slug: string } | undefined) ?? null
-    : (orgData as { id: string; slug: string } | null)
-  if (!orgs) return { orgId: null, orgSlug: null }
+  const { data: org, error: orgErr } = await supabase
+    .from('orgs')
+    .select('id, slug')
+    .eq('id', row.org_id)
+    .eq('is_active', true)
+    .maybeSingle()
 
-  return { orgId: orgs.id, orgSlug: orgs.slug }
+  if (orgErr || !org) return { orgId: null, orgSlug: null }
+  return { orgId: org.id, orgSlug: org.slug }
 }
 
 /**

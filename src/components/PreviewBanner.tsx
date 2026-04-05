@@ -22,16 +22,17 @@ function getPreviewName(): string | null {
 }
 
 export default function PreviewBanner() {
-  const { previewMode, exitPreview } = useUser()
+  const { previewMode, exitPreview, impersonating } = useUser()
   if (!previewMode) return null
 
   const name = getPreviewName()
   const label = name ? `👁 Previewing as ${name}` : '👁 Previewing as Team Member'
+  const top = impersonating ? 40 : 0
 
   return (
     <>
       <div style={{
-        position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9999,
+        position: 'fixed', top, left: 0, right: 0, zIndex: 9999,
         background: '#7C3AED', color: '#fff',
         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
         padding: '8px 16px', fontSize: 12, fontWeight: 600, flexWrap: 'wrap',
@@ -51,7 +52,7 @@ export default function PreviewBanner() {
         </button>
       </div>
       {/* Spacer so page content isn't hidden under the fixed banner */}
-      <div style={{ height: 37 }} />
+      <div style={{ height: 37 + top }} />
     </>
   )
 }

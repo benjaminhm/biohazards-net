@@ -12,6 +12,7 @@ import { NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
+import { normalizeOptionalPhoneField } from '@/lib/phone'
 
 export async function GET(req: Request) {
   try {
@@ -124,12 +125,19 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
     }
 
+    let clientPhoneOut = ''
+    if (client_phone != null && String(client_phone).trim() !== '') {
+      const pr = normalizeOptionalPhoneField(client_phone)
+      if (!pr.ok) return NextResponse.json({ error: pr.error }, { status: 400 })
+      clientPhoneOut = pr.value ?? ''
+    }
+
     const supabase = createServiceClient()
     const { data, error } = await supabase
       .from('jobs')
       .insert({
         client_name,
-        client_phone: client_phone ?? '',
+        client_phone: clientPhoneOut,
         client_email: client_email ?? '',
         site_address,
         job_type,

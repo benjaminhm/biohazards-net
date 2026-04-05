@@ -28,6 +28,7 @@ import { useEffect, useState, useRef, useCallback, Suspense } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import type { DocType, Job, Photo, CompanyProfile } from '@/lib/types'
 import { DOC_TYPE_LABELS } from '@/lib/types'
+import { useUser } from '@/lib/userContext'
 
 // ── Instructions panel ────────────────────────────────────────────────────────
 
@@ -351,9 +352,16 @@ function WasteDoc({ items, onChange }: { items: WI[]; onChange: (v: WI[]) => voi
 // ── Document body ─────────────────────────────────────────────────────────────
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function DocumentBody({ type, content, company, onChange }: { type: DocType; content: Record<string, any>; company: CompanyProfile | null; onChange: (k: string, v: unknown) => void }) {
-  const name    = company?.name    || 'Brisbane Biohazard Cleaning'
-  const tagline = company?.tagline || 'Professional Biohazard Remediation Services'
+function DocumentBody({ type, content, company, orgName, onChange }: {
+  type: DocType
+  content: Record<string, any>
+  company: CompanyProfile | null
+  /** From /api/me when company_profile row is missing */
+  orgName?: string | null
+  onChange: (k: string, v: unknown) => void
+}) {
+  const name    = company?.name    || orgName    || 'Company'
+  const tagline = company?.tagline || 'Professional services'
   const sec = (label: string, key: string, rows = 3) => (
     <DocSection key={key} label={label} value={content[key] || ''} onChange={v => onChange(key, v)} rows={rows} />
   )
@@ -430,6 +438,7 @@ function DocEditorInner() {
   const params       = useParams()
   const router       = useRouter()
   const searchParams = useSearchParams()
+  const { org: ctxOrg } = useUser()
 
   const jobId   = params.id as string
   const docType = params.type as DocType
@@ -614,7 +623,7 @@ function DocEditorInner() {
         </div>
       ) : (
         <div style={{ maxWidth: 800, margin: '0 auto', background: '#fff', borderRadius: 4, boxShadow: '0 4px 32px rgba(0,0,0,0.12)', padding: isMobile ? '20px 16px' : '48px' }}>
-          <DocumentBody type={docType} content={content} company={company} onChange={updateField} />
+          <DocumentBody type={docType} content={content} company={company} orgName={ctxOrg?.name} onChange={updateField} />
         </div>
       )}
     </div>

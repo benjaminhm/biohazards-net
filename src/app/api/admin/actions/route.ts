@@ -3,8 +3,9 @@
  *
  * GET /api/admin/actions — returns a list of items requiring admin attention.
  *
- * This is a catch-all endpoint designed to grow. Currently returns:
+ * Current action types:
  *   - incomplete_profile: team members missing phone, address, or email
+ *   - pending_invoice:    subcontractor invoices awaiting review (status=draft)
  *
  * Future action types to add here:
  *   - expiring_cert: certifications expiring within 30 days
@@ -18,21 +19,17 @@
 import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
 import { NextResponse } from 'next/server'
+import { getOrgId } from '@/lib/org'
 
-export async function GET() {
+export async function GET(req: Request) {
   const { userId } = await auth()
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const supabase = createServiceClient()
 
-  // Get org_id for this admin
-  const { data: orgUser } = await supabase
-    .from('org_users')
-    .select('org_id, role')
-    .eq('clerk_user_id', userId)
-    .single()
-
-  if (!orgUser?.org_id) return NextResponse.json({ actions: [] })
+  // Tenant from membership or platform impersonation (not raw org_users alone)
+  const { orgId } = await getOrgId(req, userId)
+  if (!orgId) return NextResponse.json({ actions: [] })
 
   const actions: {
     type: string
@@ -46,15 +43,25 @@ export async function GET() {
     missing?: string[]
   }[] = []
 
-  // ── Incomplete profiles ──────────────────────────────────────────────────
-  // Team members missing phone, address, or email
-  const { data: people } = await supabase
-    .from('people')
-    .select('id, name, phone, email, address')
-    .eq('org_id', orgUser.org_id)
-    .eq('status', 'active')
+  const [peopleRes, invoicesRes] = await Promise.all([
+    // ── Incomplete profiles ──────────────────────────────────────────────────
+    supabase
+      .from('people')
+      .select('id, name, phone, email, address')
+      .eq('org_id', orgId)
+      .eq('status', 'active'),
 
-  for (const person of people ?? []) {
+    // ── Pending (draft) subcontractor invoices ───────────────────────────────
+    supabase
+      .from('subcontractor_invoices')
+      .select('id, invoice_number, agreed_amount, person_id, job_id, people(name), jobs(client_name)')
+      .eq('org_id', orgId)
+      .eq('status', 'draft')
+      .order('created_at', { ascending: true }),
+  ])
+
+  // Incomplete profiles
+  for (const person of peopleRes.data ?? []) {
     const missing: string[] = []
     if (!person.phone?.trim())   missing.push('phone')
     if (!person.email?.trim())   missing.push('email')
@@ -72,6 +79,22 @@ export async function GET() {
         missing,
       })
     }
+  }
+
+  // Pending invoices
+  for (const inv of invoicesRes.data ?? []) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const personName = (inv.people as any)?.name ?? 'Unknown'
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const jobName    = (inv.jobs as any)?.client_name
+    const amount     = `$${Number(inv.agreed_amount).toLocaleString('en-AU', { minimumFractionDigits: 2 })}`
+    actions.push({
+      type:        'pending_invoice',
+      title:       `Invoice ${inv.invoice_number} — ${personName}`,
+      description: jobName ? `${amount} · ${jobName}` : amount,
+      href:        `/team/${inv.person_id}?tab=invoices`,
+      severity:    'low',
+    })
   }
 
   return NextResponse.json({ actions })

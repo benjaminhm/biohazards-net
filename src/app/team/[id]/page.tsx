@@ -171,7 +171,11 @@ export default function PersonPage() {
 
   // Invite state
   const [inviteLink, setInviteLink]       = useState('')
+  const [inviteToken, setInviteToken]     = useState('')
   const [generatingInvite, setGeneratingInvite] = useState(false)
+  const [sendingEmail, setSendingEmail]   = useState(false)
+  const [emailSent, setEmailSent]         = useState(false)
+  const [emailError, setEmailError]       = useState('')
   const [sendingSms, setSendingSms]       = useState(false)
   const [smsSent, setSmsSent]             = useState(false)
   const [smsError, setSmsError]           = useState('')
@@ -373,6 +377,7 @@ export default function PersonPage() {
       const url = `${window.location.origin}/invite/${data.token}`
       const firstName = person.name.split(' ')[0]
       const company = org?.name ?? 'the team'
+      setInviteToken(data.token)
       setInviteLink(
         `Hi ${firstName}, you've been invited to join the ${company} app. Please click the link below to sign in and get started.\n\n${url}\n\nThanks,\n${company} Administrator`
       )
@@ -509,6 +514,12 @@ export default function PersonPage() {
             <Field label="Email">
               <input value={person.email ?? ''} onChange={e => updateField('email', e.target.value)} type="email" style={inputStyle} />
             </Field>
+            <Field label="Address">
+              <input value={person.address ?? ''} onChange={e => updateField('address', e.target.value)} placeholder="Home or postal address" style={inputStyle} />
+            </Field>
+            <Field label="ABN">
+              <input value={person.abn ?? ''} onChange={e => updateField('abn', e.target.value)} placeholder="XX XXX XXX XXX" style={inputStyle} />
+            </Field>
             <Field label="Emergency Contact">
               <input value={person.emergency_contact ?? ''} onChange={e => updateField('emergency_contact', e.target.value)} placeholder="Contact name" style={inputStyle} />
             </Field>
@@ -566,19 +577,61 @@ export default function PersonPage() {
                       {inviteLink}
                     </div>
 
+                    {emailError && (
+                      <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#F87171', fontSize: 12 }}>
+                        {emailError}
+                      </div>
+                    )}
                     {smsError && (
                       <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#F87171', fontSize: 12 }}>
                         {smsError}
                       </div>
                     )}
 
-                    <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+                    <div style={{ marginTop: 12, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                       <button
                         onClick={() => navigator.clipboard.writeText(inviteLink)}
-                        style={{ flex: 1, padding: '11px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
+                        style={{ flex: '1 1 120px', padding: '11px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
                       >
                         📋 Copy
                       </button>
+                      {person.email && inviteToken && (
+                        <button
+                          onClick={async () => {
+                            setSendingEmail(true)
+                            setEmailError('')
+                            setEmailSent(false)
+                            const res = await fetch('/api/invites/send-email', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ token: inviteToken }),
+                            })
+                            const data = await res.json().catch(() => ({}))
+                            if (!res.ok) {
+                              setEmailError(typeof data.error === 'string' ? data.error : 'Send failed')
+                            } else {
+                              setEmailSent(true)
+                              setTimeout(() => setEmailSent(false), 4000)
+                            }
+                            setSendingEmail(false)
+                          }}
+                          disabled={sendingEmail || emailSent}
+                          style={{
+                            flex: '1 1 120px',
+                            padding: '11px',
+                            borderRadius: 10,
+                            border: 'none',
+                            background: emailSent ? '#10B981' : 'var(--accent)',
+                            color: '#fff',
+                            fontWeight: 600,
+                            fontSize: 13,
+                            cursor: 'pointer',
+                            opacity: sendingEmail ? 0.6 : 1,
+                          }}
+                        >
+                          {sendingEmail ? 'Sending…' : emailSent ? '✓ Email sent' : '✉️ Send email'}
+                        </button>
+                      )}
                       {person.phone && (
                         <button
                           onClick={async () => {
@@ -600,14 +653,22 @@ export default function PersonPage() {
                             setSendingSms(false)
                           }}
                           disabled={sendingSms || smsSent}
-                          style={{ flex: 1, padding: '11px', borderRadius: 10, border: 'none', background: smsSent ? '#10B981' : 'var(--accent)', color: '#fff', fontWeight: 600, fontSize: 13, cursor: 'pointer', opacity: sendingSms ? 0.6 : 1 }}
+                          style={{ flex: '1 1 120px', padding: '11px', borderRadius: 10, border: 'none', background: smsSent ? '#10B981' : 'var(--accent)', color: '#fff', fontWeight: 600, fontSize: 13, cursor: 'pointer', opacity: sendingSms ? 0.6 : 1 }}
                         >
                           {sendingSms ? 'Sending…' : smsSent ? '✓ Sent!' : '📱 Send SMS'}
                         </button>
                       )}
                       <button
-                        onClick={() => { setInviteLink(''); setSmsSent(false); setSmsError(''); generateInvite() }}
-                        style={{ flex: 1, padding: '11px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text-muted)', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
+                        onClick={() => {
+                          setInviteLink('')
+                          setInviteToken('')
+                          setSmsSent(false)
+                          setSmsError('')
+                          setEmailSent(false)
+                          setEmailError('')
+                          generateInvite()
+                        }}
+                        style={{ flex: '1 1 120px', padding: '11px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text-muted)', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
                       >
                         🔄 New
                       </button>

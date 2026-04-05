@@ -17,20 +17,15 @@ import { createServiceClient } from '@/lib/supabase'
 import { NextResponse } from 'next/server'
 import { Resend } from 'resend'
 import { FROM_EMAIL } from '@/lib/email'
+import { getOrgId as resolveOrgId } from '@/lib/org'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 
-async function getOrgId(userId: string) {
-  const supabase = createServiceClient()
-  const { data } = await supabase.from('org_users').select('org_id').eq('clerk_user_id', userId).single()
-  return data?.org_id ?? null
-}
-
-export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id: jobId } = await params
   const { userId } = await auth()
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const orgId = await getOrgId(userId)
+  const { orgId } = await resolveOrgId(req, userId)
   if (!orgId) return NextResponse.json({ assignments: [] })
 
   const supabase = createServiceClient()
@@ -64,7 +59,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const { id: jobId } = await params
   const { userId } = await auth()
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const orgId = await getOrgId(userId)
+  const { orgId } = await resolveOrgId(req, userId)
   if (!orgId) return NextResponse.json({ error: 'No org' }, { status: 403 })
 
   const { person_id } = await req.json()
@@ -141,7 +136,7 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
   const { id: jobId } = await params
   const { userId } = await auth()
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const orgId = await getOrgId(userId)
+  const { orgId } = await resolveOrgId(req, userId)
   if (!orgId) return NextResponse.json({ error: 'No org' }, { status: 403 })
 
   const { person_id } = await req.json()

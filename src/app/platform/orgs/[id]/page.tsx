@@ -14,7 +14,6 @@
 
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { randomBytes } from 'crypto'
 
 // We don't have types imported here — define inline interfaces
 interface OrgRow {
@@ -54,6 +53,18 @@ interface OrgProfile {
   invites: InviteRow[]
 }
 
+interface SendLogRow {
+  id: string
+  person_id: string | null
+  channel: string
+  recipient: string
+  org_name: string
+  admin_name: string
+  invite_url: string
+  provider_id: string | null
+  created_at: string
+}
+
 const PLAN_COLORS: Record<string, { bg: string; fg: string }> = {
   solo:     { bg: 'rgba(100,100,100,0.12)', fg: '#888' },
   team:     { bg: 'rgba(59,130,246,0.1)',   fg: '#60A5FA' },
@@ -69,6 +80,19 @@ export default function OrgProfilePage() {
   const [error, setError]     = useState('')
   const [copied, setCopied]   = useState(false)
   const [regenerating, setRegenerating] = useState(false)
+  const [sendLog, setSendLog] = useState<SendLogRow[]>([])
+  const [sending, setSending] = useState<string | null>(null)
+
+  async function loadSendLog() {
+    try {
+      const res = await fetch(`/api/admin/provision/send-log?org_id=${encodeURIComponent(id)}`)
+      const j = await res.json()
+      if (res.ok && Array.isArray(j.sends)) setSendLog(j.sends)
+      else setSendLog([])
+    } catch {
+      setSendLog([])
+    }
+  }
 
   async function load() {
     setLoading(true)
@@ -77,6 +101,7 @@ export default function OrgProfilePage() {
       const json = await res.json()
       if (!res.ok) { setError(json.error ?? 'Failed'); return }
       setData(json)
+      await loadSendLog()
     } catch {
       setError('Failed to load')
     } finally {
@@ -116,6 +141,89 @@ export default function OrgProfilePage() {
     navigator.clipboard.writeText(url)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  async function sendInvite(
+    channel: 'email' | 'sms',
+    opts: { inviteUrl: string; person: PersonRow }
+  ) {
+    if (!data) return
+    const key = `${channel}-${opts.person.id}`
+    setSending(key)
+    try {
+      const body: Record<string, string> = {
+        channel,
+        invite_url: opts.inviteUrl,
+        org_name: data.org.name,
+        admin_name: opts.person.name,
+        org_id: data.org.id,
+        person_id: opts.person.id,
+      }
+      if (channel === 'email') {
+        if (!opts.person.email?.trim()) {
+          alert('Add an email on this profile first (or copy the link).')
+          return
+        }
+        body.admin_email = opts.person.email.trim()
+      } else {
+        if (!opts.person.phone?.trim()) {
+          alert('Add a phone number on this profile first (or copy the link).')
+          return
+        }
+        body.admin_phone = opts.person.phone.trim()
+      }
+      const res = await fetch('/api/admin/provision/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        alert(typeof j.error === 'string' ? j.error : 'Send failed')
+        return
+      }
+      await loadSendLog()
+    } finally {
+      setSending(null)
+    }
+  }
+
+  async function resendInvite(row: SendLogRow) {
+    if (!data) return
+    setSending(`resend-${row.id}`)
+    try {
+      const now = new Date()
+      const activeInv = data.invites.filter(inv => !inv.claimed_by && new Date(inv.expires_at) > now)
+      let inviteUrl = row.invite_url
+      if (row.person_id) {
+        const inv = activeInv.find(i => i.person_id === row.person_id)
+        if (inv) inviteUrl = `https://app.biohazards.net/invite/${inv.token}`
+      }
+      const body: Record<string, string> = {
+        channel: row.channel === 'sms' ? 'sms' : 'email',
+        invite_url: inviteUrl,
+        org_name: data.org.name,
+        admin_name: row.admin_name,
+        org_id: data.org.id,
+      }
+      if (row.person_id) body.person_id = row.person_id
+      if (row.channel === 'sms') body.admin_phone = row.recipient
+      else body.admin_email = row.recipient
+
+      const res = await fetch('/api/admin/provision/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        alert(typeof j.error === 'string' ? j.error : 'Resend failed')
+        return
+      }
+      await loadSendLog()
+    } finally {
+      setSending(null)
+    }
   }
 
   if (loading) {
@@ -276,6 +384,16 @@ export default function OrgProfilePage() {
                                 {inviteUrl}
                               </span>
                               <TinyBtn label={copied ? '✓ Copied' : 'Copy'} onClick={() => copyInvite(inviteUrl)} primary />
+                              <TinyBtn
+                                label={sending === `email-${person.id}` ? '…' : 'Email'}
+                                onClick={() => sendInvite('email', { inviteUrl, person })}
+                                disabled={!!sending || !person.email?.trim()}
+                              />
+                              <TinyBtn
+                                label={sending === `sms-${person.id}` ? '…' : 'SMS'}
+                                onClick={() => sendInvite('sms', { inviteUrl, person })}
+                                disabled={!!sending || !person.phone?.trim()}
+                              />
                               <TinyBtn label={regenerating ? '…' : 'Refresh'} onClick={() => handleRegenerateInvite(person.id)} />
                             </div>
                           </div>
@@ -292,6 +410,51 @@ export default function OrgProfilePage() {
                   </div>
                 )
               })}
+            </div>
+          )}
+        </Card>
+
+        <Card title="Recent invite sends">
+          {sendLog.length === 0 ? (
+            <p style={{ color: 'var(--text-muted)', fontSize: 13, margin: 0 }}>
+              No emailed or SMS invites recorded yet. Use Email or SMS next to an invite link above — sends are logged here for audit and one-click resend.
+            </p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {sendLog.map(row => (
+                <div
+                  key={row.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                    flexWrap: 'wrap',
+                    padding: '10px 12px',
+                    background: 'var(--surface-2)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 8,
+                    fontSize: 13,
+                  }}
+                >
+                  <div style={{ flex: 1, minWidth: 200 }}>
+                    <span style={{ fontWeight: 700, color: 'var(--accent)' }}>{row.channel === 'sms' ? 'SMS' : 'Email'}</span>
+                    {' · '}
+                    <span style={{ color: 'var(--text-muted)' }}>{row.admin_name}</span>
+                    {' → '}
+                    <span className="mono" style={{ fontSize: 12 }}>{row.recipient}</span>
+                    <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 4 }}>
+                      {new Date(row.created_at).toLocaleString('en-AU', { dateStyle: 'short', timeStyle: 'short' })}
+                    </div>
+                  </div>
+                  <TinyBtn
+                    label={sending === `resend-${row.id}` ? '…' : 'Resend'}
+                    onClick={() => resendInvite(row)}
+                    disabled={!!sending}
+                    primary
+                  />
+                </div>
+              ))}
             </div>
           )}
         </Card>
@@ -364,15 +527,18 @@ function Stat({ label, value }: { label: string; value: React.ReactNode }) {
   )
 }
 
-function TinyBtn({ label, onClick, primary }: { label: string; onClick: () => void; primary?: boolean }) {
+function TinyBtn({ label, onClick, primary, disabled }: { label: string; onClick: () => void; primary?: boolean; disabled?: boolean }) {
   return (
     <button
+      type="button"
       onClick={onClick}
+      disabled={disabled}
       style={{
-        padding: '6px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
+        padding: '6px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap',
         background: primary ? 'var(--surface-3)' : 'transparent',
         border: `1px solid ${primary ? 'var(--border-2)' : 'var(--border)'}`,
         color: primary ? 'var(--text)' : 'var(--text-muted)',
+        opacity: disabled ? 0.45 : 1,
       }}
     >
       {label}

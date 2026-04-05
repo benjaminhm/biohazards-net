@@ -6,13 +6,16 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "migrate:phones": "npx tsx scripts/migrate-phones-to-e164.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",
     "@clerk/nextjs": "^7.0.8",
     "@react-pdf/renderer": "^4.3.2",
     "@supabase/supabase-js": "^2.100.1",
+    "jose": "^5.10.0",
+    "libphonenumber-js": "^1.12.41",
     "next": "16.2.1",
     "react": "19.2.4",
     "react-dom": "19.2.4",
@@ -20,6 +23,7 @@
     "twilio": "^5.13.1"
   },
   "devDependencies": {
+    "tsx": "^4.19.3",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

@@ -140,6 +140,8 @@ export interface PhoneEntry {
 
 export interface Job {
   id: string
+  /** Present when job payload is scoped to an org (API validation). */
+  org_id?: string
   status: JobStatus
   urgency: JobUrgency
   job_type: JobType

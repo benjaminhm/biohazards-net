@@ -168,7 +168,7 @@ function wrap(body: string, title: string, client?: ClientInfo): string {
 
 function header(company: CompanyProfile | null, reference: string): string {
   const name    = company?.name    || 'Brisbane Biohazard Cleaning'
-  const tagline = company?.tagline || 'Professional Biohazard Remediation Services'
+  const tagline = company?.tagline || 'Professional services'
   const logo    = company?.logo_url ? `<img src="${esc(company.logo_url)}" alt="${esc(name)}">` : ''
   return `
     <div class="header">

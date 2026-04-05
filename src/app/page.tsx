@@ -45,7 +45,7 @@ export default function HomePage() {
   const [time, setTime]         = useState('')
   const [upcoming, setUpcoming] = useState<Job[]>([])
   const { signOut } = useClerk()
-  const { caps, isAdmin, loading: userLoading, previewMode } = useUser()
+  const { caps, isAdmin, loading: userLoading, previewMode, org: ctxOrg } = useUser()
   const [showPreviewPicker, setShowPreviewPicker] = useState(false)
   const [actions, setActions] = useState<{
     type: string; title: string; description: string; href: string; severity: string
@@ -107,7 +107,7 @@ export default function HomePage() {
     }
   }
 
-  const name = company?.name || 'Brisbane Biohazard Cleaning'
+  const name = company?.name || ctxOrg?.name || 'Company'
 
   const tiles = [
     { href: '/jobs/new',    icon: '＋', label: 'New Job',         sub: 'Log manually',       color: '#3B82F6' },

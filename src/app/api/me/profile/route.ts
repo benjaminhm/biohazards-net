@@ -8,7 +8,7 @@
  * without needing admin access to /team/[id].
  *
  * Only fields safe for self-editing are accepted on PATCH:
- *   phone, address, abn, emergency_contact, emergency_phone
+ *   phone, email, address, abn, emergency_contact, emergency_phone
  * Name and role are admin-controlled and cannot be changed here.
  *
  * Returns 404 if the user's org_users row has no person_id linked yet
@@ -17,6 +17,7 @@
 import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
 import { NextRequest, NextResponse } from 'next/server'
+import { normalizeOptionalPhoneField } from '@/lib/phone'
 
 export async function GET() {
   const { userId } = await auth()
@@ -64,10 +65,35 @@ export async function PATCH(req: NextRequest) {
 
   // Only allow self-editable fields — name and role stay admin-controlled
   const body = await req.json()
-  const allowed: Record<string, string> = {}
-  const SELF_EDIT_FIELDS = ['phone', 'address', 'abn', 'emergency_contact', 'emergency_phone']
+  const allowed: Record<string, string | null> = {}
+  const SELF_EDIT_FIELDS = ['phone', 'email', 'address', 'abn', 'emergency_contact', 'emergency_phone'] as const
+  const emailOk = (s: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s)
+
   for (const key of SELF_EDIT_FIELDS) {
-    if (key in body) allowed[key] = body[key]
+    if (!(key in body)) continue
+    if (key === 'phone' || key === 'emergency_phone') {
+      const r = normalizeOptionalPhoneField(body[key])
+      if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 })
+      if (r.value === undefined) continue
+      allowed[key] = r.value
+    } else if (key === 'email') {
+      const v = body[key]
+      if (v === undefined) continue
+      if (v === null || v === '') {
+        allowed[key] = null
+        continue
+      }
+      if (typeof v !== 'string') return NextResponse.json({ error: 'Invalid email' }, { status: 400 })
+      const t = v.trim()
+      if (!t) {
+        allowed[key] = null
+        continue
+      }
+      if (!emailOk(t)) return NextResponse.json({ error: 'Invalid email address' }, { status: 400 })
+      allowed[key] = t
+    } else {
+      allowed[key] = body[key]
+    }
   }
 
   const { data: person, error } = await supabase

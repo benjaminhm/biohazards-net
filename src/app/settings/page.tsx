@@ -48,13 +48,13 @@ const DEFAULT_GENERAL_RULES = `You are writing documents for an Australian bioha
 - Keep language clear and direct — this is a professional services business`
 
 const DEFAULT_PROFILE: Omit<CompanyProfile, 'id' | 'updated_at'> = {
-  name: 'Brisbane Biohazard Cleaning',
+  name: 'Company',
   abn: '',
   phone: '',
   email: '',
   address: '',
   licence: '',
-  tagline: 'Professional Biohazard Remediation Services',
+  tagline: '',
   logo_url: null,
   subdomain: '',
   custom_domain: '',
@@ -326,8 +326,8 @@ export default function SettingsPage() {
           <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent)', marginBottom: 14 }}>
             Company Details
           </div>
-          {field('Company Name', 'name', 'Brisbane Biohazard Cleaning')}
-          {field('Tagline', 'tagline', 'Professional Biohazard Remediation Services')}
+          {field('Company Name', 'name', 'Your company name')}
+          {field('Tagline', 'tagline', 'Short line under your name on documents and PDFs')}
           {field('ABN', 'abn', '12 345 678 901')}
           {field('Licence Number', 'licence', 'QLD Biohazard Licence #')}
         </div>

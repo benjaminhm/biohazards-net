@@ -31,6 +31,7 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
+import { getImpersonationReadOnlyFromRequest } from '@/lib/impersonation'
 
 const isPublicRoute = createRouteMatcher([
   '/login(.*)',
@@ -63,7 +64,12 @@ export default clerkMiddleware(async (auth, request: NextRequest) => {
   // Match first label of biohazards.net (e.g. 'brisbanebiohazardcleaning' from bbc.biohazards.net)
   const subdomainMatch = host.match(/^([^.]+)\.biohazards\.net$/)
   const slug = subdomainMatch ? subdomainMatch[1] : null
-  const isCustomDomain = !host.endsWith('.biohazards.net') && host !== 'biohazards.net'
+  // Local dev hosts must NOT set x-org-host — otherwise getOrgId looks up orgs.custom_domain = "localhost:3000" and 401s.
+  const hostNoPort = host.split(':')[0].toLowerCase()
+  const isLocalDev =
+    hostNoPort === 'localhost' || hostNoPort === '127.0.0.1' || hostNoPort === '0.0.0.0'
+  const isCustomDomain =
+    !isLocalDev && !host.endsWith('.biohazards.net') && host !== 'biohazards.net'
 
   // ── Custom domain (e.g. app.brisbanebiohazardcleaning.com.au) ──
   if (isCustomDomain) {
@@ -120,6 +126,26 @@ export default clerkMiddleware(async (auth, request: NextRequest) => {
       const loginUrl = new URL('/login', request.url)
       loginUrl.searchParams.set('redirect_url', request.url)
       return NextResponse.redirect(loginUrl)
+    }
+  }
+
+  // ── Read-only impersonation: block mutating /api/* (session endpoints exempt) ──
+  if (pathname.startsWith('/api/') && !pathname.startsWith('/api/admin/impersonate')) {
+    const m = request.method
+    if (m !== 'GET' && m !== 'HEAD' && m !== 'OPTIONS') {
+      const { userId } = await auth()
+      if (userId) {
+        const ro = await getImpersonationReadOnlyFromRequest(request, userId)
+        if (ro) {
+          return NextResponse.json(
+            {
+              error:
+                'Read-only impersonation is active. Mutating API calls are disabled. End the session from the banner or Platform admin.',
+            },
+            { status: 403 }
+          )
+        }
+      }
     }
   }
 

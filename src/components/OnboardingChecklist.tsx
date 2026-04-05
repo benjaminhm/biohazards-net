@@ -36,6 +36,7 @@ interface Person {
 
 interface EditState {
   phone: string
+  email: string
   address: string
   abn: string
   emergency_contact: string
@@ -53,7 +54,7 @@ export default function OnboardingChecklist() {
   const [gone, setGone]           = useState(false)
 
   const [edit, setEdit] = useState<EditState>({
-    phone: '', address: '', abn: '',
+    phone: '', email: '', address: '', abn: '',
     emergency_contact: '', emergency_phone: '',
   })
 
@@ -66,6 +67,7 @@ export default function OnboardingChecklist() {
           setPerson(d.person)
           setEdit({
             phone:             d.person.phone             ?? '',
+            email:             d.person.email             ?? '',
             address:           d.person.address           ?? '',
             abn:               d.person.abn               ?? '',
             emergency_contact: d.person.emergency_contact ?? '',
@@ -130,7 +132,22 @@ export default function OnboardingChecklist() {
         body: JSON.stringify(edit),
       })
       const d = await res.json()
-      if (d.person) { setPerson(d.person); setEditOpen(false) }
+      if (!res.ok) {
+        alert(typeof d.error === 'string' ? d.error : 'Could not save')
+        return
+      }
+      if (d.person) {
+        setPerson(d.person)
+        setEdit({
+          phone:             d.person.phone             ?? '',
+          email:             d.person.email             ?? '',
+          address:           d.person.address           ?? '',
+          abn:               d.person.abn               ?? '',
+          emergency_contact: d.person.emergency_contact ?? '',
+          emergency_phone:   d.person.emergency_phone   ?? '',
+        })
+        setEditOpen(false)
+      }
     } finally { setSaving(false) }
   }
 
@@ -246,6 +263,7 @@ export default function OnboardingChecklist() {
 
             {[
               { label: 'Mobile number',           key: 'phone',             type: 'tel',  placeholder: '04XX XXX XXX' },
+              { label: 'Email address',           key: 'email',             type: 'email', placeholder: 'you@example.com' },
               { label: 'Home address',             key: 'address',           type: 'text', placeholder: '123 Example St, Brisbane QLD 4000' },
               { label: 'Emergency contact name',   key: 'emergency_contact', type: 'text', placeholder: 'Jane Smith' },
               { label: 'Emergency contact phone',  key: 'emergency_phone',   type: 'tel',  placeholder: '04XX XXX XXX' },

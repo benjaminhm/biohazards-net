@@ -4,12 +4,18 @@
  * Platform super-admin dashboard — only accessible to PLATFORM_ADMIN_CLERK_IDS.
  * The middleware enforces this at the edge; the API routes double-check server-side.
  *
- * Three tabs:
- *   - Orgs: lists all orgs on the platform. Allows creating new orgs (name + slug),
- *     editing plan/seat_limit/is_active via PATCH /api/admin/orgs/[id].
+ * Tabs:
+ *   - Orgs: lists all orgs. "+ New Organisation" = POST /api/admin/orgs (empty company row only).
+ *     No combined "create + invite admin" in this UI. Edit orgs via PATCH /api/admin/orgs/[id].
  *   - Admins: lists all org_users across all orgs, enriched with Clerk names.
- *   - Pending: Clerk users who exist but have no org_users row yet. The admin
- *     can assign them to an org with a role via POST /api/admin/users/pending.
+ *   - Pending: Clerk users who exist but have no org_users row yet. Assign via
+ *     POST /api/admin/users/pending. If the user already belongs to another org,
+ *     the API returns 409 until confirm_move — the UI opens a move confirmation modal.
+ *   - App users (tab id `admins`): lists every org_users row (all roles: owner, admin, member).
+ *     Misleading old label was "Administrators". Non–platform-owner rows can use "Move org…"
+ *     to reassign (one org per user; moving removes the old membership).
+ *   - Orgs tab — "Training & debugging": start audited tenant impersonation
+ *     (POST /api/admin/impersonate) then open the main app with that org context.
  *
  * PLATFORM_OWNER_ID is hard-coded as a last-resort admin ID separate from the
  * env var so the platform owner can always access the dashboard even if the env
@@ -27,10 +33,6 @@ const PLATFORM_OWNER_ID = 'user_3BkVAf7042IsBwqabQ9MoZdEbvE'
 
 interface OrgWithCount extends Org { user_count: number }
 interface NewOrgForm { name: string; slug: string; plan: string; seat_limit: string }
-interface ProvisionForm {
-  org_name: string; org_slug: string; plan: string; seat_limit: string
-  admin_name: string; admin_email: string; admin_phone: string
-}
 interface AdminUser {
   id: string; clerk_user_id: string; org_id: string; role: string
   email: string; name: string; image_url: string; created_at: string
@@ -62,15 +64,6 @@ export default function AdminPage() {
   const [editingId, setEditingId]           = useState<string | null>(null)
   const [editForm, setEditForm]             = useState<Partial<Org>>({})
 
-  const [showProvisionModal, setShowProvisionModal] = useState(false)
-  const [provisionForm, setProvisionForm]   = useState<ProvisionForm>({
-    org_name: '', org_slug: '', plan: 'solo', seat_limit: '5',
-    admin_name: '', admin_email: '', admin_phone: '',
-  })
-  const [provisioning, setProvisioning]     = useState(false)
-  const [provisionResult, setProvisionResult] = useState<{ invite_url: string; org_name: string } | null>(null)
-  const [provisionCopied, setProvisionCopied] = useState(false)
-
   const [admins, setAdmins]                 = useState<AdminUser[]>([])
   const [loadingAdmins, setLoadingAdmins]   = useState(false)
   const [showInviteModal, setShowInviteModal] = useState(false)
@@ -88,6 +81,25 @@ export default function AdminPage() {
   const [assignOrg, setAssignOrg]           = useState('')
   const [assignRole, setAssignRole]         = useState('owner')
   const [assigning, setAssigning]           = useState(false)
+  const [adminMoveId, setAdminMoveId]       = useState<string | null>(null)
+  const [moveConfirm, setMoveConfirm]       = useState<null | {
+    clerkUserId: string
+    orgId: string
+    orgName: string
+    role: string
+    existingOrgName: string
+  }>(null)
+
+  const [impSession, setImpSession] = useState<{
+    active: boolean
+    org_id?: string
+    org_name?: string
+    read_only?: boolean
+  } | null>(null)
+  const [impOrgId, setImpOrgId]     = useState('')
+  const [impReason, setImpReason]   = useState('')
+  const [impAllowWrites, setImpAllowWrites] = useState(false)
+  const [impBusy, setImpBusy]       = useState(false)
 
   async function fetchOrgs() {
     setLoadingOrgs(true); setOrgsError(null)
@@ -140,6 +152,13 @@ export default function AdminPage() {
   }
 
   useEffect(() => { fetchOrgs() }, [])
+  useEffect(() => {
+    if (tab !== 'orgs') return
+    fetch('/api/admin/impersonate')
+      .then(r => r.json())
+      .then(d => setImpSession(d))
+      .catch(() => setImpSession({ active: false }))
+  }, [tab])
   useEffect(() => { if (tab === 'admins') fetchAdmins() }, [tab])
   useEffect(() => { if (tab === 'pending') fetchPending() }, [tab])
   useEffect(() => { if (tab === 'reviews') fetchReviews() }, [tab])
@@ -155,36 +174,6 @@ export default function AdminPage() {
       setShowModal(false); setForm({ name: '', slug: '', plan: 'solo', seat_limit: '1' }); await fetchOrgs()
     } catch (e: unknown) { alert(e instanceof Error ? e.message : 'Error') }
     finally { setSubmitting(false) }
-  }
-
-  async function handleProvision(e: React.FormEvent) {
-    e.preventDefault(); setProvisioning(true)
-    try {
-      const res = await fetch('/api/admin/provision', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          org_name: provisionForm.org_name,
-          org_slug: provisionForm.org_slug,
-          plan: provisionForm.plan,
-          seat_limit: parseInt(provisionForm.seat_limit, 10) || 5,
-          admin_name: provisionForm.admin_name,
-          admin_email: provisionForm.admin_email,
-          admin_phone: provisionForm.admin_phone || undefined,
-        }),
-      })
-      const json = await res.json()
-      if (!res.ok) { alert(json.error ?? 'Failed'); return }
-      setProvisionResult({ invite_url: json.invite_url, org_name: json.org.name })
-      await fetchOrgs()
-    } catch (e: unknown) { alert(e instanceof Error ? e.message : 'Error') }
-    finally { setProvisioning(false) }
-  }
-
-  function closeProvisionModal() {
-    setShowProvisionModal(false)
-    setProvisionResult(null)
-    setProvisionCopied(false)
-    setProvisionForm({ org_name: '', org_slug: '', plan: 'solo', seat_limit: '5', admin_name: '', admin_email: '', admin_phone: '' })
   }
 
   async function handleSaveEdit(id: string) {
@@ -211,17 +200,125 @@ export default function AdminPage() {
     finally { setInviting(false) }
   }
 
+  async function assignUserToOrg(
+    clerkUserId: string,
+    orgId: string,
+    role: string,
+    confirmMove: boolean
+  ): Promise<'ok' | 'needs_confirm'> {
+    const res = await fetch('/api/admin/users/pending', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        clerk_user_id: clerkUserId,
+        org_id: orgId,
+        role,
+        confirm_move: confirmMove,
+      }),
+    })
+    const j = (await res.json().catch(() => ({}))) as {
+      error?: string
+      code?: string
+      existing_org?: { name?: string }
+    }
+    if (res.status === 409 && j.code === 'NEEDS_MOVE_CONFIRMATION') {
+      const org = orgs.find(o => o.id === orgId)
+      setMoveConfirm({
+        clerkUserId,
+        orgId,
+        orgName: org?.name ?? 'selected organisation',
+        role,
+        existingOrgName: j.existing_org?.name ?? 'another organisation',
+      })
+      return 'needs_confirm'
+    }
+    if (!res.ok) throw new Error(typeof j.error === 'string' ? j.error : 'Failed to assign')
+    await fetchPending()
+    await fetchAdmins()
+    setAssigningId(null)
+    setAdminMoveId(null)
+    setMoveConfirm(null)
+    return 'ok'
+  }
+
   async function handleAssign(clerkUserId: string) {
     if (!assignOrg) return alert('Select an organisation')
+    const org = orgs.find(o => o.slug === assignOrg)
+    if (!org) return alert('Organisation not found')
     setAssigning(true)
     try {
-      const org = orgs.find(o => o.slug === assignOrg)
-      if (!org) throw new Error('Org not found')
-      const res = await fetch('/api/admin/users/pending', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clerk_user_id: clerkUserId, org_id: org.id, role: assignRole }) })
-      if (!res.ok) { const j = await res.json(); throw new Error(j.error ?? 'Failed') }
-      setAssigningId(null); await fetchPending(); await fetchAdmins()
-    } catch (e: unknown) { alert(e instanceof Error ? e.message : 'Error') }
-    finally { setAssigning(false) }
+      const r = await assignUserToOrg(clerkUserId, org.id, assignRole, false)
+      if (r === 'needs_confirm') return
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Error')
+    } finally {
+      setAssigning(false)
+    }
+  }
+
+  async function handleAdminMoveSubmit() {
+    if (!adminMoveId || !assignOrg) return alert('Select an organisation')
+    const org = orgs.find(o => o.slug === assignOrg)
+    if (!org) return alert('Organisation not found')
+    setAssigning(true)
+    try {
+      const r = await assignUserToOrg(adminMoveId, org.id, assignRole, false)
+      if (r === 'needs_confirm') return
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Error')
+    } finally {
+      setAssigning(false)
+    }
+  }
+
+  async function handleMoveConfirmAuthorize() {
+    if (!moveConfirm) return
+    setAssigning(true)
+    try {
+      await assignUserToOrg(moveConfirm.clerkUserId, moveConfirm.orgId, moveConfirm.role, true)
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Error')
+    } finally {
+      setAssigning(false)
+    }
+  }
+
+  async function handleImpersonationStart() {
+    if (!impOrgId) return alert('Select an organisation')
+    setImpBusy(true)
+    try {
+      const res = await fetch('/api/admin/impersonate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          org_id: impOrgId,
+          reason: impReason.trim() || undefined,
+          read_only: !impAllowWrites,
+        }),
+      })
+      const j = (await res.json().catch(() => ({}))) as { error?: string }
+      if (!res.ok) throw new Error(typeof j.error === 'string' ? j.error : 'Failed to start session')
+      window.location.href = '/'
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Error')
+    } finally {
+      setImpBusy(false)
+    }
+  }
+
+  async function handleImpersonationEnd() {
+    setImpBusy(true)
+    try {
+      await fetch('/api/admin/impersonate', { method: 'DELETE' })
+      setImpSession({ active: false })
+      setImpOrgId('')
+      setImpReason('')
+      setImpAllowWrites(false)
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Error')
+    } finally {
+      setImpBusy(false)
+    }
   }
 
   const activeOrgs = orgs.filter(o => o.is_active).length
@@ -243,28 +340,17 @@ export default function AdminPage() {
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           {tab === 'orgs' && (
-            <>
-              <button
-                onClick={() => setShowProvisionModal(true)}
-                style={{
-                  background: 'var(--accent)', border: 'none',
-                  borderRadius: 8, padding: '9px 16px',
-                  color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer',
-                }}
-              >
-                + New Organisation
-              </button>
-              <button
-                onClick={() => setShowModal(true)}
-                style={{
-                  background: 'var(--surface-2)', border: '1px solid var(--border-2)',
-                  borderRadius: 8, padding: '9px 16px',
-                  color: 'var(--text)', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                }}
-              >
-                + Without Admin
-              </button>
-            </>
+            <button
+              type="button"
+              onClick={() => setShowModal(true)}
+              style={{
+                background: 'var(--accent)', border: 'none',
+                borderRadius: 8, padding: '9px 16px',
+                color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+              }}
+            >
+              + New Organisation
+            </button>
           )}
           {tab === 'admins' && (
             <button
@@ -301,7 +387,7 @@ export default function AdminPage() {
               display: 'flex', alignItems: 'center', gap: 7,
             }}
           >
-            {t === 'orgs' ? 'Organisations' : t === 'admins' ? 'Administrators' : t === 'pending' ? 'Pending' : 'Reviews'}
+            {t === 'orgs' ? 'Organisations' : t === 'admins' ? 'App users' : t === 'pending' ? 'Pending' : 'Reviews'}
             {t === 'pending' && pending.length > 0 && (
               <span style={{
                 background: '#EF4444', color: '#fff',
@@ -337,6 +423,67 @@ export default function AdminPage() {
                   <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{s.label}</div>
                 </div>
               ))}
+            </div>
+
+            <div style={{
+              marginBottom: 24,
+              padding: '18px 20px',
+              borderRadius: 12,
+              border: '1px solid rgba(194, 65, 12, 0.35)',
+              background: 'rgba(194, 65, 12, 0.06)',
+            }}>
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#EA580C', marginBottom: 8 }}>
+                Training &amp; debugging
+              </div>
+              <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 14, lineHeight: 1.55 }}>
+                Open the main app in the context of a tenant organisation. Sessions are audited. Prefer read-only on live customer data; enable writes only when you need to reproduce issues.
+              </p>
+              {impSession?.active ? (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
+                  <span style={{ fontSize: 13 }}>
+                    Active: <strong>{impSession.org_name}</strong>
+                    {impSession.read_only ? ' (read-only)' : ' (writes allowed)'}
+                  </span>
+                  <TinyButton label={impBusy ? '…' : 'End session'} onClick={() => void handleImpersonationEnd()} primary />
+                  <TinyButton label="Open app" onClick={() => { window.location.href = '/' }} />
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 480 }}>
+                  <select
+                    value={impOrgId}
+                    onChange={e => setImpOrgId(e.target.value)}
+                    style={{ padding: '8px 10px', borderRadius: 8, fontSize: 13, border: '1px solid var(--border)' }}
+                  >
+                    <option value="">Select organisation…</option>
+                    {orgs.filter(o => o.is_active).map(o => (
+                      <option key={o.id} value={o.id}>{o.name}</option>
+                    ))}
+                  </select>
+                  <input
+                    type="text"
+                    placeholder="Reason (optional, e.g. ticket id)"
+                    value={impReason}
+                    onChange={e => setImpReason(e.target.value)}
+                    style={{ padding: '8px 10px', borderRadius: 8, fontSize: 13, border: '1px solid var(--border)' }}
+                  />
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={impAllowWrites}
+                      onChange={e => setImpAllowWrites(e.target.checked)}
+                    />
+                    Allow writes (debugging — API mutations are blocked when unchecked)
+                  </label>
+                  <div>
+                    <TinyButton
+                      label={impBusy ? 'Starting…' : 'Start session & open app'}
+                      onClick={() => void handleImpersonationStart()}
+                      primary
+                      disabled={!impOrgId || impBusy}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
 
             {orgsError && (
@@ -449,12 +596,12 @@ export default function AdminPage() {
         {tab === 'admins' && (
           <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
             {loadingAdmins ? <EmptyState>Loading…</EmptyState>
-            : admins.length === 0 ? <EmptyState>No administrators yet.</EmptyState>
+            : admins.length === 0 ? <EmptyState>No linked app users yet.</EmptyState>
             : (
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                    {['', 'User', 'Email', 'Organisation', 'Role', 'Since'].map(h => (
+                    {['', 'User', 'Email', 'Organisation', 'Role', 'Since', 'Actions'].map(h => (
                       <th key={h} style={{ padding: '11px 16px', textAlign: 'left', fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-dim)' }}>
                         {h}
                       </th>
@@ -488,6 +635,37 @@ export default function AdminPage() {
                         <td style={{ padding: '12px 16px', color: 'var(--text-muted)', fontSize: 12 }} className="mono">
                           {new Date(u.created_at).toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' })}
                         </td>
+                        <td style={{ padding: '12px 16px', minWidth: 220 }}>
+                          {isOwner ? (
+                            <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>—</span>
+                          ) : adminMoveId === u.clerk_user_id ? (
+                            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                              <select value={assignOrg} onChange={e => setAssignOrg(e.target.value)} style={{ padding: '5px 8px', fontSize: 12, width: 'auto', maxWidth: 160 }}>
+                                <option value="">Move to…</option>
+                                {orgs.filter(o => o.is_active && o.id !== u.org_id).map(o => (
+                                  <option key={o.id} value={o.slug}>{o.name}</option>
+                                ))}
+                              </select>
+                              <select value={assignRole} onChange={e => setAssignRole(e.target.value)} style={{ padding: '5px 8px', fontSize: 12, width: 'auto' }}>
+                                <option value="owner">Owner</option>
+                                <option value="admin">Admin</option>
+                                <option value="operator">Operator</option>
+                                <option value="member">Member</option>
+                              </select>
+                              <TinyButton label={assigning ? '…' : 'Confirm'} onClick={() => void handleAdminMoveSubmit()} primary />
+                              <TinyButton label="Cancel" onClick={() => { setAdminMoveId(null); setAssignOrg('') }} />
+                            </div>
+                          ) : (
+                            <TinyButton
+                              label="Move org…"
+                              onClick={() => {
+                                setAdminMoveId(u.clerk_user_id)
+                                setAssignOrg('')
+                                setAssignRole(u.role || 'owner')
+                              }}
+                            />
+                          )}
+                        </td>
                       </tr>
                     )
                   })}
@@ -502,7 +680,9 @@ export default function AdminPage() {
           <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
             {loadingPending ? <EmptyState>Loading…</EmptyState>
             : pending.length === 0 ? (
-              <EmptyState>No pending users. Send an invite from the Administrators tab.</EmptyState>
+              <EmptyState>
+                No pending users. This list is only for people who have signed up with Clerk but are not yet linked to any organisation. Staff who already joined an org appear under <strong style={{ color: 'var(--text)' }}>App users</strong>.
+              </EmptyState>
             ) : (
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
@@ -538,6 +718,7 @@ export default function AdminPage() {
                               <option value="owner">Owner</option>
                               <option value="admin">Admin</option>
                               <option value="operator">Operator</option>
+                              <option value="member">Member</option>
                             </select>
                             <TinyButton label={assigning ? '…' : 'Confirm'} onClick={() => handleAssign(u.clerk_user_id)} primary />
                             <TinyButton label="Cancel" onClick={() => setAssigningId(null)} />
@@ -611,85 +792,44 @@ export default function AdminPage() {
         )}
       </main>
 
-      {/* ── Provision Company Modal ── */}
-      {showProvisionModal && (
-        <AdminModal onClose={closeProvisionModal} title="New Organisation">
-          {provisionResult ? (
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 36, marginBottom: 12 }}>🎉</div>
-              <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 6 }}>{provisionResult.org_name} is live!</div>
-              <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20, lineHeight: 1.6 }}>
-                Copy the invite link below and send it to the administrator. When they sign in, they'll be linked to this company automatically.
-              </p>
-              <div style={{
-                background: 'var(--surface-2)', border: '1px solid var(--border)',
-                borderRadius: 8, padding: '10px 14px', marginBottom: 16,
-                fontFamily: 'monospace', fontSize: 12, color: 'var(--text-muted)',
-                wordBreak: 'break-all', textAlign: 'left',
-              }}>
-                {provisionResult.invite_url}
-              </div>
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
-                <button
-                  onClick={() => { navigator.clipboard.writeText(provisionResult.invite_url); setProvisionCopied(true); setTimeout(() => setProvisionCopied(false), 2000) }}
-                  style={{
-                    padding: '10px 20px', borderRadius: 8, border: 'none',
-                    background: 'var(--accent)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer',
-                  }}
-                >
-                  {provisionCopied ? '✓ Copied!' : 'Copy Invite Link'}
-                </button>
-                <button
-                  onClick={closeProvisionModal}
-                  style={{ padding: '10px 18px', borderRadius: 8, border: '1px solid var(--border-2)', background: 'transparent', color: 'var(--text-muted)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
-                >
-                  Done
-                </button>
-              </div>
-            </div>
-          ) : (
-            <form onSubmit={handleProvision}>
-              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-dim)', marginBottom: 14 }}>
-                Company
-              </div>
-              <FormField label="Company name">
-                <input type="text" required placeholder="Brisbane Biohazard Cleaning" value={provisionForm.org_name}
-                  onChange={e => setProvisionForm(f => ({ ...f, org_name: e.target.value, org_slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 30) }))} />
-              </FormField>
-              <FormField label="URL slug">
-                <input type="text" required placeholder="brisbanebiohazardcleaning" value={provisionForm.org_slug}
-                  onChange={e => setProvisionForm(f => ({ ...f, org_slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') }))} />
-              </FormField>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <FormField label="Plan">
-                  <select value={provisionForm.plan} onChange={e => setProvisionForm(f => ({ ...f, plan: e.target.value }))}>
-                    {PLAN_OPTIONS.map(p => <option key={p} value={p}>{p}</option>)}
-                  </select>
-                </FormField>
-                <FormField label="Seats">
-                  <input type="number" min={1} value={provisionForm.seat_limit}
-                    onChange={e => setProvisionForm(f => ({ ...f, seat_limit: e.target.value }))} />
-                </FormField>
-              </div>
-              <div style={{ height: 1, background: 'var(--border)', margin: '16px 0' }} />
-              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-dim)', marginBottom: 14 }}>
-                Administrator
-              </div>
-              <FormField label="Full name">
-                <input type="text" required placeholder="Jane Smith" value={provisionForm.admin_name}
-                  onChange={e => setProvisionForm(f => ({ ...f, admin_name: e.target.value }))} />
-              </FormField>
-              <FormField label="Email">
-                <input type="email" required placeholder="jane@company.com.au" value={provisionForm.admin_email}
-                  onChange={e => setProvisionForm(f => ({ ...f, admin_email: e.target.value }))} />
-              </FormField>
-              <FormField label="Phone (optional)">
-                <input type="tel" placeholder="0400 000 000" value={provisionForm.admin_phone}
-                  onChange={e => setProvisionForm(f => ({ ...f, admin_phone: e.target.value }))} />
-              </FormField>
-              <ModalFooter onCancel={closeProvisionModal} submitLabel={provisioning ? 'Creating…' : 'Create & Get Invite Link'} disabled={provisioning} />
-            </form>
-          )}
+      {moveConfirm && (
+        <AdminModal
+          onClose={() => { if (!assigning) setMoveConfirm(null) }}
+          title="Move user to another organisation?"
+        >
+          <p style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.6, marginBottom: 16 }}>
+            This user is already in <strong style={{ color: 'var(--text)' }}>{moveConfirm.existingOrgName}</strong>.
+            They cannot belong to two organisations at once.
+          </p>
+          <p style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.6, marginBottom: 20 }}>
+            Do you want to <strong style={{ color: 'var(--text)' }}>move</strong> them to{' '}
+            <strong style={{ color: 'var(--text)' }}>{moveConfirm.orgName}</strong> as{' '}
+            <strong style={{ color: 'var(--text)' }}>{moveConfirm.role}</strong>? Their previous membership will be removed.
+          </p>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <button
+              type="button"
+              disabled={!!assigning}
+              onClick={() => setMoveConfirm(null)}
+              style={{
+                padding: '10px 18px', borderRadius: 8, border: '1px solid var(--border-2)',
+                background: 'transparent', color: 'var(--text-muted)', fontSize: 13, fontWeight: 600, cursor: assigning ? 'default' : 'pointer',
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={!!assigning}
+              onClick={() => void handleMoveConfirmAuthorize()}
+              style={{
+                padding: '10px 18px', borderRadius: 8, border: 'none',
+                background: 'var(--accent)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: assigning ? 'default' : 'pointer',
+              }}
+            >
+              {assigning ? 'Moving…' : 'Move user'}
+            </button>
+          </div>
         </AdminModal>
       )}
 
@@ -718,17 +858,17 @@ export default function AdminPage() {
 
       {/* ── Invite Modal ── */}
       {showInviteModal && (
-        <AdminModal onClose={() => setShowInviteModal(false)} title="Invite Administrator">
+        <AdminModal onClose={() => setShowInviteModal(false)} title="Invite administrator">
           <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 24, lineHeight: 1.6 }}>
-            They&apos;ll receive an invite email. Once they sign up, assign them an organisation from the Pending tab.
+            Sends a Clerk sign-up invite. Choose an <strong style={{ color: 'var(--text)' }}>existing</strong> organisation so they land in the right company after signup — or leave unassigned and use the <strong style={{ color: 'var(--text)' }}>Pending</strong> tab to place them later.
           </p>
           <form onSubmit={handleInvite}>
             <FormField label="Email address">
               <input type="email" required placeholder="admin@company.com.au" value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} />
             </FormField>
-            <FormField label="Organisation (optional)">
+            <FormField label="Connect to organisation">
               <select value={inviteOrg} onChange={e => setInviteOrg(e.target.value)}>
-                <option value="">None — pending assignment</option>
+                <option value="">Not yet — assign from Pending after they sign up</option>
                 {orgs.filter(o => o.is_active).map(o => <option key={o.id} value={o.slug}>{o.name}</option>)}
               </select>
             </FormField>
@@ -759,16 +899,29 @@ function PlanPill({ plan }: { plan: string }) {
   )
 }
 
-function TinyButton({ label, onClick, primary }: { label: string; onClick: () => void; primary?: boolean }) {
+function TinyButton({
+  label,
+  onClick,
+  primary,
+  disabled,
+}: {
+  label: string
+  onClick: () => void
+  primary?: boolean
+  disabled?: boolean
+}) {
   return (
     <button
+      type="button"
+      disabled={disabled}
       onClick={onClick}
       style={{
-        padding: '5px 11px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+        padding: '5px 11px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer',
         background: primary ? 'var(--surface-3)' : 'transparent',
         border: `1px solid ${primary ? 'var(--border-2)' : 'var(--border)'}`,
         color: primary ? 'var(--text)' : 'var(--text-muted)',
         transition: 'all 0.12s',
+        opacity: disabled ? 0.5 : 1,
       }}
     >
       {label}

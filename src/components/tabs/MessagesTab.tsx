@@ -88,11 +88,18 @@ export default function MessagesTab({ job }: Props) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ job_id: job.id, to_number: toNumber.trim(), body: body.trim() }),
     })
-    const data = await res.json()
-    if (data.error) {
-      setError(data.error)
-    } else {
-      setMessages(m => [...m, data.message])
+    let data: { error?: string; message?: Message } = {}
+    try {
+      data = await res.json()
+    } catch {
+      setError(`Send failed (${res.status})`)
+      setSending(false)
+      return
+    }
+    if (!res.ok || data.error) {
+      setError(data.error ?? `Send failed (${res.status})`)
+    } else if (data.message) {
+      setMessages(m => [...m, data.message!])
       setBody('')
     }
     setSending(false)

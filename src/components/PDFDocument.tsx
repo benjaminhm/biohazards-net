@@ -119,7 +119,7 @@ interface HeaderProps {
 
 function Header({ reference, date, company }: HeaderProps) {
   const name = company?.name || 'Brisbane Biohazard Cleaning'
-  const tagline = company?.tagline || 'Professional Biohazard Remediation Services'
+  const tagline = company?.tagline || 'Professional services'
   const contact = [company?.phone, company?.email, company?.abn ? `ABN: ${company.abn}` : ''].filter(Boolean).join('  ·  ')
 
   return (

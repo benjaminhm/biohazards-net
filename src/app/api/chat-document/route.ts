@@ -16,12 +16,26 @@
  */
 import { NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
+import { auth } from '@clerk/nextjs/server'
 import type { DocType } from '@/lib/types'
+import { getOrgId } from '@/lib/org'
 
 const client = new Anthropic()
 
 export async function POST(req: Request) {
   try {
+    const { userId } = await auth()
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    const { orgId } = await getOrgId(req, userId)
+    if (!orgId) {
+      return NextResponse.json(
+        { error: 'Organisation inactive or you have no active organisation' },
+        { status: 403 }
+      )
+    }
+
     const { type, content, message, rules } = await req.json() as {
       type: DocType
       content: Record<string, unknown>
