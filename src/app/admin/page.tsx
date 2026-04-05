@@ -5,8 +5,8 @@
  * The middleware enforces this at the edge; the API routes double-check server-side.
  *
  * Tabs:
- *   - Orgs: lists all orgs. "+ New Organisation" = POST /api/admin/orgs (empty company row only).
- *     No combined "create + invite admin" in this UI. Edit orgs via PATCH /api/admin/orgs/[id].
+ *   - Orgs: lists all orgs. "+ New Organisation" = POST /api/admin/orgs (empty company row).
+ *     Open an org on Platform → add administrator profile + app invite (same flow as team members).
  *   - Admins: lists all org_users across all orgs, enriched with Clerk names.
  *   - Pending: Clerk users who exist but have no org_users row yet. Assign via
  *     POST /api/admin/users/pending. If the user already belongs to another org,
@@ -571,6 +571,10 @@ export default function AdminPage() {
                 {orgsError}
               </div>
             )}
+
+            <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.55, marginBottom: 18, maxWidth: 720 }}>
+              After creating an empty organisation, open it from <strong style={{ color: 'var(--text)' }}>Open</strong> to add the <strong style={{ color: 'var(--text)' }}>administrator profile</strong> and <strong style={{ color: 'var(--text)' }}>app invite link</strong> (same pattern as team members — not the Clerk &quot;Invite user&quot; tab unless you need it).
+            </p>
 
             <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
               {loadingOrgs ? <EmptyState>Loading…</EmptyState>

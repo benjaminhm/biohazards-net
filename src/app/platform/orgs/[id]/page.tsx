@@ -6,13 +6,14 @@
  *
  * Shows:
  *   - Org details: name, slug, plan, seats, status, created date
- *   - Administrator person card: name, email, phone
- *   - Active invite link: copy URL, regenerate if expired or missing
+ *   - Recommended onboarding: create administrator profile (people row) + app invite
+ *     — same /invite/[token] flow as team members (not Clerk email for core path)
+ *   - People & invites: copy URL, email/SMS, regenerate
  *   - App users: clerk-linked accounts in this org
  */
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 
 // We don't have types imported here — define inline interfaces
@@ -83,6 +84,9 @@ export default function OrgProfilePage() {
   const [sendLog, setSendLog] = useState<SendLogRow[]>([])
   const [sending, setSending] = useState<string | null>(null)
 
+  const [adminForm, setAdminForm] = useState({ name: '', email: '', phone: '' })
+  const [creatingAdmin, setCreatingAdmin] = useState(false)
+
   async function loadSendLog() {
     try {
       const res = await fetch(`/api/admin/provision/send-log?org_id=${encodeURIComponent(id)}`)
@@ -110,6 +114,35 @@ export default function OrgProfilePage() {
   }
 
   useEffect(() => { load() }, [id])
+
+  async function handleCreateAdministrator(e: FormEvent) {
+    e.preventDefault()
+    if (!adminForm.name.trim() || !adminForm.email.trim()) {
+      alert('Name and email are required')
+      return
+    }
+    setCreatingAdmin(true)
+    try {
+      const res = await fetch(`/api/admin/orgs/${id}/administrator`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: adminForm.name.trim(),
+          email: adminForm.email.trim(),
+          phone: adminForm.phone.trim() || undefined,
+        }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        alert(typeof j.error === 'string' ? j.error : 'Failed to create administrator')
+        return
+      }
+      setAdminForm({ name: '', email: '', phone: '' })
+      await load()
+    } finally {
+      setCreatingAdmin(false)
+    }
+  }
 
   async function handleRegenerateInvite(personId: string) {
     setRegenerating(true)
@@ -318,10 +351,74 @@ export default function OrgProfilePage() {
           </div>
         </Card>
 
-        {/* Administrator person profiles */}
-        <Card title="Team Profiles">
+        {/* Step 1 — create profile + invite (same pattern as team members in the app) */}
+        {people.length === 0 && (
+          <Card title="Add organisation administrator">
+            <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.55, margin: '0 0 18px' }}>
+              Create their <strong style={{ color: 'var(--text)' }}>staff profile</strong> first, then we generate an{' '}
+              <strong style={{ color: 'var(--text)' }}>app invite link</strong> (<span className="mono" style={{ fontSize: 12 }}>/invite/…</span>).
+              They sign up with Clerk and land in this company — same flow as inviting a team member from the app.
+            </p>
+            <form onSubmit={e => void handleCreateAdministrator(e)} style={{ display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 420 }}>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-dim)' }}>Full name</span>
+                <input
+                  required
+                  value={adminForm.name}
+                  onChange={e => setAdminForm(f => ({ ...f, name: e.target.value }))}
+                  placeholder="Jane Smith"
+                  style={{ padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 14 }}
+                />
+              </label>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-dim)' }}>Email</span>
+                <input
+                  type="email"
+                  required
+                  value={adminForm.email}
+                  onChange={e => setAdminForm(f => ({ ...f, email: e.target.value }))}
+                  placeholder="admin@company.com.au"
+                  style={{ padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 14 }}
+                />
+              </label>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-dim)' }}>Phone (optional)</span>
+                <input
+                  value={adminForm.phone}
+                  onChange={e => setAdminForm(f => ({ ...f, phone: e.target.value }))}
+                  placeholder="+61…"
+                  style={{ padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 14 }}
+                />
+              </label>
+              <button
+                type="submit"
+                disabled={creatingAdmin}
+                style={{
+                  alignSelf: 'flex-start',
+                  marginTop: 4,
+                  padding: '10px 18px',
+                  borderRadius: 8,
+                  border: 'none',
+                  background: 'var(--accent)',
+                  color: '#fff',
+                  fontWeight: 700,
+                  fontSize: 13,
+                  cursor: creatingAdmin ? 'wait' : 'pointer',
+                  opacity: creatingAdmin ? 0.7 : 1,
+                }}
+              >
+                {creatingAdmin ? 'Creating…' : 'Create profile & generate invite'}
+              </button>
+            </form>
+          </Card>
+        )}
+
+        {/* People profiles + invite links */}
+        <Card title="People & app invites">
           {people.length === 0 ? (
-            <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>No team profiles yet.</p>
+            <p style={{ color: 'var(--text-muted)', fontSize: 13, margin: 0 }}>
+              No profiles yet — use <strong style={{ color: 'var(--text)' }}>Add organisation administrator</strong> above.
+            </p>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {people.map(person => {
