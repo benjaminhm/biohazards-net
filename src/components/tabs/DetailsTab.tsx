@@ -566,13 +566,27 @@ export default function DetailsTab({ job, onJobUpdate, readOnly, skipBriefing }:
 function FieldWorkerView({ job, skipBriefing }: { job: Job; skipBriefing?: boolean }) {
   const [briefing, setBriefing]         = useState<{ description: string; objective: string } | null>(null)
   const [briefingLoading, setBriefingLoading] = useState(!skipBriefing)
+  const [briefingError, setBriefingError] = useState<string | null>(null)
 
   useEffect(() => {
     if (skipBriefing) return
+    setBriefingError(null)
     fetch(`/api/jobs/${job.id}/briefing`, { method: 'POST' })
-      .then(r => r.json())
-      .then(d => setBriefing(d.description ? d : null))
-      .catch(() => setBriefing(null))
+      .then(async (r) => {
+        const d = await r.json()
+        if (!r.ok) {
+          setBriefing(null)
+          setBriefingError(typeof d.error === 'string' ? d.error : 'Could not load job description.')
+          return
+        }
+        const desc = typeof d.description === 'string' ? d.description.trim() : ''
+        const obj = typeof d.objective === 'string' ? d.objective.trim() : ''
+        setBriefing(desc || obj ? { description: desc, objective: obj } : null)
+      })
+      .catch(() => {
+        setBriefing(null)
+        setBriefingError('Could not load job description.')
+      })
       .finally(() => setBriefingLoading(false))
   }, [job.id, skipBriefing])
 
@@ -621,7 +635,7 @@ function FieldWorkerView({ job, skipBriefing }: { job: Job; skipBriefing?: boole
       {/* Manager contact — most important card, top of page */}
       <ManagerCard jobId={job.id} />
 
-      {/* AI job briefing */}
+      {/* AI job description (assessment + scope documents) */}
       <div style={{
         background: 'var(--surface)', border: '1px solid var(--border)',
         borderRadius: 14, padding: '16px 18px', marginBottom: 14,
@@ -630,19 +644,23 @@ function FieldWorkerView({ job, skipBriefing }: { job: Job; skipBriefing?: boole
           fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em',
           color: 'var(--text-muted)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6,
         }}>
-          <span>📋</span> Job Briefing
+          <span>📋</span> Job description
         </div>
         {briefingLoading && !skipBriefing ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--text-muted)', fontSize: 13 }}>
             <span className="spinner" style={{ width: 14, height: 14 }} />
-            Preparing briefing…
+            Preparing description…
           </div>
+        ) : briefingError ? (
+          <div style={{ fontSize: 13, color: '#F87171', lineHeight: 1.5 }}>{briefingError}</div>
         ) : briefing ? (
           <div>
-            <div style={{ fontSize: 14, lineHeight: 1.65, color: 'var(--text)', marginBottom: 14 }}>
-              {briefing.description}
-            </div>
-            {briefing.objective && (
+            {briefing.description ? (
+              <div style={{ fontSize: 14, lineHeight: 1.65, color: 'var(--text)', marginBottom: briefing.objective ? 14 : 0 }}>
+                {briefing.description}
+              </div>
+            ) : null}
+            {briefing.objective ? (
               <div style={{
                 padding: '10px 14px', borderRadius: 10,
                 background: 'rgba(255,107,53,0.06)', border: '1px solid rgba(255,107,53,0.2)',
@@ -654,11 +672,16 @@ function FieldWorkerView({ job, skipBriefing }: { job: Job; skipBriefing?: boole
                   {briefing.objective}
                 </div>
               </div>
-            )}
+            ) : null}
           </div>
         ) : (
-          <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-            {serviceLabel} — {job.site_address.split(',')[0]}
+          <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.55 }}>
+            <div style={{ marginBottom: 8 }}>
+              {serviceLabel} — {job.site_address.split(',')[0] ?? job.site_address}
+            </div>
+            <div style={{ fontSize: 12, opacity: 0.9 }}>
+              No AI description yet. Add assessment details, job notes, or a Scope of Work / quote on this job, then open this tab again.
+            </div>
           </div>
         )}
       </div>
