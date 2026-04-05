@@ -61,6 +61,20 @@ export default clerkMiddleware(async (auth, request: NextRequest) => {
   const requestHeaders = new Headers(request.headers)
   const { pathname } = request.nextUrl
 
+  // Clerk platform invitation emails use /login?__clerk_ticket=…&__clerk_status=sign_up.
+  // <SignIn> looks up existing accounts first → "Couldn't find your account." for new invitees.
+  // Team invites already use /sign-up; redirect so admins get the same sign-up flow.
+  if (pathname === '/login' || pathname.startsWith('/login/')) {
+    const sp = request.nextUrl.searchParams
+    if (sp.has('__clerk_ticket') || sp.get('__clerk_status') === 'sign_up') {
+      const url = request.nextUrl.clone()
+      url.pathname = pathname.startsWith('/login/')
+        ? `/sign-up${pathname.slice('/login'.length)}`
+        : '/sign-up'
+      return NextResponse.redirect(url)
+    }
+  }
+
   // Match first label of biohazards.net (e.g. 'brisbanebiohazardcleaning' from bbc.biohazards.net)
   const subdomainMatch = host.match(/^([^.]+)\.biohazards\.net$/)
   const slug = subdomainMatch ? subdomainMatch[1] : null

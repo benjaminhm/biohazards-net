@@ -10,6 +10,9 @@
  *
  * After sign-in, Clerk redirects to the URL in the afterSignInUrl env var
  * (set to "/") which UserProvider then interprets based on has_org + role.
+ *
+ * Invitation links that include __clerk_ticket are redirected to /sign-up
+ * in middleware so new users never hit SignIn first (see middleware.ts).
  */
 import { SignIn } from '@clerk/nextjs'
 

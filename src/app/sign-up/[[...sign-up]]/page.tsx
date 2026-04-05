@@ -1,9 +1,10 @@
 /*
  * app/sign-up/[[...sign-up]]/page.tsx
  *
- * Sign-up page — used by invite links to onboard new team members.
- * Invite page redirects here (not /login) so new users land on the
- * SignUp component rather than SignIn, avoiding "couldn't find account".
+ * Sign-up page — new users must hit <SignUp />, not <SignIn />.
+ * Staff invite (/invite/…) redirects here; middleware sends Clerk admin
+ * invitation links (/login?__clerk_ticket=…) here too so invitees create
+ * an account instead of getting "Couldn't find your account."
  */
 import { SignUp } from '@clerk/nextjs'
 
