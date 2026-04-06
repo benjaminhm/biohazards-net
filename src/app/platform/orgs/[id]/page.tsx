@@ -10,10 +10,11 @@
  *     — same /invite/[token] flow as team members (not Clerk email for core path)
  *   - People & invites: copy URL, email/SMS, regenerate
  *   - App users: clerk-linked accounts in this org
+ *   - Danger zone: deactivate org (requires typing the exact org name)
  */
 'use client'
 
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent, type CSSProperties } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 
 // We don't have types imported here — define inline interfaces
@@ -86,6 +87,9 @@ export default function OrgProfilePage() {
 
   const [adminForm, setAdminForm] = useState({ name: '', email: '', phone: '' })
   const [creatingAdmin, setCreatingAdmin] = useState(false)
+
+  const [deleteConfirmName, setDeleteConfirmName] = useState('')
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false)
 
   async function loadSendLog() {
     try {
@@ -168,6 +172,27 @@ export default function OrgProfilePage() {
       body: JSON.stringify({ is_active: !data.org.is_active }),
     })
     await load()
+  }
+
+  async function handleDeleteOrganisation() {
+    if (!data || deleteConfirmName !== data.org.name) return
+    if (!confirm('Deactivate this organisation? App users will lose access until it is re-enabled from the platform list.')) return
+    setDeleteSubmitting(true)
+    try {
+      const res = await fetch(`/api/admin/orgs/${id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm_name: deleteConfirmName }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        alert(typeof j.error === 'string' ? j.error : 'Could not deactivate organisation')
+        return
+      }
+      router.push('/platform')
+    } finally {
+      setDeleteSubmitting(false)
+    }
   }
 
   function copyInvite(url: string) {
@@ -582,6 +607,77 @@ export default function OrgProfilePage() {
           </Card>
         )}
 
+        {/* Danger zone — deactivate org (API: soft delete, name must match exactly) */}
+        <div style={{
+          background: 'rgba(239,68,68,0.06)',
+          border: '1px solid rgba(239,68,68,0.28)',
+          borderRadius: 12,
+          overflow: 'hidden',
+        }}>
+          <div style={{
+            padding: '14px 20px',
+            borderBottom: '1px solid rgba(239,68,68,0.2)',
+            fontSize: 12,
+            fontWeight: 800,
+            letterSpacing: '0.1em',
+            textTransform: 'uppercase',
+            color: '#F87171',
+          }}>
+            Danger zone
+          </div>
+          <div style={{ padding: '18px 20px' }}>
+            <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.55, margin: '0 0 14px' }}>
+              Deactivate this organisation: it disappears from normal lists, app users cannot sign in, and jobs stay in the database for recovery.
+              This does not erase data.
+            </p>
+            <p style={{ fontSize: 12, color: 'var(--text-dim)', margin: '0 0 10px' }}>
+              Type the organisation name <strong style={{ color: 'var(--text)' }}>exactly</strong> as shown (case-sensitive), then confirm.
+            </p>
+            <div style={{ fontSize: 12, fontFamily: 'ui-monospace, monospace', color: 'var(--text-muted)', marginBottom: 10, padding: '8px 10px', background: 'var(--surface-2)', borderRadius: 6, border: '1px solid var(--border)' }}>
+              {org.name}
+            </div>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 420 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-dim)' }}>
+                Confirm organisation name
+              </span>
+              <input
+                value={deleteConfirmName}
+                onChange={e => setDeleteConfirmName(e.target.value)}
+                placeholder={org.name}
+                autoComplete="off"
+                spellCheck={false}
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: 8,
+                  border: '1px solid rgba(239,68,68,0.35)',
+                  background: 'var(--bg)',
+                  color: 'var(--text)',
+                  fontSize: 14,
+                }}
+              />
+            </label>
+            <button
+              type="button"
+              disabled={deleteConfirmName !== org.name || deleteSubmitting}
+              onClick={() => void handleDeleteOrganisation()}
+              style={{
+                marginTop: 14,
+                padding: '10px 18px',
+                borderRadius: 8,
+                border: '1px solid rgba(239,68,68,0.45)',
+                background: deleteConfirmName === org.name && !deleteSubmitting ? 'rgba(239,68,68,0.18)' : 'transparent',
+                color: '#F87171',
+                fontWeight: 700,
+                fontSize: 13,
+                cursor: deleteConfirmName === org.name && !deleteSubmitting ? 'pointer' : 'not-allowed',
+                opacity: deleteSubmitting ? 0.65 : 1,
+              }}
+            >
+              {deleteSubmitting ? 'Deactivating…' : 'Deactivate organisation'}
+            </button>
+          </div>
+        </div>
+
       </main>
     </div>
   )
@@ -643,7 +739,7 @@ function TinyBtn({ label, onClick, primary, disabled }: { label: string; onClick
   )
 }
 
-const backBtnStyle: React.CSSProperties = {
+const backBtnStyle: CSSProperties = {
   padding: '10px 18px', borderRadius: 8, border: '1px solid var(--border-2)',
   background: 'var(--surface)', color: 'var(--text-muted)',
   fontSize: 13, fontWeight: 600, cursor: 'pointer', marginTop: 12,

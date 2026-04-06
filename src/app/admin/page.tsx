@@ -15,6 +15,8 @@
  *     Misleading old label was "Administrators". Non–platform-owner rows can use "Move org…"
  *     to reassign (one org per user; moving removes the old membership).
  *   - Invites: Clerk sign-up invitations — status, copy link, resend, revoke.
+ *   - Reviews: submitted feedback — panels default hidden; toggles persist in localStorage.
+ *     Optional table lists all orgs (same data as Organisations tab) with Open link.
  *   - Orgs tab — "Training & debugging": start audited tenant impersonation
  *     (POST /api/admin/impersonate) then open the main app with that org context.
  *
@@ -28,6 +30,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import type { Org } from '@/lib/types'
 
 const PLATFORM_OWNER_ID = 'user_3BkVAf7042IsBwqabQ9MoZdEbvE'
@@ -94,6 +97,8 @@ export default function AdminPage() {
 
   const [reviews, setReviews]               = useState<PlatformReview[]>([])
   const [loadingReviews, setLoadingReviews] = useState(false)
+  const [showReviewsPanel, setShowReviewsPanel] = useState(false)
+  const [showReviewsOrgList, setShowReviewsOrgList] = useState(false)
   const [assigningId, setAssigningId]       = useState<string | null>(null)
   const [assignOrg, setAssignOrg]           = useState('')
   const [assignRole, setAssignRole]         = useState('owner')
@@ -195,6 +200,15 @@ export default function AdminPage() {
   useEffect(() => { if (tab === 'invites') void fetchInvites() }, [tab])
   useEffect(() => { if (tab === 'pending') fetchPending() }, [tab])
   useEffect(() => { if (tab === 'reviews') fetchReviews() }, [tab])
+
+  useEffect(() => {
+    try {
+      setShowReviewsPanel(localStorage.getItem('bh_platform_reviews_panel') === '1')
+      setShowReviewsOrgList(localStorage.getItem('bh_platform_reviews_orglist') === '1')
+    } catch {
+      /* ignore */
+    }
+  }, [])
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault(); setSubmitting(true)
@@ -890,57 +904,154 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* ── Reviews tab ── */}
+        {/* ── Reviews tab — minimal by default; show/hide panels ── */}
         {tab === 'reviews' && (
-          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
-            {loadingReviews ? <EmptyState>Loading…</EmptyState>
-            : reviews.length === 0 ? <EmptyState>No reviews submitted yet.</EmptyState>
-            : (
-              <div>
-                {reviews.map((r, i) => {
-                  const orgName = Array.isArray(r.orgs) ? (r.orgs as unknown as { name: string }[])[0]?.name : r.orgs?.name
-                  return (
-                    <div key={r.id} style={{
-                      padding: '18px 20px',
-                      borderBottom: i < reviews.length - 1 ? '1px solid var(--border)' : 'none',
-                      display: 'flex', gap: 16, alignItems: 'flex-start',
-                    }}>
-                      {/* Stars */}
-                      <div style={{ fontSize: 18, lineHeight: 1, flexShrink: 0, paddingTop: 2 }}>
-                        {'⭐'.repeat(r.rating)}{'☆'.repeat(5 - r.rating)}
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4, flexWrap: 'wrap' }}>
-                          <span style={{ fontWeight: 700, fontSize: 14 }}>
-                            {r.reviewer_name || orgName || 'Anonymous'}
-                          </span>
-                          {orgName && r.reviewer_name && (
-                            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{orgName}</span>
-                          )}
-                          <span style={{ fontSize: 11, color: 'var(--text-dim)', marginLeft: 'auto' }}>
-                            {new Date(r.created_at).toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' })}
-                          </span>
+          <div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 20 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowReviewsPanel((v) => {
+                    const n = !v
+                    try {
+                      localStorage.setItem('bh_platform_reviews_panel', n ? '1' : '0')
+                    } catch {
+                      /* ignore */
+                    }
+                    return n
+                  })
+                }}
+                style={{
+                  padding: '9px 14px', borderRadius: 8,
+                  border: '1px solid var(--border-2)', background: showReviewsPanel ? 'var(--surface-2)' : 'transparent',
+                  color: 'var(--text)', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                }}
+              >
+                {showReviewsPanel ? '▼' : '▶'} Submitted reviews
+                {reviews.length > 0 && (
+                  <span style={{ marginLeft: 8, color: 'var(--text-muted)', fontWeight: 500 }}>({reviews.length})</span>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowReviewsOrgList((v) => {
+                    const n = !v
+                    try {
+                      localStorage.setItem('bh_platform_reviews_orglist', n ? '1' : '0')
+                    } catch {
+                      /* ignore */
+                    }
+                    return n
+                  })
+                }}
+                style={{
+                  padding: '9px 14px', borderRadius: 8,
+                  border: '1px solid var(--border-2)', background: showReviewsOrgList ? 'var(--surface-2)' : 'transparent',
+                  color: 'var(--text)', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                }}
+              >
+                {showReviewsOrgList ? '▼' : '▶'} All organisations
+                <span style={{ marginLeft: 8, color: 'var(--text-muted)', fontWeight: 500 }}>({orgs.length})</span>
+              </button>
+            </div>
+
+            {!showReviewsPanel && !showReviewsOrgList && (
+              <EmptyState>Use the buttons above to show submitted feedback or the full organisation list.</EmptyState>
+            )}
+
+            {showReviewsPanel && (
+              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginBottom: showReviewsOrgList ? 20 : 0 }}>
+                {loadingReviews ? <EmptyState>Loading…</EmptyState>
+                : reviews.length === 0 ? <EmptyState>No reviews submitted yet.</EmptyState>
+                : (
+                  <div>
+                    {reviews.map((r, i) => {
+                      const orgName = Array.isArray(r.orgs) ? (r.orgs as unknown as { name: string }[])[0]?.name : r.orgs?.name
+                      return (
+                        <div key={r.id} style={{
+                          padding: '18px 20px',
+                          borderBottom: i < reviews.length - 1 ? '1px solid var(--border)' : 'none',
+                          display: 'flex', gap: 16, alignItems: 'flex-start',
+                        }}>
+                          <div style={{ fontSize: 18, lineHeight: 1, flexShrink: 0, paddingTop: 2 }}>
+                            {'⭐'.repeat(r.rating)}{'☆'.repeat(5 - r.rating)}
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4, flexWrap: 'wrap' }}>
+                              <span style={{ fontWeight: 700, fontSize: 14 }}>
+                                {r.reviewer_name || orgName || 'Anonymous'}
+                              </span>
+                              {orgName && r.reviewer_name && (
+                                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{orgName}</span>
+                              )}
+                              <span style={{ fontSize: 11, color: 'var(--text-dim)', marginLeft: 'auto' }}>
+                                {new Date(r.created_at).toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' })}
+                              </span>
+                            </div>
+                            {r.body && (
+                              <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 10px', lineHeight: 1.6 }}>
+                                &ldquo;{r.body}&rdquo;
+                              </p>
+                            )}
+                            <button
+                              onClick={() => handleTogglePublish(r)}
+                              style={{
+                                padding: '5px 12px', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                                border: 'none',
+                                background: r.is_published ? 'rgba(34,197,94,0.15)' : 'var(--surface-2)',
+                                color: r.is_published ? '#4ADE80' : 'var(--text-muted)',
+                              }}
+                            >
+                              {r.is_published ? '✓ Published' : 'Publish'}
+                            </button>
+                          </div>
                         </div>
-                        {r.body && (
-                          <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 10px', lineHeight: 1.6 }}>
-                            &ldquo;{r.body}&rdquo;
-                          </p>
-                        )}
-                        <button
-                          onClick={() => handleTogglePublish(r)}
-                          style={{
-                            padding: '5px 12px', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: 'pointer',
-                            border: 'none',
-                            background: r.is_published ? 'rgba(34,197,94,0.15)' : 'var(--surface-2)',
-                            color: r.is_published ? '#4ADE80' : 'var(--text-muted)',
-                          }}
-                        >
-                          {r.is_published ? '✓ Published' : 'Publish'}
-                        </button>
-                      </div>
-                    </div>
-                  )
-                })}
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {showReviewsOrgList && (
+              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
+                {loadingOrgs ? <EmptyState>Loading…</EmptyState>
+                : orgsError ? <EmptyState>{orgsError}</EmptyState>
+                : orgs.length === 0 ? <EmptyState>No organisations.</EmptyState>
+                : (
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
+                        <th style={{ padding: '12px 16px', color: 'var(--text-dim)', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Name</th>
+                        <th style={{ padding: '12px 16px', color: 'var(--text-dim)', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Slug</th>
+                        <th style={{ padding: '12px 16px', color: 'var(--text-dim)', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Status</th>
+                        <th style={{ padding: '12px 16px', width: 90 }} />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {orgs.map((o) => (
+                        <tr key={o.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                          <td style={{ padding: '12px 16px', fontWeight: 600 }}>{o.name}</td>
+                          <td style={{ padding: '12px 16px', color: 'var(--text-muted)' }} className="mono">{o.slug}</td>
+                          <td style={{ padding: '12px 16px', color: o.is_active ? '#4ADE80' : '#888' }}>
+                            {o.is_active ? 'Active' : 'Inactive'}
+                          </td>
+                          <td style={{ padding: '12px 16px' }}>
+                            <Link
+                              href={`/platform/orgs/${o.id}`}
+                              style={{
+                                fontSize: 12, fontWeight: 700, color: 'var(--accent)', textDecoration: 'none',
+                              }}
+                            >
+                              Open →
+                            </Link>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
               </div>
             )}
           </div>

@@ -3,6 +3,8 @@
  *
  * PATCH  /api/admin/orgs/[id] — update an org's plan, seat_limit, features, or is_active flag.
  * DELETE /api/admin/orgs/[id] — soft-delete an org by setting is_active = false.
+ * JSON body (required): { "confirm_name": "<exact org name>" } — must match orgs.name
+ * character-for-character (case-sensitive). Prevents accidental deactivation.
  *
  * Both methods are restricted to PLATFORM_ADMIN_CLERK_IDS (super-admin only).
  *
@@ -94,7 +96,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
 }
 
-export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { userId } = await auth()
     if (!isPlatformAdmin(userId ?? null)) {
@@ -104,7 +106,28 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     const { id } = await params
     const supabase = createServiceClient()
 
-    // Soft-delete: set is_active = false
+    const body = await req.json().catch(() => ({}))
+    const confirm_name = typeof body.confirm_name === 'string' ? body.confirm_name : ''
+    if (!confirm_name) {
+      return NextResponse.json(
+        { error: 'confirm_name is required (exact organisation name, case-sensitive).' },
+        { status: 400 }
+      )
+    }
+
+    const { data: orgRow, error: fetchErr } = await supabase.from('orgs').select('id, name').eq('id', id).single()
+    if (fetchErr || !orgRow) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
+
+    if (confirm_name !== orgRow.name) {
+      return NextResponse.json(
+        { error: 'Organisation name does not match. Check spelling and capital letters.' },
+        { status: 400 }
+      )
+    }
+
+    // Soft-delete: set is_active = false (data retained for recovery)
     const { data, error } = await supabase
       .from('orgs')
       .update({ is_active: false })

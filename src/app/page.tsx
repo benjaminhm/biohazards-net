@@ -17,6 +17,10 @@
  *     the field schedule section.
  *
  * Company profile is fetched to personalise the header with the business name.
+ *
+ * Quick Feedback (platform review card) can be hidden; preference is stored in
+ * localStorage. Platform operators see an optional collapsible list of all orgs
+ * (GET /api/admin/orgs) when their Clerk user is in PLATFORM_ADMIN_CLERK_IDS.
  */
 'use client'
 
@@ -25,8 +29,21 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useClerk } from '@clerk/nextjs'
 import { useUser } from '@/lib/userContext'
-import type { CompanyProfile, Job, TeamCapabilities } from '@/lib/types'
+import type { CompanyProfile, Job, Org, TeamCapabilities } from '@/lib/types'
 import { DEFAULT_MEMBER_CAPABILITIES } from '@/lib/types'
+
+const LS_HIDE_FEEDBACK = 'bh_dash_quick_feedback_hidden'
+const LS_ORGS_EXPANDED = 'bh_dash_platform_orgs_expanded'
+
+type OrgWithCount = Org & { user_count?: number }
+
+/** Link to platform org detail (same origin on localhost; platform host in prod). */
+function platformOrgDetailHref(orgId: string): string {
+  if (typeof window === 'undefined') return `/platform/orgs/${orgId}`
+  const { hostname, origin } = window.location
+  if (hostname === 'localhost' || hostname === '127.0.0.1') return `${origin}/platform/orgs/${orgId}`
+  return `https://platform.biohazards.net/platform/orgs/${orgId}`
+}
 
 function fmtBooking(iso: string) {
   const d = new Date(iso)
@@ -54,12 +71,41 @@ export default function HomePage() {
   const [actionsExpanded, setActionsExpanded] = useState(true)
   const [nudgeSent, setNudgeSent] = useState<Record<string, 'sending' | 'sent' | 'error'>>({})
   const [review, setReview] = useState<object | null | 'loading'>('loading')
+  const [hideQuickFeedback, setHideQuickFeedback] = useState(false)
+  const [orgsExpanded, setOrgsExpanded] = useState(false)
+  const [platformOrgs, setPlatformOrgs] = useState<OrgWithCount[] | null | 'loading'>('loading')
   const router = useRouter()
 
   // Non-admins without view_all_jobs go to their field view
   useEffect(() => {
     if (!userLoading && !isAdmin && !caps.view_all_jobs) router.replace('/field')
   }, [userLoading, isAdmin, caps.view_all_jobs, router])
+
+  useEffect(() => {
+    try {
+      setHideQuickFeedback(localStorage.getItem(LS_HIDE_FEEDBACK) === '1')
+      setOrgsExpanded(localStorage.getItem(LS_ORGS_EXPANDED) === '1')
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
+  useEffect(() => {
+    fetch('/api/admin/orgs')
+      .then(async (r) => {
+        if (r.status === 403) {
+          setPlatformOrgs(null)
+          return
+        }
+        if (!r.ok) {
+          setPlatformOrgs(null)
+          return
+        }
+        const j = (await r.json()) as { orgs?: OrgWithCount[] }
+        setPlatformOrgs(j.orgs ?? [])
+      })
+      .catch(() => setPlatformOrgs(null))
+  }, [])
 
   useEffect(() => {
     fetch('/api/company')
@@ -427,10 +473,165 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* ── Review card — admin only, disappears once submitted ── */}
+      {/* ── Quick Feedback — admin only, hideable; disappears once submitted ── */}
       {isAdmin && !previewMode && review === null && (
         <div style={{ padding: '0 20px 20px' }}>
-          <ReviewCard onSubmitted={() => setReview({})} />
+          {hideQuickFeedback ? (
+            <button
+              type="button"
+              onClick={() => {
+                setHideQuickFeedback(false)
+                try {
+                  localStorage.removeItem(LS_HIDE_FEEDBACK)
+                } catch {
+                  /* ignore */
+                }
+              }}
+              style={{
+                width: '100%',
+                padding: '12px 16px',
+                borderRadius: 12,
+                border: '1px dashed var(--border)',
+                background: 'transparent',
+                color: 'var(--text-muted)',
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: 'pointer',
+                textAlign: 'left',
+              }}
+            >
+              Show Quick Feedback
+            </button>
+          ) : (
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <span className="eyebrow" style={{ color: 'var(--text-dim)' }}>Quick Feedback</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHideQuickFeedback(true)
+                    try {
+                      localStorage.setItem(LS_HIDE_FEEDBACK, '1')
+                    } catch {
+                      /* ignore */
+                    }
+                  }}
+                  style={{
+                    padding: '4px 10px',
+                    borderRadius: 6,
+                    border: '1px solid var(--border)',
+                    background: 'var(--surface-2)',
+                    color: 'var(--text-muted)',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Hide
+                </button>
+              </div>
+              <ReviewCard onSubmitted={() => setReview({})} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Platform admin: all orgs (collapsible) — hidden for normal tenant users ── */}
+      {platformOrgs !== 'loading' && platformOrgs !== null && (
+        <div style={{ padding: '0 20px 24px' }}>
+          <button
+            type="button"
+            onClick={() => {
+              setOrgsExpanded((e) => {
+                const n = !e
+                try {
+                  localStorage.setItem(LS_ORGS_EXPANDED, n ? '1' : '0')
+                } catch {
+                  /* ignore */
+                }
+                return n
+              })
+            }}
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '12px 16px',
+              borderRadius: 12,
+              border: '1px solid var(--border)',
+              background: 'var(--surface)',
+              color: 'var(--text)',
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: 'pointer',
+              textAlign: 'left',
+            }}
+          >
+            <span>
+              {orgsExpanded ? '▼' : '▶'} All organisations
+              <span style={{ fontWeight: 500, color: 'var(--text-muted)', marginLeft: 8 }}>
+                ({platformOrgs.length})
+              </span>
+            </span>
+          </button>
+          {orgsExpanded && (
+            <div
+              style={{
+                marginTop: 10,
+                border: '1px solid var(--border)',
+                borderRadius: 12,
+                overflow: 'hidden',
+                background: 'var(--surface)',
+              }}
+            >
+              {platformOrgs.length === 0 ? (
+                <div style={{ padding: '16px 18px', fontSize: 13, color: 'var(--text-muted)' }}>No organisations yet.</div>
+              ) : (
+                <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                  {platformOrgs.map((o) => (
+                    <li
+                      key={o.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 12,
+                        padding: '12px 16px',
+                        borderBottom: '1px solid var(--border)',
+                        fontSize: 13,
+                      }}
+                    >
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.name}</div>
+                        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }} className="mono">
+                          {o.slug}
+                          {!o.is_active && (
+                            <span style={{ marginLeft: 8, color: '#888' }}>· inactive</span>
+                          )}
+                        </div>
+                      </div>
+                      <a
+                        href={platformOrgDetailHref(o.id)}
+                        style={{
+                          flexShrink: 0,
+                          padding: '6px 12px',
+                          borderRadius: 8,
+                          border: '1px solid var(--border-2)',
+                          color: 'var(--accent)',
+                          fontSize: 12,
+                          fontWeight: 700,
+                          textDecoration: 'none',
+                        }}
+                      >
+                        Open
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
         </div>
       )}
 
