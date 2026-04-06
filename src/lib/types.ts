@@ -156,6 +156,10 @@ export interface Job {
   schedule_note: string | null
   created_at: string
   updated_at: string
+  /** Pilot inbound email — set for JOB_INBOUND_EMAIL_ORG_SLUGS orgs only. */
+  inbound_email_token?: string | null
+  /** Populated by GET /api/jobs/[id] when pilot org; not a DB column. */
+  inbound_email_address?: string | null
 }
 
 export interface Photo {
@@ -407,6 +411,7 @@ export interface Org {
   custom_domain?: string
   plan: 'solo' | 'team' | 'business'
   seat_limit: number
+  /** Platform-tunable flags, e.g. `show_quick_feedback: false` hides Quick Feedback on app home; `training_education: true` enables the in-app training portal (future paid add-on). */
   features: Record<string, boolean>
   is_active: boolean
   created_at: string

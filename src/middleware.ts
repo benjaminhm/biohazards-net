@@ -49,6 +49,7 @@ const isPublicRoute = createRouteMatcher([
   '/api/print/(.*)',
   '/api/invites/(.*)',
   '/api/sms/inbound(.*)',
+  '/api/webhooks/inbound-email(.*)',
   '/api/public/(.*)',  // public company profile data for website template
   '/site(.*)',         // public website pages
 ])

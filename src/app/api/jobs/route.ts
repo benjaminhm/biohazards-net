@@ -13,6 +13,7 @@ import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import { normalizeOptionalPhoneField } from '@/lib/phone'
+import { ensureJobInboundEmailToken } from '@/lib/jobInboundEmail'
 
 export async function GET(req: Request) {
   try {
@@ -151,7 +152,14 @@ export async function POST(req: Request) {
       .single()
 
     if (error) throw error
-    return NextResponse.json({ job: data }, { status: 201 })
+
+    const ensured = await ensureJobInboundEmailToken(data.id, orgId)
+    const job =
+      ensured.token && !(data as { inbound_email_token?: string }).inbound_email_token
+        ? { ...data, inbound_email_token: ensured.token }
+        : data
+
+    return NextResponse.json({ job, inbound_email_address: ensured.address }, { status: 201 })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Unknown error'
     return NextResponse.json({ error: msg }, { status: 500 })

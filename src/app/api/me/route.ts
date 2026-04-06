@@ -30,7 +30,7 @@ export async function GET(req: Request) {
     const supabase = createServiceClient()
     const { data: org } = await supabase
       .from('orgs')
-      .select('id, name, slug')
+      .select('id, name, slug, features')
       .eq('id', imp.orgId)
       .eq('is_active', true)
       .maybeSingle()
@@ -44,7 +44,11 @@ export async function GET(req: Request) {
         org_id: org.id,
         has_org: true,
         person_id: null,
-        org: { name: org.name, slug: org.slug },
+        org: {
+          name: org.name,
+          slug: org.slug,
+          features: (org.features && typeof org.features === 'object' ? org.features : {}) as Record<string, boolean>,
+        },
         impersonating: true,
         impersonation_read_only: imp.readOnly,
       })
@@ -54,7 +58,7 @@ export async function GET(req: Request) {
   const supabase = createServiceClient()
   const { data: orgUser } = await supabase
     .from('org_users')
-    .select('role, org_id, capabilities, person_id, orgs(name, slug)')
+    .select('role, org_id, capabilities, person_id, orgs(name, slug, features)')
     .eq('clerk_user_id', userId)
     .maybeSingle()
 

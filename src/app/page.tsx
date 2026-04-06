@@ -11,15 +11,15 @@
  * Features:
  *   - Upcoming jobs section (next 7 days with scheduled_at set).
  *   - Full job list grouped by status (active first, closed at bottom).
- *   - Capability preview picker for admins — sets preview_caps + preview_name
- *     in localStorage, which UserProvider picks up to simulate a team member's view.
  *   - Live clock (fmtBooking) that labels bookings as "Today"/"Tomorrow" for
  *     the field schedule section.
  *
  * Company profile is fetched to personalise the header with the business name.
  *
- * Quick Feedback (platform review card) can be hidden; preference is stored in
- * localStorage. Platform operators see an optional collapsible list of all orgs
+ * Quick Feedback can be hidden per user (localStorage) or disabled for the whole
+ * org by platform admins (`orgs.features.show_quick_feedback === false`).
+ * Training Room tile is shown only when `orgs.features.training_education` is true (platform org toggle).
+ * Platform operators see an optional collapsible list of all orgs
  * (GET /api/admin/orgs) when their Clerk user is in PLATFORM_ADMIN_CLERK_IDS.
  */
 'use client'
@@ -29,8 +29,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useClerk } from '@clerk/nextjs'
 import { useUser } from '@/lib/userContext'
-import type { CompanyProfile, Job, Org, TeamCapabilities } from '@/lib/types'
-import { DEFAULT_MEMBER_CAPABILITIES } from '@/lib/types'
+import type { CompanyProfile, Job, Org } from '@/lib/types'
 
 const LS_HIDE_FEEDBACK = 'bh_dash_quick_feedback_hidden'
 const LS_ORGS_EXPANDED = 'bh_dash_platform_orgs_expanded'
@@ -63,7 +62,6 @@ export default function HomePage() {
   const [upcoming, setUpcoming] = useState<Job[]>([])
   const { signOut } = useClerk()
   const { caps, isAdmin, loading: userLoading, previewMode, org: ctxOrg } = useUser()
-  const [showPreviewPicker, setShowPreviewPicker] = useState(false)
   const [actions, setActions] = useState<{
     type: string; title: string; description: string; href: string; severity: string
     person_id?: string; person_email?: string | null; person_phone?: string | null; missing?: string[]
@@ -155,13 +153,21 @@ export default function HomePage() {
 
   const name = company?.name || ctxOrg?.name || 'Company'
 
-  const tiles = [
+  /** Org-level switch from /api/me — when false, Quick Feedback is not shown on this tenant's home. */
+  const homeQuickFeedbackAllowed =
+    !userLoading && ctxOrg != null && ctxOrg.features?.show_quick_feedback !== false
+
+  const dashboardTiles = [
     { href: '/jobs/new',    icon: '＋', label: 'New Job',         sub: 'Log manually',       color: '#3B82F6' },
     { href: '/team',        icon: '⬡',  label: 'Team',            sub: 'Staff & contractors', color: '#10B981' },
     { href: '/new-client',  icon: '◎',  label: 'New Client',      sub: 'Intake form',        color: '#8B5CF6' },
     { href: '/intake-send', icon: '↗',  label: 'Send Intake',     sub: 'Text or email',      color: '#14B8A6' },
     { href: '/settings',    icon: '◈',  label: 'Settings',        sub: 'Company profile',    color: '#555' },
   ]
+
+  /** Same flag as platform org “Training & education” — when false, Training Room tile is not shown on home. */
+  const trainingPortalEnabled =
+    !userLoading && ctxOrg != null && ctxOrg.features?.training_education === true
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--bg)' }}>
@@ -192,21 +198,6 @@ export default function HomePage() {
             <span className="num" style={{ fontSize: 20, fontWeight: 300, color: 'var(--text-muted)', letterSpacing: '-0.02em' }}>
               {time}
             </span>
-            {isAdmin && !previewMode && (
-              <button
-                onClick={() => setShowPreviewPicker(true)}
-                title="Preview as team member"
-                style={{
-                  width: 34, height: 34, borderRadius: 8,
-                  border: '1px solid var(--border-2)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  color: 'var(--text-muted)', fontSize: 14,
-                  transition: 'all 0.12s', background: 'none', cursor: 'pointer',
-                }}
-              >
-                👁
-              </button>
-            )}
             <button
               onClick={() => signOut({ redirectUrl: '/login' })}
               style={{
@@ -377,7 +368,7 @@ export default function HomePage() {
         gap: 10,
         alignContent: 'start',
       }}>
-        {tiles.map(tile => (
+        {dashboardTiles.map(tile => (
           <Link key={tile.href} href={tile.href} style={{ textDecoration: 'none' }}>
             <div style={{
               background: 'var(--surface)',
@@ -418,6 +409,80 @@ export default function HomePage() {
             </div>
           </Link>
         ))}
+
+        {/* Third row: reserved (spans full width if Training Room hidden) + Training Room when org flag on */}
+        <div style={{
+          background: 'var(--surface)',
+          border: '1px dashed var(--border)',
+          borderRadius: 14,
+          padding: '18px 16px 16px',
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 10,
+          position: 'relative',
+          overflow: 'hidden',
+          opacity: 0.85,
+          gridColumn: trainingPortalEnabled ? undefined : '1 / -1',
+        }}>
+          <div style={{
+            position: 'absolute', top: 0, left: 0, right: 0,
+            height: 2, background: 'var(--border)', opacity: 0.6,
+          }} />
+          <div style={{ fontSize: 22, marginTop: 4, color: 'var(--text-dim)' }}>▭</div>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 14, letterSpacing: '-0.01em', marginBottom: 2, color: 'var(--text-muted)' }}>
+              Reserved
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.4 }}>
+              Space for a future shortcut
+            </div>
+          </div>
+        </div>
+
+        {trainingPortalEnabled && (
+          <Link href="/training" style={{ textDecoration: 'none' }}>
+            <div style={{
+              background: 'var(--surface)',
+              border: '1px solid var(--border)',
+              borderRadius: 14,
+              padding: '18px 16px 16px',
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+              transition: 'border-color 0.15s, background 0.15s',
+              position: 'relative',
+              overflow: 'hidden',
+            }}
+              onMouseEnter={e => {
+                (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-2)'
+                ;(e.currentTarget as HTMLElement).style.background = 'var(--surface-2)'
+              }}
+              onMouseLeave={e => {
+                (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'
+                ;(e.currentTarget as HTMLElement).style.background = 'var(--surface)'
+              }}
+            >
+              <div style={{
+                position: 'absolute', top: 0, left: 0, right: 0,
+                height: 2, background: '#F59E0B', opacity: 0.85,
+              }} />
+              <div style={{ fontSize: 22, marginTop: 4 }}>📖</div>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 14, letterSpacing: '-0.01em', marginBottom: 2 }}>
+                    Training Room
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                    Courses &amp; resources
+                  </div>
+                </div>
+                <span style={{ fontSize: 18, color: 'var(--text-dim)', flexShrink: 0, lineHeight: 1 }}>›</span>
+              </div>
+            </div>
+          </Link>
+        )}
       </div>
 
       {/* ── Upcoming Bookings ── */}
@@ -473,8 +538,8 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* ── Quick Feedback — admin only, hideable; disappears once submitted ── */}
-      {isAdmin && !previewMode && review === null && (
+      {/* ── Quick Feedback — admin only; org can disable via platform; hideable per user ── */}
+      {homeQuickFeedbackAllowed && isAdmin && !previewMode && review === null && (
         <div style={{ padding: '0 20px 20px' }}>
           {hideQuickFeedback ? (
             <button
@@ -644,60 +709,6 @@ export default function HomePage() {
       }}>
         <span className="eyebrow" style={{ opacity: 0.35 }}>biohazards.net</span>
       </div>
-
-      {/* ── Preview Picker Modal ── */}
-      {showPreviewPicker && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 200, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
-          <div style={{ background: 'var(--surface)', borderRadius: '20px 20px 0 0', padding: '24px 20px 48px', width: '100%', maxWidth: 480 }}>
-            <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 6 }}>👁 Preview as Team Member</div>
-            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 24 }}>
-              Temporarily view the app with a team member&apos;s capabilities. You remain an Administrator — exit preview to restore full access.
-            </div>
-
-            {([
-              {
-                label: 'Default Team Member',
-                sub: 'Upload photos to assigned jobs only. No financial or doc access.',
-                caps: DEFAULT_MEMBER_CAPABILITIES,
-              },
-              {
-                label: 'Field + Assessment',
-                sub: 'View all jobs, upload photos, view and edit assessment.',
-                caps: { ...DEFAULT_MEMBER_CAPABILITIES, view_all_jobs: true, view_assessment: true, edit_assessment: true, use_smartfill: true, upload_photos_any: true } as TeamCapabilities,
-              },
-              {
-                label: 'Senior Team Member',
-                sub: 'Most access except admin settings and financial data.',
-                caps: { ...DEFAULT_MEMBER_CAPABILITIES, view_all_jobs: true, create_jobs: true, edit_job_details: true, change_job_status: true, view_assessment: true, edit_assessment: true, use_smartfill: true, generate_documents: true, edit_documents: true, send_documents: true, upload_photos_assigned: true, upload_photos_any: true, view_team_profiles: true, send_sms: true } as TeamCapabilities,
-              },
-            ] as { label: string; sub: string; caps: TeamCapabilities }[]).map(preset => (
-              <button
-                key={preset.label}
-                onClick={() => {
-                  localStorage.setItem('preview_caps', JSON.stringify(preset.caps))
-                  window.location.reload()
-                }}
-                style={{
-                  display: 'block', width: '100%', textAlign: 'left',
-                  padding: '13px 14px', borderRadius: 10, marginBottom: 8,
-                  border: '1px solid var(--border)', background: 'var(--bg)',
-                  cursor: 'pointer',
-                }}
-              >
-                <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)' }}>{preset.label}</div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>{preset.sub}</div>
-              </button>
-            ))}
-
-            <button
-              onClick={() => setShowPreviewPicker(false)}
-              style={{ width: '100%', marginTop: 8, padding: '13px', borderRadius: 10, border: '1px solid var(--border)', background: 'none', color: 'var(--text-muted)', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

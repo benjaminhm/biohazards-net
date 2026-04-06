@@ -13,6 +13,7 @@ import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import { normalizeOptionalPhoneField } from '@/lib/phone'
+import { ensureJobInboundEmailToken } from '@/lib/jobInboundEmail'
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -29,7 +30,18 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     ])
 
     if (jobRes.error) throw jobRes.error
-    return NextResponse.json({ job: jobRes.data, photos: photosRes.data ?? [] })
+
+    let job = jobRes.data
+    let inbound_email_address: string | null = null
+    if (job) {
+      const ensured = await ensureJobInboundEmailToken(id, orgId)
+      inbound_email_address = ensured.address
+      if (ensured.token && !(job as { inbound_email_token?: string }).inbound_email_token) {
+        job = { ...job, inbound_email_token: ensured.token }
+      }
+    }
+
+    return NextResponse.json({ job, photos: photosRes.data ?? [], inbound_email_address })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Unknown error'
     return NextResponse.json({ error: msg }, { status: 500 })
@@ -44,6 +56,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const body = (await req.json()) as Record<string, unknown>
+    delete body.inbound_email_token
     if ('client_phone' in body) {
       const pr = normalizeOptionalPhoneField(body.client_phone)
       if (!pr.ok) return NextResponse.json({ error: pr.error }, { status: 400 })

@@ -9,6 +9,7 @@
  *
  * Unread SMS badge is fetched separately from the messages API so the Messages tab
  * header can show a red dot even before the user opens that tab.
+ * Pilot orgs (JOB_INBOUND_EMAIL_ORG_SLUGS) get per-job inbound email next to SMS.
  *
  * All tab components receive callback props (onJobUpdate, onPhotosUpdate,
  * onDocumentDeleted) to bubble state changes back here rather than each tab
@@ -83,7 +84,14 @@ export default function JobPage() {
       const docsData = await docsRes.json()
       const msgData  = await msgRes.json()
       const invData  = await invRes.json()
-      setJob(jobData.job)
+      setJob(
+        jobData.job
+          ? {
+              ...jobData.job,
+              inbound_email_address: jobData.inbound_email_address ?? jobData.job.inbound_email_address ?? null,
+            }
+          : null
+      )
       setPhotos(jobData.photos ?? [])
       setDocuments(docsData.documents ?? [])
       const unread = (msgData.messages ?? []).filter((m: { direction: string; read_at: string | null }) => m.direction === 'inbound' && !m.read_at).length
@@ -122,7 +130,7 @@ export default function JobPage() {
     { id: 'quote',      label: 'Quote',                                                            show: caps.view_quote },
     { id: 'photos',     label: `Photos${photos.length ? ` (${photos.length})` : ''}`,             show: caps.upload_photos_assigned || caps.upload_photos_any },
     { id: 'documents',  label: `Docs${documents.length ? ` (${documents.length})` : ''}`,         show: caps.generate_documents },
-    { id: 'messages',   label: unreadSms > 0 ? `💬 SMS (${unreadSms})` : '💬 SMS',               show: caps.send_sms && isActiveJob },
+    { id: 'messages',   label: job.inbound_email_address ? (unreadSms > 0 ? `💬 Messages (${unreadSms})` : '💬 Messages') : (unreadSms > 0 ? `💬 SMS (${unreadSms})` : '💬 SMS'), show: caps.send_sms && isActiveJob },
     { id: 'invoice',    label: 'Invoice',                                                          show: canInvoice },
   ]
   const tabs = allTabs.filter(t => t.show)
@@ -206,7 +214,7 @@ export default function JobPage() {
           />
         )}
         {activeTab === 'messages' && (
-          <MessagesTab job={job} />
+          <MessagesTab job={job} inboundEmailAddress={job.inbound_email_address ?? null} />
         )}
         {activeTab === 'invoice' && (
           <InvoiceTab jobId={id} />

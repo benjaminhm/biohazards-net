@@ -34,7 +34,8 @@ interface UserCtx {
   caps: TeamCapabilities
   org_id: string | null
   has_org: boolean
-  org: { name: string; slug: string } | null
+  /** Tenant org; `show_quick_feedback === false` hides Quick Feedback; `training_education === true` shows Training Room on home (otherwise tile hidden). */
+  org: { name: string; slug: string; features?: Record<string, boolean> } | null
   loading: boolean
   previewMode: boolean
   exitPreview: () => void

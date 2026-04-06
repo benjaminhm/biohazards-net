@@ -12,6 +12,7 @@
  *
  * POST defaults plan to 'solo' and seat_limit to 1 if not provided — caller
  * can override these via the request body.
+ * New orgs get features.show_quick_feedback = false (Quick Feedback off on app home until enabled).
  */
 import { NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
@@ -73,7 +74,13 @@ export async function POST(req: Request) {
     const supabase = createServiceClient()
     const { data, error } = await supabase
       .from('orgs')
-      .insert({ name, slug, plan: plan ?? 'solo', seat_limit: seat_limit ?? 1 })
+      .insert({
+        name,
+        slug,
+        plan: plan ?? 'solo',
+        seat_limit: seat_limit ?? 1,
+        features: { show_quick_feedback: false },
+      })
       .select()
       .single()
 

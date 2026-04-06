@@ -1,27 +1,12 @@
 /*
  * components/tabs/MessagesTab.tsx
  *
- * The Messages tab on the job detail page. Provides a chat-like SMS interface
- * between the business and the client via Twilio.
- *
- * Key behaviours:
- *   - On mount, fetches all messages for the job via GET /api/sms/messages?jobId=...
- *     and marks any unread inbound messages as read (the API handles both in one call).
- *   - Polls for new messages every 15 seconds via setInterval so staff see incoming
- *     replies without a full page refresh.
- *   - Outbound SMS is sent via POST /api/sms/send. The `to_number` field is
- *     pre-filled with job.client_phone but can be overridden (e.g. to text a NOK).
- *   - fmtTime() shows "HH:MM" for today's messages and "D MMM HH:MM" for older ones
- *     so the conversation timeline is readable without full timestamps.
- *   - Auto-scrolls to the bottom whenever messages change so new messages are
- *     always visible (bottomRef).
- *
- * No optimistic updates — messages refresh after send to show the server-confirmed
- * outbound record rather than a client-side placeholder.
+ * SMS chat + optional per-job inbound email panel (pilot orgs — see JobEmailPanel).
  */
 'use client'
 
 import { useEffect, useRef, useState, useCallback } from 'react'
+import JobEmailPanel from '@/components/tabs/JobEmailPanel'
 
 interface Message {
   id: string
@@ -41,6 +26,8 @@ interface Job {
 
 interface Props {
   job: Job
+  /** When set (pilot org), email column appears next to SMS. */
+  inboundEmailAddress?: string | null
 }
 
 function fmtTime(iso: string) {
@@ -51,7 +38,7 @@ function fmtTime(iso: string) {
   return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 }
 
-export default function MessagesTab({ job }: Props) {
+export default function MessagesTab({ job, inboundEmailAddress }: Props) {
   const [messages, setMessages]   = useState<Message[]>([])
   const [loading, setLoading]     = useState(true)
   const [body, setBody]           = useState('')
@@ -60,6 +47,14 @@ export default function MessagesTab({ job }: Props) {
   const [toNumber, setToNumber]   = useState(job.client_phone ?? '')
   const bottomRef                 = useRef<HTMLDivElement>(null)
   const pollRef                   = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [wide, setWide]           = useState(false)
+
+  useEffect(() => {
+    const q = () => setWide(typeof window !== 'undefined' && window.innerWidth >= 920)
+    q()
+    window.addEventListener('resize', q)
+    return () => window.removeEventListener('resize', q)
+  }, [])
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/sms/messages?job_id=${job.id}`)
@@ -70,7 +65,6 @@ export default function MessagesTab({ job }: Props) {
 
   useEffect(() => {
     load()
-    // Poll for new inbound messages every 15s
     pollRef.current = setInterval(load, 15000)
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [load])
@@ -109,10 +103,8 @@ export default function MessagesTab({ job }: Props) {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
   }
 
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 220px)', minHeight: 400 }}>
-
-      {/* To number bar */}
+  const smsColumn = (
+    <div style={{ display: 'flex', flexDirection: 'column', height: inboundEmailAddress ? (wide ? 'calc(100vh - 220px)' : 'auto') : 'calc(100vh - 220px)', minHeight: inboundEmailAddress && !wide ? 380 : 400 }}>
       <div style={{ padding: '10px 0 14px', borderBottom: '1px solid var(--border)' }}>
         <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', marginBottom: 6 }}>
           Client number
@@ -136,7 +128,6 @@ export default function MessagesTab({ job }: Props) {
         )}
       </div>
 
-      {/* Message thread */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 0', display: 'flex', flexDirection: 'column', gap: 10 }}>
         {loading && (
           <div style={{ textAlign: 'center', color: 'var(--text-muted)', paddingTop: 40 }}>Loading…</div>
@@ -172,14 +163,12 @@ export default function MessagesTab({ job }: Props) {
         <div ref={bottomRef} />
       </div>
 
-      {/* Error */}
       {error && (
         <div style={{ padding: '8px 12px', borderRadius: 8, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#F87171', fontSize: 13, marginBottom: 8 }}>
           {error}
         </div>
       )}
 
-      {/* Compose */}
       <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12, display: 'flex', gap: 8, alignItems: 'flex-end' }}>
         <textarea
           value={body}
@@ -207,6 +196,41 @@ export default function MessagesTab({ job }: Props) {
         >
           {sending ? '…' : '↑'}
         </button>
+      </div>
+    </div>
+  )
+
+  if (!inboundEmailAddress) {
+    return <div style={{ padding: '0 4px' }}>{smsColumn}</div>
+  }
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: wide ? 'row' : 'column',
+        gap: 0,
+        alignItems: 'stretch',
+        padding: '0 4px',
+      }}
+    >
+      <div
+        style={{
+          flex: 1,
+          minWidth: 0,
+          paddingRight: wide ? 20 : 0,
+          borderRight: wide ? '1px solid var(--border)' : undefined,
+          borderBottom: wide ? undefined : '1px solid var(--border)',
+          paddingBottom: wide ? 0 : 20,
+          marginBottom: wide ? 0 : 8,
+        }}
+      >
+        <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>SMS</div>
+        {smsColumn}
+      </div>
+      <div style={{ flex: 1, minWidth: 0, paddingLeft: wide ? 20 : 0 }}>
+        <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Email</div>
+        <JobEmailPanel jobId={job.id} address={inboundEmailAddress} />
       </div>
     </div>
   )

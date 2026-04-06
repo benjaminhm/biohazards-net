@@ -2,7 +2,7 @@
  * app/api/admin/provision/route.ts
  *
  * POST /api/admin/provision — atomically provision a new company on the platform.
- *   1. Creates the org record
+ *   1. Creates the org record (features.show_quick_feedback = false by default)
  *   2. Creates the admin's person profile in the people table
  *   3. Creates an invite token pre-linked to that person and org (expires 30 days)
  *
@@ -51,7 +51,13 @@ export async function POST(req: Request) {
   // 1. Create org
   const { data: org, error: orgErr } = await supabase
     .from('orgs')
-    .insert({ name: org_name, slug: org_slug, plan, seat_limit })
+    .insert({
+      name: org_name,
+      slug: org_slug,
+      plan,
+      seat_limit,
+      features: { show_quick_feedback: false },
+    })
     .select()
     .single()
 

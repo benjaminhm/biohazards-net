@@ -74,13 +74,22 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     const body = await req.json()
     const { plan, seat_limit, features, is_active } = body
 
+    const supabase = createServiceClient()
+
     const update: Record<string, unknown> = {}
     if (plan !== undefined) update.plan = plan
     if (seat_limit !== undefined) update.seat_limit = seat_limit
-    if (features !== undefined) update.features = features
     if (is_active !== undefined) update.is_active = is_active
 
-    const supabase = createServiceClient()
+    if (features !== undefined && typeof features === 'object' && features !== null && !Array.isArray(features)) {
+      const { data: current } = await supabase.from('orgs').select('features').eq('id', id).single()
+      const prev =
+        current?.features && typeof current.features === 'object' && !Array.isArray(current.features)
+          ? (current.features as Record<string, unknown>)
+          : {}
+      update.features = { ...prev, ...(features as Record<string, unknown>) }
+    }
+
     const { data, error } = await supabase
       .from('orgs')
       .update(update)

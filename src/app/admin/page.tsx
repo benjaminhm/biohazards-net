@@ -16,7 +16,7 @@
  *     to reassign (one org per user; moving removes the old membership).
  *   - Invites: Clerk sign-up invitations — status, copy link, resend, revoke.
  *   - Reviews: submitted feedback — panels default hidden; toggles persist in localStorage.
- *     Optional table lists all orgs (same data as Organisations tab) with Open link.
+ *     Org table includes Home reviews (Shown/Hidden) → orgs.features.show_quick_feedback for app home.
  *   - Orgs tab — "Training & debugging": start audited tenant impersonation
  *     (POST /api/admin/impersonate) then open the main app with that org context.
  *
@@ -99,6 +99,7 @@ export default function AdminPage() {
   const [loadingReviews, setLoadingReviews] = useState(false)
   const [showReviewsPanel, setShowReviewsPanel] = useState(false)
   const [showReviewsOrgList, setShowReviewsOrgList] = useState(false)
+  const [feedbackToggleBusy, setFeedbackToggleBusy] = useState<string | null>(null)
   const [assigningId, setAssigningId]       = useState<string | null>(null)
   const [assignOrg, setAssignOrg]           = useState('')
   const [assignRole, setAssignRole]         = useState('owner')
@@ -234,6 +235,35 @@ export default function AdminPage() {
   async function handleToggleActive(org: OrgWithCount) {
     await fetch(`/api/admin/orgs/${org.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ is_active: !org.is_active }) })
     await fetchOrgs()
+  }
+
+  function orgShowsHomeQuickFeedback(o: OrgWithCount): boolean {
+    return o.features?.show_quick_feedback !== false
+  }
+
+  async function toggleOrgHomeQuickFeedback(o: OrgWithCount) {
+    setFeedbackToggleBusy(o.id)
+    try {
+      const next = !orgShowsHomeQuickFeedback(o)
+      const res = await fetch(`/api/admin/orgs/${o.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          features: {
+            ...(o.features ?? {}),
+            show_quick_feedback: next,
+          },
+        }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        alert(typeof j.error === 'string' ? j.error : 'Update failed')
+        return
+      }
+      await fetchOrgs()
+    } finally {
+      setFeedbackToggleBusy(null)
+    }
   }
 
   async function handleInvite(e: React.FormEvent) {
@@ -1025,6 +1055,7 @@ export default function AdminPage() {
                       <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
                         <th style={{ padding: '12px 16px', color: 'var(--text-dim)', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Name</th>
                         <th style={{ padding: '12px 16px', color: 'var(--text-dim)', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Slug</th>
+                        <th style={{ padding: '12px 16px', color: 'var(--text-dim)', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Home reviews</th>
                         <th style={{ padding: '12px 16px', color: 'var(--text-dim)', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Status</th>
                         <th style={{ padding: '12px 16px', width: 90 }} />
                       </tr>
@@ -1034,6 +1065,31 @@ export default function AdminPage() {
                         <tr key={o.id} style={{ borderBottom: '1px solid var(--border)' }}>
                           <td style={{ padding: '12px 16px', fontWeight: 600 }}>{o.name}</td>
                           <td style={{ padding: '12px 16px', color: 'var(--text-muted)' }} className="mono">{o.slug}</td>
+                          <td style={{ padding: '12px 16px' }}>
+                            <button
+                              type="button"
+                              disabled={feedbackToggleBusy === o.id}
+                              onClick={() => void toggleOrgHomeQuickFeedback(o)}
+                              title={
+                                orgShowsHomeQuickFeedback(o)
+                                  ? 'Quick Feedback is shown on this org’s app home — click to hide'
+                                  : 'Quick Feedback is hidden on this org’s app home — click to show'
+                              }
+                              style={{
+                                padding: '6px 12px',
+                                borderRadius: 8,
+                                fontSize: 12,
+                                fontWeight: 700,
+                                border: '1px solid var(--border)',
+                                background: orgShowsHomeQuickFeedback(o) ? 'rgba(34,197,94,0.12)' : 'var(--surface-2)',
+                                color: orgShowsHomeQuickFeedback(o) ? '#4ADE80' : 'var(--text-muted)',
+                                cursor: feedbackToggleBusy === o.id ? 'wait' : 'pointer',
+                                opacity: feedbackToggleBusy === o.id ? 0.55 : 1,
+                              }}
+                            >
+                              {orgShowsHomeQuickFeedback(o) ? 'Shown' : 'Hidden'}
+                            </button>
+                          </td>
                           <td style={{ padding: '12px 16px', color: o.is_active ? '#4ADE80' : '#888' }}>
                             {o.is_active ? 'Active' : 'Inactive'}
                           </td>
