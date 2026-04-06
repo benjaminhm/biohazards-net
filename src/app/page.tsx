@@ -20,7 +20,7 @@
  * org by platform admins (`orgs.features.show_quick_feedback === false`).
  * Training Room appears in the tile grid when `orgs.features.training_education` is true (platform org toggle).
  * Job Queue is the first tile (same size as others); at ≥900px with six tiles, grid is 3×2.
- * When `website_card` is on, a full-width row adds Website + reserved placeholder tiles.
+ * When `website_card` is on, a full-width row adds Website Dashboard + reserved placeholder tiles.
  * Company settings open from the header cog (not a grid tile).
  * Platform operators see an optional collapsible list of all orgs
  * (GET /api/admin/orgs) when their Clerk user is in PLATFORM_ADMIN_CLERK_IDS.
@@ -174,7 +174,7 @@ export default function HomePage() {
   const trainingPortalEnabled =
     !userLoading && ctxOrg != null && ctxOrg.features?.training_education === true
 
-  /** Platform org “Website” toggle — Website tile + reserved slot on home only when true (default off). */
+  /** Platform org Website Dashboard toggle — tile + reserved slot on home only when true (default off). */
   const websiteCardEnabled =
     !userLoading && ctxOrg != null && ctxOrg.features?.website_card === true
 
@@ -463,7 +463,7 @@ export default function HomePage() {
                 <div style={{ fontSize: 22, marginTop: 4 }}>🌐</div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 700, fontSize: 14, letterSpacing: '-0.01em', marginBottom: 2 }}>
-                    Website
+                    Website Dashboard
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.4 }}>
                     Public site &amp; marketing

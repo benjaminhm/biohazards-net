@@ -10,7 +10,7 @@
  *     — same /invite/[token] flow as team members (not Clerk email for core path)
  *   - People & invites: copy URL, email/SMS, regenerate
  *   - App users: clerk-linked accounts in this org
- *   - Website: platform flag (orgs.features.website_card) for home-screen website tile / future add-on
+ *   - Website Dashboard: platform flag (orgs.features.website_card) for home-screen tile / future add-on
  *   - Training & education: platform flag (orgs.features.training_education) for in-app portal / future add-on
  *   - Danger zone: deactivate org (requires typing the exact org name)
  */
@@ -667,10 +667,10 @@ export default function OrgProfilePage() {
           </Card>
         )}
 
-        <Card title="Website">
+        <Card title="Website Dashboard">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.55, margin: 0 }}>
-              Turns on the <strong style={{ color: 'var(--text)' }}>Website</strong> entry on this organisation&apos;s app home (next to a reserved slot for future shortcuts).
+              Turns on the <strong style={{ color: 'var(--text)' }}>Website Dashboard</strong> entry on this organisation&apos;s app home (next to a reserved slot for future shortcuts).
               Default is off; use as a master switch if the site card is bundled or sold as an add-on later.
             </p>
             <div style={{
@@ -685,15 +685,15 @@ export default function OrgProfilePage() {
                 <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Home tile</div>
                 <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>
                   {orgWebsiteCardEnabled(org)
-                    ? 'Enabled — members see the Website tile and reserved slot on the dashboard.'
-                    : 'Disabled — no website tile on the app home.'}
+                    ? 'Enabled — members see the Website Dashboard tile and reserved slot on the home screen.'
+                    : 'Disabled — no Website Dashboard tile on the app home.'}
                 </div>
               </div>
               <button
                 type="button"
                 disabled={websiteToggleBusy}
                 onClick={() => void handleToggleWebsiteCard()}
-                title={orgWebsiteCardEnabled(org) ? 'Turn off website tile' : 'Turn on website tile'}
+                title={orgWebsiteCardEnabled(org) ? 'Turn off Website Dashboard tile' : 'Turn on Website Dashboard tile'}
                 style={{
                   padding: '10px 20px',
                   borderRadius: 8,

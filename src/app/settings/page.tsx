@@ -31,6 +31,7 @@ import Image from 'next/image'
 import type { CompanyProfile, DocType } from '@/lib/types'
 import { DOC_TYPE_LABELS } from '@/lib/types'
 import { useUser } from '@/lib/userContext'
+import { getPublicWebsiteLaunchChecks, isPublicWebsiteLaunchReady } from '@/lib/websiteLaunchReadiness'
 import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
 
 interface Admin { id: string; clerk_user_id: string; name: string; email: string }
@@ -442,17 +443,17 @@ export default function SettingsPage() {
               : 'Complete all fields below then launch your public website. Clients can find you, see your services, and request a callback.'}
           </div>
 
-          {/* Checklist */}
+          {/* Checklist — same rules as Website Dashboard (lib/websiteLaunchReadiness) */}
           {!websiteLive && (() => {
-            const checks = [
-              { label: 'Company name',  ok: !!profile.name.trim() },
-              { label: 'Phone number',  ok: !!profile.phone.trim() },
-              { label: 'Email address', ok: !!profile.email.trim() },
-              { label: 'Tagline',       ok: !!profile.tagline.trim() },
-              { label: 'Services (add below)',    ok: servicesText.trim().length > 0 },
-              { label: 'Areas served (add below)', ok: areasText.trim().length > 0 },
-            ]
-            const allDone = checks.every(c => c.ok)
+            const checks = getPublicWebsiteLaunchChecks({
+              name: profile.name,
+              phone: profile.phone,
+              email: profile.email,
+              tagline: profile.tagline,
+              services: servicesText.split('\n').map(s => s.trim()).filter(Boolean),
+              areas_served: areasText.split('\n').map(s => s.trim()).filter(Boolean),
+            })
+            const allDone = isPublicWebsiteLaunchReady(checks)
             return (
               <div style={{ marginBottom: 16 }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
