@@ -19,6 +19,8 @@
  * Quick Feedback can be hidden per user (localStorage) or disabled for the whole
  * org by platform admins (`orgs.features.show_quick_feedback === false`).
  * Training Room appears in the tile grid when `orgs.features.training_education` is true (platform org toggle).
+ * Job Queue is the first tile (same size as others); at ≥900px with six tiles, grid is 3×2.
+ * When `website_card` is on, a full-width row adds Website + reserved placeholder tiles.
  * Company settings open from the header cog (not a grid tile).
  * Platform operators see an optional collapsible list of all orgs
  * (GET /api/admin/orgs) when their Clerk user is in PLATFORM_ADMIN_CLERK_IDS.
@@ -73,6 +75,8 @@ export default function HomePage() {
   const [hideQuickFeedback, setHideQuickFeedback] = useState(false)
   const [orgsExpanded, setOrgsExpanded] = useState(false)
   const [platformOrgs, setPlatformOrgs] = useState<OrgWithCount[] | null | 'loading'>('loading')
+  /** ≥900px: use 3 columns when we have 6 tiles (2×3 layout); otherwise 2 columns. */
+  const [desktopWide, setDesktopWide] = useState(false)
   const router = useRouter()
 
   // Non-admins without view_all_jobs go to their field view
@@ -87,6 +91,14 @@ export default function HomePage() {
     } catch {
       /* ignore */
     }
+  }, [])
+
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 900px)')
+    const sync = () => setDesktopWide(mq.matches)
+    sync()
+    mq.addEventListener('change', sync)
+    return () => mq.removeEventListener('change', sync)
   }, [])
 
   useEffect(() => {
@@ -158,16 +170,40 @@ export default function HomePage() {
   const homeQuickFeedbackAllowed =
     !userLoading && ctxOrg != null && ctxOrg.features?.show_quick_feedback !== false
 
-  const dashboardTiles = [
+  /** Same flag as platform org “Training & education” — when false, Training Room tile is not shown on home. */
+  const trainingPortalEnabled =
+    !userLoading && ctxOrg != null && ctxOrg.features?.training_education === true
+
+  /** Platform org “Website” toggle — Website tile + reserved slot on home only when true (default off). */
+  const websiteCardEnabled =
+    !userLoading && ctxOrg != null && ctxOrg.features?.website_card === true
+
+  const actionTiles = [
     { href: '/jobs/new',    icon: '＋', label: 'New Job',         sub: 'Log manually',       color: '#3B82F6' },
     { href: '/team',        icon: '⬡',  label: 'Team',            sub: 'Staff & contractors', color: '#10B981' },
     { href: '/new-client',  icon: '◎',  label: 'New Client',      sub: 'Intake form',        color: '#8B5CF6' },
     { href: '/intake-send', icon: '↗',  label: 'Send Intake',     sub: 'Text or email',      color: '#14B8A6' },
   ]
 
-  /** Same flag as platform org “Training & education” — when false, Training Room tile is not shown on home. */
-  const trainingPortalEnabled =
-    !userLoading && ctxOrg != null && ctxOrg.features?.training_education === true
+  const dashboardGridTiles = [
+    {
+      href: '/jobs/queue',
+      icon: '📋',
+      label: 'Job Queue',
+      sub: 'All active jobs — track, update, dispatch',
+      color: 'var(--accent)',
+    },
+    ...actionTiles,
+    ...(trainingPortalEnabled
+      ? [{
+          href: '/training',
+          icon: '📖',
+          label: 'Training Room',
+          sub: 'Courses & resources',
+          color: '#F59E0B',
+        }]
+      : []),
+  ]
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--bg)' }}>
@@ -333,73 +369,27 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* ── Job Queue — Hero tile ── */}
-      <div style={{ padding: '0 20px 4px' }}>
-        <Link href="/jobs/queue" style={{ display: 'block' }}>
-          <div style={{
-            background: 'var(--surface)',
-            border: '1px solid var(--border)',
-            borderRadius: 16,
-            padding: '22px 22px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 18,
-            transition: 'border-color 0.15s, background 0.15s',
-            position: 'relative',
-            overflow: 'hidden',
-          }}
-            onMouseEnter={e => {
-              (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-2)'
-              ;(e.currentTarget as HTMLElement).style.background = 'var(--surface-2)'
-            }}
-            onMouseLeave={e => {
-              (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'
-              ;(e.currentTarget as HTMLElement).style.background = 'var(--surface)'
-            }}
-          >
-            {/* Left accent line */}
-            <div style={{
-              position: 'absolute', left: 0, top: 0, bottom: 0,
-              width: 3, background: 'var(--accent)', borderRadius: '99px 0 0 99px',
-            }} />
-            <div style={{
-              width: 46, height: 46, borderRadius: 12,
-              background: 'var(--accent-dim)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 22, flexShrink: 0, marginLeft: 4,
-            }}>
-              📋
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 700, fontSize: 17, letterSpacing: '-0.02em', marginBottom: 2 }}>
-                Job Queue
-              </div>
-              <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-                All active jobs — track, update, dispatch
-              </div>
-            </div>
-            <div style={{ fontSize: 22, color: 'var(--text-dim)', flexShrink: 0 }}>›</div>
-          </div>
-        </Link>
-      </div>
-
-      {/* ── Secondary tiles — 2 col grid ── */}
+      {/* ── Dashboard tiles — Job Queue + actions (+ Training when enabled); 3×2 on wide desktop when 6 tiles ── */}
       <div style={{
         flex: 1,
         padding: '12px 20px 20px',
         display: 'grid',
-        gridTemplateColumns: '1fr 1fr',
+        gridTemplateColumns:
+          desktopWide && dashboardGridTiles.length === 6
+            ? 'repeat(3, minmax(0, 1fr))'
+            : 'repeat(2, minmax(0, 1fr))',
         gap: 10,
         alignContent: 'start',
       }}>
-        {dashboardTiles.map(tile => (
-          <Link key={tile.href} href={tile.href} style={{ textDecoration: 'none' }}>
+        {dashboardGridTiles.map(tile => (
+          <Link key={tile.href} href={tile.href} style={{ textDecoration: 'none', minWidth: 0 }}>
             <div style={{
               background: 'var(--surface)',
               border: '1px solid var(--border)',
               borderRadius: 14,
               padding: '18px 16px 16px',
               height: '100%',
+              minHeight: 108,
               display: 'flex',
               flexDirection: 'column',
               gap: 10,
@@ -416,13 +406,12 @@ export default function HomePage() {
                 ;(e.currentTarget as HTMLElement).style.background = 'var(--surface)'
               }}
             >
-              {/* Top colour stripe */}
               <div style={{
                 position: 'absolute', top: 0, left: 0, right: 0,
                 height: 2, background: tile.color, opacity: 0.7,
               }} />
               <div style={{ fontSize: 22, marginTop: 4 }}>{tile.icon}</div>
-              <div>
+              <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 700, fontSize: 14, letterSpacing: '-0.01em', marginBottom: 2 }}>
                   {tile.label}
                 </div>
@@ -434,49 +423,82 @@ export default function HomePage() {
           </Link>
         ))}
 
-        {/* Training Room: third row, right column (same cell as former “Reserved” placeholder) */}
-        {trainingPortalEnabled && (
-          <Link href="/training" style={{ textDecoration: 'none', gridColumn: 2 }}>
+        {websiteCardEnabled && (
+          <div
+            style={{
+              gridColumn: '1 / -1',
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+              gap: 10,
+            }}
+          >
+            <Link href="/website" style={{ textDecoration: 'none', minWidth: 0 }}>
+              <div style={{
+                background: 'var(--surface)',
+                border: '1px solid var(--border)',
+                borderRadius: 14,
+                padding: '18px 16px 16px',
+                height: '100%',
+                minHeight: 108,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 10,
+                transition: 'border-color 0.15s, background 0.15s',
+                position: 'relative',
+                overflow: 'hidden',
+              }}
+                onMouseEnter={e => {
+                  (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-2)'
+                  ;(e.currentTarget as HTMLElement).style.background = 'var(--surface-2)'
+                }}
+                onMouseLeave={e => {
+                  (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'
+                  ;(e.currentTarget as HTMLElement).style.background = 'var(--surface)'
+                }}
+              >
+                <div style={{
+                  position: 'absolute', top: 0, left: 0, right: 0,
+                  height: 2, background: '#06B6D4', opacity: 0.85,
+                }} />
+                <div style={{ fontSize: 22, marginTop: 4 }}>🌐</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14, letterSpacing: '-0.01em', marginBottom: 2 }}>
+                    Website
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                    Public site &amp; marketing
+                  </div>
+                </div>
+              </div>
+            </Link>
             <div style={{
               background: 'var(--surface)',
-              border: '1px solid var(--border)',
+              border: '1px dashed var(--border)',
               borderRadius: 14,
               padding: '18px 16px 16px',
-              height: '100%',
+              minHeight: 108,
               display: 'flex',
               flexDirection: 'column',
               gap: 10,
-              transition: 'border-color 0.15s, background 0.15s',
               position: 'relative',
               overflow: 'hidden',
-            }}
-              onMouseEnter={e => {
-                (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-2)'
-                ;(e.currentTarget as HTMLElement).style.background = 'var(--surface-2)'
-              }}
-              onMouseLeave={e => {
-                (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'
-                ;(e.currentTarget as HTMLElement).style.background = 'var(--surface)'
-              }}
-            >
+              opacity: 0.85,
+            }}>
               <div style={{
                 position: 'absolute', top: 0, left: 0, right: 0,
-                height: 2, background: '#F59E0B', opacity: 0.85,
+                height: 2, background: 'var(--border)', opacity: 0.6,
               }} />
-              <div style={{ fontSize: 22, marginTop: 4 }}>📖</div>
-              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: 14, letterSpacing: '-0.01em', marginBottom: 2 }}>
-                    Training Room
-                  </div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.4 }}>
-                    Courses &amp; resources
-                  </div>
+              <div style={{ fontSize: 22, marginTop: 4, color: 'var(--text-dim)' }}>▭</div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 14, letterSpacing: '-0.01em', marginBottom: 2, color: 'var(--text-muted)' }}>
+                  Reserved
                 </div>
-                <span style={{ fontSize: 18, color: 'var(--text-dim)', flexShrink: 0, lineHeight: 1 }}>›</span>
+                <div style={{ fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.4 }}>
+                  Space for a future shortcut
+                </div>
               </div>
             </div>
-          </Link>
+          </div>
         )}
       </div>
 

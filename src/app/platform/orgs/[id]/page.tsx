@@ -10,6 +10,7 @@
  *     — same /invite/[token] flow as team members (not Clerk email for core path)
  *   - People & invites: copy URL, email/SMS, regenerate
  *   - App users: clerk-linked accounts in this org
+ *   - Website: platform flag (orgs.features.website_card) for home-screen website tile / future add-on
  *   - Training & education: platform flag (orgs.features.training_education) for in-app portal / future add-on
  *   - Danger zone: deactivate org (requires typing the exact org name)
  */
@@ -27,7 +28,7 @@ interface OrgRow {
   seat_limit: number
   is_active: boolean
   created_at: string
-  /** Merged platform flags; `training_education` gates the training portal UI. */
+  /** Merged platform flags; `website_card`, `training_education`, etc. */
   features?: Record<string, unknown> | null
 }
 interface PersonRow {
@@ -76,6 +77,12 @@ function orgTrainingEducationEnabled(org: OrgRow): boolean {
   return f.training_education === true
 }
 
+function orgWebsiteCardEnabled(org: OrgRow): boolean {
+  const f = org.features
+  if (!f || typeof f !== 'object') return false
+  return f.website_card === true
+}
+
 const PLAN_COLORS: Record<string, { bg: string; fg: string }> = {
   solo:     { bg: 'rgba(100,100,100,0.12)', fg: '#888' },
   team:     { bg: 'rgba(59,130,246,0.1)',   fg: '#60A5FA' },
@@ -100,6 +107,7 @@ export default function OrgProfilePage() {
   const [deleteConfirmName, setDeleteConfirmName] = useState('')
   const [deleteSubmitting, setDeleteSubmitting] = useState(false)
   const [trainingToggleBusy, setTrainingToggleBusy] = useState(false)
+  const [websiteToggleBusy, setWebsiteToggleBusy] = useState(false)
 
   async function loadSendLog() {
     try {
@@ -202,6 +210,27 @@ export default function OrgProfilePage() {
       await load()
     } finally {
       setTrainingToggleBusy(false)
+    }
+  }
+
+  async function handleToggleWebsiteCard() {
+    if (!data) return
+    const next = !orgWebsiteCardEnabled(data.org)
+    setWebsiteToggleBusy(true)
+    try {
+      const res = await fetch(`/api/admin/orgs/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ features: { website_card: next } }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        alert(typeof j.error === 'string' ? j.error : 'Could not update website card flag')
+        return
+      }
+      await load()
+    } finally {
+      setWebsiteToggleBusy(false)
     }
   }
 
@@ -637,6 +666,52 @@ export default function OrgProfilePage() {
             </div>
           </Card>
         )}
+
+        <Card title="Website">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.55, margin: 0 }}>
+              Turns on the <strong style={{ color: 'var(--text)' }}>Website</strong> entry on this organisation&apos;s app home (next to a reserved slot for future shortcuts).
+              Default is off; use as a master switch if the site card is bundled or sold as an add-on later.
+            </p>
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              gap: 16, flexWrap: 'wrap',
+              padding: '12px 14px',
+              background: 'var(--surface-2)',
+              border: '1px solid var(--border)',
+              borderRadius: 10,
+            }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Home tile</div>
+                <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>
+                  {orgWebsiteCardEnabled(org)
+                    ? 'Enabled — members see the Website tile and reserved slot on the dashboard.'
+                    : 'Disabled — no website tile on the app home.'}
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={websiteToggleBusy}
+                onClick={() => void handleToggleWebsiteCard()}
+                title={orgWebsiteCardEnabled(org) ? 'Turn off website tile' : 'Turn on website tile'}
+                style={{
+                  padding: '10px 20px',
+                  borderRadius: 8,
+                  border: `1px solid ${orgWebsiteCardEnabled(org) ? 'rgba(34,197,94,0.45)' : 'var(--border)'}`,
+                  background: orgWebsiteCardEnabled(org) ? 'rgba(34,197,94,0.12)' : 'var(--surface-3)',
+                  color: orgWebsiteCardEnabled(org) ? '#4ADE80' : 'var(--text-muted)',
+                  fontWeight: 700,
+                  fontSize: 13,
+                  cursor: websiteToggleBusy ? 'wait' : 'pointer',
+                  opacity: websiteToggleBusy ? 0.65 : 1,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {websiteToggleBusy ? 'Saving…' : orgWebsiteCardEnabled(org) ? 'On' : 'Off'}
+              </button>
+            </div>
+          </div>
+        </Card>
 
         <Card title="Training & education">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>

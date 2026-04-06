@@ -411,7 +411,7 @@ export interface Org {
   custom_domain?: string
   plan: 'solo' | 'team' | 'business'
   seat_limit: number
-  /** Platform-tunable flags, e.g. `show_quick_feedback: false` hides Quick Feedback on app home; `training_education: true` enables the in-app training portal (future paid add-on). */
+  /** Platform-tunable flags: `show_quick_feedback`, `training_education`, `website_card` (public site / marketing entry on home), etc. */
   features: Record<string, boolean>
   is_active: boolean
   created_at: string
