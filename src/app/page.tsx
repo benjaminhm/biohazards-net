@@ -18,7 +18,8 @@
  *
  * Quick Feedback can be hidden per user (localStorage) or disabled for the whole
  * org by platform admins (`orgs.features.show_quick_feedback === false`).
- * Training Room tile is shown only when `orgs.features.training_education` is true (platform org toggle).
+ * Training Room appears in the tile grid when `orgs.features.training_education` is true (platform org toggle).
+ * Company settings open from the header cog (not a grid tile).
  * Platform operators see an optional collapsible list of all orgs
  * (GET /api/admin/orgs) when their Clerk user is in PLATFORM_ADMIN_CLERK_IDS.
  */
@@ -162,7 +163,6 @@ export default function HomePage() {
     { href: '/team',        icon: '⬡',  label: 'Team',            sub: 'Staff & contractors', color: '#10B981' },
     { href: '/new-client',  icon: '◎',  label: 'New Client',      sub: 'Intake form',        color: '#8B5CF6' },
     { href: '/intake-send', icon: '↗',  label: 'Send Intake',     sub: 'Text or email',      color: '#14B8A6' },
-    { href: '/settings',    icon: '◈',  label: 'Settings',        sub: 'Company profile',    color: '#555' },
   ]
 
   /** Same flag as platform org “Training & education” — when false, Training Room tile is not shown on home. */
@@ -198,6 +198,30 @@ export default function HomePage() {
             <span className="num" style={{ fontSize: 20, fontWeight: 300, color: 'var(--text-muted)', letterSpacing: '-0.02em' }}>
               {time}
             </span>
+            <Link
+              href="/settings"
+              title="Company settings"
+              aria-label="Company settings"
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                width: 34, height: 34, flexShrink: 0, borderRadius: 8,
+                border: '1px solid var(--border-2)',
+                color: 'var(--text-muted)', fontSize: 18, lineHeight: 1,
+                textDecoration: 'none', transition: 'background 0.12s, border-color 0.12s, color 0.12s',
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.background = 'var(--surface-2)'
+                e.currentTarget.style.borderColor = 'var(--border)'
+                e.currentTarget.style.color = 'var(--text)'
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.background = 'transparent'
+                e.currentTarget.style.borderColor = 'var(--border-2)'
+                e.currentTarget.style.color = 'var(--text-muted)'
+              }}
+            >
+              ⚙
+            </Link>
             <button
               onClick={() => signOut({ redirectUrl: '/login' })}
               style={{
@@ -410,38 +434,9 @@ export default function HomePage() {
           </Link>
         ))}
 
-        {/* Third row: reserved (spans full width if Training Room hidden) + Training Room when org flag on */}
-        <div style={{
-          background: 'var(--surface)',
-          border: '1px dashed var(--border)',
-          borderRadius: 14,
-          padding: '18px 16px 16px',
-          height: '100%',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 10,
-          position: 'relative',
-          overflow: 'hidden',
-          opacity: 0.85,
-          gridColumn: trainingPortalEnabled ? undefined : '1 / -1',
-        }}>
-          <div style={{
-            position: 'absolute', top: 0, left: 0, right: 0,
-            height: 2, background: 'var(--border)', opacity: 0.6,
-          }} />
-          <div style={{ fontSize: 22, marginTop: 4, color: 'var(--text-dim)' }}>▭</div>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 14, letterSpacing: '-0.01em', marginBottom: 2, color: 'var(--text-muted)' }}>
-              Reserved
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.4 }}>
-              Space for a future shortcut
-            </div>
-          </div>
-        </div>
-
+        {/* Training Room: third row, right column (same cell as former “Reserved” placeholder) */}
         {trainingPortalEnabled && (
-          <Link href="/training" style={{ textDecoration: 'none' }}>
+          <Link href="/training" style={{ textDecoration: 'none', gridColumn: 2 }}>
             <div style={{
               background: 'var(--surface)',
               border: '1px solid var(--border)',
