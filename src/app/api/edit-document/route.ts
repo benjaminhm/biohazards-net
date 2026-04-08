@@ -15,6 +15,8 @@ import { NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { auth } from '@clerk/nextjs/server'
 import { getOrgId } from '@/lib/org'
+import { getDocumentRulesPlainForEdit } from '@/lib/documentRules'
+import { fetchPlatformDocumentRules } from '@/lib/platformDocumentRules'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -38,17 +40,27 @@ export async function POST(req: Request) {
       )
     }
 
-    const { type, content, instruction } = await req.json()
+    const { type, content, instruction } = await req.json() as {
+      type: string
+      content: unknown
+      instruction: string
+    }
     if (!instruction?.trim()) {
       return NextResponse.json({ error: 'No instruction provided' }, { status: 400 })
     }
+
+    const platformDbRules = await fetchPlatformDocumentRules()
+    const policyBlock = getDocumentRulesPlainForEdit(type, platformDbRules)
 
     const msg = await client.messages.create({
       model: 'claude-opus-4-5',
       max_tokens: 4096,
       messages: [{
         role: 'user',
-        content: `You are editing a ${TYPE_LABELS[type] ?? type} document for a biohazard cleaning business.
+        content: `Document policy (always follow — platform baseline, then platform-wide rules, then apply org rules when using the main doc editor):
+${policyBlock}
+
+You are editing a ${TYPE_LABELS[type] ?? type} document for a biohazard cleaning business.
 
 Current document JSON:
 ${JSON.stringify(content, null, 2)}

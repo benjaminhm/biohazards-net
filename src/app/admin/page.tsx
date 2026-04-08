@@ -17,6 +17,7 @@
  *   - Invites: Clerk sign-up invitations — status, copy link, resend, revoke.
  *   - Reviews: submitted feedback — panels default hidden; toggles persist in localStorage.
  *     Org table includes Home reviews (Shown/Hidden) → orgs.features.show_quick_feedback for app home.
+ *   - AI doc rules: platform-wide document_rules (tone, phrasing) merged before org rules in Claude prompts.
  *   - Orgs tab — "Training & debugging": start audited tenant impersonation
  *     (POST /api/admin/impersonate) then open the main app with that org context.
  *
@@ -29,9 +30,10 @@
  */
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import type { Org } from '@/lib/types'
+import { DOC_TYPE_LABELS } from '@/lib/types'
 
 const ALPHA_ORG_SLUG = 'biohazards-net'
 
@@ -49,7 +51,13 @@ interface PendingUser {
 
 const PLAN_OPTIONS = ['solo', 'team', 'business']
 const ROLE_OPTIONS = ['admin', 'manager', 'team_lead', 'member', 'client', 'property_manager', 'body_corp', 'platform_owner', 'platform_admin']
-type Tab = 'orgs' | 'admins' | 'invites' | 'pending' | 'reviews'
+
+const PLATFORM_RULE_TABS: { id: string; label: string }[] = [
+  { id: 'general', label: 'General' },
+  ...Object.entries(DOC_TYPE_LABELS).map(([id, label]) => ({ id, label })),
+]
+
+type Tab = 'orgs' | 'admins' | 'invites' | 'pending' | 'reviews' | 'doc_rules'
 
 interface ClerkInvitationRow {
   id: string
@@ -123,6 +131,15 @@ export default function AdminPage() {
   const [impReason, setImpReason]   = useState('')
   const [impAllowWrites, setImpAllowWrites] = useState(false)
   const [impBusy, setImpBusy]       = useState(false)
+
+  const [platformDocRules, setPlatformDocRules]     = useState<Record<string, string>>({})
+  const [platformDocRulesLoading, setPlatformDocRulesLoading] = useState(false)
+  const [platformDocRulesSaving, setPlatformDocRulesSaving]   = useState(false)
+  const [platformDocRulesErr, setPlatformDocRulesErr]         = useState<string | null>(null)
+  const [platformDocRulesOk, setPlatformDocRulesOk]           = useState(false)
+  const [activePlatformRuleTab, setActivePlatformRuleTab]     = useState('general')
+  const [platformPdfUploading, setPlatformPdfUploading]       = useState(false)
+  const platformPdfInputRef = useRef<HTMLInputElement>(null)
 
   const usersByOrg = (() => {
     const map = new Map<string, { orgName: string; orgSlug: string; users: AdminUser[] }>()
@@ -210,6 +227,67 @@ export default function AdminPage() {
     } finally { setLoadingReviews(false) }
   }
 
+  async function fetchPlatformDocRules() {
+    setPlatformDocRulesLoading(true)
+    setPlatformDocRulesErr(null)
+    try {
+      const res = await fetch('/api/admin/platform-document-rules')
+      const json = await res.json()
+      if (!res.ok) throw new Error(typeof json.error === 'string' ? json.error : 'Failed to load')
+      setPlatformDocRules(json.document_rules ?? {})
+    } catch (e: unknown) {
+      setPlatformDocRulesErr(e instanceof Error ? e.message : 'Failed to load')
+    } finally {
+      setPlatformDocRulesLoading(false)
+    }
+  }
+
+  async function uploadPlatformStylePdf(file: File) {
+    if (activePlatformRuleTab === 'general') return
+    setPlatformPdfUploading(true)
+    setPlatformDocRulesErr(null)
+    try {
+      const fileName = `platform-${activePlatformRuleTab}-${Date.now()}.pdf`
+      const res = await fetch('/api/admin/platform-style-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileName, contentType: 'application/pdf' }),
+      })
+      const j = await res.json()
+      if (!res.ok) throw new Error(typeof j.error === 'string' ? j.error : 'Failed to get upload URL')
+      const up = await fetch(j.signedUrl, { method: 'PUT', headers: { 'Content-Type': 'application/pdf' }, body: file })
+      if (!up.ok) throw new Error('Upload failed')
+      const pdfKey = `${activePlatformRuleTab}_pdf`
+      setPlatformDocRules(prev => ({ ...prev, [pdfKey]: j.publicUrl as string }))
+    } catch (e: unknown) {
+      setPlatformDocRulesErr(e instanceof Error ? e.message : 'PDF upload failed')
+    } finally {
+      setPlatformPdfUploading(false)
+    }
+  }
+
+  async function savePlatformDocRules() {
+    setPlatformDocRulesSaving(true)
+    setPlatformDocRulesErr(null)
+    setPlatformDocRulesOk(false)
+    try {
+      const res = await fetch('/api/admin/platform-document-rules', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ document_rules: platformDocRules }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(typeof json.error === 'string' ? json.error : 'Save failed')
+      setPlatformDocRules(json.document_rules ?? platformDocRules)
+      setPlatformDocRulesOk(true)
+      setTimeout(() => setPlatformDocRulesOk(false), 2500)
+    } catch (e: unknown) {
+      setPlatformDocRulesErr(e instanceof Error ? e.message : 'Save failed')
+    } finally {
+      setPlatformDocRulesSaving(false)
+    }
+  }
+
   async function handleTogglePublish(review: PlatformReview) {
     await fetch(`/api/admin/reviews/${review.id}`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
@@ -230,6 +308,7 @@ export default function AdminPage() {
   useEffect(() => { if (tab === 'invites') void fetchInvites() }, [tab])
   useEffect(() => { if (tab === 'pending') fetchPending() }, [tab])
   useEffect(() => { if (tab === 'reviews') fetchReviews() }, [tab])
+  useEffect(() => { if (tab === 'doc_rules') void fetchPlatformDocRules() }, [tab])
 
   useEffect(() => {
     try {
@@ -507,7 +586,7 @@ export default function AdminPage() {
         padding: '0 28px',
         display: 'flex', gap: 0,
       }}>
-        {(['orgs', 'admins', 'invites', 'pending', 'reviews'] as Tab[]).map(t => (
+        {(['orgs', 'admins', 'invites', 'pending', 'reviews', 'doc_rules'] as Tab[]).map(t => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -521,7 +600,7 @@ export default function AdminPage() {
               display: 'flex', alignItems: 'center', gap: 7,
             }}
           >
-            {t === 'orgs' ? 'Organisations' : t === 'admins' ? 'App users' : t === 'invites' ? 'Invites' : t === 'pending' ? 'Pending' : 'Reviews'}
+            {t === 'orgs' ? 'Organisations' : t === 'admins' ? 'App users' : t === 'invites' ? 'Invites' : t === 'pending' ? 'Pending' : t === 'doc_rules' ? 'AI doc rules' : 'Reviews'}
             {t === 'pending' && pending.length > 0 && (
               <span style={{
                 background: '#EF4444', color: '#fff',
@@ -1141,6 +1220,138 @@ export default function AdminPage() {
                     </tbody>
                   </table>
                 )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Platform AI document rules ── */}
+        {tab === 'doc_rules' && (
+          <div style={{ maxWidth: 900 }}>
+            <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.6, marginBottom: 20 }}>
+              Stored in Supabase as one <strong style={{ color: 'var(--text)' }}>JSON</strong> object on the <code className="mono">platform_document_rules</code> row (not a file in git): text keys like <code className="mono">report</code> and optional URL keys like <code className="mono">report_pdf</code>.
+              These apply to <strong style={{ color: 'var(--text)' }}>every organisation</strong> after the code baseline and before each company&apos;s Document Rules. Per-type tabs can include a <strong style={{ color: 'var(--text)' }}>style PDF</strong> for Claude (org PDFs attach second and win on conflicts).
+            </p>
+            {platformDocRulesErr && (
+              <div style={{
+                background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)',
+                borderRadius: 8, padding: '12px 16px', marginBottom: 16, color: '#F87171', fontSize: 13,
+              }}>
+                {platformDocRulesErr}
+              </div>
+            )}
+            {platformDocRulesLoading ? (
+              <EmptyState>Loading…</EmptyState>
+            ) : (
+              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: 20 }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
+                  {PLATFORM_RULE_TABS.map(tabRow => (
+                    <button
+                      key={tabRow.id}
+                      type="button"
+                      onClick={() => setActivePlatformRuleTab(tabRow.id)}
+                      style={{
+                        padding: '6px 11px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                        border: '1px solid var(--border)',
+                        background: activePlatformRuleTab === tabRow.id ? 'var(--surface-2)' : 'transparent',
+                        color: 'var(--text)', cursor: 'pointer',
+                      }}
+                    >
+                      {tabRow.label}
+                    </button>
+                  ))}
+                </div>
+                <label style={{ fontSize: 12, fontWeight: 700, display: 'block', marginBottom: 8 }}>
+                  {PLATFORM_RULE_TABS.find(t => t.id === activePlatformRuleTab)?.label ?? activePlatformRuleTab}
+                </label>
+                {activePlatformRuleTab !== 'general' && (
+                  <div style={{ marginBottom: 16, padding: 14, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)' }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-dim)', marginBottom: 8 }}>
+                      Style guide PDF (optional)
+                    </div>
+                    <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 10px', lineHeight: 1.5 }}>
+                      Uploaded to shared storage; URL saved as <span className="mono">{activePlatformRuleTab}_pdf</span> in the same JSON. Click Save after upload if you changed text too.
+                    </p>
+                    {platformDocRules[`${activePlatformRuleTab}_pdf`] && (
+                      <div style={{ fontSize: 12, marginBottom: 10, wordBreak: 'break-all' }}>
+                        <span style={{ color: 'var(--text-muted)' }}>Current: </span>
+                        <a href={platformDocRules[`${activePlatformRuleTab}_pdf`]} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>
+                          {platformDocRules[`${activePlatformRuleTab}_pdf`]?.slice(0, 72)}
+                          {(platformDocRules[`${activePlatformRuleTab}_pdf`]?.length ?? 0) > 72 ? '…' : ''}
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const k = `${activePlatformRuleTab}_pdf`
+                            setPlatformDocRules(prev => {
+                              const next = { ...prev }
+                              delete next[k]
+                              return next
+                            })
+                          }}
+                          style={{ marginLeft: 10, fontSize: 12, fontWeight: 600, background: 'none', border: 'none', color: '#F87171', cursor: 'pointer', textDecoration: 'underline' }}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    )}
+                    <input
+                      ref={platformPdfInputRef}
+                      type="file"
+                      accept="application/pdf"
+                      style={{ display: 'none' }}
+                      onChange={e => {
+                        const f = e.target.files?.[0]
+                        e.target.value = ''
+                        if (f) void uploadPlatformStylePdf(f)
+                      }}
+                    />
+                    <button
+                      type="button"
+                      disabled={platformPdfUploading}
+                      onClick={() => platformPdfInputRef.current?.click()}
+                      style={{
+                        padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                        border: '1px solid var(--border)', background: 'var(--surface-3)', color: 'var(--text)', cursor: platformPdfUploading ? 'wait' : 'pointer',
+                      }}
+                    >
+                      {platformPdfUploading ? 'Uploading…' : 'Upload PDF'}
+                    </button>
+                  </div>
+                )}
+                <textarea
+                  value={activePlatformRuleTab === 'general' ? (platformDocRules.general ?? '') : (platformDocRules[activePlatformRuleTab] ?? '')}
+                  onChange={e => setPlatformDocRules(prev => ({
+                    ...prev,
+                    [activePlatformRuleTab]: e.target.value,
+                  }))}
+                  placeholder={activePlatformRuleTab === 'general'
+                    ? 'Optional. Applies to every document type for all orgs.'
+                    : 'Optional text rules for this document type. Use Upload PDF above for a visual/style example.'}
+                  rows={14}
+                  style={{
+                    width: '100%', padding: 12, borderRadius: 8, fontSize: 13, lineHeight: 1.5,
+                    border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', resize: 'vertical',
+                    fontFamily: 'ui-monospace, monospace',
+                  }}
+                />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 16 }}>
+                  <button
+                    type="button"
+                    disabled={platformDocRulesSaving}
+                    onClick={() => void savePlatformDocRules()}
+                    style={{
+                      padding: '10px 18px', borderRadius: 8, border: 'none',
+                      background: 'var(--accent)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: platformDocRulesSaving ? 'wait' : 'pointer',
+                      opacity: platformDocRulesSaving ? 0.7 : 1,
+                    }}
+                  >
+                    {platformDocRulesSaving ? 'Saving…' : 'Save platform rules'}
+                  </button>
+                  {platformDocRulesOk && (
+                    <span style={{ fontSize: 13, color: '#4ADE80', fontWeight: 600 }}>Saved</span>
+                  )}
+                </div>
               </div>
             )}
           </div>

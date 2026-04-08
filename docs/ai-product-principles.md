@@ -27,6 +27,7 @@ Captured from product discussion (2026-04). Use this when designing or implement
 
 ## Implementation hints (when coding)
 
+- **AI document wording vs layout:** see [document-rules-architecture.md](./document-rules-architecture.md) (`document_rules` + platform baseline vs print/PDF templates).
 - Prefer **schema + approval UI** for extracted fields over auto-replies.
 - Separate **sender profiles** (From / reply-to / template) by role: technician vs admin vs accounts.
 - Keep **Twilio/Resend** paths clearly **transactional** vs **staff-composed** where the product differentiates them.

@@ -11,14 +11,15 @@
  * The system prompt instructs Claude to return a wrapper JSON containing both
  * the reply and the updated content, parsed with /\{[\s\S]*\}/ regex.
  *
- * Document rules (biohazards.md) are optionally injected if provided in the
- * request, ensuring edits respect org-specific style guidelines.
+ * Document rules: platform baseline + org rules from the client (see lib/documentRules.ts).
  */
 import { NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { auth } from '@clerk/nextjs/server'
 import type { DocType } from '@/lib/types'
 import { getOrgId } from '@/lib/org'
+import { getDocumentRulesForChat } from '@/lib/documentRules'
+import { fetchPlatformDocumentRules } from '@/lib/platformDocumentRules'
 
 const client = new Anthropic()
 
@@ -47,9 +48,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'type, content and message are required' }, { status: 400 })
     }
 
-    const rulesBlock = rules?.trim()
-      ? `\nDOCUMENT RULES (biohazards.md — follow these strictly when rewriting content):\n${rules.trim()}\n`
-      : ''
+    const platformDbRules = await fetchPlatformDocumentRules()
+    const rulesBlock = getDocumentRulesForChat(type, rules, platformDbRules)
 
     const systemPrompt = `You are an expert document editor helping a biohazard remediation company edit professional documents.
 ${rulesBlock}

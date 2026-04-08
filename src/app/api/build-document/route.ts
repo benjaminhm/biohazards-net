@@ -11,11 +11,10 @@
  *   and pricing into a structured text block injected into every prompt.
  * - schemas{} contains per-DocType JSON structure instructions — Claude must
  *   return exactly matching keys to be renderable by printDocument.ts.
- * - getRules() injects per-org document rules from company_profile.document_rules
- *   (biohazards.md system) as a strict override block before the schema.
- * - If a style guide PDF URL is stored in document_rules[type + '_pdf'],
- *   the PDF is fetched and attached as a base64 document block so Claude
- *   can match the client's existing document style.
+ * - getDocumentRulesForBuild() injects code baseline, DB platform_document_rules,
+ *   then per-org company_profile.document_rules (see lib/documentRules.ts).
+ * - Style PDFs: platform document_rules[type + '_pdf'] (if set) is attached first;
+ *   company document_rules[type + '_pdf'] second — org example takes precedence in prompt text.
  * - The response regex /\{[\s\S]*\}/ extracts JSON from Claude's reply even
  *   if there is surrounding text.
  *
@@ -30,6 +29,8 @@ import { auth } from '@clerk/nextjs/server'
 import type { DocType, Job, Photo, CompanyProfile } from '@/lib/types'
 import { getOrgId } from '@/lib/org'
 import { groupPhotosByRoomAndStage } from '@/lib/photoGroups'
+import { getDocumentRulesForBuild } from '@/lib/documentRules'
+import { fetchPlatformDocumentRules, type PlatformDocumentRulesMap } from '@/lib/platformDocumentRules'
 
 const client = new Anthropic()
 
@@ -93,20 +94,13 @@ ${photoNotes}
 `.trim()
 }
 
-/*
- * Injects company document rules into the prompt as a strict override block.
- * Rules are stored per-org in company_profile.document_rules as a JSON object:
- *   { general: "...", quote: "...", swms: "..." }
- * 'general' applies to all doc types; type-specific keys override for that type.
- */
-function getRules(type: DocType, company: CompanyProfile | null): string {
-  const rules = company?.document_rules ?? {}
-  const parts = [rules.general, rules[type]].filter(Boolean)
-  if (!parts.length) return ''
-  return `\nDOCUMENT RULES (biohazards.md — follow these strictly):\n${parts.join('\n\n')}\n`
-}
-
-function buildPrompt(type: DocType, job: Job, photos: Photo[], company: CompanyProfile | null): string {
+function buildPrompt(
+  type: DocType,
+  job: Job,
+  photos: Photo[],
+  company: CompanyProfile | null,
+  platformDbRules: PlatformDocumentRulesMap
+): string {
   const ctx = jobContext(job, photos, company)
   const d = new Date().toLocaleDateString('en-AU', { day:'numeric', month:'long', year:'numeric' })
   const r = ref(type, job)
@@ -278,7 +272,7 @@ Include 5–8 steps covering the key tasks for this specific job type.`,
 Include 6–10 realistic risks based on the job type, contamination level, and special risks identified.`,
   }
 
-  const rules = getRules(type, company)
+  const rules = getDocumentRulesForBuild(type, company, platformDbRules)
 
   return `You are a professional document writer for ${company?.name ?? 'Brisbane Biohazard Cleaning'}, an Australian biohazard remediation company.
 ${rules}
@@ -334,7 +328,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    const prompt = buildPrompt(type, job, photos ?? [], company)
+    const platformDbRules = await fetchPlatformDocumentRules()
+    const prompt = buildPrompt(type, job, photos ?? [], company, platformDbRules)
 
     // Optionally prepend a style guide PDF as a Claude document block.
     // document_rules[type + '_pdf'] stores the public URL of an example
@@ -345,15 +340,28 @@ export async function POST(req: Request) {
 
     const userContent: ContentBlock[] = []
 
-    const stylePdfUrl = company?.document_rules?.[type + '_pdf']
-    if (stylePdfUrl) {
-      const pdfBase64 = await fetchPdfBase64(stylePdfUrl)
+    const platformPdfUrl = platformDbRules[type + '_pdf']
+    if (platformPdfUrl) {
+      const pdfBase64 = await fetchPdfBase64(platformPdfUrl)
       if (pdfBase64) {
         userContent.push({
           type: 'document',
           source: { type: 'base64', media_type: 'application/pdf', data: pdfBase64 },
-          title: `${type} Style Guide`,
-          context: `This is an example ${type} document uploaded as a style guide. Match its formatting, structure, tone and level of detail when generating the new document.`,
+          title: `Platform ${type} style guide`,
+          context: `Platform-wide example ${type} for all organisations. Match its formatting, structure, tone and level of detail. If a second example PDF is attached after this one, that is the organisation's own style guide — prefer the organisation example where they conflict.`,
+        })
+      }
+    }
+
+    const orgStylePdfUrl = company?.document_rules?.[type + '_pdf']
+    if (orgStylePdfUrl) {
+      const pdfBase64 = await fetchPdfBase64(orgStylePdfUrl)
+      if (pdfBase64) {
+        userContent.push({
+          type: 'document',
+          source: { type: 'base64', media_type: 'application/pdf', data: pdfBase64 },
+          title: `${type} organisation style guide`,
+          context: `This organisation's example ${type} document. Match it when it disagrees with the platform example above.`,
         })
       }
     }
