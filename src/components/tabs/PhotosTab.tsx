@@ -84,8 +84,9 @@ function fmt(bytes: number) {
 }
 
 // ─── Uploaded photo card ───────────────────────────────────────────────────────
-function PhotoCard({ photo, onDelete, onUpdate }: {
+function PhotoCard({ photo, areas = [], onDelete, onUpdate }: {
   photo: Photo
+  areas?: string[]
   onDelete: (id: string) => void
   onUpdate: (photo: Photo) => void
 }) {
@@ -93,6 +94,7 @@ function PhotoCard({ photo, onDelete, onUpdate }: {
   const [editingDetails, setEditingDetails] = useState(false)
   const [captionDraft, setCaptionDraft] = useState(photo.caption)
   const [categoryDraft, setCategoryDraft] = useState<PhotoCategory>(photo.category)
+  const [areaRefDraft, setAreaRefDraft] = useState(photo.area_ref || '')
 
   async function handleDelete() {
     if (!confirm('Delete this photo?')) return
@@ -104,6 +106,7 @@ function PhotoCard({ photo, onDelete, onUpdate }: {
   function openEdit() {
     setCaptionDraft(photo.caption)
     setCategoryDraft(photo.category)
+    setAreaRefDraft(photo.area_ref || '')
     setEditingDetails(true)
   }
 
@@ -111,13 +114,14 @@ function PhotoCard({ photo, onDelete, onUpdate }: {
     setEditingDetails(false)
     setCaptionDraft(photo.caption)
     setCategoryDraft(photo.category)
+    setAreaRefDraft(photo.area_ref || '')
   }
 
   async function saveDetails() {
     const res = await fetch(`/api/photos/${photo.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ caption: captionDraft, category: categoryDraft }),
+      body: JSON.stringify({ caption: captionDraft, category: categoryDraft, area_ref: areaRefDraft }),
     })
     const data = await res.json() as { photo?: Photo; error?: string }
     if (!res.ok || !data.photo) {
@@ -154,6 +158,23 @@ function PhotoCard({ photo, onDelete, onUpdate }: {
                 }}>{c.label}</button>
               ))}
             </div>
+            {areas.length > 0 ? (
+              <select
+                value={areaRefDraft}
+                onChange={e => setAreaRefDraft(e.target.value)}
+                style={{ width: '100%', fontSize: 12, marginBottom: 8, padding: '6px 8px' }}
+              >
+                <option value="">Area (optional)</option>
+                {areas.map(a => <option key={a} value={a}>{a}</option>)}
+              </select>
+            ) : (
+              <input
+                value={areaRefDraft}
+                onChange={e => setAreaRefDraft(e.target.value)}
+                placeholder="Area / room (optional)"
+                style={{ width: '100%', fontSize: 12, marginBottom: 8 }}
+              />
+            )}
             <textarea value={captionDraft} onChange={e => setCaptionDraft(e.target.value)} rows={3}
               placeholder="Note — what does this photo show?"
               style={{ width: '100%', fontSize: 12, resize: 'vertical', marginBottom: 6 }} autoFocus />
@@ -480,6 +501,7 @@ export default function PhotosTab({ jobId, photos, areas = [], onPhotosUpdate }:
             <PhotoCard
               key={photo.id}
               photo={photo}
+              areas={areas}
               onDelete={(id) => onPhotosUpdate(photos.filter(p => p.id !== id))}
               onUpdate={(updated) => onPhotosUpdate(photos.map(p => p.id === updated.id ? updated : p))}
             />
