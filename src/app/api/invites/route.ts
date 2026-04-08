@@ -16,6 +16,7 @@ import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import { NextResponse } from 'next/server'
 import { randomBytes } from 'crypto'
+import { resolveActiveMembership } from '@/lib/membership'
 
 export async function POST(req: Request) {
   const { userId } = await auth()
@@ -27,14 +28,10 @@ export async function POST(req: Request) {
   const { orgId } = await getOrgId(req, userId)
   if (!orgId) return NextResponse.json({ error: 'No org context' }, { status: 400 })
 
-  const { data: orgUser } = await supabase
-    .from('org_users')
-    .select('role')
-    .eq('clerk_user_id', userId)
-    .eq('org_id', orgId)
-    .single()
+  const activeMembership = await resolveActiveMembership(userId)
+  const orgUser = activeMembership.membership
 
-  if (!orgUser || orgUser.role !== 'admin') {
+  if (!orgUser || orgUser.org_id !== orgId || orgUser.role !== 'admin') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 

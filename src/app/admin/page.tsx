@@ -33,14 +33,14 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import type { Org } from '@/lib/types'
 
-const PLATFORM_OWNER_ID = 'user_3BkVAf7042IsBwqabQ9MoZdEbvE'
+const ALPHA_ORG_SLUG = 'biohazards-net'
 
 interface OrgWithCount extends Org { user_count: number }
 interface NewOrgForm { name: string; slug: string; plan: string; seat_limit: string }
 interface AdminUser {
   id: string; clerk_user_id: string; org_id: string; role: string
   email: string; name: string; image_url: string; created_at: string
-  orgs: { name: string; slug: string }
+  orgs: { name: string; slug: string } | null
 }
 interface PendingUser {
   clerk_user_id: string; email: string; name: string
@@ -48,6 +48,7 @@ interface PendingUser {
 }
 
 const PLAN_OPTIONS = ['solo', 'team', 'business']
+const ROLE_OPTIONS = ['admin', 'manager', 'team_lead', 'member', 'client', 'property_manager', 'body_corp', 'platform_owner', 'platform_admin']
 type Tab = 'orgs' | 'admins' | 'invites' | 'pending' | 'reviews'
 
 interface ClerkInvitationRow {
@@ -104,7 +105,6 @@ export default function AdminPage() {
   const [assignOrg, setAssignOrg]           = useState('')
   const [assignRole, setAssignRole]         = useState('owner')
   const [assigning, setAssigning]           = useState(false)
-  const [adminMoveId, setAdminMoveId]       = useState<string | null>(null)
   const [moveConfirm, setMoveConfirm]       = useState<null | {
     clerkUserId: string
     orgId: string
@@ -123,6 +123,38 @@ export default function AdminPage() {
   const [impReason, setImpReason]   = useState('')
   const [impAllowWrites, setImpAllowWrites] = useState(false)
   const [impBusy, setImpBusy]       = useState(false)
+
+  const usersByOrg = (() => {
+    const map = new Map<string, { orgName: string; orgSlug: string; users: AdminUser[] }>()
+    for (const user of admins) {
+      const orgName = user.orgs?.name ?? 'Unknown organisation'
+      const orgSlug = user.orgs?.slug ?? ''
+      const key = `${orgName.toLowerCase()}::${orgSlug.toLowerCase()}`
+      if (!map.has(key)) map.set(key, { orgName, orgSlug, users: [] })
+      map.get(key)!.users.push(user)
+    }
+    return Array.from(map.values())
+      .sort((a, b) => {
+        const aAlpha = a.orgSlug.toLowerCase() === ALPHA_ORG_SLUG
+        const bAlpha = b.orgSlug.toLowerCase() === ALPHA_ORG_SLUG
+        if (aAlpha && !bAlpha) return -1
+        if (!aAlpha && bAlpha) return 1
+        return a.orgName.localeCompare(b.orgName)
+      })
+      .map(group => ({
+        ...group,
+        users: group.users
+          .sort((a, b) => (a.name || '').localeCompare(b.name || '') || (a.email || '').localeCompare(b.email || '')),
+      }))
+  })()
+  const roleCounts = (() => {
+    const counts = new Map<string, number>()
+    for (const u of admins) {
+      const role = (u.role || 'member').toLowerCase()
+      counts.set(role, (counts.get(role) ?? 0) + 1)
+    }
+    return Array.from(counts.entries()).sort((a, b) => a[0].localeCompare(b[0]))
+  })()
 
   async function fetchOrgs() {
     setLoadingOrgs(true); setOrgsError(null)
@@ -156,10 +188,7 @@ export default function AdminPage() {
     try {
       const res = await fetch('/api/admin/users')
       const json = await res.json()
-      const sorted = (json.users ?? []).sort((a: AdminUser, b: AdminUser) =>
-        a.clerk_user_id === PLATFORM_OWNER_ID ? -1 : b.clerk_user_id === PLATFORM_OWNER_ID ? 1 : 0
-      )
-      setAdmins(sorted)
+      setAdmins(json.users ?? [])
     } finally { setLoadingAdmins(false) }
   }
 
@@ -357,7 +386,6 @@ export default function AdminPage() {
     await fetchPending()
     await fetchAdmins()
     setAssigningId(null)
-    setAdminMoveId(null)
     setMoveConfirm(null)
     return 'ok'
   }
@@ -369,21 +397,6 @@ export default function AdminPage() {
     setAssigning(true)
     try {
       const r = await assignUserToOrg(clerkUserId, org.id, assignRole, false)
-      if (r === 'needs_confirm') return
-    } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'Error')
-    } finally {
-      setAssigning(false)
-    }
-  }
-
-  async function handleAdminMoveSubmit() {
-    if (!adminMoveId || !assignOrg) return alert('Select an organisation')
-    const org = orgs.find(o => o.slug === assignOrg)
-    if (!org) return alert('Organisation not found')
-    setAssigning(true)
-    try {
-      const r = await assignUserToOrg(adminMoveId, org.id, assignRole, false)
       if (r === 'needs_confirm') return
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : 'Error')
@@ -723,79 +736,100 @@ export default function AdminPage() {
             {loadingAdmins ? <EmptyState>Loading…</EmptyState>
             : admins.length === 0 ? <EmptyState>No linked app users yet.</EmptyState>
             : (
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                    {['', 'User', 'Email', 'Organisation', 'Role', 'Since', 'Actions'].map(h => (
-                      <th key={h} style={{ padding: '11px 16px', textAlign: 'left', fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-dim)' }}>
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {admins.map((u, i) => {
-                    const isOwner = u.clerk_user_id === PLATFORM_OWNER_ID
-                    return (
-                      <tr key={u.id} style={{ borderBottom: '1px solid var(--border)', background: isOwner ? 'rgba(255,107,53,0.03)' : 'transparent' }}>
-                        <td style={{ padding: '12px 16px', color: 'var(--text-muted)', fontSize: 13, width: 36 }}>
-                          {isOwner ? <span title="Platform Owner" style={{ fontSize: 14 }}>★</span> : <span className="num" style={{ fontSize: 12 }}>{i + 1}</span>}
-                        </td>
-                        <td style={{ padding: '12px 16px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                            <UserAvatar name={u.name} imageUrl={u.image_url} />
-                            <div>
-                              <div style={{ fontWeight: 600, fontSize: 14 }}>{u.name}</div>
-                              {isOwner && <div style={{ fontSize: 10, color: 'var(--accent)', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', marginTop: 1 }}>Platform Owner</div>}
-                            </div>
-                          </div>
-                        </td>
-                        <td style={{ padding: '12px 16px', color: 'var(--text-muted)', fontSize: 13 }}>{u.email}</td>
-                        <td style={{ padding: '12px 16px', fontSize: 14 }}>{u.orgs?.name ?? <span style={{ color: 'var(--text-dim)' }}>—</span>}</td>
-                        <td style={{ padding: '12px 16px' }}>
-                          <span style={{ padding: '3px 9px', borderRadius: 99, fontSize: 11, fontWeight: 700, background: 'rgba(59,130,246,0.1)', color: '#60A5FA', textTransform: 'capitalize' }}>
-                            {u.role}
-                          </span>
-                        </td>
-                        <td style={{ padding: '12px 16px', color: 'var(--text-muted)', fontSize: 12 }} className="mono">
-                          {new Date(u.created_at).toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' })}
-                        </td>
-                        <td style={{ padding: '12px 16px', minWidth: 220 }}>
-                          {isOwner ? (
-                            <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>—</span>
-                          ) : adminMoveId === u.clerk_user_id ? (
-                            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                              <select value={assignOrg} onChange={e => setAssignOrg(e.target.value)} style={{ padding: '5px 8px', fontSize: 12, width: 'auto', maxWidth: 160 }}>
-                                <option value="">Move to…</option>
-                                {orgs.filter(o => o.is_active && o.id !== u.org_id).map(o => (
-                                  <option key={o.id} value={o.slug}>{o.name}</option>
-                                ))}
-                              </select>
-                              <select value={assignRole} onChange={e => setAssignRole(e.target.value)} style={{ padding: '5px 8px', fontSize: 12, width: 'auto' }}>
-                                <option value="owner">Owner</option>
-                                <option value="admin">Admin</option>
-                                <option value="operator">Operator</option>
-                                <option value="member">Member</option>
-                              </select>
-                              <TinyButton label={assigning ? '…' : 'Confirm'} onClick={() => void handleAdminMoveSubmit()} primary />
-                              <TinyButton label="Cancel" onClick={() => { setAdminMoveId(null); setAssignOrg('') }} />
-                            </div>
-                          ) : (
-                            <TinyButton
-                              label="Move org…"
-                              onClick={() => {
-                                setAdminMoveId(u.clerk_user_id)
-                                setAssignOrg('')
-                                setAssignRole(u.role || 'owner')
-                              }}
-                            />
-                          )}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
+              <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10 }}>
+                  <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px', background: 'var(--surface-2)' }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700, marginBottom: 4 }}>Username</div>
+                    <div className="num" style={{ fontSize: 22, fontWeight: 800 }}>{admins.length}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>total user memberships</div>
+                  </div>
+                  <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px', background: 'var(--surface-2)' }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700, marginBottom: 4 }}>Role(s)</div>
+                    <div className="num" style={{ fontSize: 22, fontWeight: 800 }}>{roleCounts.length}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>active role types in use</div>
+                  </div>
+                  <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px', background: 'var(--surface-2)' }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700, marginBottom: 6 }}>Role distribution</div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {roleCounts.map(([role, count]) => (
+                        <span key={role} style={{ fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 99, background: 'rgba(59,130,246,0.1)', color: '#60A5FA' }}>
+                          {role}: {count}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                {usersByOrg.map(group => {
+                  const usersByIdentity = new Map<string, { name: string; email: string; image_url: string; roles: Set<string> }>()
+                  for (const user of group.users) {
+                    const key = user.clerk_user_id || user.email || user.id
+                    if (!usersByIdentity.has(key)) {
+                      usersByIdentity.set(key, {
+                        name: user.name || 'Unknown',
+                        email: user.email || '',
+                        image_url: user.image_url || '',
+                        roles: new Set<string>(),
+                      })
+                    }
+                    const normalizedRole = (user.role || 'member').toLowerCase()
+                    const isAlphaOrg = (group.orgSlug || '').toLowerCase() === ALPHA_ORG_SLUG
+                    if (isAlphaOrg && (normalizedRole === 'platform_owner' || normalizedRole === 'platform_admin')) {
+                      usersByIdentity.get(key)!.roles.add(normalizedRole)
+                    } else {
+                      usersByIdentity.get(key)!.roles.add(normalizedRole)
+                    }
+                  }
+                  const users = Array.from(usersByIdentity.values())
+                  return (
+                    <div key={`${group.orgName}-${group.orgSlug}`} style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+                      <div style={{ padding: '10px 12px', background: 'var(--surface-2)', borderBottom: '1px solid var(--border)' }}>
+                        <div style={{ fontWeight: 700, fontSize: 14 }}>{group.orgName}</div>
+                        <div style={{ fontSize: 12, color: 'var(--text-muted)' }} className="mono">{group.orgSlug || 'no-slug'}</div>
+                      </div>
+                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                            <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-dim)' }}>Username</th>
+                            <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-dim)' }}>Role(s)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {users.map((u, idx) => (
+                            <tr key={`${group.orgSlug}-${u.email}-${idx}`} style={{ borderBottom: idx < users.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                              <td style={{ padding: '11px 12px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                  <UserAvatar name={u.name} imageUrl={u.image_url} />
+                                  <div>
+                                    <div style={{ fontWeight: 600, fontSize: 14 }}>{u.name}</div>
+                                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{u.email || 'No email'}</div>
+                                  </div>
+                                </div>
+                              </td>
+                              <td style={{ padding: '11px 12px' }}>
+                                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                  {Array.from(u.roles.values()).sort().map(role => {
+                                    const isPlatform = role === 'platform_owner'
+                                    return (
+                                      <span key={role} style={{
+                                        padding: '3px 9px', borderRadius: 99, fontSize: 11, fontWeight: 700,
+                                        background: isPlatform ? 'rgba(255,107,53,0.12)' : 'rgba(59,130,246,0.1)',
+                                        color: isPlatform ? 'var(--accent)' : '#60A5FA',
+                                        textTransform: 'capitalize',
+                                      }}>
+                                        {role}
+                                      </span>
+                                    )
+                                  })}
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )
+                })}
+              </div>
             )}
           </div>
         )}
@@ -914,16 +948,15 @@ export default function AdminPage() {
                               {orgs.filter(o => o.is_active).map(o => <option key={o.id} value={o.slug}>{o.name}</option>)}
                             </select>
                             <select value={assignRole} onChange={e => setAssignRole(e.target.value)} style={{ padding: '5px 8px', fontSize: 12, width: 'auto' }}>
-                              <option value="owner">Owner</option>
-                              <option value="admin">Admin</option>
-                              <option value="operator">Operator</option>
-                              <option value="member">Member</option>
+                                {ROLE_OPTIONS.map(role => (
+                                  <option key={role} value={role}>{role}</option>
+                                ))}
                             </select>
                             <TinyButton label={assigning ? '…' : 'Confirm'} onClick={() => handleAssign(u.clerk_user_id)} primary />
                             <TinyButton label="Cancel" onClick={() => setAssigningId(null)} />
                           </div>
                         ) : (
-                          <TinyButton label="Assign →" onClick={() => { setAssigningId(u.clerk_user_id); setAssignOrg(''); setAssignRole('owner') }} primary />
+                            <TinyButton label="Assign →" onClick={() => { setAssigningId(u.clerk_user_id); setAssignOrg(''); setAssignRole('admin') }} primary />
                         )}
                       </td>
                     </tr>

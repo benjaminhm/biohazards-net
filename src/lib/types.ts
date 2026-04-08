@@ -508,7 +508,7 @@ export interface OrgUser {
   id: string
   org_id: string
   clerk_user_id: string
-  role: 'admin' | 'manager' | 'member'
+  role: 'admin' | 'manager' | 'team_lead' | 'member' | 'client' | 'property_manager' | 'body_corp' | 'platform_owner' | 'platform_admin'
   capabilities: TeamCapabilities
   person_id: string | null
   is_active: boolean

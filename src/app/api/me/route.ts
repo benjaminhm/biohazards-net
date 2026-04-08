@@ -13,6 +13,7 @@ import { auth, clerkClient } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
 import { NextResponse } from 'next/server'
 import { verifyImpersonationFromRequest } from '@/lib/impersonation'
+import { resolveActiveMembership } from '@/lib/membership'
 
 export async function GET(req: Request) {
   const { userId } = await auth()
@@ -55,12 +56,8 @@ export async function GET(req: Request) {
     }
   }
 
-  const supabase = createServiceClient()
-  const { data: orgUser } = await supabase
-    .from('org_users')
-    .select('role, org_id, capabilities, person_id, orgs(name, slug, features)')
-    .eq('clerk_user_id', userId)
-    .maybeSingle()
+  const resolved = await resolveActiveMembership(userId)
+  const orgUser = resolved.membership
 
   const clerk = await clerkClient()
   let name = ''
@@ -71,7 +68,7 @@ export async function GET(req: Request) {
 
   const role = (orgUser?.role === 'admin' || orgUser?.role === 'owner')
     ? 'admin'
-    : orgUser?.role === 'manager'
+    : (orgUser?.role === 'manager' || orgUser?.role === 'team_lead')
       ? 'manager'
       : 'member'
 
@@ -83,8 +80,14 @@ export async function GET(req: Request) {
     org_id: orgUser?.org_id ?? null,
     has_org: !!orgUser,
     person_id: orgUser?.person_id ?? null,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    org: (orgUser as any)?.orgs ?? null,
+    org: orgUser?.org
+      ? {
+          name: orgUser.org.name,
+          slug: orgUser.org.slug,
+          features: orgUser.org.features ?? {},
+        }
+      : null,
+    membership_conflict: resolved.hasConflict,
     impersonating: false,
     impersonation_read_only: false,
   })

@@ -74,7 +74,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   // Only run the demotion guard if this person is currently an admin AND we're
   // changing them to a lower role. Saving a member/manager who was never admin
   // must never trigger this check.
-  if (role === 'member' || role === 'manager') {
+  if (role === 'member' || role === 'manager' || role === 'team_lead') {
     const { data: current } = await supabase
       .from('org_users')
       .select('role')

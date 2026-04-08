@@ -14,8 +14,7 @@
 import { auth, clerkClient } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
 import { NextResponse } from 'next/server'
-
-const PLATFORM_ADMIN_IDS = (process.env.PLATFORM_ADMIN_CLERK_IDS ?? '').split(',').map(s => s.trim()).filter(Boolean)
+import { isPlatformOperator } from '@/lib/platformAdmin'
 
 function emailFromClerkUser(user: {
   primaryEmailAddress: { emailAddress: string } | null
@@ -30,7 +29,7 @@ function emailFromClerkUser(user: {
 
 export async function GET() {
   const { userId } = await auth()
-  if (!userId || !PLATFORM_ADMIN_IDS.includes(userId)) {
+  if (!(await isPlatformOperator(userId))) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 

@@ -14,6 +14,7 @@
  */
 import { createServiceClient } from '@/lib/supabase'
 import { verifyImpersonationFromRequest } from '@/lib/impersonation'
+import { resolveActiveMembership } from '@/lib/membership'
 
 export interface OrgResult {
   orgId: string | null
@@ -77,26 +78,9 @@ export async function getOrgId(req: Request, clerkUserId: string | null): Promis
 /* Supabase returns orgs as array or object depending on join type —
    normalise to a single object here. */
 async function getOrgResultForUser(clerkUserId: string): Promise<OrgResult> {
-  const supabase = createServiceClient()
-  const { data: row, error } = await supabase
-    .from('org_users')
-    .select('org_id')
-    .eq('clerk_user_id', clerkUserId)
-    .eq('is_active', true)
-    .limit(1)
-    .maybeSingle()
-
-  if (error || !row?.org_id) return { orgId: null, orgSlug: null }
-
-  const { data: org, error: orgErr } = await supabase
-    .from('orgs')
-    .select('id, slug')
-    .eq('id', row.org_id)
-    .eq('is_active', true)
-    .maybeSingle()
-
-  if (orgErr || !org) return { orgId: null, orgSlug: null }
-  return { orgId: org.id, orgSlug: org.slug }
+  const resolved = await resolveActiveMembership(clerkUserId)
+  if (!resolved.membership?.org?.is_active) return { orgId: null, orgSlug: null }
+  return { orgId: resolved.membership.org_id, orgSlug: resolved.membership.org.slug }
 }
 
 /**
@@ -119,15 +103,6 @@ export async function getOrgBySlug(slug: string) {
  * Get the org_id for a Clerk user from their org_users membership row.
  */
 export async function getOrgIdForUser(clerkUserId: string): Promise<string | null> {
-  const supabase = createServiceClient()
-  const { data, error } = await supabase
-    .from('org_users')
-    .select('org_id')
-    .eq('clerk_user_id', clerkUserId)
-    .eq('is_active', true)
-    .limit(1)
-    .single()
-
-  if (error || !data) return null
-  return data.org_id as string
+  const resolved = await resolveActiveMembership(clerkUserId)
+  return resolved.membership?.org_id ?? null
 }

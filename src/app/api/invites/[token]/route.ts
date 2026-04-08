@@ -17,6 +17,7 @@
 import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
 import { NextResponse } from 'next/server'
+import { resolveActiveMembership } from '@/lib/membership'
 
 // GET /api/invites/[token] — public info about an invite (for the claim page)
 export async function GET(
@@ -75,12 +76,9 @@ export async function POST(
   if (invite.claimed_by)   return NextResponse.json({ error: 'Already claimed' }, { status: 410 })
   if (new Date(invite.expires_at) < new Date()) return NextResponse.json({ error: 'Expired' }, { status: 410 })
 
-  // Check if user already belongs to an org
-  const { data: existing } = await supabase
-    .from('org_users')
-    .select('id, org_id')
-    .eq('clerk_user_id', userId)
-    .single()
+  // Check if user already belongs to an active org
+  const active = await resolveActiveMembership(userId)
+  const existing = active.membership
 
   if (existing) {
     if (existing.org_id !== invite.org_id) {
@@ -101,18 +99,35 @@ export async function POST(
       .eq('id', invite.id)
 
     const { data: org } = await supabase.from('orgs').select('slug').eq('id', invite.org_id).single()
-    return NextResponse.json({ ok: true, org_slug: org?.slug ?? null, role: existing.org_id })
+    return NextResponse.json({ ok: true, org_slug: org?.slug ?? null, role: existing.role })
   }
 
-  // New user — create org_users record
-  const { error: insertErr } = await supabase
+  // New user — create or reactivate org_users record for this org
+  const { data: existingSameOrg } = await supabase
     .from('org_users')
-    .insert({
-      clerk_user_id: userId,
-      org_id: invite.org_id,
-      role: invite.role,
-      person_id: invite.person_id ?? null,
-    })
+    .select('id')
+    .eq('clerk_user_id', userId)
+    .eq('org_id', invite.org_id)
+    .maybeSingle()
+
+  const insertErr = existingSameOrg
+    ? (await supabase
+        .from('org_users')
+        .update({
+          role: invite.role,
+          person_id: invite.person_id ?? null,
+          is_active: true,
+          capabilities: {},
+        })
+        .eq('id', existingSameOrg.id)).error
+    : (await supabase
+        .from('org_users')
+        .insert({
+          clerk_user_id: userId,
+          org_id: invite.org_id,
+          role: invite.role,
+          person_id: invite.person_id ?? null,
+        })).error
 
   if (insertErr) return NextResponse.json({ error: insertErr.message }, { status: 500 })
 

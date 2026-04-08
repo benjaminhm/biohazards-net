@@ -8,16 +8,15 @@
  *   - No existing org_users for this Clerk user → insert membership.
  *   - Already in the same org → update role only.
  *   - Already in a different org → 409 + { code: 'NEEDS_MOVE_CONFIRMATION', existing_org }
- *     unless body.confirm_move is true, then existing rows are removed and a new
- *     membership is created (one org per user — product rule).
+ *     unless body.confirm_move is true, then existing active memberships are
+ *     deactivated and a new active membership is created.
  *
  * Restricted to PLATFORM_ADMIN_CLERK_IDS (super-admin only).
  */
 import { auth, clerkClient } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
 import { NextResponse } from 'next/server'
-
-const PLATFORM_ADMIN_IDS = (process.env.PLATFORM_ADMIN_CLERK_IDS ?? '').split(',').map(s => s.trim()).filter(Boolean)
+import { ALPHA_ORG_SLUG, PLATFORM_ROLES, isPlatformOperator } from '@/lib/platformAdmin'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function orgFromJoin(row: any): { name: string; slug: string | null } {
@@ -28,7 +27,7 @@ function orgFromJoin(row: any): { name: string; slug: string | null } {
 
 export async function GET() {
   const { userId } = await auth()
-  if (!userId || !PLATFORM_ADMIN_IDS.includes(userId)) {
+  if (!(await isPlatformOperator(userId))) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
@@ -55,7 +54,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   const { userId } = await auth()
-  if (!userId || !PLATFORM_ADMIN_IDS.includes(userId)) {
+  if (!(await isPlatformOperator(userId))) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
@@ -78,6 +77,23 @@ export async function POST(req: Request) {
   if (exErr) return NextResponse.json({ error: exErr.message }, { status: 500 })
 
   const existing = existingRows ?? []
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const alphaOrgRows = existing.filter((r: any) => (Array.isArray(r.orgs) ? r.orgs[0] : r.orgs)?.slug === ALPHA_ORG_SLUG)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const blockingRows = existing.filter((r: any) => (Array.isArray(r.orgs) ? r.orgs[0] : r.orgs)?.slug !== ALPHA_ORG_SLUG)
+  const normalizedRole = role.trim().toLowerCase()
+  const isPlatformRole = PLATFORM_ROLES.includes(normalizedRole as (typeof PLATFORM_ROLES)[number])
+
+  if (isPlatformRole) {
+    const { data: alphaOrg } = await supabase
+      .from('orgs')
+      .select('id')
+      .eq('slug', ALPHA_ORG_SLUG)
+      .maybeSingle()
+    if (!alphaOrg?.id || alphaOrg.id !== org_id) {
+      return NextResponse.json({ error: `Platform roles can only be assigned in ${ALPHA_ORG_SLUG}` }, { status: 400 })
+    }
+  }
 
   // Fresh user — insert
   if (existing.length === 0) {
@@ -90,8 +106,24 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, action: 'inserted' })
   }
 
+  if (isPlatformRole) {
+    const existingAlphaRow = alphaOrgRows.find(r => r.org_id === org_id)
+    const platformErr = existingAlphaRow
+      ? (await supabase.from('org_users').update({ role: normalizedRole, is_active: true }).eq('id', existingAlphaRow.id)).error
+      : (await supabase.from('org_users').insert({
+          clerk_user_id,
+          org_id,
+          role: normalizedRole,
+          is_active: true,
+          person_id: null,
+          capabilities: {},
+        })).error
+    if (platformErr) return NextResponse.json({ error: platformErr.message }, { status: 500 })
+    return NextResponse.json({ ok: true, action: existingAlphaRow ? 'updated_platform_role' : 'added_platform_role' })
+  }
+
   // Same org — role change only
-  const sameOrgRow = existing.find(r => r.org_id === org_id)
+  const sameOrgRow = blockingRows.find(r => r.org_id === org_id)
   if (sameOrgRow) {
     const { error } = await supabase.from('org_users').update({ role }).eq('id', sameOrgRow.id)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -99,8 +131,8 @@ export async function POST(req: Request) {
   }
 
   // Different org — need explicit move confirmation
-  if (!confirm_move) {
-    const first = existing[0]
+  if (blockingRows.length > 0 && !confirm_move) {
+    const first = blockingRows[0]
     const { name, slug } = orgFromJoin(first)
     return NextResponse.json(
       {
@@ -117,17 +149,33 @@ export async function POST(req: Request) {
     )
   }
 
-  // Move: remove all memberships for this user, then insert the new one
-  const { error: delErr } = await supabase.from('org_users').delete().eq('clerk_user_id', clerk_user_id)
-  if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 })
+  // Move: deactivate active memberships for this user, then activate target org
+  if (blockingRows.length > 0) {
+    const { error: deactivateErr } = await supabase
+      .from('org_users')
+      .update({ is_active: false })
+      .eq('clerk_user_id', clerk_user_id)
+      .eq('is_active', true)
+      .neq('org_id', alphaOrgRows[0]?.org_id ?? '')
+    if (deactivateErr) return NextResponse.json({ error: deactivateErr.message }, { status: 500 })
+  }
 
-  const { error: insErr } = await supabase.from('org_users').insert({
-    clerk_user_id,
-    org_id,
-    role,
-    person_id: null,
-    capabilities: {},
-  })
+  const { data: existingTarget } = await supabase
+    .from('org_users')
+    .select('id')
+    .eq('clerk_user_id', clerk_user_id)
+    .eq('org_id', org_id)
+    .maybeSingle()
+
+  const insErr = existingTarget
+    ? (await supabase.from('org_users').update({ role, is_active: true }).eq('id', existingTarget.id)).error
+    : (await supabase.from('org_users').insert({
+        clerk_user_id,
+        org_id,
+        role,
+        person_id: null,
+        capabilities: {},
+      })).error
   if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 })
 
   return NextResponse.json({ ok: true, action: 'moved' })
