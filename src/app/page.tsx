@@ -170,6 +170,15 @@ export default function HomePage() {
           color: '#F59E0B',
         }]
       : []),
+    ...(websiteCardEnabled
+      ? [{
+          href: '/website',
+          icon: '🌐',
+          label: 'Website Dashboard',
+          sub: 'Public site & marketing',
+          color: '#06B6D4',
+        }]
+      : []),
   ]
 
   return (
@@ -392,83 +401,6 @@ export default function HomePage() {
           </Link>
         ))}
 
-        {websiteCardEnabled && (
-          <div
-            style={{
-              gridColumn: '1 / -1',
-              display: 'grid',
-              gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-              gap: 10,
-            }}
-          >
-            <Link href="/website" style={{ textDecoration: 'none', minWidth: 0 }}>
-              <div style={{
-                background: 'var(--surface)',
-                border: '1px solid var(--border)',
-                borderRadius: 14,
-                padding: '18px 16px 16px',
-                height: '100%',
-                minHeight: 108,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 10,
-                transition: 'border-color 0.15s, background 0.15s',
-                position: 'relative',
-                overflow: 'hidden',
-              }}
-                onMouseEnter={e => {
-                  (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-2)'
-                  ;(e.currentTarget as HTMLElement).style.background = 'var(--surface-2)'
-                }}
-                onMouseLeave={e => {
-                  (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'
-                  ;(e.currentTarget as HTMLElement).style.background = 'var(--surface)'
-                }}
-              >
-                <div style={{
-                  position: 'absolute', top: 0, left: 0, right: 0,
-                  height: 2, background: '#06B6D4', opacity: 0.85,
-                }} />
-                <div style={{ fontSize: 22, marginTop: 4 }}>🌐</div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 700, fontSize: 14, letterSpacing: '-0.01em', marginBottom: 2 }}>
-                    Website Dashboard
-                  </div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.4 }}>
-                    Public site &amp; marketing
-                  </div>
-                </div>
-              </div>
-            </Link>
-            <div style={{
-              background: 'var(--surface)',
-              border: '1px dashed var(--border)',
-              borderRadius: 14,
-              padding: '18px 16px 16px',
-              minHeight: 108,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 10,
-              position: 'relative',
-              overflow: 'hidden',
-              opacity: 0.85,
-            }}>
-              <div style={{
-                position: 'absolute', top: 0, left: 0, right: 0,
-                height: 2, background: 'var(--border)', opacity: 0.6,
-              }} />
-              <div style={{ fontSize: 22, marginTop: 4, color: 'var(--text-dim)' }}>▭</div>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 14, letterSpacing: '-0.01em', marginBottom: 2, color: 'var(--text-muted)' }}>
-                  Reserved
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.4 }}>
-                  Space for a future shortcut
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* ── Upcoming Bookings ── */}
