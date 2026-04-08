@@ -90,6 +90,11 @@ export default clerkMiddleware(async (auth, request: NextRequest) => {
   // ── platform.biohazards.net — platform admin only ──
   else if (slug === 'platform') {
     requestHeaders.set('x-subdomain', 'platform')
+    // Clerk session is minted on app.biohazards.net; without satellite mode the
+    // platform host does not see __session cookies → redirect loop to /login.
+    if (!isLocalDev) {
+      requestHeaders.set('x-clerk-satellite-host', hostNoPort)
+    }
     const { userId } = await auth()
 
     if (!userId) {

@@ -10,9 +10,9 @@
  *   ServiceWorkerRegistration — registers /sw.js for PWA offline support
  *
  * Satellite domain detection:
- *   Middleware sets x-org-host for any custom domain (non-biohazards.net host).
- *   If x-org-host is present, ClerkProvider is configured as a satellite so it
- *   shares the auth session from the primary app.biohazards.net domain.
+ *   - x-org-host: custom tenant domains (non-biohazards.net).
+ *   - x-clerk-satellite-host: platform.biohazards.net (session lives on app.*).
+ *   ClerkProvider uses isSatellite + signInUrl=app login so cookies sync correctly.
  *   This runs server-side (via headers()) so Clerk is configured before any
  *   client JS runs — fixing the "Production Keys are only allowed for domain" error.
  *
@@ -54,16 +54,17 @@ export const viewport: Viewport = {
 }
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  // x-org-host is set by middleware for any non-biohazards.net custom domain
   const headersList = await headers()
   const orgHost = headersList.get('x-org-host')
-  const isSatellite = !!orgHost
+  const platformSatelliteHost = headersList.get('x-clerk-satellite-host')
+  const satelliteDomain = orgHost ?? platformSatelliteHost
+  const isSatellite = !!satelliteDomain
 
   return (
     <ClerkProvider
       {...(isSatellite ? {
         isSatellite: true,
-        domain: orgHost!,
+        domain: satelliteDomain,
         signInUrl: PRIMARY_SIGN_IN_URL,
       } : {})}
     >

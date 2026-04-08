@@ -247,18 +247,15 @@ export default function AdminPage() {
     setPlatformPdfUploading(true)
     setPlatformDocRulesErr(null)
     try {
-      const fileName = `platform-${activePlatformRuleTab}-${Date.now()}.pdf`
-      const res = await fetch('/api/admin/platform-style-pdf', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileName, contentType: 'application/pdf' }),
-      })
-      const j = await res.json()
-      if (!res.ok) throw new Error(typeof j.error === 'string' ? j.error : 'Failed to get upload URL')
-      const up = await fetch(j.signedUrl, { method: 'PUT', headers: { 'Content-Type': 'application/pdf' }, body: file })
-      if (!up.ok) throw new Error('Upload failed')
+      const fd = new FormData()
+      fd.append('file', file)
+      const res = await fetch('/api/admin/platform-style-pdf', { method: 'POST', body: fd })
+      const j = (await res.json()) as { publicUrl?: string; error?: string }
+      if (!res.ok) throw new Error(typeof j.error === 'string' ? j.error : `Upload failed (${res.status})`)
+      const publicUrl = j.publicUrl
+      if (!publicUrl) throw new Error('No public URL returned')
       const pdfKey = `${activePlatformRuleTab}_pdf`
-      setPlatformDocRules(prev => ({ ...prev, [pdfKey]: j.publicUrl as string }))
+      setPlatformDocRules(prev => ({ ...prev, [pdfKey]: publicUrl }))
     } catch (e: unknown) {
       setPlatformDocRulesErr(e instanceof Error ? e.message : 'PDF upload failed')
     } finally {
