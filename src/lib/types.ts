@@ -83,6 +83,7 @@ export interface Area {
   sqm: number
   hazard_level: number
   description: string
+  note?: string
 }
 
 /* Freeform key-value pairs captured on the assessment — insurance details,

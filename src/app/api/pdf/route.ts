@@ -19,6 +19,7 @@ import { NextResponse } from 'next/server'
 const { renderToBuffer } = require('@react-pdf/renderer')
 import { createElement } from 'react'
 import { JobPDFDocument } from '@/components/PDFDocument'
+import { createServiceClient } from '@/lib/supabase'
 import type { DocType } from '@/lib/types'
 
 export const runtime = 'nodejs'
@@ -35,8 +36,26 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Missing type or content' }, { status: 400 })
     }
 
+    const supabase = createServiceClient()
+    const [photosRes, companyRes, jobRes] = await Promise.all([
+      jobId
+        ? supabase.from('photos').select('*').eq('job_id', jobId).order('uploaded_at', { ascending: true })
+        : Promise.resolve({ data: [] }),
+      supabase.from('company_profile').select('*').limit(1).maybeSingle(),
+      jobId
+        ? supabase.from('jobs').select('assessment_data').eq('id', jobId).maybeSingle()
+        : Promise.resolve({ data: null }),
+    ])
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const buffer: Buffer = await renderToBuffer(createElement(JobPDFDocument as any, { type, content } as any))
+    const buffer: Buffer = await renderToBuffer(createElement(JobPDFDocument as any, {
+      type,
+      content,
+      photos: photosRes.data ?? [],
+      company: companyRes.data ?? null,
+      jobId,
+      areas: jobRes.data?.assessment_data?.areas ?? [],
+    } as any))
 
     return new Response(buffer as unknown as BodyInit, {
       headers: {

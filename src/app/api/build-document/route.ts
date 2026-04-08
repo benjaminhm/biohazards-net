@@ -29,6 +29,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { auth } from '@clerk/nextjs/server'
 import type { DocType, Job, Photo, CompanyProfile } from '@/lib/types'
 import { getOrgId } from '@/lib/org'
+import { groupPhotosByRoomAndStage } from '@/lib/photoGroups'
 
 const client = new Anthropic()
 
@@ -48,8 +49,19 @@ function jobContext(job: Job, photos: Photo[], company: CompanyProfile | null): 
   const a = job.assessment_data
   const ppeList = a ? Object.entries(a.ppe_required).filter(([,v])=>v).map(([k])=>k.replace(/_/g,' ')).join(', ') : 'standard PPE'
   const riskList = a ? Object.entries(a.special_risks).filter(([,v])=>v).map(([k])=>k.replace(/_/g,' ')).join(', ') : 'none identified'
-  const areaList = a?.areas?.map(ar=>`${ar.name} (${ar.sqm}m², hazard level ${ar.hazard_level}/5): ${ar.description}`).join('\n') ?? 'not specified'
-  const photoNotes = photos.filter(p=>p.caption||p.area_ref).map(p=>`[${p.category.toUpperCase()}] ${p.area_ref||''}${p.caption?` — ${p.caption}`:''}`).join('\n') || 'none'
+  const areaList = a?.areas?.map(ar=>`${ar.name} (${ar.sqm}m², hazard level ${ar.hazard_level}/5): ${ar.description}${ar.note ? ` | Room note: ${ar.note}` : ''}`).join('\n') ?? 'not specified'
+  const photoGroups = groupPhotosByRoomAndStage(photos, a?.areas ?? [])
+  const photoNotes = photoGroups.length
+    ? photoGroups.map(group => {
+      const lines: string[] = [`${group.room.toUpperCase()}:${group.note ? ` Room note: ${group.note}` : ''}`]
+      for (const stage of ['assessment', 'before', 'during', 'after'] as const) {
+        for (const p of group.stages[stage]) {
+          if (p.caption?.trim()) lines.push(`- [${stage.toUpperCase()}] ${p.caption.trim()}`)
+        }
+      }
+      return lines.join('\n')
+    }).join('\n\n')
+    : 'none'
 
   return `
 COMPANY: ${company?.name ?? 'Brisbane Biohazard Cleaning'} | ABN: ${company?.abn ?? ''} | Phone: ${company?.phone ?? ''} | Licence: ${company?.licence ?? ''}

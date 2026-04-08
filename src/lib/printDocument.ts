@@ -19,12 +19,13 @@
  * appropriate builder function.
  */
 import type {
-  DocType, Photo, CompanyProfile,
+  DocType, Photo, CompanyProfile, Area,
   QuoteContent, SOWContent, SWMSContent, AuthorityToProceedContent,
   EngagementAgreementContent, ReportContent, CertificateOfDecontaminationContent,
   WasteDisposalManifestContent, JSAContent, NDAContent, RiskAssessmentContent,
   WorkStep, RiskRow, WasteItem,
 } from './types'
+import { filterGroupedStages, groupPhotosByRoomAndStage, type RoomPhotoGroup } from './photoGroups'
 
 // en-AU locale produces comma separators and dollar sign (e.g. $4,500.00)
 const fmtMoney = (n: number) =>
@@ -221,6 +222,22 @@ function photoGrid(photos: Photo[], heading: string): string {
   `
 }
 
+function roomPhotoSections(groups: RoomPhotoGroup[], heading: string, stages: Array<'assessment' | 'before' | 'during' | 'after'>): string {
+  const visible = filterGroupedStages(groups, stages)
+  if (!visible.length) return ''
+  return `
+    <div class="label">${esc(heading)}</div>
+    ${visible.map(group => `
+      <div class="label" style="margin-top:14px;color:#1a1a1a">${esc(group.room)}</div>
+      ${group.note ? `<div class="body-text" style="margin-top:-2px;margin-bottom:8px"><strong>Room notes:</strong> ${esc(group.note)}</div>` : ''}
+      ${stages.map(stage => {
+        const photos = group.stages[stage]
+        return photos.length ? photoGrid(photos, `${stage.charAt(0).toUpperCase() + stage.slice(1)} Photos`) : ''
+      }).join('')}
+    `).join('')}
+  `
+}
+
 /* Colour-codes a risk level string — H=red, M=amber, L=green.
    Checks only the first character so values like "High", "H", "Medium" all match. */
 function riskBadge(r: string): string {
@@ -318,7 +335,7 @@ function wasteTable(items: WasteItem[]): string {
 
 // ── 1. Quote ──────────────────────────────────────────────────────────────────
 
-function buildQuoteHTML(c: QuoteContent, photos: Photo[], company: CompanyProfile | null, jobId: string, appUrl: string, client?: ClientInfo): string {
+function buildQuoteHTML(c: QuoteContent, photos: Photo[], groups: RoomPhotoGroup[], company: CompanyProfile | null, jobId: string, appUrl: string, client?: ClientInfo): string {
   const acceptUrl = `${appUrl}/accept/${jobId}`
   const before = photos.filter(p => ['before','assessment'].includes(p.category))
   const items = (c.line_items || []).map(li => `
@@ -348,7 +365,7 @@ function buildQuoteHTML(c: QuoteContent, photos: Photo[], company: CompanyProfil
     ${section('Notes &amp; Conditions', c.notes)}
     ${section('Payment Terms', c.payment_terms)}
     ${section('Quote Validity', c.validity)}
-    ${c.include_photos !== false ? photoGrid(before, 'Site Condition Photos') : ''}
+    ${c.include_photos !== false ? roomPhotoSections(groups, 'Site Condition Photos', ['assessment', 'before']) : photoGrid(before, 'Site Condition Photos')}
     <div class="accept-box">
       <div class="al">Accept This Quote Online</div>
       <p>Tap or click the button below to accept this quote online and we will be in touch to confirm your booking.</p>
@@ -361,7 +378,7 @@ function buildQuoteHTML(c: QuoteContent, photos: Photo[], company: CompanyProfil
 
 // ── 2. SOW ────────────────────────────────────────────────────────────────────
 
-function buildSOWHTML(c: SOWContent, photos: Photo[], company: CompanyProfile | null, client?: ClientInfo): string {
+function buildSOWHTML(c: SOWContent, photos: Photo[], groups: RoomPhotoGroup[], company: CompanyProfile | null, client?: ClientInfo): string {
   const before = photos.filter(p => ['before','assessment'].includes(p.category))
   return wrap(`
     ${header(company, c.reference)}
@@ -373,7 +390,7 @@ function buildSOWHTML(c: SOWContent, photos: Photo[], company: CompanyProfile | 
     ${section('Waste Disposal', c.waste_disposal)}
     ${section('Timeline', c.timeline)}
     ${section('Exclusions', c.exclusions)}
-    ${c.include_photos !== false ? photoGrid(before, 'Site Condition Photos') : ''}
+    ${c.include_photos !== false ? roomPhotoSections(groups, 'Site Condition Photos', ['assessment', 'before']) : photoGrid(before, 'Site Condition Photos')}
     ${section('Disclaimer', c.disclaimer)}
     ${sigBlock(c.acceptance)}
   `, c.title, client)
@@ -437,7 +454,7 @@ function buildEngagementHTML(c: EngagementAgreementContent, company: CompanyProf
 
 // ── 6. Completion Report ──────────────────────────────────────────────────────
 
-function buildReportHTML(c: ReportContent, photos: Photo[], company: CompanyProfile | null, client?: ClientInfo): string {
+function buildReportHTML(c: ReportContent, photos: Photo[], groups: RoomPhotoGroup[], company: CompanyProfile | null, client?: ClientInfo): string {
   const before = photos.filter(p => ['before','assessment'].includes(p.category))
   const during = photos.filter(p => p.category === 'during')
   const after  = photos.filter(p => p.category === 'after')
@@ -446,15 +463,15 @@ function buildReportHTML(c: ReportContent, photos: Photo[], company: CompanyProf
     <h1>${esc(c.title)}</h1>
     ${section('Executive Summary', c.executive_summary)}
     ${section('Site Conditions on Arrival', c.site_conditions)}
-    ${photoGrid(before, 'Before Photos')}
+    ${roomPhotoSections(groups, 'Before & Assessment Evidence', ['assessment', 'before'])}
     ${section('Works Carried Out', c.works_carried_out)}
     ${section('Methodology', c.methodology)}
     ${section('Products &amp; Equipment Used', c.products_used)}
     ${section('Waste Disposal', c.waste_disposal)}
-    ${c.include_photos !== false ? photoGrid(during, 'During Works Photos') : ''}
+    ${c.include_photos !== false ? roomPhotoSections(groups, 'During Works Photos', ['during']) : photoGrid(during, 'During Works Photos')}
     ${section('Photo Record', c.photo_record)}
     ${section('Outcome', c.outcome)}
-    ${c.include_photos !== false ? photoGrid(after, 'Completion Photos') : ''}
+    ${c.include_photos !== false ? roomPhotoSections(groups, 'Completion Photos', ['after']) : photoGrid(after, 'Completion Photos')}
     ${sigBlock(c.technician_signoff)}
   `, c.title, client)
 }
@@ -579,19 +596,21 @@ export function buildPrintHTML(
   type: DocType,
   content: Record<string, unknown>,
   photos: Photo[],
+  areas: Area[] = [],
   company: CompanyProfile | null,
   jobId: string,
   appUrl: string,
   client?: ClientInfo,
 ): string {
   const c = content as Record<string, unknown>
+  const groups = groupPhotosByRoomAndStage(photos, areas)
   switch (type) {
-    case 'quote':                      return buildQuoteHTML(c as unknown as QuoteContent, photos, company, jobId, appUrl, client)
-    case 'sow':                        return buildSOWHTML(c as unknown as SOWContent, photos, company, client)
+    case 'quote':                      return buildQuoteHTML(c as unknown as QuoteContent, photos, groups, company, jobId, appUrl, client)
+    case 'sow':                        return buildSOWHTML(c as unknown as SOWContent, photos, groups, company, client)
     case 'swms':                       return buildSWMSHTML(c as unknown as SWMSContent, company, client)
     case 'authority_to_proceed':       return buildATPHTML(c as unknown as AuthorityToProceedContent, company, client)
     case 'engagement_agreement':       return buildEngagementHTML(c as unknown as EngagementAgreementContent, company, client)
-    case 'report':                     return buildReportHTML(c as unknown as ReportContent, photos, company, client)
+    case 'report':                     return buildReportHTML(c as unknown as ReportContent, photos, groups, company, client)
     case 'certificate_of_decontamination': return buildCODHTML(c as unknown as CertificateOfDecontaminationContent, company, client)
     case 'waste_disposal_manifest':    return buildWDMHTML(c as unknown as WasteDisposalManifestContent, company, client)
     case 'jsa':                        return buildJSAHTML(c as unknown as JSAContent, company, client)

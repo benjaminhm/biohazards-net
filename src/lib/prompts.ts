@@ -10,6 +10,7 @@
  * generic templates. Photo captions are treated as direct site evidence.
  */
 import type { Job, Photo } from './types'
+import { filterGroupedStages, groupPhotosByRoomAndStage } from './photoGroups'
 
 /**
  * Formats job and assessment data into a text block injected into every prompt.
@@ -39,7 +40,7 @@ Biohazard Type: ${a.biohazard_type}
 Total Area: ${totalSqm}sqm across ${a.areas.length} areas
 
 Areas:
-${a.areas.map(x => `- ${x.name}: ${x.sqm}sqm, hazard level ${x.hazard_level}/5\n  ${x.description}`).join('\n')}
+${a.areas.map(x => `- ${x.name}: ${x.sqm}sqm, hazard level ${x.hazard_level}/5\n  ${x.description}${x.note ? `\n  Room note: ${x.note}` : ''}`).join('\n')}
 
 PPE Required: ${ppe || 'standard PPE'}
 Special Risks: ${risks || 'none identified'}
@@ -57,20 +58,19 @@ Technician Observations: "${a.observations}"`
 function buildPhotoEvidenceBlock(photos: Photo[], categories: string[]): string {
   const relevant = photos.filter(p => categories.includes(p.category))
   if (relevant.length === 0) return ''
-
-  const grouped: Record<string, Photo[]> = {}
-  for (const p of relevant) {
-    const key = p.area_ref || p.category
-    if (!grouped[key]) grouped[key] = []
-    grouped[key].push(p)
-  }
-
+  const allowedStages = categories.filter((c): c is 'assessment' | 'before' | 'during' | 'after' =>
+    c === 'assessment' || c === 'before' || c === 'during' || c === 'after'
+  )
+  const groups = filterGroupedStages(groupPhotosByRoomAndStage(relevant), allowedStages)
   const lines: string[] = [`\nPHOTO EVIDENCE (${relevant.length} photos):`]
-  for (const [area, areaPhotos] of Object.entries(grouped)) {
-    lines.push(`\n${area.toUpperCase()}:`)
-    for (const p of areaPhotos) {
-      const note = p.caption?.trim()
-      if (note) lines.push(`  • [${p.category}] ${note}`)
+  for (const group of groups) {
+    lines.push(`\n${group.room.toUpperCase()}:`)
+    if (group.note?.trim()) lines.push(`  Room note: ${group.note.trim()}`)
+    for (const stage of ['assessment', 'before', 'during', 'after'] as const) {
+      for (const p of group.stages[stage]) {
+        const note = p.caption?.trim()
+        if (note) lines.push(`  • [${stage}] ${note}`)
+      }
     }
   }
 

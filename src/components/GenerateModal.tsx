@@ -61,7 +61,7 @@ export default function GenerateModal({ jobId, type, content, photos, clientName
     try {
       const parsed = JSON.parse(draft)
       const appUrl = typeof window !== 'undefined' ? window.location.origin : ''
-      return buildPrintHTML(type, parsed, photos, company, jobId, appUrl)
+      return buildPrintHTML(type, parsed, photos, [], company, jobId, appUrl)
     } catch {
       return '<body style="font:14px sans-serif;padding:24px;color:#999">Preview not available</body>'
     }

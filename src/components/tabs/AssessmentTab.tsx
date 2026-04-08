@@ -163,7 +163,7 @@ export default function AssessmentTab({ job, onJobUpdate }: Props) {
   function addArea() {
     setData(d => ({
       ...d,
-      areas: [...d.areas, { name: '', sqm: 0, hazard_level: 1, description: '' }],
+      areas: [...d.areas, { name: '', sqm: 0, hazard_level: 1, description: '', note: '' }],
     }))
     setSaved(false)
   }
@@ -444,6 +444,10 @@ export default function AssessmentTab({ job, onJobUpdate }: Props) {
           <div>
             <label>Description</label>
             <textarea value={area.description} onChange={e => updateArea(i, 'description', e.target.value)} placeholder="What was found here..." rows={2} style={{ resize: 'vertical' }} />
+          </div>
+          <div style={{ marginTop: 10 }}>
+            <label>Room Notes (used in photo-based documents)</label>
+            <textarea value={area.note ?? ''} onChange={e => updateArea(i, 'note', e.target.value)} placeholder="Technician room note for this area..." rows={2} style={{ resize: 'vertical' }} />
           </div>
         </div>
       ))}

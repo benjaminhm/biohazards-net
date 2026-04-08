@@ -27,7 +27,8 @@ import React from 'react'
 import {
   Document, Page, View, Text, Image, Link, StyleSheet,
 } from '@react-pdf/renderer'
-import type { DocType, QuoteContent, SOWContent, ReportContent, CompanyProfile, PhotoWithData } from '@/lib/types'
+import type { DocType, QuoteContent, SOWContent, ReportContent, CompanyProfile, PhotoWithData, Area } from '@/lib/types'
+import { filterGroupedStages, groupPhotosByRoomAndStage } from '@/lib/photoGroups'
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://biohazards.net'
 
@@ -90,6 +91,9 @@ const styles = StyleSheet.create({
   photoAreaBadge: { fontSize: 7, fontFamily: 'Helvetica-Bold', color: ORANGE, textTransform: 'uppercase', marginTop: 4, marginBottom: 2 },
   photoNote: { fontSize: 8, color: MUTED, lineHeight: 1.4 },
   photoNoNote: { fontSize: 8, color: '#BBBBBB', fontStyle: 'italic' },
+  roomBlock: { marginBottom: 12, padding: 8, borderWidth: 1, borderColor: BORDER, borderRadius: 6, backgroundColor: '#fcfcfc' },
+  roomHeading: { fontSize: 9, fontFamily: 'Helvetica-Bold', color: BLACK, marginBottom: 4 },
+  roomNote: { fontSize: 8, color: MUTED, marginBottom: 6 },
   // Accept block
   acceptBlock: { marginTop: 24, padding: 16, backgroundColor: '#FFF5F1', borderRadius: 6, borderWidth: 1, borderColor: '#FFD4C2' },
   acceptLabel: { fontSize: 8, fontFamily: 'Helvetica-Bold', letterSpacing: 1, textTransform: 'uppercase', color: ORANGE, marginBottom: 6 },
@@ -192,7 +196,39 @@ function PhotoSection({ photos, label }: { photos: PhotoWithData[]; label: strin
   )
 }
 
-function QuotePDF({ content, photos, company, jobId }: { content: QuoteContent; photos: PhotoWithData[]; company: CompanyProfile | null; jobId?: string }) {
+function RoomStageSection({
+  photos, areas = [], label, stages,
+}: {
+  photos: PhotoWithData[]
+  areas?: Area[]
+  label: string
+  stages: Array<'assessment' | 'before' | 'during' | 'after'>
+}) {
+  const grouped = filterGroupedStages(groupPhotosByRoomAndStage(photos, areas), stages)
+  if (!grouped.length) return null
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionLabel}>{label}</Text>
+      {grouped.map(group => (
+        <View key={group.room} style={styles.roomBlock}>
+          <Text style={styles.roomHeading}>{group.room}</Text>
+          {group.note ? <Text style={styles.roomNote}>Room note: {group.note}</Text> : null}
+          {stages.map(stage => (
+            group.stages[stage].length > 0 ? (
+              <PhotoSection
+                key={`${group.room}-${stage}`}
+                photos={group.stages[stage].slice(0, 6)}
+                label={`${stage.charAt(0).toUpperCase() + stage.slice(1)} (${group.stages[stage].length})`}
+              />
+            ) : null
+          ))}
+        </View>
+      ))}
+    </View>
+  )
+}
+
+function QuotePDF({ content, photos, company, jobId, areas = [] }: { content: QuoteContent; photos: PhotoWithData[]; company: CompanyProfile | null; jobId?: string; areas?: Area[] }) {
   const today = new Date().toLocaleDateString('en-AU', { day: '2-digit', month: 'long', year: 'numeric' })
   const fmt = (n: number) => `$${Number(n).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
   const beforePhotos = photos.filter(p => p.category === 'before' || p.category === 'assessment').slice(0, 6)
@@ -244,7 +280,7 @@ function QuotePDF({ content, photos, company, jobId }: { content: QuoteContent; 
 
       {/* Before photos as evidence */}
       {beforePhotos.length > 0 && (
-        <PhotoSection photos={beforePhotos} label={`Site Condition Photos (${beforePhotos.length})`} />
+        <RoomStageSection photos={beforePhotos} areas={areas} label="Site Condition Photos" stages={['assessment', 'before']} />
       )}
 
       {/* Accept quote block — entire block is a link for mobile compatibility */}
@@ -281,11 +317,13 @@ function QuotePDF({ content, photos, company, jobId }: { content: QuoteContent; 
 
 function SOWOrReportPDF({
   content, type, photos, company,
+  areas = [],
 }: {
   content: SOWContent | ReportContent
   type: DocType
   photos: PhotoWithData[]
   company: CompanyProfile | null
+  areas?: Area[]
 }) {
   const today = new Date().toLocaleDateString('en-AU', { day: '2-digit', month: 'long', year: 'numeric' })
 
@@ -330,15 +368,15 @@ function SOWOrReportPDF({
 
       {/* SOW: show before photos as evidence of scope */}
       {type === 'sow' && beforePhotos.length > 0 && (
-        <PhotoSection photos={beforePhotos} label={`Site Condition Photos — Evidence of Scope (${beforePhotos.length})`} />
+        <RoomStageSection photos={beforePhotos} areas={areas} label="Site Condition Photos — Evidence of Scope" stages={['assessment', 'before']} />
       )}
 
       {/* Report: before + after photos */}
       {type === 'report' && beforePhotos.length > 0 && (
-        <PhotoSection photos={beforePhotos} label={`Before — Site Conditions on Arrival (${beforePhotos.length})`} />
+        <RoomStageSection photos={beforePhotos} areas={areas} label="Before — Site Conditions on Arrival" stages={['assessment', 'before']} />
       )}
       {type === 'report' && afterPhotos.length > 0 && (
-        <PhotoSection photos={afterPhotos} label={`After — Completed Works (${afterPhotos.length})`} />
+        <RoomStageSection photos={afterPhotos} areas={areas} label="After — Completed Works" stages={['during', 'after']} />
       )}
 
       {type === 'sow' && (
@@ -363,16 +401,17 @@ interface JobPDFDocumentProps {
   photos: PhotoWithData[]
   company: CompanyProfile | null
   jobId?: string
+  areas?: Area[]
 }
 
-export function JobPDFDocument({ type, content, photos, company, jobId }: JobPDFDocumentProps) {
+export function JobPDFDocument({ type, content, photos, company, jobId, areas = [] }: JobPDFDocumentProps) {
   const name = company?.name || 'Brisbane Biohazard Cleaning'
   return (
     <Document title={name} author={name}>
       {type === 'quote' ? (
-        <QuotePDF content={content as QuoteContent} photos={photos} company={company} jobId={jobId} />
+        <QuotePDF content={content as QuoteContent} photos={photos} company={company} jobId={jobId} areas={areas} />
       ) : (
-        <SOWOrReportPDF content={content as SOWContent | ReportContent} type={type} photos={photos} company={company} />
+        <SOWOrReportPDF content={content as SOWContent | ReportContent} type={type} photos={photos} company={company} areas={areas} />
       )}
     </Document>
   )

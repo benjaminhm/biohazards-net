@@ -33,7 +33,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ docId: 
   const [companyRes, photosRes, jobRes] = await Promise.all([
     supabase.from('company_profile').select('*').limit(1).maybeSingle(),
     supabase.from('photos').select('*').eq('job_id', doc.job_id).order('uploaded_at', { ascending: true }),
-    supabase.from('jobs').select('client_name,client_email,client_phone').eq('id', doc.job_id).single(),
+    supabase.from('jobs').select('client_name,client_email,client_phone,assessment_data').eq('id', doc.job_id).single(),
   ])
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.biohazards.net'
@@ -43,6 +43,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ docId: 
     doc.type,
     doc.content ?? {},
     photosRes.data ?? [],
+    jobRes.data?.assessment_data?.areas ?? [],
     companyRes.data ?? null,
     doc.job_id,
     appUrl,

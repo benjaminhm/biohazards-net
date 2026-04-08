@@ -200,7 +200,8 @@ export default function JobPage() {
           <PhotosTab
             jobId={id}
             photos={photos}
-            areas={job.assessment_data?.areas?.map(a => a.name) ?? []}
+            assessmentData={job.assessment_data}
+            onAssessmentDataUpdate={(assessment_data) => setJob(prev => prev ? { ...prev, assessment_data } : prev)}
             onPhotosUpdate={setPhotos}
           />
         )}
