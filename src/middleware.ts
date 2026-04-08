@@ -25,8 +25,8 @@
  *
  * Public routes (no auth required):
  *   - All [slug].biohazards.net requests (public websites)
- *   - /login, /invite/:token, /new-client, /accept/:id
- *   - /api/intake, /api/print, /api/sms/inbound, /api/public/*
+ *   - /login, /invite/:token, /accept/:id
+ *   - /api/print, /api/sms/inbound, /api/public/*
  */
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
@@ -37,14 +37,10 @@ const isPublicRoute = createRouteMatcher([
   '/login(.*)',
   '/sign-in(.*)',
   '/sign-up(.*)',
-  '/new-client(.*)',
   '/accept/(.*)',
   '/pending(.*)',
   '/invite/(.*)',
-  '/api/intake(.*)',
-  '/api/intake/upload-url(.*)',
   '/api/accept/(.*)',
-  '/api/notify-lead(.*)',
   '/api/company(.*)',
   '/api/print/(.*)',
   '/api/invites/(.*)',

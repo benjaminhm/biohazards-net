@@ -32,21 +32,10 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useClerk } from '@clerk/nextjs'
 import { useUser } from '@/lib/userContext'
-import type { CompanyProfile, Job, Org } from '@/lib/types'
+import type { CompanyProfile, Job } from '@/lib/types'
+import OrgAdminHealthCard from '@/components/OrgAdminHealthCard'
 
 const LS_HIDE_FEEDBACK = 'bh_dash_quick_feedback_hidden'
-const LS_ORGS_EXPANDED = 'bh_dash_platform_orgs_expanded'
-
-type OrgWithCount = Org & { user_count?: number }
-
-/** Link to platform org detail (same origin on localhost; platform host in prod). */
-function platformOrgDetailHref(orgId: string): string {
-  if (typeof window === 'undefined') return `/platform/orgs/${orgId}`
-  const { hostname, origin } = window.location
-  if (hostname === 'localhost' || hostname === '127.0.0.1') return `${origin}/platform/orgs/${orgId}`
-  return `https://platform.biohazards.net/platform/orgs/${orgId}`
-}
-
 function fmtBooking(iso: string) {
   const d = new Date(iso)
   const today = new Date()
@@ -73,8 +62,6 @@ export default function HomePage() {
   const [nudgeSent, setNudgeSent] = useState<Record<string, 'sending' | 'sent' | 'error'>>({})
   const [review, setReview] = useState<object | null | 'loading'>('loading')
   const [hideQuickFeedback, setHideQuickFeedback] = useState(false)
-  const [orgsExpanded, setOrgsExpanded] = useState(false)
-  const [platformOrgs, setPlatformOrgs] = useState<OrgWithCount[] | null | 'loading'>('loading')
   /** ≥900px: use 3 columns when we have 6 tiles (2×3 layout); otherwise 2 columns. */
   const [desktopWide, setDesktopWide] = useState(false)
   const router = useRouter()
@@ -87,7 +74,6 @@ export default function HomePage() {
   useEffect(() => {
     try {
       setHideQuickFeedback(localStorage.getItem(LS_HIDE_FEEDBACK) === '1')
-      setOrgsExpanded(localStorage.getItem(LS_ORGS_EXPANDED) === '1')
     } catch {
       /* ignore */
     }
@@ -99,23 +85,6 @@ export default function HomePage() {
     sync()
     mq.addEventListener('change', sync)
     return () => mq.removeEventListener('change', sync)
-  }, [])
-
-  useEffect(() => {
-    fetch('/api/admin/orgs')
-      .then(async (r) => {
-        if (r.status === 403) {
-          setPlatformOrgs(null)
-          return
-        }
-        if (!r.ok) {
-          setPlatformOrgs(null)
-          return
-        }
-        const j = (await r.json()) as { orgs?: OrgWithCount[] }
-        setPlatformOrgs(j.orgs ?? [])
-      })
-      .catch(() => setPlatformOrgs(null))
   }, [])
 
   useEffect(() => {
@@ -181,8 +150,6 @@ export default function HomePage() {
   const actionTiles = [
     { href: '/jobs/new',    icon: '＋', label: 'New Job',         sub: 'Log manually',       color: '#3B82F6' },
     { href: '/team',        icon: '⬡',  label: 'Team',            sub: 'Staff & contractors', color: '#10B981' },
-    { href: '/new-client',  icon: '◎',  label: 'New Client',      sub: 'Intake form',        color: '#8B5CF6' },
-    { href: '/intake-send', icon: '↗',  label: 'Send Intake',     sub: 'Text or email',      color: '#14B8A6' },
   ]
 
   const dashboardGridTiles = [
@@ -272,6 +239,8 @@ export default function HomePage() {
           </div>
         </div>
       </header>
+
+      <OrgAdminHealthCard />
 
       {/* ── Action Required ── admin only, shown when there are items ── */}
       {isAdmin && !previewMode && actions.length > 0 && (
@@ -613,105 +582,6 @@ export default function HomePage() {
                 </button>
               </div>
               <ReviewCard onSubmitted={() => setReview({})} />
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── Platform admin: all orgs (collapsible) — hidden for normal tenant users ── */}
-      {platformOrgs !== 'loading' && platformOrgs !== null && (
-        <div style={{ padding: '0 20px 24px' }}>
-          <button
-            type="button"
-            onClick={() => {
-              setOrgsExpanded((e) => {
-                const n = !e
-                try {
-                  localStorage.setItem(LS_ORGS_EXPANDED, n ? '1' : '0')
-                } catch {
-                  /* ignore */
-                }
-                return n
-              })
-            }}
-            style={{
-              width: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '12px 16px',
-              borderRadius: 12,
-              border: '1px solid var(--border)',
-              background: 'var(--surface)',
-              color: 'var(--text)',
-              fontSize: 13,
-              fontWeight: 600,
-              cursor: 'pointer',
-              textAlign: 'left',
-            }}
-          >
-            <span>
-              {orgsExpanded ? '▼' : '▶'} All organisations
-              <span style={{ fontWeight: 500, color: 'var(--text-muted)', marginLeft: 8 }}>
-                ({platformOrgs.length})
-              </span>
-            </span>
-          </button>
-          {orgsExpanded && (
-            <div
-              style={{
-                marginTop: 10,
-                border: '1px solid var(--border)',
-                borderRadius: 12,
-                overflow: 'hidden',
-                background: 'var(--surface)',
-              }}
-            >
-              {platformOrgs.length === 0 ? (
-                <div style={{ padding: '16px 18px', fontSize: 13, color: 'var(--text-muted)' }}>No organisations yet.</div>
-              ) : (
-                <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-                  {platformOrgs.map((o) => (
-                    <li
-                      key={o.id}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: 12,
-                        padding: '12px 16px',
-                        borderBottom: '1px solid var(--border)',
-                        fontSize: 13,
-                      }}
-                    >
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.name}</div>
-                        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }} className="mono">
-                          {o.slug}
-                          {!o.is_active && (
-                            <span style={{ marginLeft: 8, color: '#888' }}>· inactive</span>
-                          )}
-                        </div>
-                      </div>
-                      <a
-                        href={platformOrgDetailHref(o.id)}
-                        style={{
-                          flexShrink: 0,
-                          padding: '6px 12px',
-                          borderRadius: 8,
-                          border: '1px solid var(--border-2)',
-                          color: 'var(--accent)',
-                          fontSize: 12,
-                          fontWeight: 700,
-                          textDecoration: 'none',
-                        }}
-                      >
-                        Open
-                      </a>
-                    </li>
-                  ))}
-                </ul>
-              )}
             </div>
           )}
         </div>

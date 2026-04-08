@@ -7,7 +7,7 @@
  *
  * Key behaviours:
  * - If the user has no org membership (has_org: false), they are redirected
- *   to /pending unless they are on an exempt route (invite/login/new-client).
+ *   to /pending unless they are on an exempt route (invite/login).
  * - If the user is an admin with localStorage 'preview_caps' set, those
  *   capabilities replace ALL_CAPABILITIES — enabling admin-as-member preview.
  * - For non-admins, capabilities = DEFAULT_MEMBER_CAPABILITIES merged with
@@ -61,7 +61,7 @@ const UserContext = createContext<UserCtx>(defaultCtx)
 // Routes that don't require org membership — new users land on /pending while
 // they wait for an admin to invite them to an org.
 // Platform super-admins may have no org_users row yet; /platform and /admin must stay reachable.
-const PENDING_EXEMPT = ['/pending', '/invite/', '/login', '/sign-in', '/new-client', '/accept/', '/platform', '/admin']
+const PENDING_EXEMPT = ['/pending', '/invite/', '/login', '/sign-in', '/accept/', '/platform', '/admin']
 
 /*
  * Reads preview capabilities from localStorage — only valid for admins.

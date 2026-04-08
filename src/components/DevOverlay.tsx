@@ -32,7 +32,6 @@ const PAGE_REGISTRY: { id: string; label: string }[] = [
   { id: 'P4', label: 'Settings' },
   { id: 'P5', label: 'New Job' },
   { id: 'P6', label: 'Platform Admin' },
-  { id: 'P7', label: 'New Client' },
 ]
 
 export default function DevOverlay() {

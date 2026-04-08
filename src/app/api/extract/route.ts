@@ -5,7 +5,7 @@
  * Accepts freeform text (email, SMS, voicemail transcript) and returns
  * structured job fields via Claude.
  *
- * Used by the SmartFill component on /new-client and /jobs/new.
+ * Used by the SmartFill component on /jobs/new.
  * For extraction within an existing job's Details tab, see
  * /api/jobs/[id]/extract. Both routes use the same prompt logic.
  *
