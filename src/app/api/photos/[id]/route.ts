@@ -46,15 +46,27 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   }
 }
 
+const PHOTO_CATEGORIES = ['before', 'during', 'after', 'assessment'] as const
+
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params
-    const body = await req.json()
+    const body = (await req.json()) as Record<string, unknown>
+    const patch: Record<string, string> = {}
+    if (typeof body.caption === 'string') patch.caption = body.caption
+    if (typeof body.area_ref === 'string') patch.area_ref = body.area_ref
+    if (typeof body.category === 'string' && (PHOTO_CATEGORIES as readonly string[]).includes(body.category)) {
+      patch.category = body.category
+    }
+    if (Object.keys(patch).length === 0) {
+      return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
+    }
+
     const supabase = createServiceClient()
 
     const { data, error } = await supabase
       .from('photos')
-      .update(body)
+      .update(patch)
       .eq('id', id)
       .select()
       .single()
