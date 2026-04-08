@@ -34,8 +34,76 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import type { Org } from '@/lib/types'
 import { DOC_TYPE_LABELS } from '@/lib/types'
+import { PLATFORM_STYLE_PDF_PROXY_MAX_BYTES } from '@/lib/platformStylePdfLimits'
 
 const ALPHA_ORG_SLUG = 'biohazards-net'
+
+/** Avoid res.json() on HTML/plain 413 bodies from the host (breaks with "Unexpected token 'R'…"). */
+async function parseJsonBodyOrThrow(res: Response): Promise<Record<string, unknown>> {
+  const text = await res.text()
+  let data: Record<string, unknown> = {}
+  if (text) {
+    try {
+      data = JSON.parse(text) as Record<string, unknown>
+    } catch {
+      const low = text.toLowerCase()
+      if (low.includes('request entity too large') || res.status === 413) {
+        throw new Error('REQUEST_ENTITY_TOO_LARGE')
+      }
+      const trimmed = text.trim()
+      throw new Error(trimmed.length > 180 ? `${trimmed.slice(0, 180)}…` : trimmed || `Invalid response (${res.status})`)
+    }
+  }
+  if (!res.ok) {
+    const err = data.error
+    if (typeof err === 'string') throw new Error(err)
+    if (data.code === 'PAYLOAD_TOO_LARGE_FOR_PROXY') throw new Error('REQUEST_ENTITY_TOO_LARGE')
+    throw new Error(`Request failed (${res.status})`)
+  }
+  return data
+}
+
+async function uploadPlatformStylePdfToStorage(file: File, docTab: string): Promise<string> {
+  const directToStorage = async (): Promise<string> => {
+    const fileName = `platform-${docTab}-${Date.now()}.pdf`
+    const res = await fetch('/api/admin/platform-style-pdf', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileName, contentType: 'application/pdf' }),
+    })
+    const j = await parseJsonBodyOrThrow(res)
+    const signedUrl = j.signedUrl as string | undefined
+    const publicUrl = j.publicUrl as string | undefined
+    if (!signedUrl || !publicUrl) throw new Error('No upload URL returned from server')
+    const up = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': 'application/pdf' }, body: file })
+    if (!up.ok) {
+      throw new Error(
+        `Direct storage upload failed (${up.status}). Add https://platform.biohazards.net to Supabase Storage allowed origins, or use a PDF under ${Math.floor(PLATFORM_STYLE_PDF_PROXY_MAX_BYTES / (1024 * 1024))} MB.`
+      )
+    }
+    return publicUrl
+  }
+
+  if (file.size > PLATFORM_STYLE_PDF_PROXY_MAX_BYTES) {
+    return directToStorage()
+  }
+
+  try {
+    const fd = new FormData()
+    fd.append('file', file)
+    const res = await fetch('/api/admin/platform-style-pdf', { method: 'POST', body: fd })
+    const j = await parseJsonBodyOrThrow(res)
+    const publicUrl = j.publicUrl as string | undefined
+    if (!publicUrl) throw new Error('No public URL returned')
+    return publicUrl
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : ''
+    if (msg === 'REQUEST_ENTITY_TOO_LARGE') {
+      return directToStorage()
+    }
+    throw e
+  }
+}
 
 interface OrgWithCount extends Org { user_count: number }
 interface NewOrgForm { name: string; slug: string; plan: string; seat_limit: string }
@@ -232,9 +300,8 @@ export default function AdminPage() {
     setPlatformDocRulesErr(null)
     try {
       const res = await fetch('/api/admin/platform-document-rules')
-      const json = await res.json()
-      if (!res.ok) throw new Error(typeof json.error === 'string' ? json.error : 'Failed to load')
-      setPlatformDocRules(json.document_rules ?? {})
+      const json = await parseJsonBodyOrThrow(res)
+      setPlatformDocRules((json.document_rules as Record<string, string>) ?? {})
     } catch (e: unknown) {
       setPlatformDocRulesErr(e instanceof Error ? e.message : 'Failed to load')
     } finally {
@@ -247,13 +314,7 @@ export default function AdminPage() {
     setPlatformPdfUploading(true)
     setPlatformDocRulesErr(null)
     try {
-      const fd = new FormData()
-      fd.append('file', file)
-      const res = await fetch('/api/admin/platform-style-pdf', { method: 'POST', body: fd })
-      const j = (await res.json()) as { publicUrl?: string; error?: string }
-      if (!res.ok) throw new Error(typeof j.error === 'string' ? j.error : `Upload failed (${res.status})`)
-      const publicUrl = j.publicUrl
-      if (!publicUrl) throw new Error('No public URL returned')
+      const publicUrl = await uploadPlatformStylePdfToStorage(file, activePlatformRuleTab)
       const pdfKey = `${activePlatformRuleTab}_pdf`
       setPlatformDocRules(prev => ({ ...prev, [pdfKey]: publicUrl }))
     } catch (e: unknown) {
@@ -273,9 +334,8 @@ export default function AdminPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ document_rules: platformDocRules }),
       })
-      const json = await res.json()
-      if (!res.ok) throw new Error(typeof json.error === 'string' ? json.error : 'Save failed')
-      setPlatformDocRules(json.document_rules ?? platformDocRules)
+      const json = await parseJsonBodyOrThrow(res)
+      setPlatformDocRules((json.document_rules as Record<string, string>) ?? platformDocRules)
       setPlatformDocRulesOk(true)
       setTimeout(() => setPlatformDocRulesOk(false), 2500)
     } catch (e: unknown) {
@@ -1226,8 +1286,8 @@ export default function AdminPage() {
         {tab === 'doc_rules' && (
           <div style={{ maxWidth: 900 }}>
             <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.6, marginBottom: 20 }}>
-              Stored in Supabase as one <strong style={{ color: 'var(--text)' }}>JSON</strong> object on the <code className="mono">platform_document_rules</code> row (not a file in git): text keys like <code className="mono">report</code> and optional URL keys like <code className="mono">report_pdf</code>.
-              These apply to <strong style={{ color: 'var(--text)' }}>every organisation</strong> after the code baseline and before each company&apos;s Document Rules. Per-type tabs can include a <strong style={{ color: 'var(--text)' }}>style PDF</strong> for Claude (org PDFs attach second and win on conflicts).
+              Stored in Supabase as one <strong style={{ color: 'var(--text)' }}>JSON</strong> object on <code className="mono">platform_document_rules</code>: prose keys (<code className="mono">report</code>), optional <code className="mono">report_template_json</code> (structured hints), optional <code className="mono">report_pdf</code>.
+              Applies to <strong style={{ color: 'var(--text)' }}>every organisation</strong> after the code baseline and before org Document Rules. PDFs are optional if you use template JSON.
             </p>
             {platformDocRulesErr && (
               <div style={{
@@ -1242,7 +1302,10 @@ export default function AdminPage() {
             ) : (
               <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: 20 }}>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
-                  {PLATFORM_RULE_TABS.map(tabRow => (
+                  {PLATFORM_RULE_TABS.map(tabRow => {
+                    const hasTj = tabRow.id !== 'general' && !!platformDocRules[`${tabRow.id}_template_json`]?.trim()
+                    const hasPdf = tabRow.id !== 'general' && !!platformDocRules[`${tabRow.id}_pdf`]
+                    return (
                     <button
                       key={tabRow.id}
                       type="button"
@@ -1254,20 +1317,62 @@ export default function AdminPage() {
                         color: 'var(--text)', cursor: 'pointer',
                       }}
                     >
-                      {tabRow.label}
+                      {tabRow.label}{hasTj ? ' {}' : ''}{hasPdf ? ' 📄' : ''}
                     </button>
-                  ))}
+                  )})}
                 </div>
                 <label style={{ fontSize: 12, fontWeight: 700, display: 'block', marginBottom: 8 }}>
                   {PLATFORM_RULE_TABS.find(t => t.id === activePlatformRuleTab)?.label ?? activePlatformRuleTab}
                 </label>
+                <textarea
+                  value={activePlatformRuleTab === 'general' ? (platformDocRules.general ?? '') : (platformDocRules[activePlatformRuleTab] ?? '')}
+                  onChange={e => setPlatformDocRules(prev => ({
+                    ...prev,
+                    [activePlatformRuleTab]: e.target.value,
+                  }))}
+                  placeholder={activePlatformRuleTab === 'general'
+                    ? 'Optional. Applies to every document type for all orgs.'
+                    : 'Optional prose rules for this document type.'}
+                  rows={12}
+                  style={{
+                    width: '100%', padding: 12, borderRadius: 8, fontSize: 13, lineHeight: 1.5,
+                    border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', resize: 'vertical',
+                    fontFamily: 'inherit',
+                    marginBottom: 14,
+                  }}
+                />
+                {activePlatformRuleTab !== 'general' && (
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-dim)', marginBottom: 6 }}>
+                      Template JSON (optional — no PDF needed)
+                    </div>
+                    <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 8px', lineHeight: 1.5 }}>
+                      Valid JSON only. Saved as <code className="mono">{activePlatformRuleTab}_template_json</code>. Claude still must output the fixed schema keys for this doc type.
+                    </p>
+                    <textarea
+                      value={platformDocRules[`${activePlatformRuleTab}_template_json`] ?? ''}
+                      onChange={e => setPlatformDocRules(prev => ({
+                        ...prev,
+                        [`${activePlatformRuleTab}_template_json`]: e.target.value,
+                      }))}
+                      placeholder={'{\n  "section_emphasis": ["executive_summary"],\n  "tone": "formal"\n}'}
+                      rows={8}
+                      spellCheck={false}
+                      style={{
+                        width: '100%', padding: 12, borderRadius: 8, fontSize: 12, lineHeight: 1.5,
+                        border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', resize: 'vertical',
+                        fontFamily: 'ui-monospace, monospace',
+                      }}
+                    />
+                  </div>
+                )}
                 {activePlatformRuleTab !== 'general' && (
                   <div style={{ marginBottom: 16, padding: 14, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)' }}>
                     <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-dim)', marginBottom: 8 }}>
                       Style guide PDF (optional)
                     </div>
                     <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 10px', lineHeight: 1.5 }}>
-                      Uploaded to shared storage; URL saved as <span className="mono">{activePlatformRuleTab}_pdf</span> in the same JSON. Click Save after upload if you changed text too.
+                      PDFs under ~3 MB upload through the app; larger files go direct to Supabase (add <span className="mono">https://platform.biohazards.net</span> to Storage CORS if that path fails). URL saved as <span className="mono">{activePlatformRuleTab}_pdf</span>. Click Save if you also edited text.
                     </p>
                     {platformDocRules[`${activePlatformRuleTab}_pdf`] && (
                       <div style={{ fontSize: 12, marginBottom: 10, wordBreak: 'break-all' }}>
@@ -1316,22 +1421,6 @@ export default function AdminPage() {
                     </button>
                   </div>
                 )}
-                <textarea
-                  value={activePlatformRuleTab === 'general' ? (platformDocRules.general ?? '') : (platformDocRules[activePlatformRuleTab] ?? '')}
-                  onChange={e => setPlatformDocRules(prev => ({
-                    ...prev,
-                    [activePlatformRuleTab]: e.target.value,
-                  }))}
-                  placeholder={activePlatformRuleTab === 'general'
-                    ? 'Optional. Applies to every document type for all orgs.'
-                    : 'Optional text rules for this document type. Use Upload PDF above for a visual/style example.'}
-                  rows={14}
-                  style={{
-                    width: '100%', padding: 12, borderRadius: 8, fontSize: 13, lineHeight: 1.5,
-                    border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', resize: 'vertical',
-                    fontFamily: 'ui-monospace, monospace',
-                  }}
-                />
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 16 }}>
                   <button
                     type="button"

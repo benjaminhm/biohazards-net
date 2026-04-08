@@ -183,9 +183,8 @@ export interface Document {
 }
 
 /* Per-org company branding and settings. One row per org in company_profile.
-   document_rules is a JSON object with keys 'general' (applied to all docs)
-   and per-type keys like 'quote', 'swms' etc. Each value is markdown text
-   fed to Claude as a style/rules override during document generation. */
+   document_rules: 'general' + per DocType prose keys; optional [type]_pdf URLs;
+   optional [type]_template_json (string of JSON) for structured template hints. */
 export interface CompanyProfile {
   id: string
   name: string

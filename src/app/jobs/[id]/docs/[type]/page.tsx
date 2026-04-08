@@ -29,6 +29,7 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import type { DocType, Job, Photo, CompanyProfile } from '@/lib/types'
 import { DOC_TYPE_LABELS } from '@/lib/types'
 import { useUser } from '@/lib/userContext'
+import { mergeOrgDocumentRulesForClient } from '@/lib/documentRules'
 
 // ── Instructions panel ────────────────────────────────────────────────────────
 
@@ -41,6 +42,7 @@ function InstructionsPanel({ docType, docLabel, company, onSaved, onClose }: {
 }) {
   const [specific,    setSpecific]    = useState(company?.document_rules?.[docType] ?? '')
   const [general,     setGeneral]     = useState(company?.document_rules?.general ?? '')
+  const [templateJson, setTemplateJson] = useState(company?.document_rules?.[`${docType}_template_json`] ?? '')
   const [stylePdfUrl, setStylePdfUrl] = useState(company?.document_rules?.[docType + '_pdf'] ?? '')
   const [showGeneral, setShowGeneral] = useState(false)
   const [saving,      setSaving]      = useState(false)
@@ -73,12 +75,15 @@ function InstructionsPanel({ docType, docLabel, company, onSaved, onClose }: {
     setSaving(true)
     setSaveErr('')
     try {
-      const merged = {
+      const merged: Record<string, string> = {
         ...(company?.document_rules ?? {}),
         general,
         [docType]: specific,
-        ...(stylePdfUrl ? { [docType + '_pdf']: stylePdfUrl } : {}),
       }
+      if (stylePdfUrl) merged[`${docType}_pdf`] = stylePdfUrl
+      else delete merged[`${docType}_pdf`]
+      if (templateJson.trim()) merged[`${docType}_template_json`] = templateJson.trim()
+      else delete merged[`${docType}_template_json`]
       const res = await fetch('/api/company', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -125,6 +130,24 @@ function InstructionsPanel({ docType, docLabel, company, onSaved, onClose }: {
               placeholder={`What should Claude always do for every ${docLabel}?\n\ne.g. Always break the quote into separate line items per area. Never go under $2,500. Include a note about disposal costs. Use the word "remediation" not "cleaning".`}
               rows={9}
               style={{ width: '100%', resize: 'vertical', fontSize: 13, lineHeight: 1.6, background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px', color: 'var(--text)', fontFamily: 'inherit', boxSizing: 'border-box' }}
+            />
+          </div>
+
+          {/* Structured template JSON (alternative / supplement to PDF) */}
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 700, display: 'block', marginBottom: 4, color: 'var(--text)' }}>
+              Template JSON <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>— optional</span>
+            </label>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+              Pure JSON for section hints, tone labels, or field-level guidance. Output must still use the app&apos;s fixed schema keys for this doc type.
+            </div>
+            <textarea
+              value={templateJson}
+              onChange={e => setTemplateJson(e.target.value)}
+              placeholder={'{\n  "section_emphasis": ["executive_summary", "works_carried_out"],\n  "tone": "formal_insurer",\n  "must_mention": ["PPE", "disposal chain of custody"]\n}'}
+              rows={8}
+              spellCheck={false}
+              style={{ width: '100%', resize: 'vertical', fontSize: 12, lineHeight: 1.5, background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px', color: 'var(--text)', fontFamily: 'ui-monospace, monospace', boxSizing: 'border-box' }}
             />
           </div>
 
@@ -511,8 +534,7 @@ function DocEditorInner() {
   }, [job, photos, company, docType, docLabel])
 
   function getDocRules(): string {
-    const dr = company?.document_rules ?? {}
-    return [dr.general, dr[docType]].filter(Boolean).join('\n\n')
+    return mergeOrgDocumentRulesForClient(docType, company?.document_rules)
   }
 
   async function sendMessage() {
@@ -564,8 +586,8 @@ function DocEditorInner() {
           {building ? <><span className="spinner" /> Building…</> : '✨ Build with Claude'}
         </button>
         <button data-devid="P3-E3" onClick={() => setShowInstructions(true)}
-          style={{ width: '100%', padding: '7px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: 'var(--bg)', color: company?.document_rules?.[docType] ? 'var(--accent)' : 'var(--text-muted)', border: '1px solid var(--border)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
-          📋 {docLabel} Instructions{company?.document_rules?.[docType] ? ' ●' : ''}
+          style={{ width: '100%', padding: '7px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: 'var(--bg)', color: (company?.document_rules?.[docType] || company?.document_rules?.[`${docType}_template_json`] || company?.document_rules?.[`${docType}_pdf`]) ? 'var(--accent)' : 'var(--text-muted)', border: '1px solid var(--border)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
+          📋 {docLabel} Instructions{(company?.document_rules?.[docType] || company?.document_rules?.[`${docType}_template_json`] || company?.document_rules?.[`${docType}_pdf`]) ? ' ●' : ''}
         </button>
         {['quote','sow','report'].includes(docType) && (
           <button data-devid="P3-E4"

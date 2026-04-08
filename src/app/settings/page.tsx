@@ -357,6 +357,7 @@ export default function SettingsPage() {
             {RULE_TABS.map(tab => {
               const hasInstructions = !!profile.document_rules?.[tab.id]
               const hasPdf = tab.id !== 'general' && !!profile.document_rules?.[tab.id + '_pdf']
+              const hasTemplateJson = tab.id !== 'general' && !!profile.document_rules?.[`${tab.id}_template_json`]
               return (
                 <button
                   key={tab.id}
@@ -370,7 +371,7 @@ export default function SettingsPage() {
                   }}
                 >
                   {tab.label}
-                  {hasInstructions ? ' ●' : ''}{hasPdf ? ' 📄' : ''}
+                  {hasInstructions ? ' ●' : ''}{hasPdf ? ' 📄' : ''}{hasTemplateJson ? ' {}' : ''}
                 </button>
               )
             })}
@@ -399,6 +400,33 @@ export default function SettingsPage() {
               fontFamily: 'inherit', boxSizing: 'border-box',
             }}
           />
+
+          {activeRuleTab !== 'general' && (
+            <div style={{ marginTop: 14 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-dim)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                Template JSON (optional)
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>
+                Structured hints (valid JSON). No PDF required. Same keys as in the job document editor Instructions panel.
+              </div>
+              <textarea
+                value={profile.document_rules?.[`${activeRuleTab}_template_json`] ?? ''}
+                onChange={e => setProfile(p => ({
+                  ...p,
+                  document_rules: { ...(p.document_rules ?? {}), [`${activeRuleTab}_template_json`]: e.target.value },
+                }))}
+                placeholder={'{\n  "tone": "insurer_formal",\n  "must_mention": ["chain of custody"]\n}'}
+                rows={6}
+                spellCheck={false}
+                style={{
+                  width: '100%', resize: 'vertical', fontSize: 12, lineHeight: 1.5,
+                  background: 'var(--bg)', border: '1px solid var(--border)',
+                  borderRadius: 8, padding: '10px 12px', color: 'var(--text)',
+                  fontFamily: 'ui-monospace, monospace', boxSizing: 'border-box',
+                }}
+              />
+            </div>
+          )}
 
           {activeRuleTab !== 'general' && profile.document_rules?.[activeRuleTab + '_pdf'] && (
             <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-muted)', padding: '8px 12px', background: 'var(--bg)', borderRadius: 8, border: '1px solid var(--border)' }}>

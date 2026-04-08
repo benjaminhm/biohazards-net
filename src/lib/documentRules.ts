@@ -31,6 +31,44 @@ export function mergeDocumentRuleSections(
     .join('\n\n')
 }
 
+const TEMPLATE_JSON_SUFFIX = '_template_json'
+
+/** Key per doc type, e.g. report_template_json — value is a JSON string (object/array) of structured hints. */
+export function documentRulesTemplateJsonKey(docType: DocType): string {
+  return `${docType}${TEMPLATE_JSON_SUFFIX}`
+}
+
+/**
+ * Pretty-print JSON template instructions for Claude. Invalid JSON is passed through truncated with a warning.
+ * Output must still obey the fixed DocType schema keys; this block is guidance only.
+ */
+export function formatTemplateJsonForPrompt(raw: string | undefined, heading: string): string {
+  const s = raw?.trim()
+  if (!s) return ''
+  try {
+    const obj = JSON.parse(s) as unknown
+    const pretty = JSON.stringify(obj, null, 2)
+    return `${heading}:\n${pretty}\nFollow this structure for emphasis, section order hints, and field-level guidance. The response must still use exactly the required top-level JSON keys for this document type — do not rename or omit schema keys.`
+  } catch {
+    const cap = 2500
+    return `${heading} (invalid JSON — fix in settings):\n${s.length > cap ? `${s.slice(0, cap)}\n…` : s}`
+  }
+}
+
+/** Merges org text rules + optional template JSON for chat-document (client → server). */
+export function mergeOrgDocumentRulesForClient(
+  docType: DocType,
+  documentRules: Record<string, string> | undefined
+): string {
+  const dr = documentRules ?? {}
+  const tk = documentRulesTemplateJsonKey(docType)
+  return mergeDocumentRuleSections(
+    dr.general,
+    dr[docType],
+    formatTemplateJsonForPrompt(dr[tk], 'Organisation template JSON')
+  )
+}
+
 export type DocumentRulesWrapVariant = 'generate' | 'edit'
 
 export function wrapDocumentRulesBlock(
@@ -54,12 +92,15 @@ export function getDocumentRulesForBuild(
 ): string {
   const org = company?.document_rules ?? {}
   const plat = platformDbRules ?? {}
+  const tk = documentRulesTemplateJsonKey(type)
   const body = mergeDocumentRuleSections(
     PLATFORM_DOCUMENT_RULES_BASELINE,
     plat.general,
     plat[type],
+    formatTemplateJsonForPrompt(plat[tk], 'Platform template JSON'),
     org.general,
-    org[type]
+    org[type],
+    formatTemplateJsonForPrompt(org[tk], 'Organisation template JSON')
   )
   return wrapDocumentRulesBlock(body, 'generate')
 }
@@ -71,10 +112,12 @@ export function getDocumentRulesForChat(
   platformDbRules: PlatformDocumentRulesMap | null
 ): string {
   const plat = platformDbRules ?? {}
+  const tk = documentRulesTemplateJsonKey(type)
   const body = mergeDocumentRuleSections(
     PLATFORM_DOCUMENT_RULES_BASELINE,
     plat.general,
     plat[type],
+    formatTemplateJsonForPrompt(plat[tk], 'Platform template JSON'),
     orgRulesFromClient
   )
   return wrapDocumentRulesBlock(body, 'edit')
@@ -86,9 +129,11 @@ export function getDocumentRulesPlainForEdit(
   platformDbRules: PlatformDocumentRulesMap | null
 ): string {
   const plat = platformDbRules ?? {}
+  const tk = `${type}_template_json`
   return mergeDocumentRuleSections(
     PLATFORM_DOCUMENT_RULES_BASELINE,
     plat.general,
-    plat[type]
+    plat[type],
+    formatTemplateJsonForPrompt(plat[tk], 'Platform template JSON')
   )
 }

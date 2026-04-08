@@ -11,12 +11,18 @@ import type { DocType } from '@/lib/types'
 import { DOC_TYPE_LABELS } from '@/lib/types'
 
 const DOC_TYPE_IDS = new Set<string>(Object.keys(DOC_TYPE_LABELS))
+const TEMPLATE_JSON_SUFFIX = '_template_json'
+const MAX_TEMPLATE_JSON_CHARS = 120_000
 
 function isAllowedPlatformRuleKey(key: string): boolean {
   if (key === 'general') return true
   if (DOC_TYPE_IDS.has(key)) return true
   if (key.endsWith('_pdf')) {
     const base = key.slice(0, -'_pdf'.length)
+    return DOC_TYPE_IDS.has(base)
+  }
+  if (key.endsWith(TEMPLATE_JSON_SUFFIX)) {
+    const base = key.slice(0, -TEMPLATE_JSON_SUFFIX.length)
     return DOC_TYPE_IDS.has(base)
   }
   return false
@@ -40,6 +46,9 @@ function sanitizeRules(raw: unknown): PlatformDocumentRulesMap {
     if (!t) continue
     if (k.endsWith('_pdf')) {
       if (!isReasonableStylePdfUrl(t)) continue
+      out[k] = t
+    } else if (k.endsWith(TEMPLATE_JSON_SUFFIX)) {
+      if (t.length > MAX_TEMPLATE_JSON_CHARS) continue
       out[k] = t
     } else {
       out[k] = t
