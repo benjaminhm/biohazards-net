@@ -5,8 +5,8 @@
  * @react-pdf/renderer.
  *
  * This is an alternative to the HTML print route — produces a true PDF file
- * rather than relying on browser print-to-PDF. Supports quote, sow, and
- * report document types via PDFDocument.tsx (JobPDFDocument component).
+ * rather than relying on browser print-to-PDF. Supports quote, sow, report,
+ * and iaq_multi (Assessment / Scope / Quote bundle) via PDFDocument.tsx.
  *
  * runtime = 'nodejs' is required because @react-pdf/renderer uses Node.js
  * APIs incompatible with the Edge runtime.

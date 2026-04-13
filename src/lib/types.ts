@@ -40,8 +40,10 @@ export type JobType =
 export type PhotoCategory = 'before' | 'during' | 'after' | 'assessment'
 
 export type DocType =
+  | 'iaq_multi'
   | 'quote'
   | 'sow'
+  | 'assessment_document'
   | 'swms'
   | 'authority_to_proceed'
   | 'engagement_agreement'
@@ -53,8 +55,10 @@ export type DocType =
   | 'risk_assessment'
 
 export const DOC_TYPE_LABELS: Record<DocType, string> = {
+  iaq_multi:                  'Assessment / Scope / Quote',
   quote:                      'Quote',
   sow:                        'Scope of Work',
+  assessment_document:        'Assessment',
   swms:                       'SWMS',
   authority_to_proceed:       'Authority to Proceed',
   engagement_agreement:       'Engagement Agreement',
@@ -66,14 +70,51 @@ export const DOC_TYPE_LABELS: Record<DocType, string> = {
   risk_assessment:            'Risk Assessment',
 }
 
-export const DOC_TYPE_GROUPS: { label: string; types: DocType[] }[] = [
+/** IAQPER workflow phases — Job Home document groups (not the same as DocType). */
+export type DocWorkflowPhaseId =
+  | 'initial_contact'
+  | 'assess'
+  | 'quote'
+  | 'prepare'
+  | 'execute'
+  | 'reflect'
+
+export interface DocTypeGroup {
+  id: DocWorkflowPhaseId
+  label: string
+  types: DocType[]
+}
+
+export const DOC_TYPE_GROUPS: DocTypeGroup[] = [
   {
-    label: 'Before Works',
-    types: ['quote', 'sow', 'swms', 'authority_to_proceed', 'engagement_agreement', 'jsa', 'risk_assessment', 'nda'],
+    id: 'initial_contact',
+    label: '1. Initial contact',
+    types: [],
   },
   {
-    label: 'After Works',
+    id: 'assess',
+    label: '2. Assess',
+    types: ['assessment_document', 'sow'],
+  },
+  {
+    id: 'quote',
+    label: '3. Quote',
+    types: ['quote', 'engagement_agreement', 'nda'],
+  },
+  {
+    id: 'prepare',
+    label: '4. Plan',
+    types: ['authority_to_proceed', 'swms', 'jsa', 'risk_assessment'],
+  },
+  {
+    id: 'execute',
+    label: '5. Execute',
     types: ['report', 'certificate_of_decontamination', 'waste_disposal_manifest'],
+  },
+  {
+    id: 'reflect',
+    label: '6. Reflect',
+    types: [],
   },
 ]
 
@@ -92,6 +133,144 @@ export interface CustomField {
   label: string
   value: string
 }
+
+/** Inferred risk line from Presentation (checklists, areas, photos) — see `derivePresentationRisks`. */
+export interface DerivedRiskLine {
+  id: string
+  group: 'checklist' | 'site' | 'areas' | 'evidence'
+  label: string
+  detail: string
+}
+
+/** Technician HITL: confirms whether each derived risk applies to this job */
+export interface RiskHitlItem {
+  id: string
+  /** null = not yet reviewed; true = confirmed present; false = not applicable / not present */
+  confirmed: boolean | null
+  notes?: string
+}
+
+export interface RisksHitl {
+  items: RiskHitlItem[]
+  last_reviewed_at?: string | null
+}
+
+/** AI-extracted hazard phrases from Presentation data (Risks tab bubbles) */
+export type SuggestedRiskCategory =
+  | 'biological'
+  | 'chemical'
+  | 'physical'
+  | 'environmental'
+  | 'operational'
+
+export interface SuggestedRiskAiItem {
+  id: string
+  label: string
+  category: SuggestedRiskCategory
+  /** For risk chips: approved hazard chip ids this risk was derived from (AI Identify/Generate). */
+  source_hazard_ids?: string[]
+}
+
+export interface SuggestedRisksAi {
+  items: SuggestedRiskAiItem[]
+  generated_at: string
+}
+
+/** AI-suggested hazard themes from presenting risks (same chip shape as risks). Storage key name unchanged. */
+export interface SuggestedBiohazardsAi {
+  items: SuggestedRiskAiItem[]
+  generated_at: string
+}
+
+export type PreflightResult = 'go' | 'go_with_conditions' | 'no_go'
+
+export type PreflightCriticalControlId =
+  | 'scope_confirmed'
+  | 'swms_jsa_current_and_briefed'
+  | 'isolation_containment_plan'
+  | 'ppe_rpe_fit_test_met'
+  | 'waste_chain_disposal_confirmed'
+  | 'authority_to_proceed_documented'
+  | 'emergency_escalation_contacts'
+
+export type PreflightOperationalId =
+  | 'equipment_staged_tested'
+  | 'materials_consumables_available'
+  | 'access_keys_induction'
+  | 'utilities_ventilation_isolation_points'
+  | 'site_conditions_acceptable'
+  | 'stakeholder_issues_mitigated'
+
+export interface PreflightCheckItem {
+  checked: boolean
+  notes?: string
+  not_applicable?: boolean
+}
+
+export interface PreflightChecklistHeader {
+  job_id: string
+  site_address: string
+  client_contact: string
+  preflight_datetime: string
+  supervisor_name: string
+}
+
+export interface PreflightChecklistSections {
+  critical: Record<PreflightCriticalControlId, PreflightCheckItem>
+  operational: Record<PreflightOperationalId, PreflightCheckItem>
+}
+
+export interface PreflightChecklistOutcome {
+  result: PreflightResult | null
+  critical_failure_ids: PreflightCriticalControlId[]
+  conditions_notes: string
+  approved_by_name: string
+  approved_at: string | null
+}
+
+export interface PreRemediationPreflightChecklist {
+  schema_version: 1
+  header: PreflightChecklistHeader
+  sections: PreflightChecklistSections
+  outcome: PreflightChecklistOutcome
+  updated_at: string
+}
+
+/** Staff SOW fields aligned with generated SOWContent sections. */
+export interface SowCapture {
+  objective: string
+  scope_work: string
+  methodology: string
+  timeline: string
+  safety: string
+  waste: string
+  exclusions: string
+  caveats: string
+}
+
+/** Assessment → Document tab — internal staff capture (not a separate DocType). */
+export interface AssessmentDocumentCapture {
+  site_summary: string
+  hazards_overview: string
+  risks_overview: string
+  control_measures: string
+  recommendations: string
+  limitations: string
+}
+
+/** Phase 1 job-scoped blocks for composer / future print wiring; stable string ids. */
+export type ContentBlockType = 'prose' | 'key_value' | 'table'
+
+export interface ContentBlock {
+  id: string
+  type: ContentBlockType
+  title?: string
+  body?: string
+  pairs?: Record<string, string>
+  rows?: string[][]
+}
+
+export const CONTENT_BLOCKS_VERSION = 1 as const
 
 /*
  * AssessmentData is stored as a single JSON blob in jobs.assessment_data.
@@ -130,6 +309,38 @@ export interface AssessmentData {
   payment_terms?: string
   terms_and_conditions?: string
   custom_fields?: CustomField[]
+  /** Confirmed derived risks (Risks sub-tab); merged with Presentation over time */
+  risks_hitl?: RisksHitl
+  /** Last AI pass over Presentation text/photo metadata (coloured bubbles on Risks) */
+  suggested_risks_ai?: SuggestedRisksAi
+  /** Strictly from Presentation text/flags only (Identify on Risks); same shape as suggested_risks_ai. */
+  identified_risks_ai?: SuggestedRisksAi
+  /** Technician-added risk chips; persisted across Identify/Generate. */
+  manual_risk_chips?: SuggestedRiskAiItem[]
+  /** Selected risk chip ids moved into "Presenting risks" on Assessment > Risks. */
+  presenting_risk_ids?: string[]
+  /** AI hazard chips from Generate (storage key unchanged). */
+  suggested_biohazards_ai?: SuggestedBiohazardsAi
+  /** Strictly from Presentation (Identify); same shape as suggested_biohazards_ai. */
+  identified_biohazards_ai?: SuggestedBiohazardsAi
+  /** Technician-added hazard chips; persisted across Identify/Generate. */
+  manual_biohazard_chips?: SuggestedRiskAiItem[]
+  /** Selected hazard chip ids in "Presenting hazards" on Assessment → Hazards. */
+  presenting_biohazard_ids?: string[]
+  /** Preparation phase: pre-remediation go / no-go gate (JSON payload). */
+  pre_remediation_preflight?: PreRemediationPreflightChecklist
+  /**
+   * Scope of Work tab — staff-authored capture (feeds doc generation).
+   * Legacy `sow_objective` is merged into `objective` on read via mergedSowCapture().
+   */
+  sow_capture?: SowCapture
+  /** @deprecated Use sow_capture.objective; kept for backward compatibility with old rows. */
+  sow_objective?: string
+  /** Assessment → Document tab — structured narrative for internal use; feeds optional JOB CONTEXT. */
+  assessment_document_capture?: AssessmentDocumentCapture
+  /** Synced from assessment_document_capture on save (Phase 1). */
+  content_blocks?: ContentBlock[]
+  content_blocks_version?: number
 }
 
 /* Secondary phone numbers on a job (beyond the primary client_phone).
@@ -180,6 +391,17 @@ export interface Document {
   content: Record<string, unknown>
   file_url: string | null
   created_at: string
+}
+
+/** Ordered saved documents → one composed print (/api/print/bundle/[id]). */
+export interface DocumentBundle {
+  id: string
+  job_id: string
+  org_id: string | null
+  title: string
+  part_document_ids: string[]
+  created_at: string
+  updated_at: string
 }
 
 /* Per-org company branding and settings. One row per org in company_profile.
@@ -257,6 +479,21 @@ export interface QuoteContent {
   payment_terms: string
   validity: string
   include_photos?: boolean
+  /** Staff / internal completion line; client signing is via PandaDoc, not in-app */
+  completed_by?: string
+}
+
+/** Formal assessment document stored in `documents` (composer + print); aligns with AssessmentDocumentCapture narrative fields. */
+export interface AssessmentDocumentContent {
+  title: string
+  reference: string
+  site_summary: string
+  hazards_overview: string
+  risks_overview: string
+  control_measures: string
+  recommendations: string
+  limitations: string
+  completed_by?: string
 }
 
 export interface SOWContent {
@@ -270,8 +507,15 @@ export interface SOWContent {
   timeline: string
   exclusions: string
   disclaimer: string
-  acceptance: string
   include_photos?: boolean
+  /** Name or role for internal completion line; client signing via PandaDoc */
+  completed_by?: string
+  /** @deprecated Ignored in print — retained for legacy saved JSON */
+  acceptance?: string
+  /** Optional print meta — filled by compose from job when available */
+  meta_site_address?: string
+  meta_area_label?: string
+  meta_priority?: string
 }
 
 export interface SWMSContent {
@@ -283,6 +527,7 @@ export interface SWMSContent {
   emergency_procedures: string
   legislation_references: string
   declarations: string
+  completed_by?: string
 }
 
 export interface AuthorityToProceedContent {
@@ -293,7 +538,9 @@ export interface AuthorityToProceedContent {
   special_conditions: string
   liability_acknowledgment: string
   payment_authorisation: string
-  acceptance: string
+  completed_by?: string
+  /** @deprecated Legacy */
+  acceptance?: string
 }
 
 export interface EngagementAgreementContent {
@@ -307,7 +554,9 @@ export interface EngagementAgreementContent {
   dispute_resolution: string
   termination: string
   governing_law: string
-  acceptance: string
+  completed_by?: string
+  /** @deprecated Legacy */
+  acceptance?: string
 }
 
 export interface ReportContent {
@@ -323,6 +572,7 @@ export interface ReportContent {
   outcome: string
   technician_signoff: string
   include_photos?: boolean
+  completed_by?: string
 }
 
 export interface CertificateOfDecontaminationContent {
@@ -335,6 +585,7 @@ export interface CertificateOfDecontaminationContent {
   outcome_statement: string
   limitations: string
   certifier_statement: string
+  completed_by?: string
 }
 
 export interface WasteDisposalManifestContent {
@@ -344,6 +595,7 @@ export interface WasteDisposalManifestContent {
   waste_items: WasteItem[]
   transport_details: string
   declaration: string
+  completed_by?: string
 }
 
 export interface JSAContent {
@@ -354,6 +606,7 @@ export interface JSAContent {
   ppe_required: string
   emergency_contacts: string
   sign_off: string
+  completed_by?: string
 }
 
 export interface NDAContent {
@@ -366,7 +619,9 @@ export interface NDAContent {
   term: string
   remedies: string
   governing_law: string
-  acceptance: string
+  completed_by?: string
+  /** @deprecated Legacy */
+  acceptance?: string
 }
 
 export interface RiskAssessmentContent {
@@ -379,11 +634,13 @@ export interface RiskAssessmentContent {
   overall_risk_rating: string
   recommendations: string
   review_date: string
+  completed_by?: string
 }
 
 export type AnyDocContent =
   | QuoteContent
   | SOWContent
+  | AssessmentDocumentContent
   | SWMSContent
   | AuthorityToProceedContent
   | EngagementAgreementContent

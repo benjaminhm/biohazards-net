@@ -48,6 +48,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'type, content and message are required' }, { status: 400 })
     }
 
+    if (type === 'iaq_multi') {
+      return NextResponse.json(
+        {
+          error:
+            'Chat editing is not available for the Assessment/Scope/Quote bundle. Use Edit fields or edit each section in individual documents.',
+        },
+        { status: 400 },
+      )
+    }
+
     const platformDbRules = await fetchPlatformDocumentRules()
     const rulesBlock = getDocumentRulesForChat(type, rules, platformDbRules)
 

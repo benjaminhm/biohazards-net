@@ -50,6 +50,7 @@ const JOB_TYPE_LABELS: Record<string, string> = {
 /** Prefer these doc types for scope-of-work narrative (first match wins per type). */
 const DOC_TYPES_ORDER = [
   'sow',
+  'assessment_document',
   'authority_to_proceed',
   'engagement_agreement',
   'quote',
@@ -124,6 +125,17 @@ function extractDocNarrative(docType: string, content: Record<string, unknown>):
       if (ex) parts.push(`Executive summary:\n${ex}`)
       if (sc) parts.push(`Scope of work:\n${sc}`)
       if (meth) parts.push(`Methodology:\n${meth}`)
+      break
+    }
+    case 'assessment_document': {
+      const ss = str(content.site_summary)
+      const hz = str(content.hazards_overview)
+      const rz = str(content.risks_overview)
+      const cm = str(content.control_measures)
+      if (ss) parts.push(`Site summary:\n${ss}`)
+      if (hz) parts.push(`Hazards:\n${hz}`)
+      if (rz) parts.push(`Risks:\n${rz}`)
+      if (cm) parts.push(`Controls:\n${cm}`)
       break
     }
     case 'authority_to_proceed': {

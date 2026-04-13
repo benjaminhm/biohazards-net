@@ -1,17 +1,9 @@
 /*
  * app/accept/[jobId]/page.tsx
  *
- * Public quote acceptance page — no authentication required. Clients open this
- * URL from the quote PDF's "Accept This Quote" button/link.
- *
- * On load, POST /api/accept/[jobId] is called immediately (no user interaction
- * needed) to mark the job as accepted. The API is idempotent — calling it twice
- * does not create duplicate records or send duplicate emails.
- *
- * The page renders three states:
- *   - Loading: while the acceptance POST is in flight.
- *   - Success: shows a confirmation with the job reference and next steps.
- *   - Error: shows a fallback message with a contact phone number.
+ * Public quote summary page — no authentication required. Legacy links may
+ * still point here from old PDFs. Signing is handled externally (e.g. PandaDoc);
+ * this page no longer records acceptance in-app.
  *
  * Quote line items and pricing are fetched and displayed so the client can
  * see what they've accepted without needing the original PDF.
@@ -66,7 +58,6 @@ export default function AcceptQuotePage() {
   const { jobId } = useParams<{ jobId: string }>()
   const [data, setData] = useState<QuoteData | null>(null)
   const [loading, setLoading] = useState(true)
-  const [accepting, setAccepting] = useState(false)
   const [accepted, setAccepted] = useState(false)
   const [error, setError] = useState('')
 
@@ -78,7 +69,7 @@ export default function AcceptQuotePage() {
       .then(r => r.json())
       .then(d => {
         setData(d)
-        if (d.job?.status === 'accepted') setAccepted(true)
+        if (d.job?.status === 'accepted') setAccepted(true) // legacy jobs only
         setLoading(false)
       })
       .catch(() => {
@@ -86,20 +77,6 @@ export default function AcceptQuotePage() {
         setLoading(false)
       })
   }, [jobId])
-
-  async function accept() {
-    setAccepting(true)
-    try {
-      const res = await fetch(`/api/accept/${jobId}`, { method: 'POST' })
-      const result = await res.json()
-      if (result.error) throw new Error(result.error)
-      setAccepted(true)
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.')
-    } finally {
-      setAccepting(false)
-    }
-  }
 
   // Light theme page — client facing
   const page: React.CSSProperties = {
@@ -277,27 +254,12 @@ export default function AcceptQuotePage() {
           </div>
         )}
 
-        {/* Accept button */}
-        <button
-          onClick={accept}
-          disabled={accepting}
-          style={{
-            width: '100%',
-            padding: '18px 24px',
-            background: accepting ? '#ccc' : '#FF6B35',
-            color: 'white',
-            fontSize: 17,
-            fontWeight: 700,
-            border: 'none',
-            borderRadius: 12,
-            cursor: accepting ? 'default' : 'pointer',
-            boxShadow: accepting ? 'none' : '0 4px 20px rgba(255,107,53,0.4)',
-            transition: 'all 0.2s',
-            marginBottom: 16,
-          }}
-        >
-          {accepting ? 'Processing...' : '✓ Accept This Quote'}
-        </button>
+        <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 12, padding: '18px 20px', marginBottom: 20 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#0369a1', marginBottom: 8 }}>Signing &amp; confirmation</div>
+          <p style={{ fontSize: 14, color: '#334155', lineHeight: 1.65, margin: 0 }}>
+            Quote acceptance and signatures are handled through our document signing process (e.g. PandaDoc), not through this page. If you need the signing link or have questions, please contact us directly.
+          </p>
+        </div>
 
         {error && (
           <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '12px 16px', color: '#dc2626', fontSize: 13, marginBottom: 16 }}>
@@ -306,8 +268,7 @@ export default function AcceptQuotePage() {
         )}
 
         <div style={{ fontSize: 12, color: '#aaa', textAlign: 'center', lineHeight: 1.6 }}>
-          By accepting you agree to the payment terms above.<br />
-          Questions? Call us directly to discuss.
+          Questions? Call us directly to discuss the payment terms above.
         </div>
 
         <div style={{ marginTop: 40, paddingTop: 20, borderTop: '1px solid #e5e5e5', fontSize: 12, color: '#bbb', textAlign: 'center' }}>

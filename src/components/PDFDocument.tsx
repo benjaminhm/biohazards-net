@@ -6,11 +6,11 @@
  * it renders to a PDF byte stream, not to the DOM.
  *
  * Exported: JobPDFDocument — the top-level entry point for the /api/pdf route.
- * Supports DocType 'quote', 'sow', and 'report'.
+ * Supports DocType 'quote', 'sow', 'report', and 'iaq_multi' (3-part bundle).
  *
  * Architecture:
- *   - QuotePDF: renders the line-items pricing table, GST totals, an online
- *     acceptance block (clickable link in the PDF), and a physical signature block.
+ *   - QuotePDF: renders the line-items pricing table, GST totals, and a
+ *     completed-by line (client signing is external, e.g. PandaDoc).
  *   - SOWOrReportPDF: renders text sections from the content object. Section
  *     keys differ between sow and report so each has its own key array.
  *   - Header/Footer: shared across all document types. Header uses company logo
@@ -25,12 +25,19 @@
  */
 import React from 'react'
 import {
-  Document, Page, View, Text, Image, Link, StyleSheet,
+  Document, Page, View, Text, Image, StyleSheet,
 } from '@react-pdf/renderer'
-import type { DocType, QuoteContent, SOWContent, ReportContent, CompanyProfile, PhotoWithData, Area } from '@/lib/types'
+import type {
+  DocType,
+  QuoteContent,
+  SOWContent,
+  ReportContent,
+  AssessmentDocumentContent,
+  CompanyProfile,
+  PhotoWithData,
+  Area,
+} from '@/lib/types'
 import { filterGroupedStages, groupPhotosByRoomAndStage } from '@/lib/photoGroups'
-
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://biohazards.net'
 
 const ORANGE = '#FF6B35'
 const BLACK = '#111111'
@@ -48,6 +55,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 50,
     lineHeight: 1.5,
   },
+  partSubtitle: { fontSize: 8, fontFamily: 'Helvetica-Bold', letterSpacing: 1, color: MUTED, marginBottom: 14, textTransform: 'uppercase' },
   // Header
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 },
   companyLogo: { width: 100, height: 40, objectFit: 'contain' },
@@ -103,8 +111,8 @@ const styles = StyleSheet.create({
   acceptUrlText: { fontSize: 8, color: MUTED, marginTop: 6 },
   // Signature block
   sigBlock: { marginTop: 30, paddingTop: 16, borderTopWidth: 1, borderTopColor: BORDER },
-  sigLine: { width: 200, height: 1, backgroundColor: BLACK, marginTop: 30, marginBottom: 4 },
-  sigLabel: { fontSize: 8, color: MUTED },
+  completedByLine: { marginTop: 6, borderBottomWidth: 1, borderBottomColor: BLACK, paddingBottom: 4, minHeight: 14, maxWidth: 280 },
+  completedByLineText: { fontSize: 10, color: BLACK },
   // Footer
   footer: {
     position: 'absolute', bottom: 20, left: 50, right: 50,
@@ -114,6 +122,24 @@ const styles = StyleSheet.create({
   footerText: { fontSize: 7, color: MUTED },
   footerBrand: { fontSize: 7, color: ORANGE },
 })
+
+/** TipTap / rich HTML → plain text for PDF (`Text` has no HTML). */
+function plainTextForPdf(raw: string | undefined | null): string {
+  const s = String(raw ?? '')
+  if (!s.trim()) return ''
+  if (!/<[a-z]/i.test(s)) return s
+  return s
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>\s*<p>/gi, '\n\n')
+    .replace(/<\/li>\s*/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
 
 interface HeaderProps {
   reference: string
@@ -162,10 +188,12 @@ function Footer({ company }: { company: CompanyProfile | null }) {
 }
 
 function Section({ label, text }: { label: string; text: string }) {
+  const plain = plainTextForPdf(text)
+  if (!plain.trim()) return null
   return (
     <View style={styles.section}>
       <Text style={styles.sectionLabel}>{label}</Text>
-      <Text style={styles.body}>{text}</Text>
+      <Text style={styles.body}>{plain}</Text>
     </View>
   )
 }
@@ -228,7 +256,7 @@ function RoomStageSection({
   )
 }
 
-function QuotePDF({ content, photos, company, jobId, areas = [] }: { content: QuoteContent; photos: PhotoWithData[]; company: CompanyProfile | null; jobId?: string; areas?: Area[] }) {
+function QuotePDF({ content, photos, company, areas = [] }: { content: QuoteContent; photos: PhotoWithData[]; company: CompanyProfile | null; areas?: Area[] }) {
   const today = new Date().toLocaleDateString('en-AU', { day: '2-digit', month: 'long', year: 'numeric' })
   const fmt = (n: number) => `$${Number(n).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
   const beforePhotos = photos.filter(p => p.category === 'before' || p.category === 'assessment').slice(0, 6)
@@ -283,35 +311,158 @@ function QuotePDF({ content, photos, company, jobId, areas = [] }: { content: Qu
         <RoomStageSection photos={beforePhotos} areas={areas} label="Site Condition Photos" stages={['assessment', 'before']} />
       )}
 
-      {/* Accept quote block — entire block is a link for mobile compatibility */}
-      {jobId && (
-        <Link src={`${APP_URL}/accept/${jobId}`}>
-          <View style={styles.acceptBlock}>
-            <Text style={styles.acceptLabel}>Accept This Quote Online</Text>
-            <Text style={styles.acceptBody}>
-              Tap or click anywhere in this box to accept this quote online.
-            </Text>
-            <View style={styles.acceptBtn}>
-              <Text style={styles.acceptBtnText}>✓  Accept This Quote</Text>
-            </View>
-            <Text style={styles.acceptUrlText}>{APP_URL}/accept/{jobId}</Text>
-          </View>
-        </Link>
-      )}
-
       <View style={styles.sigBlock}>
-        <Text style={styles.sectionLabel}>Acceptance</Text>
-        <Text style={[styles.body, { marginBottom: 4 }]}>
-          To accept this quote, please sign below and return with deposit payment.
-        </Text>
-        <View style={{ flexDirection: 'row', gap: 40, marginTop: 16 }}>
-          <View><View style={styles.sigLine} /><Text style={styles.sigLabel}>Client Signature</Text></View>
-          <View><View style={styles.sigLine} /><Text style={styles.sigLabel}>Date</Text></View>
+        <Text style={styles.sectionLabel}>Completed & authorised by</Text>
+        <View style={styles.completedByLine}>
+          <Text style={styles.completedByLineText}>{content.completed_by?.trim() || ' '}</Text>
         </View>
       </View>
 
       <Footer company={company} />
     </Page>
+  )
+}
+
+const ASSESSMENT_PDF_SECTIONS: Array<{ key: keyof AssessmentDocumentContent; label: string }> = [
+  { key: 'site_summary', label: 'Site summary' },
+  { key: 'hazards_overview', label: 'Hazards overview' },
+  { key: 'risks_overview', label: 'Risks overview' },
+  { key: 'control_measures', label: 'Control measures' },
+  { key: 'recommendations', label: 'Recommendations' },
+  { key: 'limitations', label: 'Limitations' },
+]
+
+/** Assessment / Scope / Quote — three wrapped pages (server PDF alternative to HTML print). */
+function IaqMultiPDF({
+  bundle,
+  photos,
+  company,
+  areas = [],
+}: {
+  bundle: { reference?: string; title?: string; parts?: Array<{ type: DocType; content: Record<string, unknown> }> }
+  photos: PhotoWithData[]
+  company: CompanyProfile | null
+  areas?: Area[]
+}) {
+  const today = new Date().toLocaleDateString('en-AU', { day: '2-digit', month: 'long', year: 'numeric' })
+  const parts = bundle.parts ?? []
+  const ad = (parts[0]?.content ?? {}) as unknown as AssessmentDocumentContent
+  const sow = (parts[1]?.content ?? {}) as unknown as SOWContent
+  const quote = (parts[2]?.content ?? {}) as unknown as QuoteContent
+  const bundleRef = String(bundle.reference ?? ad.reference ?? '—').trim()
+  const bundleTitle = String(bundle.title ?? 'Assessment / Scope / Quote').trim()
+
+  const beforePhotos = photos.filter(p => p.category === 'before' || p.category === 'assessment')
+  const fmt = (n: number) => `$${Number(n).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+
+  const sowPdfSections: Array<{ key: keyof SOWContent; label: string }> = [
+    { key: 'executive_summary', label: 'Executive Summary' },
+    { key: 'scope', label: 'Scope of Work' },
+    { key: 'methodology', label: 'Methodology' },
+    { key: 'safety_protocols', label: 'Safety Protocols & PPE' },
+    { key: 'waste_disposal', label: 'Waste Disposal' },
+    { key: 'timeline', label: 'Estimated Timeline' },
+    { key: 'exclusions', label: 'Exclusions' },
+    { key: 'disclaimer', label: 'Disclaimer' },
+  ]
+
+  return (
+    <>
+      <Page size="A4" style={styles.page} wrap>
+        <Header reference={bundleRef} date={today} company={company} />
+        <Text style={styles.docTitle}>{bundleTitle}</Text>
+        <Text style={styles.partSubtitle}>Part 1 of 3 — Assessment</Text>
+        {ASSESSMENT_PDF_SECTIONS.map(({ key, label }) => (
+          <Section key={String(key)} label={label} text={(ad as unknown as Record<string, string>)[key] ?? ''} />
+        ))}
+        <View style={styles.sigBlock} wrap={false}>
+          <Text style={styles.sectionLabel}>Completed & authorised by</Text>
+          <View style={styles.completedByLine}>
+            <Text style={styles.completedByLineText}>{plainTextForPdf(ad.completed_by)?.trim() || ' '}</Text>
+          </View>
+        </View>
+        <Footer company={company} />
+      </Page>
+
+      <Page size="A4" style={styles.page} wrap>
+        <Header reference={bundleRef} date={today} company={company} />
+        <Text style={styles.docTitle}>{bundleTitle}</Text>
+        <Text style={styles.partSubtitle}>Part 2 of 3 — Scope of Work</Text>
+        {sowPdfSections.map(({ key, label }) => {
+          const text = (sow as unknown as Record<string, string>)[key]
+          if (!text) return null
+          return <Section key={String(key)} label={label} text={text} />
+        })}
+        {beforePhotos.length > 0 && sow.include_photos !== false && (
+          <RoomStageSection photos={beforePhotos} areas={areas} label="Site Condition Photos — Evidence of Scope" stages={['assessment', 'before']} />
+        )}
+        <View style={styles.sigBlock} wrap={false}>
+          <Text style={styles.sectionLabel}>Completed & authorised by</Text>
+          <View style={styles.completedByLine}>
+            <Text style={styles.completedByLineText}>{plainTextForPdf(sow.completed_by)?.trim() || ' '}</Text>
+          </View>
+        </View>
+        <Footer company={company} />
+      </Page>
+
+      <Page size="A4" style={styles.page} wrap>
+        <Header reference={bundleRef} date={today} company={company} />
+        <Text style={styles.docTitle}>{bundleTitle}</Text>
+        <Text style={styles.partSubtitle}>Part 3 of 3 — Quote</Text>
+        <Section label="Overview" text={quote.intro} />
+
+        <Text style={styles.sectionLabel}>Scope & Pricing</Text>
+        <View style={styles.table}>
+          <View style={styles.tableHeader}>
+            <Text style={[styles.thText, styles.colDesc]}>Description</Text>
+            <Text style={[styles.thText, styles.colQty]}>Qty</Text>
+            <Text style={[styles.thText, styles.colUnit]}>Unit</Text>
+            <Text style={[styles.thText, styles.colRate]}>Rate</Text>
+            <Text style={[styles.thText, styles.colTotal]}>Total</Text>
+          </View>
+          {(quote.line_items ?? []).map((item, i) => (
+            <View key={i} style={[styles.tableRow, i % 2 === 1 ? styles.tableRowAlt : {}]}>
+              <Text style={[styles.tdText, styles.colDesc]}>{item.description}</Text>
+              <Text style={[styles.tdText, styles.colQty]}>{item.qty}</Text>
+              <Text style={[styles.tdText, styles.colUnit]}>{item.unit}</Text>
+              <Text style={[styles.tdText, styles.colRate]}>{fmt(item.rate)}</Text>
+              <Text style={[styles.tdText, styles.colTotal]}>{fmt(item.total)}</Text>
+            </View>
+          ))}
+        </View>
+
+        <View style={styles.totalsBlock}>
+          <View style={styles.totalRow}>
+            <Text style={styles.totalLabel}>Subtotal</Text>
+            <Text style={styles.totalValue}>{fmt(quote.subtotal)}</Text>
+          </View>
+          <View style={styles.totalRow}>
+            <Text style={styles.totalLabel}>GST (10%)</Text>
+            <Text style={styles.totalValue}>{fmt(quote.gst)}</Text>
+          </View>
+          <View style={styles.totalRow}>
+            <Text style={styles.grandTotalLabel}>TOTAL</Text>
+            <Text style={styles.grandTotalValue}>{fmt(quote.total)}</Text>
+          </View>
+        </View>
+
+        {quote.notes ? <View style={{ marginTop: 20 }}><Section label="Notes & Conditions" text={quote.notes} /></View> : null}
+        <Section label="Payment Terms" text={quote.payment_terms} />
+        <Section label="Quote Validity" text={quote.validity} />
+
+        {beforePhotos.length > 0 && quote.include_photos !== false && (
+          <RoomStageSection photos={beforePhotos} areas={areas} label="Site Condition Photos" stages={['assessment', 'before']} />
+        )}
+
+        <View style={styles.sigBlock} wrap={false}>
+          <Text style={styles.sectionLabel}>Completed & authorised by</Text>
+          <View style={styles.completedByLine}>
+            <Text style={styles.completedByLineText}>{plainTextForPdf(quote.completed_by)?.trim() || ' '}</Text>
+          </View>
+        </View>
+        <Footer company={company} />
+      </Page>
+    </>
   )
 }
 
@@ -381,11 +532,9 @@ function SOWOrReportPDF({
 
       {type === 'sow' && (
         <View style={styles.sigBlock}>
-          <Text style={styles.sectionLabel}>Acceptance</Text>
-          <Text style={[styles.body, { marginBottom: 4 }]}>{(content as SOWContent).acceptance}</Text>
-          <View style={{ flexDirection: 'row', gap: 40, marginTop: 16 }}>
-            <View><View style={styles.sigLine} /><Text style={styles.sigLabel}>Client Signature</Text></View>
-            <View><View style={styles.sigLine} /><Text style={styles.sigLabel}>Date</Text></View>
+          <Text style={styles.sectionLabel}>Completed & authorised by</Text>
+          <View style={styles.completedByLine}>
+            <Text style={styles.completedByLineText}>{(content as SOWContent).completed_by?.trim() || ' '}</Text>
           </View>
         </View>
       )}
@@ -409,7 +558,14 @@ export function JobPDFDocument({ type, content, photos, company, jobId, areas = 
   return (
     <Document title={name} author={name}>
       {type === 'quote' ? (
-        <QuotePDF content={content as QuoteContent} photos={photos} company={company} jobId={jobId} areas={areas} />
+        <QuotePDF content={content as QuoteContent} photos={photos} company={company} areas={areas} />
+      ) : type === 'iaq_multi' ? (
+        <IaqMultiPDF
+          bundle={content as { reference?: string; title?: string; parts?: Array<{ type: DocType; content: Record<string, unknown> }> }}
+          photos={photos}
+          company={company}
+          areas={areas}
+        />
       ) : (
         <SOWOrReportPDF content={content as SOWContent | ReportContent} type={type} photos={photos} company={company} areas={areas} />
       )}

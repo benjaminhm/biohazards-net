@@ -1,13 +1,14 @@
 /*
  * lib/printDocument.ts
  *
- * Generates print-ready HTML for all 11 document types.
+ * Generates print-ready HTML for all document types using one navy SOW-style
+ * shell (wrapBranded → wrapSow + cssSowPrint).
  * The output is served directly by /api/print/[docId] — clients open the URL
  * in a browser and use Print / Save as PDF to get a hard copy.
  *
  * Architecture decisions:
  * - Pure HTML+CSS string generation (no React) so it works in any Node context.
- * - All user content is HTML-escaped via esc() to prevent injection.
+ * - Plain user text uses esc(); rich prose fields (TipTap HTML) use richBodyHtmlForPrint().
  * - The action bar (email/print/copy link buttons) is hidden in @media print
  *   so it doesn't appear in printed PDFs.
  * - riskBadge() colour-codes H/M/L risk ratings consistently across SWMS,
@@ -20,12 +21,14 @@
  */
 import type {
   DocType, Photo, CompanyProfile, Area,
-  QuoteContent, SOWContent, SWMSContent, AuthorityToProceedContent,
+  QuoteContent, SOWContent, AssessmentDocumentContent, SWMSContent, AuthorityToProceedContent,
   EngagementAgreementContent, ReportContent, CertificateOfDecontaminationContent,
   WasteDisposalManifestContent, JSAContent, NDAContent, RiskAssessmentContent,
   WorkStep, RiskRow, WasteItem,
 } from './types'
+import { DOC_TYPE_LABELS } from './types'
 import { filterGroupedStages, groupPhotosByRoomAndStage, type RoomPhotoGroup } from './photoGroups'
+import { richBodyHtmlForPrint } from '@/lib/richTextPrint'
 
 // en-AU locale produces comma separators and dollar sign (e.g. $4,500.00)
 const fmtMoney = (n: number) =>
@@ -38,83 +41,339 @@ const todayStr = () =>
 const esc = (s: unknown): string =>
   String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
 
-// ── Shared CSS ────────────────────────────────────────────────────────────────
-
-function css(): string {
+/** Print CSS: navy SOW shell (cssSowPrint) — all DocTypes use this layout. */
+function cssSowPrint(): string {
   return `
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; font-size: 13px; color: #1a1a1a; background: #fff; line-height: 1.55; }
-    .page { max-width: 820px; margin: 0 auto; padding: 48px; }
-    .header { display: flex; justify-content: space-between; align-items: flex-start; }
-    .header-left .co-name { font-size: 19px; font-weight: 700; }
-    .header-left .co-tag  { font-size: 11px; color: #777; margin-top: 2px; }
-    .header-left img { max-height: 56px; max-width: 160px; object-fit: contain; display: block; margin-bottom: 6px; }
-    .header-right { text-align: right; font-size: 12px; color: #555; }
-    .header-right .ref { font-weight: 700; color: #1a1a1a; font-size: 13px; margin-bottom: 2px; }
-    .divider { height: 3px; background: #FF6B35; border-radius: 2px; margin: 14px 0 30px; }
-    h1 { font-size: 23px; font-weight: 700; margin-bottom: 24px; }
-    .label { font-size: 11px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: #FF6B35; margin-top: 26px; margin-bottom: 8px; }
-    .body-text { font-size: 13px; color: #333; line-height: 1.6; }
-    table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
-    thead th { background: #1a1a1a; color: #fff; padding: 10px 12px; font-size: 12px; font-weight: 600; text-align: left; }
-    thead th.r { text-align: right; }
-    tbody tr { border-bottom: 1px solid #ebebeb; }
-    tbody td { padding: 10px 12px; vertical-align: top; }
-    tbody td.r { text-align: right; white-space: nowrap; }
-    tbody tr:nth-child(even) { background: #fafafa; }
-    .totals { margin-top: 6px; }
-    .tot-row { display: flex; justify-content: flex-end; gap: 60px; padding: 5px 12px; font-size: 13px; color: #555; }
-    .tot-row .amt { min-width: 90px; text-align: right; }
-    .tot-row.grand { font-size: 16px; font-weight: 700; color: #1a1a1a; border-top: 2px solid #1a1a1a; margin-top: 6px; padding-top: 10px; }
-    .tot-row.grand .amt { color: #FF6B35; }
-    .photos-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 12px; }
-    .photo-card { border: 1px solid #e2e2e2; border-radius: 7px; overflow: hidden; }
-    .photo-card img { width: 100%; height: 210px; object-fit: cover; display: block; background: #f5f5f5; }
-    .photo-meta { padding: 10px 12px; }
-    .photo-area { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #FF6B35; }
-    .photo-cap  { font-size: 12px; color: #555; margin-top: 3px; }
-    .accept-box { border: 2px solid #FF6B35; border-radius: 10px; padding: 24px; margin-top: 32px; background: rgba(255,107,53,0.04); }
-    .accept-box .al { font-size: 11px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: #FF6B35; margin-bottom: 10px; }
-    .accept-box p  { font-size: 13px; color: #555; margin-bottom: 16px; }
-    .accept-btn { display: inline-block; background: #FF6B35; color: #fff !important; padding: 12px 28px; border-radius: 8px; font-weight: 700; font-size: 15px; text-decoration: none; margin-bottom: 12px; }
-    .accept-url { font-size: 11px; color: #888; word-break: break-all; margin-top: 4px; }
-    .sig-lines { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; margin-top: 32px; }
-    .sig-line { border-top: 1px solid #555; padding-top: 6px; font-size: 11px; color: #666; }
-    /* Risk / step tables */
-    .risk-H { color: #dc2626; font-weight: 700; }
-    .risk-M { color: #d97706; font-weight: 700; }
-    .risk-L { color: #16a34a; font-weight: 700; }
-    /* Action bar */
-    .action-bar { display: none; }
+    body.sow-print-body { margin: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     @media screen {
-      body { background: #e8e8e8; }
-      .page { background: #fff; margin: 80px auto 40px; box-shadow: 0 4px 32px rgba(0,0,0,0.14); border-radius: 4px; }
-      .action-bar {
+      body.sow-print-body { padding-top: 56px; background: #d6e2f0; }
+    }
+    .sow-root {
+      --sow-navy: #0f2447;
+      --sow-navy-mid: #1a3a6b;
+      --sow-blue: #2563a8;
+      --sow-blue-lt: #ddeaf7;
+      --sow-blue-xs: #f0f5fb;
+      --sow-mid: #3a5070;
+      --sow-muted: #7a96b8;
+      --sow-rule: #c8d9ee;
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 10pt;
+      line-height: 1.6;
+      color: var(--sow-navy);
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .sow-root .sow-sheet {
+      width: 210mm;
+      min-height: 297mm;
+      margin: 0 auto;
+      background: #fff;
+      display: flex;
+      flex-direction: column;
+      box-sizing: border-box;
+    }
+    .sow-root .sow-top {
+      background: var(--sow-navy);
+      padding: 16px 18mm;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    .sow-root .sow-top-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .sow-root .sow-logo { max-height: 40px; max-width: 120px; object-fit: contain; display: block; }
+    .sow-root .sow-co-name { font-size: 12pt; font-weight: 600; letter-spacing: -0.3px; color: #fff; }
+    .sow-root .sow-co-sub { font-size: 7.5pt; color: var(--sow-muted); margin-top: 2px; font-weight: 400; }
+    .sow-root .sow-doc-info { text-align: right; font-size: 8pt; color: var(--sow-muted); line-height: 1.9; }
+    .sow-root .sow-doc-info strong { color: #fff; font-weight: 500; display: block; font-size: 9pt; }
+    .sow-root .sow-mid {
+      flex: 1;
+      padding: 22px 18mm 18px;
+    }
+    .sow-root .sow-doc-title {
+      font-size: 20pt;
+      font-weight: 300;
+      letter-spacing: -0.5px;
+      color: var(--sow-navy);
+      margin-bottom: 18px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--sow-rule);
+    }
+    .sow-root .sow-meta {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr 1fr;
+      gap: 0;
+      border: 1px solid var(--sow-rule);
+      margin-bottom: 22px;
+      background: var(--sow-blue-xs);
+    }
+    .sow-root .sow-meta-cell {
+      padding: 9px 12px;
+      border-right: 1px solid var(--sow-rule);
+    }
+    .sow-root .sow-meta-cell:last-child { border-right: none; }
+    .sow-root .sow-meta-label { font-size: 7pt; text-transform: uppercase; letter-spacing: 1px; color: var(--sow-muted); margin-bottom: 3px; }
+    .sow-root .sow-meta-value { font-size: 9pt; font-weight: 500; color: var(--sow-navy); word-break: break-word; }
+    .sow-root .sow-summary {
+      background: var(--sow-blue-lt);
+      border-left: 3px solid var(--sow-blue);
+      padding: 12px 14px;
+      margin-bottom: 24px;
+      font-size: 9.5pt;
+      color: var(--sow-mid);
+      line-height: 1.7;
+      font-weight: 300;
+    }
+    .sow-root .sow-sec { margin-bottom: 18px; }
+    .sow-root .sow-sec-title {
+      font-size: 7.5pt;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: var(--sow-navy-mid);
+      border-bottom: 1px solid var(--sow-rule);
+      padding-bottom: 5px;
+      margin-bottom: 8px;
+    }
+    .sow-root .sow-sec-body {
+      font-size: 9.5pt;
+      color: var(--sow-mid);
+      font-weight: 300;
+      line-height: 1.75;
+    }
+    .sow-root .body-text.sow-rich p,
+    .sow-root .sow-summary.sow-rich p,
+    .sow-root .sow-sec-body.sow-rich p { margin: 0 0 0.45em; }
+    .sow-root .body-text.sow-rich p:last-child,
+    .sow-root .sow-summary.sow-rich p:last-child,
+    .sow-root .sow-sec-body.sow-rich p:last-child { margin-bottom: 0; }
+    .sow-root .body-text.sow-rich ul, .sow-root .body-text.sow-rich ol,
+    .sow-root .sow-summary.sow-rich ul, .sow-root .sow-summary.sow-rich ol,
+    .sow-root .sow-sec-body.sow-rich ul, .sow-root .sow-sec-body.sow-rich ol {
+      margin: 0.35em 0 0.5em 1.1em;
+      padding-left: 0.4em;
+    }
+    .sow-root .sow-photo-block { margin-top: 8px; margin-bottom: 18px; }
+    .sow-root .sow-photo-block .label {
+      font-size: 7.5pt;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: var(--sow-navy-mid);
+      margin-top: 18px;
+      margin-bottom: 8px;
+    }
+    .sow-root .sow-photo-block .label:first-child { margin-top: 0; }
+    .sow-root .sow-photo-block .body-text { font-size: 9.5pt; color: var(--sow-mid); line-height: 1.6; }
+    .sow-root .photos-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 8px; }
+    .sow-root .photo-card { border: 1px solid var(--sow-rule); border-radius: 7px; overflow: hidden; }
+    .sow-root .photo-card img { width: 100%; height: 210px; object-fit: cover; display: block; background: #f5f5f5; }
+    .sow-root .photo-meta { padding: 10px 12px; }
+    .sow-root .photo-area { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--sow-blue); }
+    .sow-root .photo-cap { font-size: 12px; color: var(--sow-mid); margin-top: 3px; }
+    .sow-root .sow-sig {
+      margin-top: 28px;
+      padding-top: 18px;
+      border-top: 1px solid var(--sow-rule);
+    }
+    .sow-root .sow-completed-by { max-width: 320px; }
+    .sow-root .sow-completed-by-label { font-size: 9pt; color: var(--sow-mid); font-weight: 500; display: block; margin-bottom: 6px; }
+    .sow-root .sow-completed-by-line { border-bottom: 1px solid var(--sow-navy); min-height: 24px; padding-bottom: 4px; font-size: 9.5pt; font-weight: 500; color: var(--sow-navy); word-break: break-word; }
+    .sow-root .sow-completed-by-placeholder { color: var(--sow-muted); }
+    /* Legacy section() / tables / totals inside branded shell */
+    .sow-root .sow-mid .label {
+      font-size: 7.5pt;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: var(--sow-navy-mid);
+      margin-top: 18px;
+      margin-bottom: 8px;
+    }
+    .sow-root .sow-mid .label:first-of-type { margin-top: 0; }
+    .sow-root .sow-mid .body-text {
+      font-size: 9.5pt;
+      color: var(--sow-mid);
+      line-height: 1.75;
+      font-weight: 300;
+    }
+    .sow-root .sow-mid table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+      margin-bottom: 10px;
+      font-size: 9.5pt;
+    }
+    .sow-root .sow-mid thead th {
+      background: var(--sow-navy-mid);
+      color: #fff;
+      padding: 8px 10px;
+      font-size: 8.5pt;
+      font-weight: 600;
+      text-align: left;
+    }
+    .sow-root .sow-mid thead th.r { text-align: right; }
+    .sow-root .sow-mid tbody tr { border-bottom: 1px solid var(--sow-rule); }
+    .sow-root .sow-mid tbody td { padding: 8px 10px; vertical-align: top; }
+    .sow-root .sow-mid tbody td.r { text-align: right; white-space: nowrap; }
+    .sow-root .sow-mid tbody tr:nth-child(even) { background: var(--sow-blue-xs); }
+    .sow-root .sow-mid .totals { margin-top: 6px; margin-bottom: 14px; }
+    .sow-root .sow-mid .tot-row {
+      display: flex;
+      justify-content: flex-end;
+      gap: 48px;
+      padding: 4px 10px;
+      font-size: 9.5pt;
+      color: var(--sow-mid);
+    }
+    .sow-root .sow-mid .tot-row .amt { min-width: 80px; text-align: right; }
+    .sow-root .sow-mid .tot-row.grand {
+      font-size: 11pt;
+      font-weight: 600;
+      color: var(--sow-navy);
+      border-top: 1px solid var(--sow-rule);
+      margin-top: 6px;
+      padding-top: 8px;
+    }
+    .sow-root .sow-mid .tot-row.grand .amt { color: var(--sow-blue); }
+    .sow-root .risk-H { color: #dc2626; font-weight: 700; }
+    .sow-root .risk-M { color: #d97706; font-weight: 700; }
+    .sow-root .risk-L { color: #16a34a; font-weight: 700; }
+    .sow-root .sow-ra-meta {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px;
+      margin-bottom: 16px;
+    }
+    .sow-root .sow-cod-outcome {
+      margin: 24px 0;
+      padding: 20px;
+      background: #f0fdf4;
+      border: 2px solid #16a34a;
+      border-radius: 10px;
+    }
+    .sow-root .sow-cod-outcome-h {
+      font-size: 8.5pt;
+      font-weight: 700;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+      color: #16a34a;
+      margin-bottom: 8px;
+    }
+    .sow-root .sow-cod-outcome-b {
+      font-size: 11pt;
+      color: #15803d;
+      font-weight: 600;
+      line-height: 1.5;
+    }
+    .sow-root .sow-muted-box {
+      margin-top: 22px;
+      padding: 14px 16px;
+      background: var(--sow-blue-xs);
+      border: 1px solid var(--sow-rule);
+      border-radius: 8px;
+      font-size: 9.5pt;
+      color: var(--sow-mid);
+      line-height: 1.6;
+    }
+    /* Multi-part bundles (iaq_multi): continuous flow — no forced page breaks */
+    .sow-root .bundle-part {
+      margin-top: 0;
+      margin-bottom: 8px;
+    }
+    .sow-root .bundle-part-head {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      margin-bottom: 14px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--sow-rule);
+    }
+    .sow-root .bundle-part-num {
+      font-size: 14pt;
+      font-weight: 600;
+      color: var(--sow-blue);
+      min-width: 1.2em;
+    }
+    .sow-root .bundle-part-title {
+      font-size: 9.5pt;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--sow-navy-mid);
+    }
+    .sow-root .sow-foot {
+      background: var(--sow-navy-mid);
+      padding: 12px 18mm;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 7pt;
+      color: var(--sow-muted);
+      flex-shrink: 0;
+    }
+    @media screen {
+      body.sow-print-body .action-bar {
         display: flex; gap: 10px; align-items: center;
         position: fixed; top: 0; left: 0; right: 0; z-index: 999;
         background: #1a1a1a; padding: 12px 20px;
         box-shadow: 0 2px 12px rgba(0,0,0,0.3);
       }
-      .action-bar .doc-title { color: #fff; font-size: 13px; font-weight: 600; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      .ab-btn {
+      body.sow-print-body .action-bar .doc-title { color: #fff; font-size: 13px; font-weight: 600; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      body.sow-print-body .ab-btn {
         display: inline-flex; align-items: center; gap: 6px;
         padding: 8px 14px; border-radius: 7px; font-size: 13px; font-weight: 600;
         text-decoration: none; cursor: pointer; border: none; white-space: nowrap;
         flex-shrink: 0;
       }
-      .ab-primary { background: #FF6B35; color: #fff; }
-      .ab-secondary { background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.2); }
-      .ab-secondary:hover { background: rgba(255,255,255,0.2); }
+      body.sow-print-body .ab-primary { background: #FF6B35; color: #fff; }
+      body.sow-print-body .ab-secondary { background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.2); }
+      body.sow-print-body .ab-secondary:hover { background: rgba(255,255,255,0.2); }
+      .sow-root .sow-sheet { box-shadow: 0 8px 40px rgba(0,0,0,0.12); }
+      /* Composed bundle: don’t stretch mid to full A4 — avoids huge gap before part 1 in preview */
+      .sow-root.sow-root--composed-bundle .sow-sheet {
+        min-height: auto;
+        height: auto;
+        display: block;
+      }
+      .sow-root.sow-root--composed-bundle .sow-mid {
+        flex: none;
+        min-height: 0;
+      }
     }
     @media print {
-      @page { margin: 14mm 16mm; size: A4; }
-      body { background: #fff !important; }
-      .action-bar { display: none !important; }
-      .photo-card { page-break-inside: avoid; }
-      .accept-box  { page-break-inside: avoid; }
-      .sig-lines   { page-break-inside: avoid; }
-      tr { page-break-inside: avoid; }
-      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      /* Let content height drive page length where supported; no forced column breaks */
+      @page { size: auto; margin: 10mm 12mm; }
+      body.sow-print-body { background: white !important; padding-top: 0 !important; }
+      body.sow-print-body .action-bar { display: none !important; }
+      .sow-root .sow-sheet {
+        width: 100%;
+        min-height: auto !important;
+        height: auto !important;
+        box-shadow: none;
+        margin: 0;
+        display: block !important;
+      }
+      .sow-root .sow-mid {
+        flex: none !important;
+        flex-grow: 0 !important;
+        min-height: 0 !important;
+      }
+      .sow-root .sow-top, .sow-root .sow-foot, .sow-root .sow-meta, .sow-root .sow-summary {
+        -webkit-print-color-adjust: exact; print-color-adjust: exact;
+      }
+      /* No print CSS fragmentation hints — flow as one continuous document */
+      .sow-root, .sow-root * {
+        break-inside: auto !important;
+        page-break-inside: auto !important;
+        break-before: auto !important;
+        page-break-before: auto !important;
+        break-after: auto !important;
+        page-break-after: auto !important;
+        orphans: unset !important;
+        widows: unset !important;
+      }
     }
   `
 }
@@ -128,17 +387,37 @@ interface ClientInfo {
   printUrl?: string
 }
 
+/**
+ * One line for the print action bar (and email subject): avoids
+ * "Assessment / Scope / Quote — Test Client — Test Client" when `docTitle`
+ * already ends with the job client name.
+ */
+function actionBarTitleLine(docTitle: string, clientName: string): string {
+  const t = docTitle.trim()
+  const n = clientName.trim()
+  if (!n) return t
+  if (t.toLowerCase() === n.toLowerCase()) return t
+  const tl = t.toLowerCase()
+  const nl = n.toLowerCase()
+  if (tl.endsWith(nl)) {
+    const beforeName = t.slice(0, t.length - n.length).trimEnd()
+    if (beforeName.length === 0 || /[—–\-]$/.test(beforeName)) return t
+  }
+  return `${t} — ${n}`
+}
+
 function actionBar(docTitle: string, client: ClientInfo | undefined): string {
   const url   = client?.printUrl ?? ''
   const email = client?.client_email ?? ''
   const phone = (client?.client_phone ?? '').replace(/\s/g,'')
   const name  = client?.client_name ?? ''
-  const subject = encodeURIComponent(`${docTitle} — ${name}`)
+  const line  = actionBarTitleLine(docTitle, name)
+  const subject = encodeURIComponent(line)
   const body    = encodeURIComponent(`Hi ${name.split(' ')[0]},\n\nPlease find your document at the link below:\n\n${url}\n\nKind regards`)
 
   return `
     <div class="action-bar">
-      <span class="doc-title">${esc(docTitle)} — ${esc(name)}</span>
+      <span class="doc-title">${esc(line)}</span>
       <button class="ab-btn ab-primary" onclick="window.print()">🖨 Print / Save PDF</button>
       ${email ? `<a class="ab-btn ab-secondary" href="mailto:${esc(email)}?subject=${subject}&body=${body}">✉️ Email</a>` : ''}
       ${phone ? `<a class="ab-btn ab-secondary" href="sms:${esc(phone)}&body=${encodeURIComponent(`Hi ${name.split(' ')[0]}, here is your document: ${url}`)}">💬 Text Link</a>` : ''}
@@ -147,61 +426,131 @@ function actionBar(docTitle: string, client: ClientInfo | undefined): string {
   `
 }
 
-// ── Wrap ──────────────────────────────────────────────────────────────────────
-
-function wrap(body: string, title: string, client?: ClientInfo): string {
+/** Full HTML wrapper (navy layout + Inter; optional screen action bar). */
+function wrapSow(body: string, title: string, client: ClientInfo | undefined, showActionBar: boolean): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>${esc(title)}</title>
-  <style>${css()}</style>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>${cssSowPrint()}</style>
 </head>
-<body>
-  ${actionBar(title, client)}
-  <div class="page">${body}</div>
+<body class="sow-print-body">
+  ${showActionBar ? actionBar(title, client) : ''}
+  ${body}
 </body>
 </html>`
 }
 
-// ── Shared fragments ──────────────────────────────────────────────────────────
+interface BrandedMeta {
+  client: string
+  address: string
+  area: string
+  priority: string
+}
 
-function header(company: CompanyProfile | null, reference: string): string {
-  const name    = company?.name    || 'Brisbane Biohazard Cleaning'
-  const tagline = company?.tagline || 'Professional services'
-  const logo    = company?.logo_url ? `<img src="${esc(company.logo_url)}" alt="${esc(name)}">` : ''
-  return `
-    <div class="header">
-      <div class="header-left">
-        ${logo}
-        <div class="co-name">${esc(name)}</div>
-        <div class="co-tag">${esc(tagline)}</div>
+function defaultBrandedMeta(client?: ClientInfo): BrandedMeta {
+  return {
+    client: client?.client_name?.trim() || '—',
+    address: '—',
+    area: '—',
+    priority: '—',
+  }
+}
+
+interface WrapBrandedPrintOptions {
+  /** Multi-document composed bundle — adjusts footer and print pagination hints */
+  composedBundle?: boolean
+  bundlePartCount?: number
+  /** When false, omit the screen-only action bar (e.g. in-app preview iframe). Default true. */
+  screenActionBar?: boolean
+}
+
+/** Merge bundle flags with screen action bar visibility. */
+function wrapBrandedPrintOpts(screenActionBar: boolean, extra?: WrapBrandedPrintOptions): WrapBrandedPrintOptions | undefined {
+  if (screenActionBar) return extra
+  return { ...extra, screenActionBar: false }
+}
+
+/** Navy SOW shell: header, meta grid, mid body, footer — uses wrapSow + cssSowPrint. */
+function wrapBranded(
+  midBodyHtml: string,
+  pageTitle: string,
+  documentHeading: string,
+  reference: string,
+  company: CompanyProfile | null,
+  client: ClientInfo | undefined,
+  meta: BrandedMeta,
+  printOptions?: WrapBrandedPrintOptions,
+): string {
+  const coName = company?.name || 'Brisbane Biohazard Cleaning'
+  const coTag = company?.tagline || 'Biohazard & Forensic Remediation Services'
+  const logo = company?.logo_url
+    ? `<img class="sow-logo" src="${esc(company.logo_url)}" alt="${esc(coName)}">`
+    : ''
+  const bundleParts = printOptions?.bundlePartCount ?? 0
+  const footerRef =
+    printOptions?.composedBundle && bundleParts > 0
+      ? `${esc(reference)} · ${bundleParts} part${bundleParts === 1 ? '' : 's'}`
+      : `${esc(reference)} · Page 1 of 1`
+  const rootClass = printOptions?.composedBundle ? 'sow-root sow-root--composed-bundle' : 'sow-root'
+  return wrapSow(`
+  <div class="${rootClass}">
+    <div class="sow-sheet">
+      <header class="sow-top">
+        <div class="sow-top-left">
+          ${logo}
+          <div class="sow-co-block">
+            <div class="sow-co-name">${esc(coName)}</div>
+            <div class="sow-co-sub">${esc(coTag)}</div>
+          </div>
+        </div>
+        <div class="sow-doc-info">
+          <strong>${esc(reference)}</strong>
+          ${todayStr()}
+        </div>
+      </header>
+      <div class="sow-mid">
+        <div class="sow-doc-title">${esc(documentHeading)}</div>
+        <div class="sow-meta">
+          <div class="sow-meta-cell"><div class="sow-meta-label">Client</div><div class="sow-meta-value">${esc(meta.client)}</div></div>
+          <div class="sow-meta-cell"><div class="sow-meta-label">Address</div><div class="sow-meta-value">${esc(meta.address)}</div></div>
+          <div class="sow-meta-cell"><div class="sow-meta-label">Area</div><div class="sow-meta-value">${esc(meta.area)}</div></div>
+          <div class="sow-meta-cell"><div class="sow-meta-label">Priority</div><div class="sow-meta-value">${esc(meta.priority)}</div></div>
+        </div>
+        ${midBodyHtml}
       </div>
-      <div class="header-right">
-        <div class="ref">${esc(reference)}</div>
-        <div>${todayStr()}</div>
-        ${company?.abn ? `<div style="margin-top:2px">ABN ${esc(company.abn)}</div>` : ''}
-        ${company?.phone ? `<div>${esc(company.phone)}</div>` : ''}
+      <footer class="sow-foot">
+        <span>${esc(coName)} — Confidential</span>
+        <span>${footerRef}</span>
+      </footer>
+    </div>
+  </div>
+  `, pageTitle, client, printOptions?.screenActionBar !== false)
+}
+
+/** Internal staff completion — matches SOW signature styling. */
+function completedBySow(typedLine?: string): string {
+  const t = typedLine?.trim()
+  return `
+    <div class="sow-sig">
+      <div class="sow-completed-by">
+        <span class="sow-completed-by-label">Completed &amp; authorised by</span>
+        <div class="sow-completed-by-line">${t ? esc(t) : '<span class="sow-completed-by-placeholder">&nbsp;</span>'}</div>
       </div>
     </div>
-    <div class="divider"></div>
   `
 }
+
+// ── Shared fragments ──────────────────────────────────────────────────────────
 
 function section(lbl: string, text: string): string {
   if (!text?.trim()) return ''
-  return `<div class="label">${lbl}</div><div class="body-text">${esc(text)}</div>`
-}
-
-function sigBlock(text?: string): string {
-  return `
-    ${text ? `<div class="label" style="margin-top:36px">Acceptance</div><div class="body-text">${esc(text)}</div>` : ''}
-    <div class="sig-lines">
-      <div class="sig-line">Authorised Signature</div>
-      <div class="sig-line">Date</div>
-    </div>
-  `
+  const inner = richBodyHtmlForPrint(text)
+  if (!inner) return ''
+  return `<div class="label">${lbl}</div><div class="body-text sow-rich">${inner}</div>`
 }
 
 function photoGrid(photos: Photo[], heading: string): string {
@@ -335,8 +684,16 @@ function wasteTable(items: WasteItem[]): string {
 
 // ── 1. Quote ──────────────────────────────────────────────────────────────────
 
-function buildQuoteHTML(c: QuoteContent, photos: Photo[], groups: RoomPhotoGroup[], company: CompanyProfile | null, jobId: string, appUrl: string, client?: ClientInfo): string {
-  const acceptUrl = `${appUrl}/accept/${jobId}`
+function buildQuoteMid(
+  c: QuoteContent,
+  photos: Photo[],
+  groups: RoomPhotoGroup[],
+  _company: CompanyProfile | null,
+  _jobId: string,
+  _appUrl: string,
+  _client: ClientInfo | undefined,
+  includeCompletion: boolean,
+): string {
   const before = photos.filter(p => ['before','assessment'].includes(p.category))
   const items = (c.line_items || []).map(li => `
     <tr>
@@ -348,10 +705,8 @@ function buildQuoteHTML(c: QuoteContent, photos: Photo[], groups: RoomPhotoGroup
     </tr>
   `).join('')
 
-  return wrap(`
-    ${header(company, c.reference)}
-    <h1>${esc(c.title)}</h1>
-    <div class="label">Overview</div><div class="body-text">${esc(c.intro)}</div>
+  return `
+    <div class="label">Overview</div><div class="body-text sow-rich">${richBodyHtmlForPrint(c.intro)}</div>
     <div class="label">Scope &amp; Pricing</div>
     <table>
       <thead><tr><th>Description</th><th class="r">Qty</th><th class="r">Unit</th><th class="r">Rate</th><th class="r">Total</th></tr></thead>
@@ -366,42 +721,90 @@ function buildQuoteHTML(c: QuoteContent, photos: Photo[], groups: RoomPhotoGroup
     ${section('Payment Terms', c.payment_terms)}
     ${section('Quote Validity', c.validity)}
     ${c.include_photos !== false ? roomPhotoSections(groups, 'Site Condition Photos', ['assessment', 'before']) : photoGrid(before, 'Site Condition Photos')}
-    <div class="accept-box">
-      <div class="al">Accept This Quote Online</div>
-      <p>Tap or click the button below to accept this quote online and we will be in touch to confirm your booking.</p>
-      <a href="${esc(acceptUrl)}" class="accept-btn">✓ &nbsp;Accept This Quote</a>
-      <div class="accept-url">${esc(acceptUrl)}</div>
-    </div>
-    ${sigBlock('To accept this quote, please sign below and return with deposit payment.')}
-  `, c.title, client)
+    ${includeCompletion ? completedBySow(c.completed_by) : ''}
+  `
+}
+
+function buildQuoteHTML(c: QuoteContent, photos: Photo[], groups: RoomPhotoGroup[], company: CompanyProfile | null, _jobId: string, _appUrl: string, client: ClientInfo | undefined, screenActionBar: boolean): string {
+  const mid = buildQuoteMid(c, photos, groups, company, _jobId, _appUrl, client, true)
+  return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(client), wrapBrandedPrintOpts(screenActionBar))
 }
 
 // ── 2. SOW ────────────────────────────────────────────────────────────────────
 
-function buildSOWHTML(c: SOWContent, photos: Photo[], groups: RoomPhotoGroup[], company: CompanyProfile | null, client?: ClientInfo): string {
-  const before = photos.filter(p => ['before','assessment'].includes(p.category))
-  return wrap(`
-    ${header(company, c.reference)}
-    <h1>${esc(c.title)}</h1>
-    ${section('Executive Summary', c.executive_summary)}
-    ${section('Scope of Work', c.scope)}
-    ${section('Methodology', c.methodology)}
-    ${section('Safety Protocols', c.safety_protocols)}
-    ${section('Waste Disposal', c.waste_disposal)}
-    ${section('Timeline', c.timeline)}
-    ${section('Exclusions', c.exclusions)}
-    ${c.include_photos !== false ? roomPhotoSections(groups, 'Site Condition Photos', ['assessment', 'before']) : photoGrid(before, 'Site Condition Photos')}
-    ${section('Disclaimer', c.disclaimer)}
-    ${sigBlock(c.acceptance)}
-  `, c.title, client)
+function sowClientLabel(c: SOWContent, client?: ClientInfo): string {
+  const n = client?.client_name?.trim()
+  if (n) return n
+  const m = c.title.match(/^Scope of Work\s*[—–-]\s*(.+)$/i)
+  return m ? m[1].trim() : '—'
+}
+
+function sowBodySection(lbl: string, text: string | undefined): string {
+  if (!text?.trim()) return ''
+  const inner = richBodyHtmlForPrint(text)
+  if (!inner) return ''
+  return `<div class="sow-sec"><div class="sow-sec-title">${esc(lbl)}</div><div class="sow-sec-body sow-rich">${inner}</div></div>`
+}
+
+function buildSOWMid(
+  c: SOWContent,
+  photos: Photo[],
+  groups: RoomPhotoGroup[],
+  client: ClientInfo | undefined,
+  areas: Area[],
+  includeCompletion: boolean,
+): string {
+  const before = photos.filter(p => ['before', 'assessment'].includes(p.category))
+
+  const photosInner =
+    c.include_photos !== false
+      ? roomPhotoSections(groups, 'Site Condition Photos', ['assessment', 'before'])
+      : photoGrid(before, 'Site Condition Photos')
+  const photosHtml = photosInner ? `<div class="sow-photo-block">${photosInner}</div>` : ''
+
+  return `
+    ${c.executive_summary?.trim() ? `<div class="sow-summary sow-rich">${richBodyHtmlForPrint(c.executive_summary)}</div>` : ''}
+    ${sowBodySection('Scope of Work', c.scope)}
+    ${sowBodySection('Methodology', c.methodology)}
+    ${sowBodySection('Safety Protocols', c.safety_protocols)}
+    ${sowBodySection('Waste Disposal', c.waste_disposal)}
+    ${sowBodySection('Timeline', c.timeline)}
+    ${sowBodySection('Exclusions', c.exclusions)}
+    ${photosHtml}
+    ${sowBodySection('Disclaimer', c.disclaimer)}
+    ${includeCompletion ? completedBySow(c.completed_by) : ''}
+  `
+}
+
+function buildSOWHTML(
+  c: SOWContent,
+  photos: Photo[],
+  groups: RoomPhotoGroup[],
+  company: CompanyProfile | null,
+  client: ClientInfo | undefined,
+  areas: Area[],
+  screenActionBar: boolean,
+): string {
+  const clientName = sowClientLabel(c, client)
+  const addr = (c.meta_site_address || '').trim() || '—'
+  const area =
+    (c.meta_area_label || '').trim() ||
+    (areas[0]?.name ? areas[0].name : '—')
+  const pri = (c.meta_priority || '').trim() || '—'
+
+  const mid = buildSOWMid(c, photos, groups, client, areas, true)
+  return wrapBranded(mid, c.title, 'Scope of Work', c.reference, company, client, {
+    client: clientName,
+    address: addr,
+    area,
+    priority: pri,
+  }, wrapBrandedPrintOpts(screenActionBar))
 }
 
 // ── 3. SWMS ───────────────────────────────────────────────────────────────────
 
-function buildSWMSHTML(c: SWMSContent, company: CompanyProfile | null, client?: ClientInfo): string {
-  return wrap(`
-    ${header(company, c.reference)}
-    <h1>${esc(c.title)}</h1>
+function buildSWMSMid(c: SWMSContent, includeCompletion: boolean): string {
+  return `
     ${section('Project Details', c.project_details)}
     <div class="label">Work Steps, Hazards &amp; Controls</div>
     ${stepsTable(c.steps)}
@@ -410,36 +813,37 @@ function buildSWMSHTML(c: SWMSContent, company: CompanyProfile | null, client?: 
     ${section('Legislation &amp; References', c.legislation_references)}
     <div class="label">Worker Declarations</div>
     <div class="body-text">${esc(c.declarations)}</div>
-    <table style="margin-top:16px">
-      <thead><tr><th>Name</th><th>Signature</th><th>Date</th><th>Company</th></tr></thead>
-      <tbody>
-        ${[1,2,3,4].map(()=>'<tr><td style="padding:18px 12px"></td><td></td><td></td><td></td></tr>').join('')}
-      </tbody>
-    </table>
-  `, c.title, client)
+    ${includeCompletion ? completedBySow(c.completed_by) : ''}
+  `
+}
+
+function buildSWMSHTML(c: SWMSContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
+  const mid = buildSWMSMid(c, true)
+  return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(client), wrapBrandedPrintOpts(screenActionBar))
 }
 
 // ── 4. Authority to Proceed ───────────────────────────────────────────────────
 
-function buildATPHTML(c: AuthorityToProceedContent, company: CompanyProfile | null, client?: ClientInfo): string {
-  return wrap(`
-    ${header(company, c.reference)}
-    <h1>${esc(c.title)}</h1>
+function buildATPMid(c: AuthorityToProceedContent, includeCompletion: boolean): string {
+  return `
     ${section('Scope of Works Authorised', c.scope_summary)}
     ${section('Site Access Details', c.access_details)}
     ${section('Special Conditions', c.special_conditions)}
     ${section('Liability Acknowledgment', c.liability_acknowledgment)}
     ${section('Payment Authorisation', c.payment_authorisation)}
-    ${sigBlock(c.acceptance)}
-  `, c.title, client)
+    ${includeCompletion ? completedBySow(c.completed_by) : ''}
+  `
+}
+
+function buildATPHTML(c: AuthorityToProceedContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
+  const mid = buildATPMid(c, true)
+  return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(client), wrapBrandedPrintOpts(screenActionBar))
 }
 
 // ── 5. Engagement Agreement ───────────────────────────────────────────────────
 
-function buildEngagementHTML(c: EngagementAgreementContent, company: CompanyProfile | null, client?: ClientInfo): string {
-  return wrap(`
-    ${header(company, c.reference)}
-    <h1>${esc(c.title)}</h1>
+function buildEngagementMid(c: EngagementAgreementContent, includeCompletion: boolean): string {
+  return `
     ${section('Parties', c.parties)}
     ${section('Services', c.services_description)}
     ${section('Fees &amp; Payment', c.fees_and_payment)}
@@ -448,19 +852,22 @@ function buildEngagementHTML(c: EngagementAgreementContent, company: CompanyProf
     ${section('Dispute Resolution', c.dispute_resolution)}
     ${section('Termination', c.termination)}
     ${section('Governing Law', c.governing_law)}
-    ${sigBlock(c.acceptance)}
-  `, c.title, client)
+    ${includeCompletion ? completedBySow(c.completed_by) : ''}
+  `
+}
+
+function buildEngagementHTML(c: EngagementAgreementContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
+  const mid = buildEngagementMid(c, true)
+  return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(client), wrapBrandedPrintOpts(screenActionBar))
 }
 
 // ── 6. Completion Report ──────────────────────────────────────────────────────
 
-function buildReportHTML(c: ReportContent, photos: Photo[], groups: RoomPhotoGroup[], company: CompanyProfile | null, client?: ClientInfo): string {
+function buildReportMid(c: ReportContent, photos: Photo[], groups: RoomPhotoGroup[], includeCompletion: boolean): string {
   const before = photos.filter(p => ['before','assessment'].includes(p.category))
   const during = photos.filter(p => p.category === 'during')
   const after  = photos.filter(p => p.category === 'after')
-  return wrap(`
-    ${header(company, c.reference)}
-    <h1>${esc(c.title)}</h1>
+  return `
     ${section('Executive Summary', c.executive_summary)}
     ${section('Site Conditions on Arrival', c.site_conditions)}
     ${roomPhotoSections(groups, 'Before & Assessment Evidence', ['assessment', 'before'])}
@@ -472,57 +879,62 @@ function buildReportHTML(c: ReportContent, photos: Photo[], groups: RoomPhotoGro
     ${section('Photo Record', c.photo_record)}
     ${section('Outcome', c.outcome)}
     ${c.include_photos !== false ? roomPhotoSections(groups, 'Completion Photos', ['after']) : photoGrid(after, 'Completion Photos')}
-    ${sigBlock(c.technician_signoff)}
-  `, c.title, client)
+    ${includeCompletion ? completedBySow(c.completed_by) : ''}
+  `
+}
+
+function buildReportHTML(c: ReportContent, photos: Photo[], groups: RoomPhotoGroup[], company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
+  const mid = buildReportMid(c, photos, groups, true)
+  return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(client), wrapBrandedPrintOpts(screenActionBar))
 }
 
 // ── 7. Certificate of Decontamination ─────────────────────────────────────────
 
-function buildCODHTML(c: CertificateOfDecontaminationContent, company: CompanyProfile | null, client?: ClientInfo): string {
-  return wrap(`
-    ${header(company, c.reference)}
-    <h1>${esc(c.title)}</h1>
-    <div style="margin-bottom:24px">
+function buildCODMid(c: CertificateOfDecontaminationContent, includeCompletion: boolean): string {
+  return `
+    <div style="margin-bottom:18px">
       <div class="label">Date of Works</div><div class="body-text">${esc(c.date_of_works)}</div>
     </div>
     ${section('Works Summary', c.works_summary)}
     ${section('Decontamination Standard', c.decontamination_standard)}
     ${section('Products Used', c.products_used)}
-    <div style="margin:32px 0;padding:24px;background:#f0fdf4;border:2px solid #16a34a;border-radius:10px">
-      <div style="font-size:11px;font-weight:700;letter-spacing:0.09em;text-transform:uppercase;color:#16a34a;margin-bottom:10px">Outcome</div>
-      <div style="font-size:14px;color:#15803d;font-weight:600;line-height:1.5">${esc(c.outcome_statement)}</div>
+    <div class="sow-cod-outcome">
+      <div class="sow-cod-outcome-h">Outcome</div>
+      <div class="sow-cod-outcome-b">${esc(c.outcome_statement)}</div>
     </div>
     ${section('Limitations', c.limitations)}
-    <div style="margin-top:32px;padding:20px;background:#f8f8f8;border-radius:8px;font-size:12px;color:#555">
-      ${esc(c.certifier_statement)}
-    </div>
-    ${sigBlock()}
-  `, c.title, client)
+    <div class="sow-muted-box" style="margin-top:22px">${esc(c.certifier_statement)}</div>
+    ${includeCompletion ? completedBySow(c.completed_by) : ''}
+  `
+}
+
+function buildCODHTML(c: CertificateOfDecontaminationContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
+  const mid = buildCODMid(c, true)
+  return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(client), wrapBrandedPrintOpts(screenActionBar))
 }
 
 // ── 8. Waste Disposal Manifest ────────────────────────────────────────────────
 
-function buildWDMHTML(c: WasteDisposalManifestContent, company: CompanyProfile | null, client?: ClientInfo): string {
-  return wrap(`
-    ${header(company, c.reference)}
-    <h1>${esc(c.title)}</h1>
+function buildWDMMid(c: WasteDisposalManifestContent, includeCompletion: boolean): string {
+  return `
     <div class="label">Collection Date</div><div class="body-text">${esc(c.collection_date)}</div>
     <div class="label">Waste Items</div>
     ${wasteTable(c.waste_items)}
     ${section('Transport Details', c.transport_details)}
-    <div style="margin-top:32px;padding:20px;background:#f8f8f8;border-radius:8px;font-size:12px;color:#555">
-      <strong>Declaration:</strong> ${esc(c.declaration)}
-    </div>
-    ${sigBlock()}
-  `, c.title, client)
+    <div class="sow-muted-box" style="margin-top:22px"><strong>Declaration:</strong> ${esc(c.declaration)}</div>
+    ${includeCompletion ? completedBySow(c.completed_by) : ''}
+  `
+}
+
+function buildWDMHTML(c: WasteDisposalManifestContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
+  const mid = buildWDMMid(c, true)
+  return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(client), wrapBrandedPrintOpts(screenActionBar))
 }
 
 // ── 9. JSA ────────────────────────────────────────────────────────────────────
 
-function buildJSAHTML(c: JSAContent, company: CompanyProfile | null, client?: ClientInfo): string {
-  return wrap(`
-    ${header(company, c.reference)}
-    <h1>${esc(c.title)}</h1>
+function buildJSAMid(c: JSAContent, includeCompletion: boolean): string {
+  return `
     ${section('Job Description', c.job_description)}
     <div class="label">Steps, Hazards &amp; Controls</div>
     ${stepsTable(c.steps)}
@@ -530,21 +942,19 @@ function buildJSAHTML(c: JSAContent, company: CompanyProfile | null, client?: Cl
     ${section('Emergency Contacts', c.emergency_contacts)}
     <div class="label">Worker Sign-Off</div>
     <div class="body-text">${esc(c.sign_off)}</div>
-    <table style="margin-top:16px">
-      <thead><tr><th>Name</th><th>Signature</th><th>Date</th></tr></thead>
-      <tbody>
-        ${[1,2,3,4].map(()=>'<tr><td style="padding:18px 12px"></td><td></td><td></td></tr>').join('')}
-      </tbody>
-    </table>
-  `, c.title, client)
+    ${includeCompletion ? completedBySow(c.completed_by) : ''}
+  `
+}
+
+function buildJSAHTML(c: JSAContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
+  const mid = buildJSAMid(c, true)
+  return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(client), wrapBrandedPrintOpts(screenActionBar))
 }
 
 // ── 10. NDA ───────────────────────────────────────────────────────────────────
 
-function buildNDAHTML(c: NDAContent, company: CompanyProfile | null, client?: ClientInfo): string {
-  return wrap(`
-    ${header(company, c.reference)}
-    <h1>${esc(c.title)}</h1>
+function buildNDAMid(c: NDAContent, includeCompletion: boolean): string {
+  return `
     ${section('Parties', c.parties)}
     ${section('Confidential Information', c.confidential_information_definition)}
     ${section('Obligations', c.obligations)}
@@ -552,30 +962,141 @@ function buildNDAHTML(c: NDAContent, company: CompanyProfile | null, client?: Cl
     ${section('Term', c.term)}
     ${section('Remedies', c.remedies)}
     ${section('Governing Law', c.governing_law)}
-    ${sigBlock(c.acceptance)}
-  `, c.title, client)
+    ${includeCompletion ? completedBySow(c.completed_by) : ''}
+  `
+}
+
+function buildNDAHTML(c: NDAContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
+  const mid = buildNDAMid(c, true)
+  return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(client), wrapBrandedPrintOpts(screenActionBar))
 }
 
 // ── 11. Risk Assessment ───────────────────────────────────────────────────────
 
-function buildRAHTML(c: RiskAssessmentContent, company: CompanyProfile | null, client?: ClientInfo): string {
-  return wrap(`
-    ${header(company, c.reference)}
-    <h1>${esc(c.title)}</h1>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:20px">
+function buildRAMid(c: RiskAssessmentContent, includeCompletion: boolean): string {
+  return `
+    <div class="sow-ra-meta">
       <div><div class="label">Site</div><div class="body-text">${esc(c.site_description)}</div></div>
       <div><div class="label">Date</div><div class="body-text">${esc(c.assessment_date)}</div></div>
       <div><div class="label">Assessor</div><div class="body-text">${esc(c.assessor)}</div></div>
     </div>
     <div class="label">Risk Register</div>
     ${riskTable(c.risks)}
-    <div style="margin:20px 0;padding:16px;background:#f8f8f8;border-radius:8px">
+    <div class="sow-muted-box" style="margin:16px 0">
       <strong>Overall Risk Rating: </strong>${riskBadge(c.overall_risk_rating)}
     </div>
     ${section('Recommendations', c.recommendations)}
     ${section('Review Date', c.review_date)}
-    ${sigBlock()}
-  `, c.title, client)
+    ${includeCompletion ? completedBySow(c.completed_by) : ''}
+  `
+}
+
+function buildRAHTML(c: RiskAssessmentContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
+  const mid = buildRAMid(c, true)
+  return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(client), wrapBrandedPrintOpts(screenActionBar))
+}
+
+// ── 12. Assessment document (narrative — same capture shape as Assessment → Document) ─
+
+function buildAssessmentDocumentMid(c: AssessmentDocumentContent, includeCompletion: boolean): string {
+  return `
+    ${section('Site summary', c.site_summary)}
+    ${section('Hazards overview', c.hazards_overview)}
+    ${section('Risks overview', c.risks_overview)}
+    ${section('Control measures', c.control_measures)}
+    ${section('Recommendations', c.recommendations)}
+    ${section('Limitations', c.limitations)}
+    ${includeCompletion ? completedBySow(c.completed_by) : ''}
+  `
+}
+
+function buildAssessmentDocumentHTML(c: AssessmentDocumentContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
+  const mid = buildAssessmentDocumentMid(c, true)
+  return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(client), wrapBrandedPrintOpts(screenActionBar))
+}
+
+/** Mid-body HTML only (no shell). Used for composed bundles; omit per-part completion when includeCompletion is false. */
+export interface PrintMidOptions {
+  includeCompletion?: boolean
+}
+
+export function buildPrintMidHTML(
+  type: DocType,
+  content: Record<string, unknown>,
+  photos: Photo[],
+  areas: Area[],
+  company: CompanyProfile | null,
+  jobId: string,
+  appUrl: string,
+  client: ClientInfo | undefined,
+  options?: PrintMidOptions,
+): string {
+  const includeCompletion = options?.includeCompletion !== false
+  const c = content as Record<string, unknown>
+  const groups = groupPhotosByRoomAndStage(photos, areas)
+  switch (type) {
+    case 'quote':
+      return buildQuoteMid(c as unknown as QuoteContent, photos, groups, company, jobId, appUrl, client, includeCompletion)
+    case 'sow':
+      return buildSOWMid(c as unknown as SOWContent, photos, groups, client, areas, includeCompletion)
+    case 'swms':
+      return buildSWMSMid(c as unknown as SWMSContent, includeCompletion)
+    case 'authority_to_proceed':
+      return buildATPMid(c as unknown as AuthorityToProceedContent, includeCompletion)
+    case 'engagement_agreement':
+      return buildEngagementMid(c as unknown as EngagementAgreementContent, includeCompletion)
+    case 'report':
+      return buildReportMid(c as unknown as ReportContent, photos, groups, includeCompletion)
+    case 'certificate_of_decontamination':
+      return buildCODMid(c as unknown as CertificateOfDecontaminationContent, includeCompletion)
+    case 'waste_disposal_manifest':
+      return buildWDMMid(c as unknown as WasteDisposalManifestContent, includeCompletion)
+    case 'jsa':
+      return buildJSAMid(c as unknown as JSAContent, includeCompletion)
+    case 'nda':
+      return buildNDAMid(c as unknown as NDAContent, includeCompletion)
+    case 'risk_assessment':
+      return buildRAMid(c as unknown as RiskAssessmentContent, includeCompletion)
+    case 'assessment_document':
+      return buildAssessmentDocumentMid(c as unknown as AssessmentDocumentContent, includeCompletion)
+    default:
+      return `<p class="body-text">${esc('Unknown document type')}</p>`
+  }
+}
+
+function referenceFromContent(content: Record<string, unknown>): string {
+  const r = content.reference
+  return typeof r === 'string' && r.trim() ? r.trim() : '—'
+}
+
+/** Single print output: ordered parts (each type + content) between one header/footer. */
+export function buildComposedBundleHTML(
+  parts: Array<{ type: DocType; content: Record<string, unknown> }>,
+  bundleTitle: string,
+  photos: Photo[],
+  areas: Area[],
+  company: CompanyProfile | null,
+  jobId: string,
+  appUrl: string,
+  client: ClientInfo | undefined,
+  screenActionBar = true,
+): string {
+  const bundleReference =
+    parts.length > 0 ? referenceFromContent(parts[0].content) : '—'
+  const inner = parts
+    .map((p, i) => {
+      const mid = buildPrintMidHTML(p.type, p.content, photos, areas, company, jobId, appUrl, client, {
+        includeCompletion: false,
+      })
+      const label = DOC_TYPE_LABELS[p.type] ?? p.type
+      return `<section class="bundle-part" data-part="${i + 1}"><div class="bundle-part-head"><span class="bundle-part-num">${i + 1}</span><span class="bundle-part-title">${esc(label)}</span></div><div class="bundle-part-body">${mid}</div></section>`
+    })
+    .join('')
+  const pageTitle = bundleTitle.trim() || 'Composed document'
+  return wrapBranded(inner, pageTitle, pageTitle, bundleReference, company, client, defaultBrandedMeta(client), wrapBrandedPrintOpts(screenActionBar, {
+    composedBundle: true,
+    bundlePartCount: parts.length,
+  }))
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────────
@@ -584,14 +1105,19 @@ function buildRAHTML(c: RiskAssessmentContent, company: CompanyProfile | null, c
  * Main export. Converts stored document content + job photos into a full
  * HTML document ready to serve as a print/PDF page.
  *
- * @param type     - One of the 11 DocType values
+ * @param type     - One of the DocType values
  * @param content  - The JSON document content blob from the documents table
  * @param photos   - Photos for this job (filtered by category inside each builder)
  * @param company  - Company profile for branding; falls back to hardcoded defaults
  * @param jobId    - Used to construct the quote accept URL
  * @param appUrl   - Base URL for accept/print links
  * @param client   - Optional client info for the screen-only action bar (email/SMS)
+ * @param options  - Set `screenActionBar: false` for in-app preview iframes (no embedded toolbar)
  */
+export interface BuildPrintHTMLOptions {
+  screenActionBar?: boolean
+}
+
 export function buildPrintHTML(
   type: DocType,
   content: Record<string, unknown>,
@@ -601,21 +1127,36 @@ export function buildPrintHTML(
   jobId: string,
   appUrl: string,
   client?: ClientInfo,
+  options?: BuildPrintHTMLOptions,
 ): string {
   const c = content as Record<string, unknown>
   const groups = groupPhotosByRoomAndStage(photos, areas)
+  const screenActionBar = options?.screenActionBar !== false
   switch (type) {
-    case 'quote':                      return buildQuoteHTML(c as unknown as QuoteContent, photos, groups, company, jobId, appUrl, client)
-    case 'sow':                        return buildSOWHTML(c as unknown as SOWContent, photos, groups, company, client)
-    case 'swms':                       return buildSWMSHTML(c as unknown as SWMSContent, company, client)
-    case 'authority_to_proceed':       return buildATPHTML(c as unknown as AuthorityToProceedContent, company, client)
-    case 'engagement_agreement':       return buildEngagementHTML(c as unknown as EngagementAgreementContent, company, client)
-    case 'report':                     return buildReportHTML(c as unknown as ReportContent, photos, groups, company, client)
-    case 'certificate_of_decontamination': return buildCODHTML(c as unknown as CertificateOfDecontaminationContent, company, client)
-    case 'waste_disposal_manifest':    return buildWDMHTML(c as unknown as WasteDisposalManifestContent, company, client)
-    case 'jsa':                        return buildJSAHTML(c as unknown as JSAContent, company, client)
-    case 'nda':                        return buildNDAHTML(c as unknown as NDAContent, company, client)
-    case 'risk_assessment':            return buildRAHTML(c as unknown as RiskAssessmentContent, company, client)
+    case 'quote':                      return buildQuoteHTML(c as unknown as QuoteContent, photos, groups, company, jobId, appUrl, client, screenActionBar)
+    case 'sow':                        return buildSOWHTML(c as unknown as SOWContent, photos, groups, company, client, areas, screenActionBar)
+    case 'swms':                       return buildSWMSHTML(c as unknown as SWMSContent, company, client, screenActionBar)
+    case 'authority_to_proceed':       return buildATPHTML(c as unknown as AuthorityToProceedContent, company, client, screenActionBar)
+    case 'engagement_agreement':       return buildEngagementHTML(c as unknown as EngagementAgreementContent, company, client, screenActionBar)
+    case 'report':                     return buildReportHTML(c as unknown as ReportContent, photos, groups, company, client, screenActionBar)
+    case 'certificate_of_decontamination': return buildCODHTML(c as unknown as CertificateOfDecontaminationContent, company, client, screenActionBar)
+    case 'waste_disposal_manifest':    return buildWDMHTML(c as unknown as WasteDisposalManifestContent, company, client, screenActionBar)
+    case 'jsa':                        return buildJSAHTML(c as unknown as JSAContent, company, client, screenActionBar)
+    case 'nda':                        return buildNDAHTML(c as unknown as NDAContent, company, client, screenActionBar)
+    case 'risk_assessment':            return buildRAHTML(c as unknown as RiskAssessmentContent, company, client, screenActionBar)
+    case 'assessment_document':        return buildAssessmentDocumentHTML(c as unknown as AssessmentDocumentContent, company, client, screenActionBar)
+    case 'iaq_multi': {
+      const partsRaw = c.parts
+      const bundleTitle =
+        typeof c.title === 'string' && c.title.trim()
+          ? c.title.trim()
+          : 'Assessment / Scope / Quote'
+      if (!Array.isArray(partsRaw) || partsRaw.length === 0) {
+        return '<body><p class="body-text">Invalid multi-document content</p></body>'
+      }
+      const parts = partsRaw as Array<{ type: DocType; content: Record<string, unknown> }>
+      return buildComposedBundleHTML(parts, bundleTitle, photos, areas, company, jobId, appUrl, client, screenActionBar)
+    }
     default:                           return '<body><p>Unknown document type</p></body>'
   }
 }

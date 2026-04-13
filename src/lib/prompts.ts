@@ -167,7 +167,7 @@ DOCUMENT STRUCTURE — return ONLY valid JSON with no markdown, no code fences, 
   "timeline": "estimated duration based on hours and areas",
   "exclusions": "what is not included in this scope",
   "disclaimer": "professional liability disclaimer appropriate for biohazard remediation work in Australia",
-  "acceptance": "By signing below the client acknowledges and accepts this scope of work"
+  "completed_by": ""
 }
 
 Job ID for reference: ${job.id}

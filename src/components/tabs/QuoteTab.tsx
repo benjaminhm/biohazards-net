@@ -24,6 +24,7 @@
 import { useState, useEffect } from 'react'
 import type { Job, AssessmentData, Document } from '@/lib/types'
 import Link from 'next/link'
+import { useRegisterUnsavedChanges } from '@/lib/unsavedChangesContext'
 
 const DEFAULT_PAYMENT_TERMS = '50% deposit required prior to works commencing. Remainder due on completion, net 7 days.'
 const DEFAULT_TERMS = `50% deposit required to confirm booking. Remainder payable on completion within 7 days of invoice. Late payments attract interest at 10% p.a. All biohazardous waste disposed of in accordance with applicable legislation. Contractor not liable for pre-existing structural damage. Client warrants authority to engage contractor for works at the stated premises.`
@@ -43,6 +44,18 @@ function mergeDefaults(saved: AssessmentData | null) {
   }
 }
 
+function quoteFieldsEqual(
+  a: ReturnType<typeof mergeDefaults>,
+  b: ReturnType<typeof mergeDefaults>
+) {
+  return (
+    a.target_price === b.target_price &&
+    a.target_price_note === b.target_price_note &&
+    a.payment_terms === b.payment_terms &&
+    a.terms_and_conditions === b.terms_and_conditions
+  )
+}
+
 export default function QuoteTab({ job, documents, onJobUpdate }: Props) {
   const [fields, setFields] = useState(mergeDefaults(job.assessment_data))
   const [saving,  setSaving]  = useState(false)
@@ -51,6 +64,9 @@ export default function QuoteTab({ job, documents, onJobUpdate }: Props) {
   useEffect(() => {
     setFields(mergeDefaults(job.assessment_data))
   }, [job.id])
+
+  const isDirty = !quoteFieldsEqual(fields, mergeDefaults(job.assessment_data))
+  useRegisterUnsavedChanges('quote-settings', isDirty)
 
   function set<K extends keyof typeof fields>(key: K, value: (typeof fields)[K]) {
     setFields(f => ({ ...f, [key]: value }))

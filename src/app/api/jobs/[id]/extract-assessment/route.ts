@@ -3,7 +3,7 @@
  *
  * POST /api/jobs/[id]/extract-assessment
  *
- * SmartFill for the Assessment tab. Accepts unstructured text (voice memo,
+ * Assessment field extraction from unstructured text (voice memo,
  * email thread, field notes) and returns structured AssessmentData fields.
  *
  * The returned object is merged into existing assessment_data on the client —

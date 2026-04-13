@@ -2,13 +2,14 @@
  * app/api/build-document/route.ts
  *
  * POST /api/build-document — primary document generation endpoint.
- * Generates all 11 DocType documents using Claude claude-sonnet-4-6.
+ * Generates all DocType documents using Claude claude-sonnet-4-6.
  *
  * Architecture:
  * - Job + photos + company profile are passed in the request body (not fetched
  *   here) so the caller controls what data Claude sees.
  * - jobContext() compiles all assessment data, photo notes, company info,
- *   and pricing into a structured text block injected into every prompt.
+ *   pricing, and HITL chip lists (see lib/documentGenerationDrivers.ts) into
+ *   a structured text block injected into every prompt.
  * - schemas{} contains per-DocType JSON structure instructions — Claude must
  *   return exactly matching keys to be renderable by printDocument.ts.
  * - getDocumentRulesForBuild() injects code baseline, DB platform_document_rules,
@@ -31,6 +32,13 @@ import { getOrgId } from '@/lib/org'
 import { groupPhotosByRoomAndStage } from '@/lib/photoGroups'
 import { getDocumentRulesForBuild } from '@/lib/documentRules'
 import { fetchPlatformDocumentRules, type PlatformDocumentRulesMap } from '@/lib/platformDocumentRules'
+import {
+  documentDriverInstructions,
+  hitlSelectionsBlock,
+  validateBuildDocument,
+} from '@/lib/documentGenerationDrivers'
+import { staffSowCaptureBlock } from '@/lib/sowCapture'
+import { staffAssessmentDocumentBlock } from '@/lib/assessmentDocumentCapture'
 
 const client = new Anthropic()
 
@@ -38,7 +46,8 @@ const client = new Anthropic()
    using a per-type prefix + YYYYMMDD + first 6 chars of job UUID. */
 function ref(type: DocType, job: Job): string {
   const prefix: Record<DocType, string> = {
-    quote: 'QTE', sow: 'SOW', swms: 'SWMS', authority_to_proceed: 'ATP',
+    iaq_multi: 'IAQ',
+    quote: 'QTE', sow: 'SOW', assessment_document: 'ASD', swms: 'SWMS', authority_to_proceed: 'ATP',
     engagement_agreement: 'ENG', report: 'RPT', certificate_of_decontamination: 'COD',
     waste_disposal_manifest: 'WDM', jsa: 'JSA', nda: 'NDA', risk_assessment: 'RA',
   }
@@ -91,6 +100,12 @@ ${areaList}
 
 PHOTO NOTES:
 ${photoNotes}
+
+${staffSowCaptureBlock(a) || 'SCOPE OF WORK — STAFF CAPTURE: (none entered yet)'}
+
+${staffAssessmentDocumentBlock(a) || 'ASSESSMENT DOCUMENT — STAFF CAPTURE: (none entered yet)'}
+
+${hitlSelectionsBlock(a)}
 `.trim()
 }
 
@@ -115,7 +130,8 @@ function buildPrompt(
   "subtotal": 0, "gst": 0, "total": 0,
   "notes": "any site-specific conditions or inclusions/exclusions",
   "payment_terms": "${job.assessment_data?.payment_terms || '50% deposit required to confirm booking. Remainder payable on completion within 7 days. EFT preferred.'}",
-  "validity": "This quote is valid for 30 days from the date of issue."
+  "validity": "This quote is valid for 30 days from the date of issue.",
+  "completed_by": ""
 }
 PRICING: ${(() => {
   const a = job.assessment_data
@@ -141,8 +157,22 @@ PRICING: ${(() => {
   "timeline": "expected duration and milestones",
   "exclusions": "what is NOT included in this scope",
   "disclaimer": "standard biohazard remediation disclaimer",
-  "acceptance": "By signing below the client acknowledges and accepts this scope of work."
+  "completed_by": ""
 }`,
+
+    assessment_document: `Return ONLY valid JSON:
+{
+  "title": "Assessment document — [client name]",
+  "reference": "${r}",
+  "site_summary": "concise site context and purpose of visit",
+  "hazards_overview": "identified hazards and contamination characterisation",
+  "risks_overview": "risk narrative for workers, occupants, and third parties",
+  "control_measures": "proposed or observed controls, containment, PPE",
+  "recommendations": "recommended next steps or remediation scope",
+  "limitations": "limits of assessment, assumptions, or areas not inspected",
+  "completed_by": ""
+}
+If ASSESSMENT DOCUMENT — STAFF CAPTURE appears in JOB CONTEXT with labelled lines, align these fields with that staff capture and do not contradict it.`,
 
     swms: `Return ONLY valid JSON:
 {
@@ -155,7 +185,8 @@ PRICING: ${(() => {
   "ppe_required": "full paragraph listing all PPE and when it must be worn",
   "emergency_procedures": "site emergency contacts, nearest hospital, spill procedures, evacuation",
   "legislation_references": "WHS Act 2011, relevant codes of practice, AS/NZS standards",
-  "declarations": "All workers must read, sign and date this SWMS before commencing work. This document is to be kept on site for the duration of works."
+  "declarations": "All workers must read and acknowledge this SWMS before commencing work. This document is to be kept on site for the duration of works.",
+  "completed_by": ""
 }
 Include 6–10 realistic steps covering: site assessment, PPE donning, containment setup, biohazard removal, surface treatment, disposal, decontamination, final inspection.`,
 
@@ -168,7 +199,7 @@ Include 6–10 realistic steps covering: site assessment, PPE donning, containme
   "special_conditions": "any conditions or requirements specific to this job",
   "liability_acknowledgment": "client acknowledges risks, confirms authorisation to remove and dispose of biohazardous material",
   "payment_authorisation": "client authorises payment of the quoted amount per the agreed terms",
-  "acceptance": "By signing below I confirm I am the authorised property owner/manager and give permission for the works described above to proceed."
+  "completed_by": ""
 }`,
 
     engagement_agreement: `Return ONLY valid JSON:
@@ -183,7 +214,7 @@ Include 6–10 realistic steps covering: site assessment, PPE donning, containme
   "dispute_resolution": "escalation process, mediation before legal action, jurisdiction",
   "termination": "conditions under which either party may terminate, notice periods, cancellation fees",
   "governing_law": "This agreement is governed by the laws of Queensland, Australia.",
-  "acceptance": "By signing below both parties agree to the terms of this Engagement Agreement."
+  "completed_by": ""
 }`,
 
     report: `Return ONLY valid JSON:
@@ -198,7 +229,8 @@ Include 6–10 realistic steps covering: site assessment, PPE donning, containme
   "waste_disposal": "volumes removed, packaging, disposal facility, manifest reference if applicable",
   "photo_record": "brief description of photo documentation taken",
   "outcome": "final statement that site is remediated and safe",
-  "technician_signoff": "Remediation completed in accordance with industry standards. Site returned to safe condition."
+  "technician_signoff": "Remediation completed in accordance with industry standards. Site returned to safe condition.",
+  "completed_by": ""
 }`,
 
     certificate_of_decontamination: `Return ONLY valid JSON:
@@ -211,7 +243,8 @@ Include 6–10 realistic steps covering: site assessment, PPE donning, containme
   "products_used": "antimicrobial/disinfection products used with active ingredients",
   "outcome_statement": "This certifies that the premises at [address] have been professionally decontaminated and are suitable for re-occupation.",
   "limitations": "This certificate relates only to the areas treated. Ongoing monitoring recommended for [any specific concern].",
-  "certifier_statement": "Issued by ${company?.name ?? 'Brisbane Biohazard Cleaning'} | Licence: ${company?.licence ?? ''} | ${d}"
+  "certifier_statement": "Issued by ${company?.name ?? 'Brisbane Biohazard Cleaning'} | Licence: ${company?.licence ?? ''} | ${d}",
+  "completed_by": ""
 }`,
 
     waste_disposal_manifest: `Return ONLY valid JSON:
@@ -223,7 +256,8 @@ Include 6–10 realistic steps covering: site assessment, PPE donning, containme
     {"description":"waste type","quantity":"0","unit":"kg/L/bags","disposal_method":"method","facility":"facility name"}
   ],
   "transport_details": "vehicle registration, transport company, driver name, route, containment method",
-  "declaration": "I declare that the waste described in this manifest was collected, transported and disposed of in accordance with the Environmental Protection Act 1994 (Qld) and relevant waste management legislation."
+  "declaration": "I declare that the waste described in this manifest was collected, transported and disposed of in accordance with the Environmental Protection Act 1994 (Qld) and relevant waste management legislation.",
+  "completed_by": ""
 }
 Include realistic waste items based on the job type and assessment data.`,
 
@@ -237,7 +271,8 @@ Include realistic waste items based on the job type and assessment data.`,
   ],
   "ppe_required": "list and description of all PPE required",
   "emergency_contacts": "site supervisor, emergency services, poison information centre 13 11 26, nearest hospital",
-  "sign_off": "All personnel must read and sign this JSA before commencing work."
+  "sign_off": "All personnel must read and acknowledge this JSA before commencing work.",
+  "completed_by": ""
 }
 Include 5–8 steps covering the key tasks for this specific job type.`,
 
@@ -252,7 +287,7 @@ Include 5–8 steps covering the key tasks for this specific job type.`,
   "term": "These confidentiality obligations survive the completion of works and continue indefinitely.",
   "remedies": "Breach of this agreement may cause irreparable harm. The Disclosing Party is entitled to seek injunctive relief in addition to any other remedies at law.",
   "governing_law": "This agreement is governed by the laws of Queensland, Australia.",
-  "acceptance": "By signing below both parties agree to the terms of this Non-Disclosure Agreement."
+  "completed_by": ""
 }`,
 
     risk_assessment: `Return ONLY valid JSON:
@@ -267,9 +302,12 @@ Include 5–8 steps covering the key tasks for this specific job type.`,
   ],
   "overall_risk_rating": "H/M/L — with controls in place",
   "recommendations": "any additional recommendations or precautions",
-  "review_date": "Review before commencement of works and if site conditions change."
+  "review_date": "Review before commencement of works and if site conditions change.",
+  "completed_by": ""
 }
 Include 6–10 realistic risks based on the job type, contamination level, and special risks identified.`,
+    iaq_multi:
+      '(Not used — bundle is composed deterministically from job data. Claude build is disabled for this type.)',
   }
 
   const rules = getDocumentRulesForBuild(type, company, platformDbRules)
@@ -278,6 +316,8 @@ Include 6–10 realistic risks based on the job type, contamination level, and s
 ${rules}
 JOB CONTEXT:
 ${ctx}
+
+${documentDriverInstructions(type, job.assessment_data)}
 
 Generate a professional ${type.replace(/_/g,' ').toUpperCase()} document.
 
@@ -326,6 +366,21 @@ export async function POST(req: Request) {
 
     if (job.org_id !== orgId) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
+    if (type === 'iaq_multi') {
+      return NextResponse.json(
+        {
+          error:
+            'This bundle is built from job data only. Open it from Job Home → Generate documents, then edit in the form.',
+        },
+        { status: 400 },
+      )
+    }
+
+    const gateError = validateBuildDocument(type, job)
+    if (gateError) {
+      return NextResponse.json({ error: gateError }, { status: 400 })
     }
 
     const platformDbRules = await fetchPlatformDocumentRules()

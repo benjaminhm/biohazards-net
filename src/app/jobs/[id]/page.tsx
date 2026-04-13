@@ -7,6 +7,11 @@
  * Tab state is persisted in the ?tab= query parameter so refreshing or deep-linking
  * returns to the same tab. Active tab is initialised from searchParams on mount.
  *
+ * When the Assessment tab is active, a secondary tab row (Presentation / Hazards / Risks / Document)
+ * sits under the page title: Presentation is AssessmentTab; Hazards lists hazard chips
+ * (Identify/Generate); Risks shows suggested_risks_ai with refresh from Presentation;
+ * Document is AssessmentDocumentTab (internal assessment_document_capture; suggest/save).
+ *
  * Unread SMS badge is fetched separately from the messages API so the Messages tab
  * header can show a red dot even before the user opens that tab.
  * Pilot orgs (JOB_INBOUND_EMAIL_ORG_SLUGS) get per-job inbound email next to SMS.
@@ -16,7 +21,7 @@
  * managing its own API responses and causing stale views.
  *
  * Capability checks (caps) gate which tabs are visible:
- *   - view_assessment requires the Assessment tab.
+ *   - view_assessment gates the Assessment tab (Presentation / Hazards / Risks / Document capture).
  *   - view_documents requires Documents.
  *   - send_sms requires Messages.
  * Admins see all tabs regardless of caps.
@@ -26,17 +31,110 @@
 import React, { useEffect, useState } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import type { Job, Photo, Document, JobStatus } from '@/lib/types'
+import type { Job, Photo, Document, DocumentBundle, JobStatus } from '@/lib/types'
+import { DOC_TYPE_LABELS } from '@/lib/types'
 import DetailsTab from '@/components/tabs/DetailsTab'
 import AssessmentTab from '@/components/tabs/AssessmentTab'
+import AssessmentBiohazardsTab from '@/components/tabs/AssessmentBiohazardsTab'
+import AssessmentRisksTab from '@/components/tabs/AssessmentRisksTab'
 import QuoteTab from '@/components/tabs/QuoteTab'
 import PhotosTab from '@/components/tabs/PhotosTab'
 import DocumentsTab from '@/components/tabs/DocumentsTab'
+import PreRemediationChecklistTab from '@/components/tabs/PreRemediationChecklistTab'
+import ScopeOfWorkTab from '@/components/tabs/ScopeOfWorkTab'
+import AssessmentDocumentTab from '@/components/tabs/AssessmentDocumentTab'
+import QuoteCaptureTab from '@/components/tabs/QuoteCaptureTab'
+import IaqBundleCaptureTab from '@/components/tabs/IaqBundleCaptureTab'
 import MessagesTab from '@/components/tabs/MessagesTab'
 import InvoiceTab from '@/components/tabs/InvoiceTab'
 import { useUser } from '@/lib/userContext'
+import {
+  UnsavedChangesProvider,
+  confirmLeaveWhenUnsaved,
+  useUnsavedChanges,
+} from '@/lib/unsavedChangesContext'
 
-type Tab = 'details' | 'assessment' | 'quote' | 'photos' | 'documents' | 'messages' | 'invoice'
+type Tab = 'home' | 'docs' | 'details' | 'assessment' | 'scope_capture' | 'quote_capture' | 'pre_remediation_checklist_capture' | 'progress_capture' | 'progress_notes_capture' | 'quality_checks_capture' | 'recommendations_capture' | 'progress_report_generate' | 'client_feedback_capture' | 'team_feedback_capture' | 'engagement_agreement_capture' | 'nda_capture' | 'authority_to_proceed_capture' | 'swms_capture' | 'jsa_capture' | 'risk_assessment_capture' | 'waste_disposal_manifest_capture' | 'iaq_multi_capture' | 'quote' | 'photos' | 'messages' | 'invoice'
+
+function UnsavedNavigationGuard({
+  setActiveTab,
+  children,
+}: {
+  setActiveTab: (next: Tab) => void
+  children: (p: {
+    requestTabChange: (next: Tab) => void
+    onBackToJobsClick: (e: React.MouseEvent<HTMLAnchorElement>) => void
+  }) => React.ReactNode
+}) {
+  const { hasUnsaved } = useUnsavedChanges()
+  const requestTabChange = (next: Tab) => {
+    if (!confirmLeaveWhenUnsaved(hasUnsaved)) return
+    setActiveTab(next)
+  }
+  const onBackToJobsClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    if (!confirmLeaveWhenUnsaved(hasUnsaved)) e.preventDefault()
+  }
+  return <>{children({ requestTabChange, onBackToJobsClick })}</>
+}
+
+function pageTitleForTab(tab: Tab, job: Job): string {
+  switch (tab) {
+    case 'home':
+      return 'Home'
+    case 'docs':
+      return 'Docs'
+    case 'details':
+      return 'Job details'
+    case 'assessment':
+      return 'Assessment'
+    case 'scope_capture':
+      return 'Scope of work'
+    case 'quote_capture':
+      return 'Quote'
+    case 'pre_remediation_checklist_capture':
+      return 'Pre-Remediation Checklist'
+    case 'progress_capture':
+      return 'Progress photos'
+    case 'progress_notes_capture':
+      return 'Progress notes'
+    case 'quality_checks_capture':
+      return 'Quality control checks'
+    case 'recommendations_capture':
+      return 'Recommendations'
+    case 'progress_report_generate':
+      return 'Generate progress report'
+    case 'client_feedback_capture':
+      return 'Client feedback'
+    case 'team_feedback_capture':
+      return 'Team member feedback'
+    case 'engagement_agreement_capture':
+      return DOC_TYPE_LABELS.engagement_agreement
+    case 'nda_capture':
+      return DOC_TYPE_LABELS.nda
+    case 'authority_to_proceed_capture':
+      return DOC_TYPE_LABELS.authority_to_proceed
+    case 'swms_capture':
+      return DOC_TYPE_LABELS.swms
+    case 'jsa_capture':
+      return DOC_TYPE_LABELS.jsa
+    case 'risk_assessment_capture':
+      return DOC_TYPE_LABELS.risk_assessment
+    case 'waste_disposal_manifest_capture':
+      return DOC_TYPE_LABELS.waste_disposal_manifest
+    case 'iaq_multi_capture':
+      return 'Assessment / Scope / Quote'
+    case 'quote':
+      return 'Quote'
+    case 'photos':
+      return 'Photos'
+    case 'messages':
+      return job.inbound_email_address ? 'Messages' : 'SMS'
+    case 'invoice':
+      return 'Invoice'
+    default:
+      return 'Job'
+  }
+}
 
 const JOB_TYPE_LABELS: Record<string, string> = {
   crime_scene: 'Crime Scene', hoarding: 'Hoarding', mold: 'Mold', sewage: 'Sewage',
@@ -62,28 +160,105 @@ export default function JobPage() {
   const [job,         setJob]         = useState<Job | null>(null)
   const [photos,      setPhotos]      = useState<Photo[]>([])
   const [documents,   setDocuments]   = useState<Document[]>([])
+  const [documentBundles, setDocumentBundles] = useState<DocumentBundle[]>([])
   const [loading,     setLoading]     = useState(true)
   const [unreadSms,   setUnreadSms]   = useState(0)
   const [canInvoice,  setCanInvoice]  = useState(false)
 
-  const initialTab = (searchParams.get('tab') as Tab) ?? 'details'
+  const initialTabParam = searchParams.get('tab')
+  const initialTab = initialTabParam === 'documents'
+    ? 'home'
+    : ((initialTabParam as Tab | null) ?? 'home')
   const [activeTab, setActiveTab] = useState<Tab>(initialTab)
+  /** Secondary tabs when viewing Assessment (Presentation → Hazards → Risks → Document) */
+  const [assessmentSection, setAssessmentSection] = useState<'presentation' | 'hazards' | 'risks' | 'document'>('presentation')
+
+  const assessmentPresentationBtnStyle = {
+    padding: '8px 16px',
+    fontSize: 13,
+    fontWeight: 600,
+    color: assessmentSection === 'presentation' ? 'var(--accent)' : 'var(--text-muted)',
+    borderBottom: assessmentSection === 'presentation' ? '2px solid var(--accent)' : '2px solid transparent',
+    transition: 'color 0.15s, border-color 0.15s',
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    marginBottom: -1,
+  } as const
+
+  const assessmentBiohazardsBtnStyle = {
+    padding: '8px 16px',
+    fontSize: 13,
+    fontWeight: 600,
+    color: assessmentSection === 'hazards' ? 'var(--accent)' : 'var(--text-muted)',
+    borderBottom: assessmentSection === 'hazards' ? '2px solid var(--accent)' : '2px solid transparent',
+    transition: 'color 0.15s, border-color 0.15s',
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    marginBottom: -1,
+  } as const
+
+  const assessmentRisksBtnStyle = {
+    padding: '8px 16px',
+    fontSize: 13,
+    fontWeight: 600,
+    color: assessmentSection === 'risks' ? 'var(--accent)' : 'var(--text-muted)',
+    borderBottom: assessmentSection === 'risks' ? '2px solid var(--accent)' : '2px solid transparent',
+    transition: 'color 0.15s, border-color 0.15s',
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    marginBottom: -1,
+  } as const
+
+  const assessmentDocumentBtnStyle = {
+    padding: '8px 16px',
+    fontSize: 13,
+    fontWeight: 600,
+    color: assessmentSection === 'document' ? 'var(--accent)' : 'var(--text-muted)',
+    borderBottom: assessmentSection === 'document' ? '2px solid var(--accent)' : '2px solid transparent',
+    transition: 'color 0.15s, border-color 0.15s',
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    marginBottom: -1,
+  } as const
 
   useEffect(() => { fetchAll() }, [id])
+
+  useEffect(() => {
+    if (activeTab !== 'assessment') setAssessmentSection('presentation')
+  }, [activeTab])
+
+  async function refreshDocumentBundles() {
+    const bundlesRes = await fetch(`/api/jobs/${id}/document-bundles`)
+    if (bundlesRes.ok) {
+      const bd = await bundlesRes.json()
+      setDocumentBundles(bd.bundles ?? [])
+    }
+  }
 
   async function fetchAll() {
     setLoading(true)
     try {
-      const [jobRes, docsRes, msgRes, invRes] = await Promise.all([
+      const [jobRes, docsRes, msgRes, invRes, bundlesRes] = await Promise.all([
         fetch(`/api/jobs/${id}`),
         fetch(`/api/documents?jobId=${id}`),
         fetch(`/api/sms/messages?job_id=${id}`),
         fetch(`/api/jobs/${id}/invoices`),
+        fetch(`/api/jobs/${id}/document-bundles`),
       ])
       const jobData  = await jobRes.json()
       const docsData = await docsRes.json()
       const msgData  = await msgRes.json()
       const invData  = await invRes.json()
+      if (bundlesRes.ok) {
+        const bd = await bundlesRes.json()
+        setDocumentBundles(bd.bundles ?? [])
+      } else {
+        setDocumentBundles([])
+      }
       setJob(
         jobData.job
           ? {
@@ -125,23 +300,38 @@ export default function JobPage() {
   const isActiveJob = !CLOSED_STATUSES.includes(job.status)
 
   const allTabs: { id: Tab; label: string; show: boolean }[] = [
+    { id: 'home',       label: 'Home',         show: caps.generate_documents },
     { id: 'details',    label: 'Details',                                                          show: true },
-    { id: 'assessment', label: 'Assessment',                                                       show: caps.view_assessment },
-    { id: 'quote',      label: 'Quote',                                                            show: caps.view_quote },
     { id: 'photos',     label: `Photos${photos.length ? ` (${photos.length})` : ''}`,             show: caps.upload_photos_assigned || caps.upload_photos_any },
-    { id: 'documents',  label: `Docs${documents.length ? ` (${documents.length})` : ''}`,         show: caps.generate_documents },
+    { id: 'docs',       label: 'Docs',                                                             show: true },
     { id: 'messages',   label: job.inbound_email_address ? (unreadSms > 0 ? `💬 Messages (${unreadSms})` : '💬 Messages') : (unreadSms > 0 ? `💬 SMS (${unreadSms})` : '💬 SMS'), show: caps.send_sms && isActiveJob },
     { id: 'invoice',    label: 'Invoice',                                                          show: canInvoice },
   ]
   const tabs = allTabs.filter(t => t.show)
+  const pageTitle = pageTitleForTab(activeTab, job)
+  const emptyRoomStyle: React.CSSProperties = {
+    minHeight: 360,
+    border: '1px dashed var(--border)',
+    borderRadius: 12,
+    background: 'var(--surface)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    color: 'var(--text-muted)',
+    fontSize: 14,
+    fontWeight: 600,
+  }
 
   return (
+    <UnsavedChangesProvider>
+      <UnsavedNavigationGuard setActiveTab={setActiveTab}>
+        {({ requestTabChange, onBackToJobsClick }) => (
     <div style={{ minHeight: '100vh', paddingBottom: 40 }}>
       {/* Header */}
       <div data-devid="P2-E1" style={{ borderBottom: '1px solid var(--border)', padding: '14px 0', position: 'sticky', top: 0, background: 'var(--bg)', zIndex: 10 }}>
         <div className="container">
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-            <Link href={jobsListHref}>
+            <Link href={jobsListHref} onClick={onBackToJobsClick}>
               <button className="btn btn-ghost" style={{ padding: '6px 0', fontSize: 14 }}>{jobsBackLabel}</button>
             </Link>
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -170,7 +360,7 @@ export default function JobPage() {
             paddingRight: 16,
           }}>
             {tabs.map(t => (
-              <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
+              <button key={t.id} onClick={() => requestTabChange(t.id)} style={{
                 padding: '8px 16px', fontSize: 13, fontWeight: 600,
                 color: activeTab === t.id ? 'var(--accent)' : 'var(--text-muted)',
                 borderBottom: activeTab === t.id ? '2px solid var(--accent)' : '2px solid transparent',
@@ -187,11 +377,149 @@ export default function JobPage() {
 
       {/* Tab content */}
       <div data-devid="P2-E4" className="container" style={{ paddingTop: 24 }}>
+        <header style={{ marginBottom: activeTab === 'assessment' ? 0 : 22 }}>
+          <h1
+            style={{
+              fontSize: 28,
+              fontWeight: 800,
+              letterSpacing: '-0.03em',
+              color: 'var(--text)',
+              lineHeight: 1.15,
+              margin: 0,
+            }}
+          >
+            {pageTitle}
+          </h1>
+        </header>
+        {activeTab === 'assessment' && (
+          <div
+            role="tablist"
+            aria-label="Assessment sections"
+            style={{
+              display: 'flex',
+              gap: 0,
+              flexWrap: 'wrap',
+              marginBottom: 20,
+              marginTop: 12,
+              borderBottom: '1px solid var(--border)',
+            }}
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={assessmentSection === 'presentation'}
+              onClick={() => setAssessmentSection('presentation')}
+              style={assessmentPresentationBtnStyle}
+            >
+              Presentation
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={assessmentSection === 'hazards'}
+              onClick={() => setAssessmentSection('hazards')}
+              style={assessmentBiohazardsBtnStyle}
+            >
+              Hazards
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={assessmentSection === 'risks'}
+              onClick={() => setAssessmentSection('risks')}
+              style={assessmentRisksBtnStyle}
+            >
+              Risks
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={assessmentSection === 'document'}
+              onClick={() => setAssessmentSection('document')}
+              style={assessmentDocumentBtnStyle}
+            >
+              Document
+            </button>
+          </div>
+        )}
         {activeTab === 'details' && (
           <DetailsTab job={job} onJobUpdate={setJob} readOnly={!isAdmin && !caps.edit_job_details} />
         )}
-        {activeTab === 'assessment' && (
-          <AssessmentTab job={job} onJobUpdate={setJob} />
+        {activeTab === 'assessment' && assessmentSection === 'presentation' && (
+          <AssessmentTab
+            job={job}
+            onJobUpdate={setJob}
+            photos={photos}
+            onPhotosUpdate={setPhotos}
+          />
+        )}
+        {activeTab === 'assessment' && assessmentSection === 'hazards' && (
+          <AssessmentBiohazardsTab job={job} onJobUpdate={setJob} />
+        )}
+        {activeTab === 'assessment' && assessmentSection === 'risks' && (
+          <AssessmentRisksTab job={job} onJobUpdate={setJob} />
+        )}
+        {activeTab === 'assessment' && assessmentSection === 'document' && (
+          <AssessmentDocumentTab job={job} onJobUpdate={setJob} />
+        )}
+        {activeTab === 'scope_capture' && (
+          <ScopeOfWorkTab job={job} documents={documents} onJobUpdate={setJob} />
+        )}
+        {activeTab === 'quote_capture' && (
+          <QuoteCaptureTab
+            job={job}
+            documents={documents}
+            onJobUpdate={setJob}
+            onGoToScope={() => requestTabChange('scope_capture')}
+          />
+        )}
+        {activeTab === 'pre_remediation_checklist_capture' && (
+          <PreRemediationChecklistTab job={job} onJobUpdate={setJob} />
+        )}
+        {activeTab === 'progress_capture' && (
+          <div style={emptyRoomStyle}>Progress Photos (empty room)</div>
+        )}
+        {activeTab === 'progress_notes_capture' && (
+          <div style={emptyRoomStyle}>Progress Notes (empty room)</div>
+        )}
+        {activeTab === 'quality_checks_capture' && (
+          <div style={emptyRoomStyle}>Quality Control Checks (empty room)</div>
+        )}
+        {activeTab === 'recommendations_capture' && (
+          <div style={emptyRoomStyle}>Recommendations (empty room)</div>
+        )}
+        {activeTab === 'progress_report_generate' && (
+          <div style={emptyRoomStyle}>Generate Progress Report (empty room)</div>
+        )}
+        {activeTab === 'client_feedback_capture' && (
+          <div style={emptyRoomStyle}>Client feedback (empty room)</div>
+        )}
+        {activeTab === 'team_feedback_capture' && (
+          <div style={emptyRoomStyle}>Team member feedback (empty room)</div>
+        )}
+        {activeTab === 'engagement_agreement_capture' && (
+          <div style={emptyRoomStyle}>{DOC_TYPE_LABELS.engagement_agreement} (empty room)</div>
+        )}
+        {activeTab === 'nda_capture' && (
+          <div style={emptyRoomStyle}>{DOC_TYPE_LABELS.nda} (empty room)</div>
+        )}
+        {activeTab === 'authority_to_proceed_capture' && (
+          <div style={emptyRoomStyle}>{DOC_TYPE_LABELS.authority_to_proceed} (empty room)</div>
+        )}
+        {activeTab === 'swms_capture' && (
+          <div style={emptyRoomStyle}>{DOC_TYPE_LABELS.swms} (empty room)</div>
+        )}
+        {activeTab === 'jsa_capture' && (
+          <div style={emptyRoomStyle}>{DOC_TYPE_LABELS.jsa} (empty room)</div>
+        )}
+        {activeTab === 'risk_assessment_capture' && (
+          <div style={emptyRoomStyle}>{DOC_TYPE_LABELS.risk_assessment} (empty room)</div>
+        )}
+        {activeTab === 'waste_disposal_manifest_capture' && (
+          <div style={emptyRoomStyle}>{DOC_TYPE_LABELS.waste_disposal_manifest} (empty room)</div>
+        )}
+        {activeTab === 'iaq_multi_capture' && (
+          <IaqBundleCaptureTab job={job} documents={documents} onJobUpdate={setJob} />
         )}
         {activeTab === 'quote' && (
           <QuoteTab job={job} documents={documents} onJobUpdate={setJob} />
@@ -205,13 +533,28 @@ export default function JobPage() {
             onPhotosUpdate={setPhotos}
           />
         )}
-        {activeTab === 'documents' && (
+        {activeTab === 'home' && (
           <DocumentsTab
             jobId={job.id}
             documents={documents}
             clientName={job.client_name}
             clientEmail={job.client_email ?? ''}
             onDocumentDeleted={docId => setDocuments(prev => prev.filter(d => d.id !== docId))}
+            onNavigate={requestTabChange}
+            showSavedSection={false}
+          />
+        )}
+        {activeTab === 'docs' && (
+          <DocumentsTab
+            jobId={job.id}
+            documents={documents}
+            documentBundles={documentBundles}
+            onBundlesRefresh={refreshDocumentBundles}
+            canComposeBundles={caps.edit_documents}
+            clientName={job.client_name}
+            clientEmail={job.client_email ?? ''}
+            onDocumentDeleted={docId => setDocuments(prev => prev.filter(d => d.id !== docId))}
+            showCreateSection={false}
           />
         )}
         {activeTab === 'messages' && (
@@ -222,5 +565,9 @@ export default function JobPage() {
         )}
       </div>
     </div>
+        )}
+      </UnsavedNavigationGuard>
+    </UnsavedChangesProvider>
   )
 }
+
