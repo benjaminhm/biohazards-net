@@ -445,18 +445,41 @@ function wrapSow(body: string, title: string, client: ClientInfo | undefined, sh
 }
 
 interface BrandedMeta {
-  client: string
-  address: string
-  area: string
-  priority: string
+  leftTitle: string
+  leftValue: string
+  leftSubTitle: string
+  leftSubValue: string
+  rightTitle: string
+  rightValue: string
+  rightSubTitle: string
+  rightSubValue: string
 }
 
-function defaultBrandedMeta(client?: ClientInfo): BrandedMeta {
+function defaultBrandedMeta(company: CompanyProfile | null, client?: ClientInfo): BrandedMeta {
+  const clientName = client?.client_name?.trim() || '—'
+  const clientContact = [
+    (client?.client_phone || '').trim(),
+    (client?.client_email || '').trim(),
+  ]
+    .filter(Boolean)
+    .join(' · ') || '—'
+  const companyName = company?.name?.trim() || '—'
+  const companyContact = [
+    (company?.phone || '').trim(),
+    (company?.email || '').trim(),
+    (company?.address || '').trim(),
+  ]
+    .filter(Boolean)
+    .join(' · ') || '—'
   return {
-    client: client?.client_name?.trim() || '—',
-    address: '—',
-    area: '—',
-    priority: '—',
+    leftTitle: 'Client',
+    leftValue: clientName,
+    leftSubTitle: 'Client Contact',
+    leftSubValue: clientContact,
+    rightTitle: 'Company',
+    rightValue: companyName,
+    rightSubTitle: 'Business Details',
+    rightSubValue: companyContact,
   }
 }
 
@@ -515,10 +538,10 @@ function wrapBranded(
       <div class="sow-mid">
         <div class="sow-doc-title">${esc(documentHeading)}</div>
         <div class="sow-meta">
-          <div class="sow-meta-cell"><div class="sow-meta-label">Client</div><div class="sow-meta-value">${esc(meta.client)}</div></div>
-          <div class="sow-meta-cell"><div class="sow-meta-label">Address</div><div class="sow-meta-value">${esc(meta.address)}</div></div>
-          <div class="sow-meta-cell"><div class="sow-meta-label">Area</div><div class="sow-meta-value">${esc(meta.area)}</div></div>
-          <div class="sow-meta-cell"><div class="sow-meta-label">Priority</div><div class="sow-meta-value">${esc(meta.priority)}</div></div>
+          <div class="sow-meta-cell"><div class="sow-meta-label">${esc(meta.leftTitle)}</div><div class="sow-meta-value">${esc(meta.leftValue)}</div></div>
+          <div class="sow-meta-cell"><div class="sow-meta-label">${esc(meta.leftSubTitle)}</div><div class="sow-meta-value">${esc(meta.leftSubValue)}</div></div>
+          <div class="sow-meta-cell"><div class="sow-meta-label">${esc(meta.rightTitle)}</div><div class="sow-meta-value">${esc(meta.rightValue)}</div></div>
+          <div class="sow-meta-cell"><div class="sow-meta-label">${esc(meta.rightSubTitle)}</div><div class="sow-meta-value">${esc(meta.rightSubValue)}</div></div>
         </div>
         ${midBodyHtml}
       </div>
@@ -727,7 +750,7 @@ function buildQuoteMid(
 
 function buildQuoteHTML(c: QuoteContent, photos: Photo[], groups: RoomPhotoGroup[], company: CompanyProfile | null, _jobId: string, _appUrl: string, client: ClientInfo | undefined, screenActionBar: boolean): string {
   const mid = buildQuoteMid(c, photos, groups, company, _jobId, _appUrl, client, true)
-  return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(client), wrapBrandedPrintOpts(screenActionBar))
+  return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
 // ── 2. SOW ────────────────────────────────────────────────────────────────────
@@ -785,20 +808,20 @@ function buildSOWHTML(
   areas: Area[],
   screenActionBar: boolean,
 ): string {
-  const clientName = sowClientLabel(c, client)
-  const addr = (c.meta_site_address || '').trim() || '—'
-  const area =
-    (c.meta_area_label || '').trim() ||
-    (areas[0]?.name ? areas[0].name : '—')
-  const pri = (c.meta_priority || '').trim() || '—'
-
   const mid = buildSOWMid(c, photos, groups, client, areas, true)
-  return wrapBranded(mid, c.title, 'Scope of Work', c.reference, company, client, {
-    client: clientName,
-    address: addr,
-    area,
-    priority: pri,
-  }, wrapBrandedPrintOpts(screenActionBar))
+  return wrapBranded(
+    mid,
+    c.title,
+    'Scope of Work',
+    c.reference,
+    company,
+    client,
+    defaultBrandedMeta(company, {
+      ...client,
+      client_name: sowClientLabel(c, client),
+    }),
+    wrapBrandedPrintOpts(screenActionBar)
+  )
 }
 
 // ── 3. SWMS ───────────────────────────────────────────────────────────────────
@@ -819,7 +842,7 @@ function buildSWMSMid(c: SWMSContent, includeCompletion: boolean): string {
 
 function buildSWMSHTML(c: SWMSContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
   const mid = buildSWMSMid(c, true)
-  return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(client), wrapBrandedPrintOpts(screenActionBar))
+  return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
 // ── 4. Authority to Proceed ───────────────────────────────────────────────────
@@ -837,7 +860,7 @@ function buildATPMid(c: AuthorityToProceedContent, includeCompletion: boolean): 
 
 function buildATPHTML(c: AuthorityToProceedContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
   const mid = buildATPMid(c, true)
-  return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(client), wrapBrandedPrintOpts(screenActionBar))
+  return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
 // ── 5. Engagement Agreement ───────────────────────────────────────────────────
@@ -858,7 +881,7 @@ function buildEngagementMid(c: EngagementAgreementContent, includeCompletion: bo
 
 function buildEngagementHTML(c: EngagementAgreementContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
   const mid = buildEngagementMid(c, true)
-  return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(client), wrapBrandedPrintOpts(screenActionBar))
+  return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
 // ── 6. Completion Report ──────────────────────────────────────────────────────
@@ -883,7 +906,7 @@ function buildReportMid(c: ReportContent, photos: Photo[], groups: RoomPhotoGrou
 
 function buildReportHTML(c: ReportContent, photos: Photo[], groups: RoomPhotoGroup[], company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
   const mid = buildReportMid(c, photos, groups, true)
-  return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(client), wrapBrandedPrintOpts(screenActionBar))
+  return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
 // ── 7. Certificate of Decontamination ─────────────────────────────────────────
@@ -908,7 +931,7 @@ function buildCODMid(c: CertificateOfDecontaminationContent, includeCompletion: 
 
 function buildCODHTML(c: CertificateOfDecontaminationContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
   const mid = buildCODMid(c, true)
-  return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(client), wrapBrandedPrintOpts(screenActionBar))
+  return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
 // ── 8. Waste Disposal Manifest ────────────────────────────────────────────────
@@ -926,7 +949,7 @@ function buildWDMMid(c: WasteDisposalManifestContent, includeCompletion: boolean
 
 function buildWDMHTML(c: WasteDisposalManifestContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
   const mid = buildWDMMid(c, true)
-  return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(client), wrapBrandedPrintOpts(screenActionBar))
+  return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
 // ── 9. JSA ────────────────────────────────────────────────────────────────────
@@ -946,7 +969,7 @@ function buildJSAMid(c: JSAContent, includeCompletion: boolean): string {
 
 function buildJSAHTML(c: JSAContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
   const mid = buildJSAMid(c, true)
-  return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(client), wrapBrandedPrintOpts(screenActionBar))
+  return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
 // ── 10. NDA ───────────────────────────────────────────────────────────────────
@@ -966,7 +989,7 @@ function buildNDAMid(c: NDAContent, includeCompletion: boolean): string {
 
 function buildNDAHTML(c: NDAContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
   const mid = buildNDAMid(c, true)
-  return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(client), wrapBrandedPrintOpts(screenActionBar))
+  return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
 // ── 11. Risk Assessment ───────────────────────────────────────────────────────
@@ -991,7 +1014,7 @@ function buildRAMid(c: RiskAssessmentContent, includeCompletion: boolean): strin
 
 function buildRAHTML(c: RiskAssessmentContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
   const mid = buildRAMid(c, true)
-  return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(client), wrapBrandedPrintOpts(screenActionBar))
+  return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
 // ── 12. Assessment document (narrative — same capture shape as Assessment → Document) ─
@@ -1010,7 +1033,7 @@ function buildAssessmentDocumentMid(c: AssessmentDocumentContent, includeComplet
 
 function buildAssessmentDocumentHTML(c: AssessmentDocumentContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
   const mid = buildAssessmentDocumentMid(c, true)
-  return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(client), wrapBrandedPrintOpts(screenActionBar))
+  return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
 /** Mid-body HTML only (no shell). Used for composed bundles; omit per-part completion when includeCompletion is false. */
@@ -1091,7 +1114,7 @@ export function buildComposedBundleHTML(
     })
     .join('')
   const pageTitle = bundleTitle.trim() || 'Composed document'
-  return wrapBranded(inner, pageTitle, pageTitle, bundleReference, company, client, defaultBrandedMeta(client), wrapBrandedPrintOpts(screenActionBar, {
+  return wrapBranded(inner, pageTitle, pageTitle, bundleReference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar, {
     composedBundle: true,
     bundlePartCount: parts.length,
   }))

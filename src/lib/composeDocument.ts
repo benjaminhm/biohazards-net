@@ -402,6 +402,7 @@ export function buildComposedPreviewHtml(
   company: CompanyProfile | null,
   jobId: string,
   appUrl: string,
+  client?: { client_name?: string; client_email?: string; client_phone?: string },
 ): string {
-  return buildPrintHTML(type, content, photos, areas, company, jobId, appUrl, undefined, { screenActionBar: false })
+  return buildPrintHTML(type, content, photos, areas, company, jobId, appUrl, client, { screenActionBar: false })
 }
