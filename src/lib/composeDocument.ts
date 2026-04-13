@@ -90,7 +90,7 @@ function sowMetaFromJob(job: Job): Pick<SOWContent, 'meta_site_address' | 'meta_
 function composeAssessmentDocument(job: Job): ComposeDocumentResult {
   const m = mergedAssessmentDocumentCapture(job.assessment_data)
   const c: AssessmentDocumentContent = {
-    title: `Assessment document — ${job.client_name}`,
+    title: 'Assessment document',
     reference: refPrefix('assessment_document', job.id),
     site_summary: m.site_summary.trim(),
     hazards_overview: m.hazards_overview.trim(),
@@ -112,7 +112,7 @@ function composeSow(job: Job): ComposeDocumentResult {
 
   if (staffSowHasContent(ad)) {
     const c: SOWContent = {
-      title: `Scope of Work — ${job.client_name}`,
+      title: 'Scope of Work',
       reference: refPrefix('sow', job.id),
       executive_summary: sow.objective.trim(),
       scope: sow.scope_work.trim(),
@@ -137,7 +137,7 @@ function composeSow(job: Job): ComposeDocumentResult {
       .filter(Boolean)
       .join('\n\n')
     const c: SOWContent = {
-      title: `Scope of Work — ${job.client_name}`,
+      title: 'Scope of Work',
       reference: refPrefix('sow', job.id),
       executive_summary: exec || `Site: ${job.site_address}. Job type: ${String(job.job_type).replace(/_/g, ' ')}.`,
       scope: areaLines || '— Areas to be confirmed in assessment.',
@@ -157,7 +157,7 @@ function composeSow(job: Job): ComposeDocumentResult {
   }
 
   const c: SOWContent = {
-    title: `Scope of Work — ${job.client_name}`,
+    title: 'Scope of Work',
     reference: refPrefix('sow', job.id),
     executive_summary: SHELL_SOW_MSG,
     scope: '',
@@ -176,7 +176,7 @@ function composeSow(job: Job): ComposeDocumentResult {
 
 function composeQuote(job: Job): ComposeDocumentResult {
   const c: QuoteContent = {
-    title: `Quote — ${job.client_name}`,
+    title: 'Quote',
     reference: refPrefix('quote', job.id),
     intro: '— Add line items and pricing in Quote capture, or complete the quote in Edit fields after assessment.',
     line_items: [],
@@ -240,7 +240,7 @@ function composeEngagement(job: Job): ComposeDocumentResult {
 
 function composeReport(job: Job): ComposeDocumentResult {
   const c: ReportContent = {
-    title: `Completion Report — ${job.client_name}`,
+    title: 'Completion Report',
     reference: refPrefix('report', job.id),
     executive_summary: '— To be completed after works.',
     site_conditions: '—',
@@ -340,7 +340,7 @@ function composeIaqMulti(job: Job): ComposeDocumentResult {
   const s = composeSow(job)
   const q = composeQuote(job)
   const ref = refPrefix('iaq_multi', job.id)
-  const title = `Assessment / Scope / Quote — ${job.client_name}`
+  const title = 'Assessment, Scope and Quote'
   const parts: Array<{ type: DocType; content: Record<string, unknown> }> = [
     { type: 'assessment_document', content: a.content },
     { type: 'sow', content: s.content },

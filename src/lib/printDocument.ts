@@ -394,16 +394,8 @@ interface ClientInfo {
  */
 function actionBarTitleLine(docTitle: string, clientName: string): string {
   const t = docTitle.trim()
-  const n = clientName.trim()
-  if (!n) return t
-  if (t.toLowerCase() === n.toLowerCase()) return t
-  const tl = t.toLowerCase()
-  const nl = n.toLowerCase()
-  if (tl.endsWith(nl)) {
-    const beforeName = t.slice(0, t.length - n.length).trimEnd()
-    if (beforeName.length === 0 || /[—–\-]$/.test(beforeName)) return t
-  }
-  return `${t} — ${n}`
+  const _n = clientName.trim()
+  return t
 }
 
 function actionBar(docTitle: string, client: ClientInfo | undefined): string {
