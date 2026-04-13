@@ -344,7 +344,8 @@ export default function AssessmentTab({ job, onJobUpdate, photos, onPhotosUpdate
                     const isPreset = AREA_ROOM_TYPES.some(
                       r => r.toLowerCase() === cur.toLowerCase()
                     )
-                    updateArea(i, 'name', isPreset ? '' : cur)
+                    // Non-preset placeholder so areaRoomSelectValue stays '__other__' and the text field stays visible
+                    updateArea(i, 'name', isPreset ? 'Custom room' : cur)
                   } else {
                     updateArea(i, 'name', v)
                   }
