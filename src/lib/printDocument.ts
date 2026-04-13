@@ -864,13 +864,11 @@ function buildEngagementHTML(c: EngagementAgreementContent, company: CompanyProf
 // ── 6. Completion Report ──────────────────────────────────────────────────────
 
 function buildReportMid(c: ReportContent, photos: Photo[], groups: RoomPhotoGroup[], includeCompletion: boolean): string {
-  const before = photos.filter(p => ['before','assessment'].includes(p.category))
   const during = photos.filter(p => p.category === 'during')
   const after  = photos.filter(p => p.category === 'after')
   return `
     ${section('Executive Summary', c.executive_summary)}
     ${section('Site Conditions on Arrival', c.site_conditions)}
-    ${roomPhotoSections(groups, 'Before & Assessment Evidence', ['assessment', 'before'])}
     ${section('Works Carried Out', c.works_carried_out)}
     ${section('Methodology', c.methodology)}
     ${section('Products &amp; Equipment Used', c.products_used)}

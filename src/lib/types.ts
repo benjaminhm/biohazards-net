@@ -38,6 +38,7 @@ export type JobType =
   | 'other'
 
 export type PhotoCategory = 'before' | 'during' | 'after' | 'assessment'
+export type PhotoCapturePhase = 'assessment' | 'progress'
 
 export type DocType =
   | 'iaq_multi'
@@ -381,6 +382,8 @@ export interface Photo {
   caption: string
   area_ref: string
   category: PhotoCategory
+  /** Capture workflow marker to separate assessment vs progress evidence. */
+  capture_phase?: PhotoCapturePhase
   uploaded_at: string
 }
 
@@ -403,6 +406,39 @@ export interface ProgressNote {
   deleted_at: string | null
   deleted_by_user_id: string | null
   deleted_by_first_name: string | null
+}
+
+/** One AI/manual line item row grouped by room for quote drafting. */
+export interface QuoteLineItemRow {
+  id: string
+  run_id: string
+  org_id: string
+  job_id: string
+  room_name: string
+  description: string
+  qty: number
+  unit: string
+  rate: number
+  total: number
+  sort_order: number
+  source: 'ai' | 'manual'
+  created_at: string
+  updated_at: string
+  created_by_user_id: string
+  updated_by_user_id: string
+  deleted_at: string | null
+}
+
+/** Suggestion run snapshot; one active run per job. */
+export interface QuoteLineItemRun {
+  id: string
+  org_id: string
+  job_id: string
+  target_amount: number | null
+  target_price_note: string
+  is_active: boolean
+  created_at: string
+  created_by_user_id: string
 }
 
 export interface Document {

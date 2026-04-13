@@ -27,6 +27,8 @@ const CATEGORY_COLORS: Record<PhotoCategory, string> = {
 export interface PhotoCardProps {
   photo: Photo
   areaNames?: string[]
+  /** Optional category restriction for this context (e.g. progress = during/after). */
+  allowedCategories?: readonly PhotoCategory[]
   /** When false, hides the area chip in summary (e.g. inside a room-specific block). Default true. */
   showAreaChip?: boolean
   onDelete: (id: string) => void
@@ -36,6 +38,7 @@ export interface PhotoCardProps {
 export default function PhotoCard({
   photo,
   areaNames = [],
+  allowedCategories,
   showAreaChip = true,
   onDelete,
   onUpdate,
@@ -45,6 +48,7 @@ export default function PhotoCard({
   const [captionDraft, setCaptionDraft] = useState(photo.caption)
   const [categoryDraft, setCategoryDraft] = useState<PhotoCategory>(photo.category)
   const [areaRefDraft, setAreaRefDraft] = useState(photo.area_ref || '')
+  const categoryOptions = CATEGORIES.filter(c => !allowedCategories || allowedCategories.includes(c.value))
 
   async function handleDelete() {
     if (!confirm('Delete this photo?')) return
@@ -129,7 +133,7 @@ export default function PhotoCard({
               Category
             </div>
             <div style={{ display: 'flex', gap: 4, marginBottom: 10, flexWrap: 'wrap' }}>
-              {CATEGORIES.map(c => (
+              {categoryOptions.map(c => (
                 <button
                   key={c.value}
                   type="button"

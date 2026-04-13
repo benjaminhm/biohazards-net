@@ -27,6 +27,8 @@ DROP POLICY IF EXISTS "Allow all operations on job-pdfs" ON storage.objects;
 --    Use Dashboard → Storage, or leave buckets in place for dev.
 
 -- 3) Tables: children before parent (photos & documents reference jobs)
+DROP TABLE IF EXISTS quote_line_items CASCADE;
+DROP TABLE IF EXISTS quote_line_item_runs CASCADE;
 DROP TABLE IF EXISTS progress_notes CASCADE;
 DROP TABLE IF EXISTS documents CASCADE;
 DROP TABLE IF EXISTS photos CASCADE;

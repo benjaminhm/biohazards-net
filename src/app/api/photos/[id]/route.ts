@@ -52,17 +52,31 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   try {
     const { id } = await params
     const body = (await req.json()) as Record<string, unknown>
+    const supabase = createServiceClient()
+    const { data: existing, error: existingErr } = await supabase
+      .from('photos')
+      .select('id, capture_phase, category')
+      .eq('id', id)
+      .single()
+    if (existingErr || !existing) {
+      return NextResponse.json({ error: 'Photo not found' }, { status: 404 })
+    }
+
     const patch: Record<string, string> = {}
     if (typeof body.caption === 'string') patch.caption = body.caption
     if (typeof body.area_ref === 'string') patch.area_ref = body.area_ref
     if (typeof body.category === 'string' && (PHOTO_CATEGORIES as readonly string[]).includes(body.category)) {
+      if (existing.capture_phase === 'progress' && (body.category === 'before' || body.category === 'assessment')) {
+        return NextResponse.json(
+          { error: 'Progress photos can only be During or After' },
+          { status: 400 }
+        )
+      }
       patch.category = body.category
     }
     if (Object.keys(patch).length === 0) {
       return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
     }
-
-    const supabase = createServiceClient()
 
     const { data, error } = await supabase
       .from('photos')

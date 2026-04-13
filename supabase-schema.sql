@@ -30,6 +30,8 @@ CREATE TABLE IF NOT EXISTS photos (
   caption     TEXT NOT NULL DEFAULT '',
   category    TEXT NOT NULL DEFAULT 'before'
                 CHECK (category IN ('before','during','after','assessment')),
+  capture_phase TEXT NOT NULL DEFAULT 'assessment'
+                CHECK (capture_phase IN ('assessment','progress')),
   uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

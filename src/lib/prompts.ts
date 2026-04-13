@@ -180,16 +180,19 @@ export function buildReportPrompt(job: Job, photos: Photo[]): string {
   const a = job.assessment_data
   if (!a) return ''
 
-  const beforeBlock = buildPhotoEvidenceBlock(photos, ['before', 'assessment'])
-  const afterBlock = buildPhotoEvidenceBlock(photos, ['after'])
-  const duringBlock = buildPhotoEvidenceBlock(photos, ['during'])
+  const progressPhotos = photos.filter(p => {
+    if (p.capture_phase === 'progress') return true
+    if (p.capture_phase === 'assessment') return false
+    return p.category === 'during' || p.category === 'after'
+  })
+  const afterBlock = buildPhotoEvidenceBlock(progressPhotos, ['after'])
+  const duringBlock = buildPhotoEvidenceBlock(progressPhotos, ['during'])
 
   return `You are writing a completion report for a biohazard remediation job in Australia. This report may be submitted to an insurance company or regulatory body. Company: "Brisbane Biohazard Cleaning".
 
 ${buildJobDataBlock(job)}
 
 Notes log from job: "${job.notes}"
-${beforeBlock}
 ${duringBlock}
 ${afterBlock}
 
@@ -198,12 +201,12 @@ DOCUMENT STRUCTURE — return ONLY valid JSON with no markdown, no code fences, 
   "title": "Biohazard Remediation Completion Report",
   "reference": "RPT-[YYYYMMDD]-[first 4 chars of job id]",
   "executive_summary": "brief factual summary of the job and outcome",
-  "site_conditions": "conditions found on arrival — use the before photo notes as direct evidence, referencing specific areas and what was documented",
+  "site_conditions": "conditions found on arrival — derive from assessment findings and notes log (not before/assessment photo stages)",
   "works_carried_out": "detailed account of all remediation work performed, referencing each area by name and what was done there",
   "methodology": "methodology used for this specific job type and contamination level",
   "products_used": "cleaning agents, PPE, and equipment appropriate for this biohazard type",
   "waste_disposal": "volume and disposal method — reference Australian EPA classification",
-  "photo_record": "factual summary of photographic evidence — ${photos.length} photos taken across all phases. Reference specific after-photo notes as proof of completion.",
+  "photo_record": "factual summary of progress photographic evidence — ${progressPhotos.length} during/after photos. Reference specific after-photo notes as proof of completion.",
   "outcome": "statement that remediation is complete and site has been returned to safe condition — reference the after photos as evidence",
   "technician_signoff": "This report certifies that biohazard remediation was carried out in accordance with Australian standards and best practice"
 }

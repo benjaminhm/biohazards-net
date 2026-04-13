@@ -42,6 +42,12 @@ import { staffAssessmentDocumentBlock } from '@/lib/assessmentDocumentCapture'
 
 const client = new Anthropic()
 
+function isProgressPhoto(photo: Photo): boolean {
+  if (photo.capture_phase === 'progress') return true
+  if (photo.capture_phase === 'assessment') return false
+  return photo.category === 'during' || photo.category === 'after'
+}
+
 /* Generates a human-readable document reference (e.g. QTE-20250401-AB12CD)
    using a per-type prefix + YYYYMMDD + first 6 chars of job UUID. */
 function ref(type: DocType, job: Job): string {
@@ -116,7 +122,10 @@ function buildPrompt(
   company: CompanyProfile | null,
   platformDbRules: PlatformDocumentRulesMap
 ): string {
-  const ctx = jobContext(job, photos, company)
+  const contextPhotos = type === 'report'
+    ? photos.filter(isProgressPhoto).filter(p => p.category === 'during' || p.category === 'after')
+    : photos
+  const ctx = jobContext(job, contextPhotos, company)
   const d = new Date().toLocaleDateString('en-AU', { day:'numeric', month:'long', year:'numeric' })
   const r = ref(type, job)
 

@@ -48,6 +48,7 @@ import IaqBundleCaptureTab from '@/components/tabs/IaqBundleCaptureTab'
 import MessagesTab from '@/components/tabs/MessagesTab'
 import InvoiceTab from '@/components/tabs/InvoiceTab'
 import ProgressNotesTab from '@/components/tabs/ProgressNotesTab'
+import ProgressPhotosTab from '@/components/tabs/ProgressPhotosTab'
 import { useUser } from '@/lib/userContext'
 import {
   UnsavedChangesProvider,
@@ -478,7 +479,11 @@ export default function JobPage() {
           <PreRemediationChecklistTab job={job} onJobUpdate={setJob} />
         )}
         {activeTab === 'progress_capture' && (
-          <div style={emptyRoomStyle}>Progress Photos (empty room)</div>
+          <ProgressPhotosTab
+            job={job}
+            photos={photos}
+            onPhotosUpdate={setPhotos}
+          />
         )}
         {activeTab === 'progress_notes_capture' && <ProgressNotesTab job={job} />}
         {activeTab === 'quality_checks_capture' && (

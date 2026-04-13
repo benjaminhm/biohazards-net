@@ -8,7 +8,7 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
-import type { Photo, PhotoCategory } from '@/lib/types'
+import type { Photo, PhotoCategory, PhotoCapturePhase } from '@/lib/types'
 
 export interface PhotoUploadPanelProps {
   jobId: string
@@ -16,6 +16,10 @@ export interface PhotoUploadPanelProps {
   onPhotosUpdate: (photos: Photo[]) => void
   /** Category for newly queued files */
   defaultPendingCategory?: PhotoCategory
+  /** Restrict category selection in this uploader (e.g. progress = during/after). */
+  allowedCategories?: readonly PhotoCategory[]
+  /** Persisted marker for where this upload happened (assessment/progress). */
+  fixedCapturePhase?: PhotoCapturePhase
   /**
    * When non-empty, uploads are saved with this `area_ref` and the area picker is hidden.
    * Pass empty string to disable camera/gallery until the area has a name.
@@ -41,6 +45,10 @@ const CATEGORIES: { value: PhotoCategory; label: string; color: string }[] = [
   { value: 'during', label: 'During', color: '#FBBF24' },
   { value: 'after', label: 'After', color: '#4ADE80' },
 ]
+
+function phaseLabel(phase: PhotoCapturePhase): string {
+  return phase === 'progress' ? 'Progress' : 'Assessment'
+}
 
 async function compressImage(file: File, maxDim = 1920, quality = 0.82): Promise<Blob> {
   return new Promise((resolve, reject) => {
@@ -87,9 +95,15 @@ export default function PhotoUploadPanel({
   photos,
   onPhotosUpdate,
   defaultPendingCategory = 'assessment',
+  allowedCategories,
+  fixedCapturePhase = 'assessment',
   fixedAreaRef,
   compact = false,
 }: PhotoUploadPanelProps) {
+  const categoryOptions = CATEGORIES.filter(c => !allowedCategories || allowedCategories.includes(c.value))
+  const effectiveDefaultCategory = categoryOptions.some(c => c.value === defaultPendingCategory)
+    ? defaultPendingCategory
+    : (categoryOptions[0]?.value ?? 'assessment')
   const [pending, setPending] = useState<PendingPhoto[]>([])
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState<Record<string, 'waiting' | 'uploading' | 'done' | 'error'>>({})
@@ -125,7 +139,7 @@ export default function PhotoUploadPanel({
           file,
           preview,
           originalSize: file.size,
-          category: defaultPendingCategory,
+          category: effectiveDefaultCategory,
           caption: '',
           areaRef: areaTag,
         }
@@ -178,6 +192,7 @@ export default function PhotoUploadPanel({
           caption: p.caption,
           area_ref: p.areaRef,
           category: p.category,
+          capture_phase: fixedCapturePhase,
         }),
       })
       const { photo, error: saveErr } = await saveRes.json()
@@ -271,12 +286,14 @@ export default function PhotoUploadPanel({
       </div>
       {!compact && (
         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12, lineHeight: 1.5 }}>
-          New photos default to <strong>Assessment</strong>. They are saved under this room ({areaTag}).
+          New photos default to <strong>{categoryOptions.find(c => c.value === effectiveDefaultCategory)?.label ?? effectiveDefaultCategory}</strong>{' '}
+          and save to <strong>{phaseLabel(fixedCapturePhase)}</strong> capture for this room ({areaTag}).
         </div>
       )}
       {compact && (
         <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.45 }}>
-          Default category <strong>Assessment</strong> — adjust per photo before upload or later on Photos.
+          Default <strong>{categoryOptions.find(c => c.value === effectiveDefaultCategory)?.label ?? effectiveDefaultCategory}</strong>{' '}
+          in <strong>{phaseLabel(fixedCapturePhase)}</strong> capture.
         </div>
       )}
 
@@ -329,7 +346,7 @@ export default function PhotoUploadPanel({
       {pending.length > 1 && (
         <div style={{ display: 'flex', gap: 6, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
           <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>Set all:</span>
-          {CATEGORIES.map(c => (
+          {categoryOptions.map(c => (
             <button
               key={c.value}
               type="button"
@@ -417,7 +434,7 @@ export default function PhotoUploadPanel({
               </div>
 
               <div style={{ display: 'flex', gap: 4, marginBottom: 8, flexWrap: 'wrap' }}>
-                {CATEGORIES.map(c => (
+                {categoryOptions.map(c => (
                   <button
                     key={c.value}
                     type="button"
