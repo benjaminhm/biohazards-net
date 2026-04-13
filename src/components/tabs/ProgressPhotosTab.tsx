@@ -1,10 +1,10 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import PhotoUploadPanel from '@/components/PhotoUploadPanel'
 import PhotoCard from '@/components/PhotoCard'
 import { AREA_ROOM_TYPES } from '@/lib/areaRoomTypes'
-import type { Job, Photo } from '@/lib/types'
+import type { Job, Photo, ProgressRoomNote } from '@/lib/types'
 
 interface Props {
   job: Job
@@ -20,6 +20,11 @@ function isProgressPhoto(photo: Photo): boolean {
 }
 
 export default function ProgressPhotosTab({ job, photos, onPhotosUpdate }: Props) {
+  const [notesByRoom, setNotesByRoom] = useState<Record<string, ProgressRoomNote>>({})
+  const [draftByRoom, setDraftByRoom] = useState<Record<string, string>>({})
+  const [savingRoom, setSavingRoom] = useState<string | null>(null)
+  const [notesError, setNotesError] = useState('')
+
   const rooms = useMemo(() => {
     const fromAssessment = (job.assessment_data?.areas ?? [])
       .map(a => (a.name || '').trim())
@@ -33,6 +38,67 @@ export default function ProgressPhotosTab({ job, photos, onPhotosUpdate }: Props
   }, [job.assessment_data?.areas, photos])
 
   const progressPhotos = useMemo(() => photos.filter(isProgressPhoto), [photos])
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadNotes() {
+      setNotesError('')
+      try {
+        const res = await fetch(`/api/jobs/${job.id}/progress-room-notes`)
+        const data = (await res.json()) as { notes?: ProgressRoomNote[]; error?: string }
+        if (!res.ok) throw new Error(data.error ?? 'Could not load room notes')
+        if (cancelled) return
+        const map: Record<string, ProgressRoomNote> = {}
+        const drafts: Record<string, string> = {}
+        for (const n of data.notes ?? []) {
+          map[n.room_name] = n
+          drafts[n.room_name] = n.note ?? ''
+        }
+        setNotesByRoom(map)
+        setDraftByRoom(drafts)
+      } catch (e) {
+        if (!cancelled) setNotesError(e instanceof Error ? e.message : 'Could not load room notes')
+      }
+    }
+    void loadNotes()
+    return () => {
+      cancelled = true
+    }
+  }, [job.id])
+
+  useEffect(() => {
+    setDraftByRoom(prev => {
+      const next = { ...prev }
+      for (const room of rooms) {
+        if (!(room in next)) next[room] = notesByRoom[room]?.note ?? ''
+      }
+      return next
+    })
+  }, [rooms, notesByRoom])
+
+  async function saveRoomNote(room: string) {
+    const note = (draftByRoom[room] ?? '').slice(0, 50_000)
+    setSavingRoom(room)
+    try {
+      const res = await fetch(`/api/jobs/${job.id}/progress-room-notes`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ room_name: room, note }),
+      })
+      const data = (await res.json()) as { note?: ProgressRoomNote; error?: string }
+      if (!res.ok || !data.note) throw new Error(data.error ?? 'Could not save room note')
+      setNotesByRoom(prev => ({ ...prev, [room]: data.note! }))
+      setDraftByRoom(prev => ({ ...prev, [room]: data.note!.note ?? '' }))
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : 'Could not save room note')
+    } finally {
+      setSavingRoom(null)
+    }
+  }
+
+  function fmtLocal(iso: string): string {
+    return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+  }
 
   if (rooms.length === 0) {
     return (
@@ -56,6 +122,9 @@ export default function ProgressPhotosTab({ job, photos, onPhotosUpdate }: Props
           <strong> Progress</strong> phase and are used by completion reporting workflows.
         </div>
       </div>
+      {notesError && (
+        <div style={{ color: '#F87171', marginBottom: 12, fontSize: 13 }}>{notesError}</div>
+      )}
 
       {rooms.map((room) => {
         const roomPhotos = progressPhotos.filter(p => (p.area_ref || '').trim() === room)
@@ -99,6 +168,36 @@ export default function ProgressPhotosTab({ job, photos, onPhotosUpdate }: Props
                 ))}
               </div>
             )}
+
+            <div style={{ marginTop: 10 }}>
+              <label style={{ fontSize: 11, color: 'var(--text-muted)' }}>Progress Room Note</label>
+              <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '4px 0 8px', lineHeight: 1.5 }}>
+                Character guidance: what changed since before, what work was performed, and what the current condition is.
+              </p>
+              <textarea
+                rows={3}
+                value={draftByRoom[room] ?? ''}
+                onChange={e => setDraftByRoom(prev => ({ ...prev, [room]: e.target.value.slice(0, 50_000) }))}
+                placeholder="e.g. Blood traces removed from carpet edge; ATP swab clear; deodorisation complete."
+                style={{ resize: 'vertical', width: '100%' }}
+              />
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 6, alignItems: 'center' }}>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                  {notesByRoom[room]?.updated_at
+                    ? `Last updated by ${notesByRoom[room].updated_by_first_name || 'User'} on ${fmtLocal(notesByRoom[room].updated_at)}`
+                    : 'Not saved yet'}
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ fontSize: 12, padding: '6px 10px' }}
+                  disabled={savingRoom === room}
+                  onClick={() => void saveRoomNote(room)}
+                >
+                  {savingRoom === room ? 'Saving…' : 'Save room note'}
+                </button>
+              </div>
+            </div>
           </div>
         )
       })}

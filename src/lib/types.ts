@@ -408,6 +408,21 @@ export interface ProgressNote {
   deleted_by_first_name: string | null
 }
 
+/** Room-level notes in Progress Photos (during/after narrative). */
+export interface ProgressRoomNote {
+  id: string
+  org_id: string
+  job_id: string
+  room_name: string
+  note: string
+  created_at: string
+  updated_at: string
+  created_by_user_id: string
+  updated_by_user_id: string
+  created_by_first_name: string
+  updated_by_first_name: string
+}
+
 /** One AI/manual line item row grouped by room for quote drafting. */
 export interface QuoteLineItemRow {
   id: string
