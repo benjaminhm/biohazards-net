@@ -133,7 +133,7 @@ function composeSow(job: Job): ComposeDocumentResult {
     const areaLines = ad.areas?.length
       ? ad.areas.map(a => `${a.name}: ${a.sqm} sqm — ${a.description || '—'}`.trim()).join('\n')
       : ''
-    const exec = [ad.observations?.trim(), ad.access_restrictions?.trim()]
+    const exec = [ad.manual_location?.trim(), ad.observations?.trim(), ad.access_restrictions?.trim()]
       .filter(Boolean)
       .join('\n\n')
     const c: SOWContent = {

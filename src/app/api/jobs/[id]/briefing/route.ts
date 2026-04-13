@@ -260,6 +260,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     typeof ad?.contamination_level === 'number' ? `Contamination level (1–10): ${ad?.contamination_level}` : '',
     areasLines(ad?.areas ?? []).length ? `Areas:\n${areasLines(ad?.areas ?? []).map((l) => `  - ${l}`).join('\n')}` : '',
     str(ad?.observations) ? `Site observations:\n${str(ad?.observations)}` : '',
+    str(ad?.manual_location) ? `On-site location (manual):\n${str(ad?.manual_location)}` : '',
     str(ad?.access_restrictions) ? `Access restrictions:\n${str(ad?.access_restrictions)}` : '',
     specialRisksLine(ad?.special_risks),
     ppeLine(ad?.ppe_required),

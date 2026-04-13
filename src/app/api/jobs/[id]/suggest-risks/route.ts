@@ -133,6 +133,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       !hasPresentationGrounding({
         biohazard_type: presentationContext.biohazard_type,
         observations: presentationContext.observations,
+        manual_location: presentationContext.manual_location,
         access_restrictions: presentationContext.access_restrictions,
         areas: presentationContext.areas.map(a => ({ name: a.name, description: a.description })),
         photos: presentationContext.photos.map(p => ({ area_ref: p.area_ref, caption: p.caption })),

@@ -87,6 +87,7 @@ export default function QuoteTab({ job, documents, onJobUpdate }: Props) {
           estimated_hours: 0,
           estimated_waste_litres: 0,
           access_restrictions: '',
+          manual_location: '',
           observations: '',
         }),
         target_price:         fields.target_price,

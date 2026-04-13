@@ -47,6 +47,7 @@ Special Risks: ${risks || 'none identified'}
 Estimated Hours: ${a.estimated_hours}
 Estimated Waste: ${a.estimated_waste_litres} litres
 Access Notes: ${a.access_restrictions || 'none'}
+Manual location (on site): ${a.manual_location?.trim() || 'none'}
 
 Technician Observations: "${a.observations}"`
 }

@@ -45,6 +45,7 @@ const DEFAULT_ASSESSMENT: AssessmentData = {
   estimated_hours: 0,
   estimated_waste_litres: 0,
   access_restrictions: '',
+  manual_location: '',
   observations: '',
 }
 
