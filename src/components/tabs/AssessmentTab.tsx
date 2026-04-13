@@ -26,52 +26,7 @@ import { useState, useEffect, useRef, useMemo, type CSSProperties } from 'react'
 import type { Job, AssessmentData, Area, Photo } from '@/lib/types'
 import PhotoUploadPanel from '@/components/PhotoUploadPanel'
 import PhotoCard from '@/components/PhotoCard'
-
-/** Room-type presets for area names — residential / commercial / biohazard */
-const AREA_ROOM_TYPES: readonly string[] = [
-  'Kitchen',
-  'Bathroom',
-  'Bedroom',
-  'Living room',
-  'Master bedroom',
-  'Ensuite',
-  'Toilet',
-  'Laundry',
-  'Hallway',
-  'Garage',
-  'Dining room',
-  'Study',
-  'Rumpus / family room',
-  'Storage room',
-  'Walk-in robe',
-  'Basement',
-  'Attic',
-  'Entry / foyer',
-  'Lobby',
-  'Stairs',
-  'Sunroom',
-  'Patio / alfresco',
-  'Balcony',
-  'Carport',
-  'Shed',
-  'Yard / exterior',
-  'Commercial — office',
-  'Commercial — warehouse',
-  'Commercial — bathroom',
-  'Commercial — kitchen',
-  'Vehicle',
-]
-
-/** '' = none chosen, preset label, or '__other__' for custom text in `name` */
-function areaRoomSelectValue(name: string): string {
-  const t = name.trim()
-  if (!t) return ''
-  const exact = AREA_ROOM_TYPES.find(r => r === t)
-  if (exact) return exact
-  const folded = AREA_ROOM_TYPES.find(r => r.toLowerCase() === t.toLowerCase())
-  if (folded) return folded
-  return '__other__'
-}
+import { AREA_ROOM_TYPES, areaRoomSelectValue } from '@/lib/areaRoomTypes'
 
 const DEFAULT_ASSESSMENT: AssessmentData = {
   areas: [],

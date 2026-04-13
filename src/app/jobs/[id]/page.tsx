@@ -47,6 +47,7 @@ import QuoteCaptureTab from '@/components/tabs/QuoteCaptureTab'
 import IaqBundleCaptureTab from '@/components/tabs/IaqBundleCaptureTab'
 import MessagesTab from '@/components/tabs/MessagesTab'
 import InvoiceTab from '@/components/tabs/InvoiceTab'
+import ProgressNotesTab from '@/components/tabs/ProgressNotesTab'
 import { useUser } from '@/lib/userContext'
 import {
   UnsavedChangesProvider,
@@ -479,9 +480,7 @@ export default function JobPage() {
         {activeTab === 'progress_capture' && (
           <div style={emptyRoomStyle}>Progress Photos (empty room)</div>
         )}
-        {activeTab === 'progress_notes_capture' && (
-          <div style={emptyRoomStyle}>Progress Notes (empty room)</div>
-        )}
+        {activeTab === 'progress_notes_capture' && <ProgressNotesTab job={job} />}
         {activeTab === 'quality_checks_capture' && (
           <div style={emptyRoomStyle}>Quality Control Checks (empty room)</div>
         )}

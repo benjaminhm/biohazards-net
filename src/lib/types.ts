@@ -384,6 +384,27 @@ export interface Photo {
   uploaded_at: string
 }
 
+/** Job-scoped progress notes (DB table `progress_notes`). */
+export interface ProgressNote {
+  id: string
+  org_id: string
+  job_id: string
+  room: string
+  body: string
+  created_at: string
+  updated_at: string
+  created_by_user_id: string
+  updated_by_user_id: string
+  created_by_first_name: string
+  updated_by_first_name: string
+  archived_at: string | null
+  archived_by_user_id: string | null
+  archived_by_first_name: string | null
+  deleted_at: string | null
+  deleted_by_user_id: string | null
+  deleted_by_first_name: string | null
+}
+
 export interface Document {
   id: string
   job_id: string
