@@ -110,7 +110,7 @@ export const DOC_TYPE_GROUPS: DocTypeGroup[] = [
   {
     id: 'execute',
     label: '5. Execute',
-    types: ['report', 'certificate_of_decontamination', 'waste_disposal_manifest'],
+    types: ['certificate_of_decontamination', 'waste_disposal_manifest'],
   },
   {
     id: 'reflect',
@@ -342,6 +342,8 @@ export interface AssessmentData {
   /** Synced from assessment_document_capture on save (Phase 1). */
   content_blocks?: ContentBlock[]
   content_blocks_version?: number
+  /** Execute → Completion Report capture (feeds composed report; use Data Capture, not Reflect → Generate). */
+  completion_report_capture?: CompletionReportCapture
 }
 
 /* Secondary phone numbers on a job (beyond the primary client_phone).
@@ -633,6 +635,19 @@ export interface EngagementAgreementContent {
   completed_by?: string
   /** @deprecated Legacy */
   acceptance?: string
+}
+
+/** Completion Report field capture — aligns with ReportContent narrative sections. */
+export interface CompletionReportCapture {
+  executive_summary: string
+  site_conditions: string
+  works_carried_out: string
+  methodology: string
+  products_used: string
+  waste_disposal: string
+  photo_record: string
+  outcome: string
+  technician_signoff: string
 }
 
 export interface ReportContent {

@@ -49,6 +49,7 @@ import MessagesTab from '@/components/tabs/MessagesTab'
 import InvoiceTab from '@/components/tabs/InvoiceTab'
 import ProgressNotesTab from '@/components/tabs/ProgressNotesTab'
 import ProgressPhotosTab from '@/components/tabs/ProgressPhotosTab'
+import CompletionReportTab from '@/components/tabs/CompletionReportTab'
 import { useUser } from '@/lib/userContext'
 import {
   UnsavedChangesProvider,
@@ -493,7 +494,7 @@ export default function JobPage() {
           <div style={emptyRoomStyle}>Recommendations (empty room)</div>
         )}
         {activeTab === 'progress_report_generate' && (
-          <div style={emptyRoomStyle}>Completion Report (empty room)</div>
+          <CompletionReportTab job={job} onJobUpdate={setJob} />
         )}
         {activeTab === 'client_feedback_capture' && (
           <div style={emptyRoomStyle}>Client feedback (empty room)</div>

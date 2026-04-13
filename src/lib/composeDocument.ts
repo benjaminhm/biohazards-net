@@ -26,6 +26,7 @@ import type {
   RiskAssessmentContent,
 } from '@/lib/types'
 import { mergedSowCapture, staffSowHasContent } from '@/lib/sowCapture'
+import { mergedCompletionReportCapture, completionReportCaptureHasContent } from '@/lib/completionReportCapture'
 import { assessmentDocumentHasContent, mergedAssessmentDocumentCapture } from '@/lib/assessmentDocumentCapture'
 import { buildPrintHTML } from '@/lib/printDocument'
 import type { CompanyProfile } from '@/lib/types'
@@ -238,23 +239,32 @@ function composeEngagement(job: Job): ComposeDocumentResult {
   return { content: { ...c }, source: 'skeleton' }
 }
 
+function fieldOrDash(s: string | undefined): string {
+  const t = (s ?? '').trim()
+  return t || '—'
+}
+
 function composeReport(job: Job): ComposeDocumentResult {
+  const m = mergedCompletionReportCapture(job.assessment_data)
   const c: ReportContent = {
     title: 'Completion Report',
     reference: refPrefix('report', job.id),
-    executive_summary: '— To be completed after works.',
-    site_conditions: '—',
-    works_carried_out: '—',
-    methodology: '—',
-    products_used: '—',
-    waste_disposal: '—',
-    photo_record: '—',
-    outcome: '—',
-    technician_signoff: '—',
+    executive_summary: fieldOrDash(m.executive_summary) === '—' && !completionReportCaptureHasContent(m)
+      ? '— To be completed after works.'
+      : fieldOrDash(m.executive_summary),
+    site_conditions: fieldOrDash(m.site_conditions),
+    works_carried_out: fieldOrDash(m.works_carried_out),
+    methodology: fieldOrDash(m.methodology),
+    products_used: fieldOrDash(m.products_used),
+    waste_disposal: fieldOrDash(m.waste_disposal),
+    photo_record: fieldOrDash(m.photo_record),
+    outcome: fieldOrDash(m.outcome),
+    technician_signoff: fieldOrDash(m.technician_signoff),
     include_photos: true,
     completed_by: '',
   }
-  return { content: { ...c }, source: 'skeleton' }
+  const source: ComposeSource = completionReportCaptureHasContent(m) ? 'assessment_capture' : 'skeleton'
+  return { content: { ...c }, source }
 }
 
 function composeCod(job: Job): ComposeDocumentResult {
