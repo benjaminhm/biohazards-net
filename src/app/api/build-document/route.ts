@@ -49,8 +49,25 @@ function isProgressPhoto(photo: Photo): boolean {
   return photo.category === 'during' || photo.category === 'after'
 }
 
+function executePhaseExtras(ad: Job['assessment_data']): {
+  recommendations: string[]
+  quality_checks: Record<string, unknown>
+} {
+  if (!ad || typeof ad !== 'object') return { recommendations: [], quality_checks: {} }
+  const raw = ad as unknown as Record<string, unknown>
+  const rec = raw.recommendations
+  const recommendations = Array.isArray(rec)
+    ? rec.filter((x): x is string => typeof x === 'string').map(r => r.trim()).filter(Boolean)
+    : []
+  const qc = raw.quality_checks
+  const quality_checks =
+    qc && typeof qc === 'object' && !Array.isArray(qc) ? (qc as Record<string, unknown>) : {}
+  return { recommendations, quality_checks }
+}
+
 function buildReportSourceHash(job: Job, photos: Photo[]): string {
   const sow = mergedSowCapture(job.assessment_data)
+  const { recommendations, quality_checks } = executePhaseExtras(job.assessment_data)
   const progress = photos
     .filter(isProgressPhoto)
     .filter(p => p.category === 'during' || p.category === 'after')
@@ -58,10 +75,9 @@ function buildReportSourceHash(job: Job, photos: Photo[]): string {
       id: p.id,
       category: p.category,
       capture_phase: p.capture_phase ?? null,
-      area_name: (p.area_name || '').trim(),
+      area_ref: (p.area_ref || '').trim(),
       caption: (p.caption || '').trim(),
-      created_at: p.created_at,
-      updated_at: p.updated_at,
+      uploaded_at: p.uploaded_at,
     }))
   return sourceHash({
     schema_version: 1,
@@ -74,8 +90,8 @@ function buildReportSourceHash(job: Job, photos: Photo[]): string {
       exclusions: (sow.exclusions || '').trim(),
     },
     progress_photos: progress,
-    recommendations: (job.assessment_data?.recommendations || []).map(r => r.trim()).filter(Boolean),
-    quality_checks: job.assessment_data?.quality_checks ?? {},
+    recommendations,
+    quality_checks,
   })
 }
 
