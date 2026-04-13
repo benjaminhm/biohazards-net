@@ -65,7 +65,6 @@ JSON schema to return:
   "estimated_hours": <number or null>,
   "estimated_waste_litres": <number or null>,
   "access_restrictions": "<string or empty>",
-  "manual_location": "<on-site detail supplementing street address: building, unit, rear shed, etc., or empty>",
   "observations": "<freeform notes, site conditions, anything not captured elsewhere>",
   "areas": [
     { "name": "<room/area name>", "sqm": <number or 0>, "hazard_level": <1-5>, "description": "<what was found>" }
@@ -96,7 +95,6 @@ Rules:
 - For PPE and special_risks: only set true if explicitly mentioned or clearly implied
 - areas: only include if specific rooms/zones are mentioned
 - custom_fields: be generous — capture insurance company, claim numbers, policy numbers, property manager, property owner, agent contacts, funeral director, coroner status, key location, access codes, police report numbers, council requirements, specialist disposal, skip bin needs, anything else mentioned
-- manual_location: specific place on the property if mentioned (distinct from street address)
 - observations: use for general site conditions, context, and anything that doesn't fit a specific field
 - If something is truly not mentioned, use null for numbers or empty string for strings
 

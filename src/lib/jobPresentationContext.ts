@@ -20,7 +20,6 @@ export type PresentationContext = {
   contamination_level: number | null
   biohazard_type: string | null
   observations: string | null
-  manual_location: string | null
   access_restrictions: string | null
   special_risks: AssessmentData['special_risks'] | null
   ppe_required: AssessmentData['ppe_required'] | null
@@ -30,7 +29,6 @@ export type PresentationContext = {
 export function hasPresentationGrounding(payload: {
   biohazard_type: string | null
   observations: string | null
-  manual_location?: string | null
   access_restrictions: string | null
   areas: { name: string; description: string }[]
   photos: { area_ref: string | null; caption: string | null }[]
@@ -40,7 +38,6 @@ export function hasPresentationGrounding(payload: {
   const t = [
     payload.biohazard_type,
     payload.observations,
-    payload.manual_location,
     payload.access_restrictions,
     ...payload.areas.flatMap(a => [a.name, a.description]),
     ...payload.photos.flatMap(p => [p.caption, p.area_ref].filter(Boolean) as string[]),
@@ -77,7 +74,6 @@ export function buildPresentationContext(input: {
     contamination_level: ad?.contamination_level ?? null,
     biohazard_type: (ad?.biohazard_type || '').trim() || null,
     observations: (ad?.observations || '').trim() || null,
-    manual_location: (ad?.manual_location || '').trim() || null,
     access_restrictions: (ad?.access_restrictions || '').trim() || null,
     special_risks: ad?.special_risks ?? null,
     ppe_required: ad?.ppe_required ?? null,

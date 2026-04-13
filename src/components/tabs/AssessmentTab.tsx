@@ -7,8 +7,7 @@
  *   1. Areas — room name, photos, description (speech + polish). JSON still includes
  *      sqm, hazard_level, note for downstream docs / Photos tab.
  *
- *   Manual on-site location (supplements Details address), areas, photos, descriptions.
- *   Contamination, PPE, risks, estimates, and other checklist fields are not edited here;
+ *   Contamination, PPE, risks, estimates, observations, etc. are not edited here;
  *   they remain in JSON from other flows or legacy data.
  *
  * Per-area Description offers “Polish text” (grammar/spelling via polish-text API)
@@ -48,6 +47,7 @@ const AREA_ROOM_TYPES: readonly string[] = [
   'Basement',
   'Attic',
   'Entry / foyer',
+  'Lobby',
   'Stairs',
   'Sunroom',
   'Patio / alfresco',
@@ -88,7 +88,6 @@ const DEFAULT_ASSESSMENT: AssessmentData = {
   estimated_hours: 0,
   estimated_waste_litres: 0,
   access_restrictions: '',
-  manual_location: '',
   observations: '',
 }
 
@@ -324,24 +323,6 @@ export default function AssessmentTab({ job, onJobUpdate, photos, onPhotosUpdate
       {extractError && (
         <div style={{ fontSize: 13, color: '#F87171', marginBottom: 16, lineHeight: 1.45 }}>{extractError}</div>
       )}
-
-      {section('Site location')}
-      <div className="card" style={{ marginBottom: 12 }}>
-        <label>Manual location (on site)</label>
-        <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4, marginBottom: 10, lineHeight: 1.45 }}>
-          Supplements the job address on Details — e.g. rear shed, unit 3, building B.
-        </p>
-        <textarea
-          value={data.manual_location ?? ''}
-          onChange={e => {
-            setData(d => ({ ...d, manual_location: e.target.value }))
-            setSaved(false)
-          }}
-          placeholder="Where exactly on the property…"
-          rows={2}
-          style={{ resize: 'vertical', width: '100%' }}
-        />
-      </div>
 
       {/* Areas */}
       {section('Areas')}

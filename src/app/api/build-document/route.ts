@@ -89,7 +89,6 @@ ASSESSMENT:
 - Estimated hours: ${a?.estimated_hours ?? '?'}
 - Estimated waste: ${a?.estimated_waste_litres ?? '?'} litres
 - Access restrictions: ${a?.access_restrictions || 'none'}
-- Manual location (on site): ${a?.manual_location || 'none'}
 - Observations: ${a?.observations || 'none'}
 - PPE required: ${ppeList}
 - Special risks: ${riskList}

@@ -303,8 +303,6 @@ export interface AssessmentData {
   estimated_hours: number
   estimated_waste_litres: number
   access_restrictions: string
-  /** On-site location detail (e.g. rear shed, unit 3) — supplements `Job.site_address` from Details */
-  manual_location?: string
   observations: string
   target_price?: number
   target_price_note?: string
