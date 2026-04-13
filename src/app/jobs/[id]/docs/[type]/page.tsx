@@ -16,52 +16,7 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import type { CompanyProfile, DocType, Job, Photo, QuoteLineItemRow } from '@/lib/types'
 import { DOC_TYPE_LABELS } from '@/lib/types'
 import { composeDocumentContent, buildComposedPreviewHtml } from '@/lib/composeDocument'
-
-function quoteContentFromRows(rows: QuoteLineItemRow[]) {
-  const lineItems = rows.map(row => ({
-    description: row.description,
-    qty: Number(row.qty || 0),
-    unit: row.unit,
-    rate: Number(row.rate || 0),
-    total: Number(row.total || 0),
-  }))
-  const subtotal = Math.round(lineItems.reduce((sum, row) => sum + Number(row.total || 0), 0) * 100) / 100
-  return {
-    line_items: lineItems,
-    subtotal,
-    gst: 0,
-    total: subtotal,
-  }
-}
-
-function withQuoteCaptureData(
-  docType: DocType,
-  composed: Record<string, unknown>,
-  rows: QuoteLineItemRow[],
-): Record<string, unknown> {
-  if (!rows.length) return composed
-  if (docType === 'quote') {
-    return { ...composed, ...quoteContentFromRows(rows) }
-  }
-  if (docType === 'iaq_multi') {
-    const partsRaw = composed.parts
-    if (!Array.isArray(partsRaw)) return composed
-    const parts = partsRaw.map(part => {
-      if (!part || typeof part !== 'object') return part
-      const p = part as { type?: string; content?: Record<string, unknown> }
-      if (p.type !== 'quote' || !p.content) return part
-      return {
-        ...p,
-        content: {
-          ...p.content,
-          ...quoteContentFromRows(rows),
-        },
-      }
-    })
-    return { ...composed, parts }
-  }
-  return composed
-}
+import { mergeQuoteLineItemsIntoDocContent } from '@/lib/quoteLineItemsForDocuments'
 
 function DocViewerInner() {
   const params       = useParams()
@@ -140,7 +95,15 @@ function DocViewerInner() {
       setJob(j); setPhotos(ph); setCompany(co)
       if (docId) {
         const d = await fetch(`/api/documents/${docId}`).then(r => r.json())
-        if (d.document?.content) setContent(d.document.content)
+        if (d.document?.content) {
+          let next = d.document.content as Record<string, unknown>
+          if (docType === 'quote' || docType === 'iaq_multi') {
+            const quoteRes = await fetch(`/api/jobs/${jobId}/quote-line-items`).then(r => r.json())
+            const rows = (quoteRes.items ?? []) as QuoteLineItemRow[]
+            next = mergeQuoteLineItemsIntoDocContent(docType, next, rows)
+          }
+          setContent(next)
+        }
         return
       }
       const spCompose = searchParams.get('compose')
@@ -154,7 +117,7 @@ function DocViewerInner() {
         if (docType === 'quote' || docType === 'iaq_multi') {
           const quoteRes = await fetch(`/api/jobs/${jobId}/quote-line-items`).then(r => r.json())
           const rows = (quoteRes.items ?? []) as QuoteLineItemRow[]
-          finalComposed = withQuoteCaptureData(docType, composed, rows)
+          finalComposed = mergeQuoteLineItemsIntoDocContent(docType, composed, rows)
         }
         setContent(finalComposed)
         router.replace(`/jobs/${jobId}/docs/${docType}`, { scroll: false })

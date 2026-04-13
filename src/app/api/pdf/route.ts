@@ -20,6 +20,10 @@ const { renderToBuffer } = require('@react-pdf/renderer')
 import { createElement } from 'react'
 import { JobPDFDocument } from '@/components/PDFDocument'
 import { createServiceClient } from '@/lib/supabase'
+import {
+  fetchActiveQuoteLineItemsForJob,
+  mergeQuoteLineItemsIntoDocContent,
+} from '@/lib/quoteLineItemsForDocuments'
 import type { DocType } from '@/lib/types'
 
 export const runtime = 'nodejs'
@@ -37,6 +41,19 @@ export async function POST(req: Request) {
     }
 
     const supabase = createServiceClient()
+    let mergedContent: Record<string, unknown> = { ...(content as Record<string, unknown>) }
+    if (
+      jobId &&
+      (type === 'quote' || type === 'iaq_multi')
+    ) {
+      try {
+        const rows = await fetchActiveQuoteLineItemsForJob(supabase, jobId)
+        mergedContent = mergeQuoteLineItemsIntoDocContent(type, mergedContent, rows)
+      } catch {
+        /* use client content */
+      }
+    }
+
     const [photosRes, companyRes, jobRes] = await Promise.all([
       jobId
         ? supabase.from('photos').select('*').eq('job_id', jobId).order('uploaded_at', { ascending: true })
@@ -50,7 +67,7 @@ export async function POST(req: Request) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const buffer: Buffer = await renderToBuffer(createElement(JobPDFDocument as any, {
       type,
-      content,
+      content: mergedContent,
       photos: photosRes.data ?? [],
       company: companyRes.data ?? null,
       jobId,

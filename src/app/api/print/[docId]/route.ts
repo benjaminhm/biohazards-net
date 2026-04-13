@@ -16,6 +16,11 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import { buildPrintHTML } from '@/lib/printDocument'
+import {
+  fetchActiveQuoteLineItemsForJob,
+  mergeQuoteLineItemsIntoDocContent,
+} from '@/lib/quoteLineItemsForDocuments'
+import type { DocType } from '@/lib/types'
 
 export async function GET(_req: Request, { params }: { params: Promise<{ docId: string }> }) {
   const { docId } = await params
@@ -39,9 +44,20 @@ export async function GET(_req: Request, { params }: { params: Promise<{ docId: 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.biohazards.net'
   const printUrl = `${appUrl}/api/print/${docId}`
 
+  let docContent: Record<string, unknown> = (doc.content ?? {}) as Record<string, unknown>
+  const docType = doc.type as DocType
+  if (docType === 'quote' || docType === 'iaq_multi') {
+    try {
+      const rows = await fetchActiveQuoteLineItemsForJob(supabase, doc.job_id)
+      docContent = mergeQuoteLineItemsIntoDocContent(docType, docContent, rows)
+    } catch {
+      /* keep stored content if quote tables unavailable */
+    }
+  }
+
   const html = buildPrintHTML(
     doc.type,
-    doc.content ?? {},
+    docContent,
     photosRes.data ?? [],
     jobRes.data?.assessment_data?.areas ?? [],
     companyRes.data ?? null,
