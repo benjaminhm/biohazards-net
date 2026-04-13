@@ -104,7 +104,7 @@ function pageTitleForTab(tab: Tab, job: Job): string {
     case 'recommendations_capture':
       return 'Recommendations'
     case 'progress_report_generate':
-      return 'Generate progress report'
+      return 'Completion report'
     case 'client_feedback_capture':
       return 'Client feedback'
     case 'team_feedback_capture':
@@ -493,7 +493,7 @@ export default function JobPage() {
           <div style={emptyRoomStyle}>Recommendations (empty room)</div>
         )}
         {activeTab === 'progress_report_generate' && (
-          <div style={emptyRoomStyle}>Generate Progress Report (empty room)</div>
+          <div style={emptyRoomStyle}>Completion Report (empty room)</div>
         )}
         {activeTab === 'client_feedback_capture' && (
           <div style={emptyRoomStyle}>Client feedback (empty room)</div>

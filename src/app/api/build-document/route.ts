@@ -37,8 +37,9 @@ import {
   hitlSelectionsBlock,
   validateBuildDocument,
 } from '@/lib/documentGenerationDrivers'
-import { staffSowCaptureBlock } from '@/lib/sowCapture'
+import { mergedSowCapture, staffSowCaptureBlock } from '@/lib/sowCapture'
 import { staffAssessmentDocumentBlock } from '@/lib/assessmentDocumentCapture'
+import { sourceHash } from '@/lib/sourceHash'
 
 const client = new Anthropic()
 
@@ -46,6 +47,36 @@ function isProgressPhoto(photo: Photo): boolean {
   if (photo.capture_phase === 'progress') return true
   if (photo.capture_phase === 'assessment') return false
   return photo.category === 'during' || photo.category === 'after'
+}
+
+function buildReportSourceHash(job: Job, photos: Photo[]): string {
+  const sow = mergedSowCapture(job.assessment_data)
+  const progress = photos
+    .filter(isProgressPhoto)
+    .filter(p => p.category === 'during' || p.category === 'after')
+    .map(p => ({
+      id: p.id,
+      category: p.category,
+      capture_phase: p.capture_phase ?? null,
+      area_name: (p.area_name || '').trim(),
+      caption: (p.caption || '').trim(),
+      created_at: p.created_at,
+      updated_at: p.updated_at,
+    }))
+  return sourceHash({
+    schema_version: 1,
+    report_top_field_scope_snapshot: {
+      objective: (sow.objective || '').trim(),
+      scope_work: (sow.scope_work || '').trim(),
+      timeline: (sow.timeline || '').trim(),
+      safety: (sow.safety || '').trim(),
+      waste: (sow.waste || '').trim(),
+      exclusions: (sow.exclusions || '').trim(),
+    },
+    progress_photos: progress,
+    recommendations: (job.assessment_data?.recommendations || []).map(r => r.trim()).filter(Boolean),
+    quality_checks: job.assessment_data?.quality_checks ?? {},
+  })
 }
 
 /* Generates a human-readable document reference (e.g. QTE-20250401-AB12CD)
@@ -442,7 +473,12 @@ export async function POST(req: Request) {
     const jsonMatch = text.match(/\{[\s\S]*\}/)
     if (!jsonMatch) throw new Error('No JSON returned from Claude')
 
-    const content = JSON.parse(jsonMatch[0])
+    const content = JSON.parse(jsonMatch[0]) as Record<string, unknown>
+    if (type === 'report') {
+      content._source_hash = buildReportSourceHash(job, photos ?? [])
+      content._source_schema_version = 1
+      content._source_generated_at = new Date().toISOString()
+    }
     return NextResponse.json({ content })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Unknown error'

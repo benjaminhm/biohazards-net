@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
+import { QUOTE_SOURCE_SCHEMA_VERSION, quoteLineItemSourceHash } from '@/lib/quoteLineItemSource'
+import type { AssessmentData, JobType } from '@/lib/types'
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -12,6 +14,20 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const { id: jobId } = await params
     const supabase = createServiceClient()
 
+    const { data: job } = await supabase
+      .from('jobs')
+      .select('job_type, notes, assessment_data')
+      .eq('id', jobId)
+      .eq('org_id', orgId)
+      .maybeSingle()
+    if (!job) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
+
+    const currentSourceHash = quoteLineItemSourceHash({
+      job_type: job.job_type as JobType,
+      notes: job.notes ?? '',
+      assessment_data: (job.assessment_data ?? null) as AssessmentData | null,
+    }).hash
+
     const { data: run } = await supabase
       .from('quote_line_item_runs')
       .select('*')
@@ -20,7 +36,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       .eq('is_active', true)
       .maybeSingle()
 
-    if (!run) return NextResponse.json({ run: null, items: [] })
+    if (!run) return NextResponse.json({ run: null, items: [], freshness_status: 'missing', current_source_hash: currentSourceHash })
 
     const { data: items, error } = await supabase
       .from('quote_line_items')
@@ -34,7 +50,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       .order('created_at', { ascending: true })
 
     if (error) throw error
-    return NextResponse.json({ run, items: items ?? [] })
+    const freshnessStatus = run.source_hash && run.source_hash === currentSourceHash ? 'up_to_date' : 'needs_refresh'
+    return NextResponse.json({
+      run,
+      items: items ?? [],
+      freshness_status: freshnessStatus,
+      current_source_hash: currentSourceHash,
+    })
   } catch (e: unknown) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : 'Could not load line items' },
@@ -76,6 +98,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       .maybeSingle()
 
     if (!run) {
+      const { data: job } = await supabase
+        .from('jobs')
+        .select('job_type, notes, assessment_data')
+        .eq('id', jobId)
+        .eq('org_id', orgId)
+        .maybeSingle()
+      if (!job) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
+      const currentSourceHash = quoteLineItemSourceHash({
+        job_type: job.job_type as JobType,
+        notes: job.notes ?? '',
+        assessment_data: (job.assessment_data ?? null) as AssessmentData | null,
+      }).hash
+
       const inserted = await supabase
         .from('quote_line_item_runs')
         .insert({
@@ -84,6 +119,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           target_amount: null,
           target_price_note: '',
           is_active: true,
+          source_hash: currentSourceHash,
+          source_schema_version: QUOTE_SOURCE_SCHEMA_VERSION,
+          generated_at: new Date().toISOString(),
+          generated_by_user_id: userId,
           created_by_user_id: userId,
         })
         .select()

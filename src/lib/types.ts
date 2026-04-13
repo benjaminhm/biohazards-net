@@ -452,6 +452,10 @@ export interface QuoteLineItemRun {
   target_amount: number | null
   target_price_note: string
   is_active: boolean
+  source_hash?: string | null
+  source_schema_version?: number
+  generated_at?: string | null
+  generated_by_user_id?: string | null
   created_at: string
   created_by_user_id: string
 }

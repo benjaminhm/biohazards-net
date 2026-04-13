@@ -30,15 +30,22 @@ export default function QuoteCaptureTab({ job, documents, onJobUpdate, onGoToSco
   const [loading, setLoading] = useState(false)
   const [suggesting, setSuggesting] = useState(false)
   const [addingRoom, setAddingRoom] = useState('')
+  const [freshnessStatus, setFreshnessStatus] = useState<'missing' | 'up_to_date' | 'needs_refresh'>('missing')
 
   async function loadItems() {
     setLoading(true)
     try {
       const res = await fetch(`/api/jobs/${job.id}/quote-line-items`)
-      const data = (await res.json()) as { run: QuoteLineItemRun | null; items: QuoteLineItemRow[]; error?: string }
+      const data = (await res.json()) as {
+        run: QuoteLineItemRun | null
+        items: QuoteLineItemRow[]
+        freshness_status?: 'missing' | 'up_to_date' | 'needs_refresh'
+        error?: string
+      }
       if (!res.ok) throw new Error(data.error ?? 'Could not load line items')
       setRun(data.run)
       setItems(data.items ?? [])
+      setFreshnessStatus(data.freshness_status ?? (data.run ? 'needs_refresh' : 'missing'))
     } catch (e) {
       window.alert(e instanceof Error ? e.message : 'Could not load line items')
     } finally {
@@ -66,6 +73,7 @@ export default function QuoteCaptureTab({ job, documents, onJobUpdate, onGoToSco
       if (!res.ok) throw new Error(data.error ?? 'Could not generate suggestions')
       setRun(data.run ?? null)
       setItems(data.items ?? [])
+      setFreshnessStatus(data.run ? 'up_to_date' : 'missing')
     } catch (e) {
       window.alert(e instanceof Error ? e.message : 'Could not generate suggestions')
     } finally {
@@ -229,6 +237,16 @@ export default function QuoteCaptureTab({ job, documents, onJobUpdate, onGoToSco
 
         <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 12px', lineHeight: 1.5 }}>
           AI drafts line items by room from Scope of Work. You can edit description, qty, unit, and rate. Regenerate replaces current suggestions.
+        </p>
+        <p style={{ fontSize: 12, margin: '0 0 12px', lineHeight: 1.5, color: 'var(--text-muted)' }}>
+          Source status:{' '}
+          <strong style={{ color: freshnessStatus === 'up_to_date' ? '#10B981' : freshnessStatus === 'needs_refresh' ? '#F59E0B' : 'var(--text)' }}>
+            {freshnessStatus === 'up_to_date'
+              ? 'Up to date'
+              : freshnessStatus === 'needs_refresh'
+                ? 'Needs refresh (scope/details changed)'
+                : 'Not generated yet'}
+          </strong>
         </p>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, marginBottom: 12 }}>

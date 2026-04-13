@@ -6,6 +6,10 @@ import { getOrgId } from '@/lib/org'
 import { getAnthropicApiKey } from '@/lib/loadAnthropicEnvFallback'
 import { mergedSowCapture } from '@/lib/sowCapture'
 import type { AssessmentData, JobType } from '@/lib/types'
+import {
+  QUOTE_SOURCE_SCHEMA_VERSION,
+  quoteLineItemSourceHash,
+} from '@/lib/quoteLineItemSource'
 
 type DraftItem = { description: string; qty: number; unit: string; weight: number }
 type DraftRoom = { room: string; items: DraftItem[] }
@@ -91,18 +95,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       )
     }
 
-    const areas = (ad?.areas ?? []).map(a => ({ name: (a.name || '').trim(), description: (a.description || '').trim() }))
     const targetPrice = ad?.target_price ?? null
     const targetPriceNote = ad?.target_price_note ?? ''
-
-    const userBlock = JSON.stringify({
+    const sourceState = quoteLineItemSourceHash({
       job_type: job.job_type as JobType,
       notes: job.notes ?? '',
-      scope_capture: sow,
-      areas,
-      target_price: targetPrice,
-      target_price_note: targetPriceNote,
+      assessment_data: ad,
     })
+
+    const userBlock = JSON.stringify(sourceState.source)
 
     const client = new Anthropic({ apiKey })
     const msg = await client.messages.create({
@@ -140,6 +141,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         target_amount: targetPrice,
         target_price_note: targetPriceNote,
         is_active: true,
+        source_hash: sourceState.hash,
+        source_schema_version: QUOTE_SOURCE_SCHEMA_VERSION,
+        generated_at: new Date().toISOString(),
+        generated_by_user_id: userId,
         created_by_user_id: userId,
       })
       .select()

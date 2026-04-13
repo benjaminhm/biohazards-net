@@ -363,6 +363,17 @@ function DataCaptureForPhase({
           >
             {DOC_TYPE_LABELS.waste_disposal_manifest}
           </button>
+          <button
+            type="button"
+            onClick={() => n?.('progress_report_generate')}
+            style={{
+              padding: '9px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600,
+              background: 'rgba(20,184,166,0.18)', border: '1px solid rgba(45,212,191,0.5)',
+              color: '#99F6E4', cursor: 'pointer',
+            }}
+          >
+            Completion Report
+          </button>
         </>
       )
     case 'reflect':
@@ -643,26 +654,6 @@ export default function DocumentsTab({
                       {pg.label}
                     </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                      {pg.id === 'execute' && (
-                        <button
-                          type="button"
-                          onClick={() => onNavigate?.('progress_report_generate')}
-                          style={{
-                            padding: '9px 14px',
-                            borderRadius: 8,
-                            fontSize: 13,
-                            fontWeight: 600,
-                            background: 'var(--surface)',
-                            border: '1px solid var(--border)',
-                            color: 'var(--text)',
-                            cursor: 'pointer',
-                          }}
-                          onMouseOver={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
-                          onMouseOut={e => (e.currentTarget.style.borderColor = 'var(--border)')}
-                        >
-                          + Progress Report
-                        </button>
-                      )}
                       {pg.types.map(type => (
                         <button
                           key={type}
