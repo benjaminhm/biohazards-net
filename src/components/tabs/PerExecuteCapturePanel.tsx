@@ -33,18 +33,18 @@ const BUBBLE: CSSProperties = {
 const FIELDS: { key: keyof PerExecuteCapture; label: string; placeholder: string }[] = [
   {
     key: 'recommendations',
-    label: 'Recommendations',
-    placeholder: 'Post-remediation recommendations for the client or follow-up…',
+    label: 'Client follow-up (recommendations)',
+    placeholder: 'Post-remediation advice for the client, monitoring, next steps…',
   },
   {
     key: 'quality_checks',
-    label: 'Quality control checks',
+    label: 'Verification & QC',
     placeholder: 'Verification steps, clearance criteria, sign-offs…',
   },
   {
     key: 'waste_manifest_notes',
-    label: 'Waste / disposal manifest notes',
-    placeholder: 'What was removed, transport, facility, manifest references…',
+    label: 'Waste / manifest (detail)',
+    placeholder: 'Manifest references, classification, contractor, transport…',
   },
 ]
 
@@ -65,6 +65,8 @@ interface Props {
   showSuggest?: boolean
   /** When true, hide PER-only save (parent saves per_execute with completion report). */
   embeddedInCompletionReport?: boolean
+  /** When embedded, skip the lead-in paragraph (e.g. parent supplies a section title). */
+  omitIntro?: boolean
 }
 
 export default function PerExecuteCapturePanel({
@@ -75,6 +77,7 @@ export default function PerExecuteCapturePanel({
   onCaptureChange,
   showSuggest: showSuggestProp,
   embeddedInCompletionReport = false,
+  omitIntro = false,
 }: Props) {
   const persisted = mergedPerExecuteCapture(job.assessment_data)
   const [internal, setInternal] = useState<PerExecuteCapture>(() => ({ ...persisted }))
@@ -186,7 +189,7 @@ export default function PerExecuteCapturePanel({
 
   return (
     <div style={{ marginBottom: 24 }}>
-      {intro}
+      {!omitIntro && intro}
 
       {showSuggest && (
         <div
@@ -290,14 +293,13 @@ export default function PerExecuteCapturePanel({
 
       {embeddedInCompletionReport && (
         <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
-          Execute-phase silos save together with <strong style={{ color: 'var(--text)' }}>Save completion report</strong>{' '}
-          below.
+          PER silos save together with <strong style={{ color: 'var(--text)' }}>Save completion report</strong> below.
         </p>
       )}
 
       {!perExecuteCaptureHasContent(capture) && emphasis === 'all' && !embeddedInCompletionReport && (
         <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 10 }}>
-          Optional; leave blank if you only use the completion report text fields below.
+          Optional; leave blank if you only use the completion report narrative fields.
         </p>
       )}
     </div>

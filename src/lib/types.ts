@@ -110,7 +110,7 @@ export const DOC_TYPE_GROUPS: DocTypeGroup[] = [
   {
     id: 'execute',
     label: '5. Execute',
-    types: ['certificate_of_decontamination', 'waste_disposal_manifest'],
+    types: ['report', 'certificate_of_decontamination', 'waste_disposal_manifest'],
   },
   {
     id: 'reflect',

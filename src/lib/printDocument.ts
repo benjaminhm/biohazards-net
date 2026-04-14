@@ -28,6 +28,9 @@ import type {
 } from './types'
 import { DOC_TYPE_LABELS } from './types'
 import { filterGroupedStages, groupPhotosByRoomAndStage, type RoomPhotoGroup } from './photoGroups'
+
+/** Matches the navy header when `company` is missing (meta grid used to show "—" while header showed this name). */
+const DEFAULT_PRINT_ORG_NAME = 'Brisbane Biohazard Cleaning'
 import { richBodyHtmlForPrint } from '@/lib/richTextPrint'
 
 // en-AU locale produces comma separators and dollar sign (e.g. $4,500.00)
@@ -455,7 +458,7 @@ function defaultBrandedMeta(company: CompanyProfile | null, client?: ClientInfo)
   ]
     .filter(Boolean)
     .join(' · ') || '—'
-  const companyName = company?.name?.trim() || '—'
+  const companyName = company?.name?.trim() || DEFAULT_PRINT_ORG_NAME
   const companyContact = [
     (company?.phone || '').trim(),
     (company?.email || '').trim(),
@@ -500,7 +503,7 @@ function wrapBranded(
   meta: BrandedMeta,
   printOptions?: WrapBrandedPrintOptions,
 ): string {
-  const coName = company?.name || 'Brisbane Biohazard Cleaning'
+  const coName = company?.name || DEFAULT_PRINT_ORG_NAME
   const coTag = company?.tagline || 'Biohazard & Forensic Remediation Services'
   const logo = company?.logo_url
     ? `<img class="sow-logo" src="${esc(company.logo_url)}" alt="${esc(coName)}">`

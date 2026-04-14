@@ -2,7 +2,7 @@
  * app/jobs/[id]/docs/[type]/page.tsx
  *
  * Job document viewer: print-style HTML preview (same pipeline as /api/print) + Save + Print.
- * Optional AI build (POST /api/build-document) for supported types. No in-page field editor.
+ * No in-page field editor.
  *
  * Deterministic compose (?compose=1) fills from job data.
  *
@@ -11,7 +11,7 @@
  */
 'use client'
 
-import { useEffect, useState, useRef, useCallback, Suspense } from 'react'
+import { useEffect, useState, useRef, Suspense } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import type { CompanyProfile, DocType, Job, Photo, ProgressNote, ProgressRoomNote, QuoteLineItemRow } from '@/lib/types'
 import { DOC_TYPE_LABELS } from '@/lib/types'
@@ -35,7 +35,6 @@ function DocViewerInner() {
   const [savedDocId,       setSavedDocId]      = useState<string | null>(docId)
   /** Revoke when replacing blob print URL */
   const printBlobUrlRef = useRef<string | null>(null)
-  const [building,         setBuilding]        = useState(false)
   const [saving,           setSaving]          = useState(false)
   const [saveOk,           setSaveOk]          = useState(false)
   const [saveErr,          setSaveErr]         = useState('')
@@ -164,20 +163,6 @@ function DocViewerInner() {
     )
   }, [job, docType, content, photos, company, jobId, hasContent])
 
-  const buildWithClaude = useCallback(async () => {
-    if (!job) return
-    setBuilding(true)
-    setSaveErr('')
-    try {
-      const res = await fetch('/api/build-document', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: docType, job, photos, company }) })
-      const data = await res.json()
-      if (data.error) throw new Error(data.error)
-      setContent(data.content)
-    } catch (err: unknown) {
-      setSaveErr(err instanceof Error ? err.message : 'Build failed')
-    } finally { setBuilding(false) }
-  }, [job, photos, company, docType])
-
   async function save(andOpen = false) {
     if (!hasContent) return
     setSaving(true); setSaveErr('')
@@ -224,7 +209,7 @@ function DocViewerInner() {
           <div style={{ fontSize: 13, lineHeight: 1.5 }}>
             {docType === 'iaq_multi'
               ? <>Open from job documents with a saved bundle, or use <strong>?compose=1</strong> on this URL to generate from the job.</>
-              : <>Use <strong>✨ Build</strong> in the header to generate from the job, or open an existing saved document.</>}
+              : <>Open this document type from Job Home with <strong>?compose=1</strong>, or open an existing saved document.</>}
           </div>
         </div>
       ) : composedPreviewHtml ? (
@@ -255,23 +240,6 @@ function DocViewerInner() {
         </div>
         {saveErr && <div style={{ fontSize: 12, color: '#F87171', flexShrink: 0, maxWidth: 200 }}>{saveErr}</div>}
         {saveOk && <div style={{ fontSize: 12, color: '#4ADE80', flexShrink: 0 }}>✓</div>}
-        {docType !== 'iaq_multi' && (
-          <button
-            type="button"
-            data-devid="P3-E2"
-            onClick={() => void buildWithClaude()}
-            disabled={building || !job}
-            className="btn btn-secondary"
-            style={{ fontSize: 12, padding: '6px 10px', flexShrink: 0 }}
-            title={
-              docType === 'report'
-                ? 'Optional: full-document Claude pass. Routine completion reporting uses the job Completion Report tab (deterministic preview + capture).'
-                : undefined
-            }
-          >
-            {building ? <><span className="spinner" /> Build…</> : '✨ Build'}
-          </button>
-        )}
         <button type="button" data-devid="P3-E7" onClick={() => save(false)} disabled={saving || !hasContent} className="btn btn-secondary" style={{ fontSize: 13, padding: '8px 12px', flexShrink: 0 }}>
           {saving ? '…' : isMobile ? '💾' : 'Save'}
         </button>
