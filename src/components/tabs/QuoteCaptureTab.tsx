@@ -367,65 +367,90 @@ export default function QuoteCaptureTab({ job, documents, onJobUpdate, onGoToSco
                     </div>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                    <input
-                      value={row.outcome_title}
-                      onChange={e => patchOutcomeRow(row.id, r => ({ ...r, outcome_title: e.target.value }))}
-                      placeholder="Outcome title"
-                    />
-                    <input
-                      value={row.areas.join(', ')}
-                      onChange={e => patchOutcomeRow(row.id, r => ({ ...r, areas: e.target.value.split(',').map(v => v.trim()).filter(Boolean) }))}
-                      placeholder="Areas (comma separated)"
+                    <div className="field" style={{ marginBottom: 0 }}>
+                      <label>Outcome title</label>
+                      <input
+                        value={row.outcome_title}
+                        onChange={e => patchOutcomeRow(row.id, r => ({ ...r, outcome_title: e.target.value }))}
+                        placeholder="Outcome title"
+                      />
+                    </div>
+                    <div className="field" style={{ marginBottom: 0 }}>
+                      <label>Areas</label>
+                      <input
+                        value={row.areas.join(', ')}
+                        onChange={e => patchOutcomeRow(row.id, r => ({ ...r, areas: e.target.value.split(',').map(v => v.trim()).filter(Boolean) }))}
+                        placeholder="Areas (comma separated)"
+                      />
+                    </div>
+                  </div>
+                  <div className="field" style={{ marginBottom: 0, marginTop: 8 }}>
+                    <label>Outcome description</label>
+                    <textarea
+                      value={row.outcome_description}
+                      onChange={e => patchOutcomeRow(row.id, r => ({ ...r, outcome_description: e.target.value }))}
+                      placeholder="Outcome description"
+                      rows={2}
                     />
                   </div>
-                  <textarea
-                    value={row.outcome_description}
-                    onChange={e => patchOutcomeRow(row.id, r => ({ ...r, outcome_description: e.target.value }))}
-                    placeholder="Outcome description"
-                    rows={2}
-                    style={{ marginTop: 8 }}
-                  />
-                  <textarea
-                    value={row.acceptance_criteria}
-                    onChange={e => patchOutcomeRow(row.id, r => ({ ...r, acceptance_criteria: e.target.value }))}
-                    placeholder="Acceptance criteria"
-                    rows={2}
-                    style={{ marginTop: 8 }}
-                  />
+                  <div className="field" style={{ marginBottom: 0, marginTop: 8 }}>
+                    <label>Acceptance criteria</label>
+                    <textarea
+                      value={row.acceptance_criteria}
+                      onChange={e => patchOutcomeRow(row.id, r => ({ ...r, acceptance_criteria: e.target.value }))}
+                      placeholder="Acceptance criteria"
+                      rows={2}
+                    />
+                  </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={row.price}
-                      onChange={e => patchOutcomeRow(row.id, r => ({ ...r, price: Math.max(0, Number(e.target.value || 0)) }))}
-                      placeholder="Price"
-                    />
-                    <input
-                      value={row.verification_method}
-                      onChange={e => patchOutcomeRow(row.id, r => ({ ...r, verification_method: e.target.value }))}
-                      placeholder="Verification method"
-                    />
+                    <div className="field" style={{ marginBottom: 0 }}>
+                      <label>Price</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={row.price}
+                        onChange={e => patchOutcomeRow(row.id, r => ({ ...r, price: Math.max(0, Number(e.target.value || 0)) }))}
+                        placeholder="Price"
+                      />
+                    </div>
+                    <div className="field" style={{ marginBottom: 0 }}>
+                      <label>Verification method</label>
+                      <input
+                        value={row.verification_method}
+                        onChange={e => patchOutcomeRow(row.id, r => ({ ...r, verification_method: e.target.value }))}
+                        placeholder="Verification method"
+                      />
+                    </div>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginTop: 8 }}>
-                    <textarea
-                      value={joinLines(row.included)}
-                      onChange={e => patchOutcomeRow(row.id, r => ({ ...r, included: splitLines(e.target.value) }))}
-                      placeholder="Included (one per line)"
-                      rows={3}
-                    />
-                    <textarea
-                      value={joinLines(row.excluded)}
-                      onChange={e => patchOutcomeRow(row.id, r => ({ ...r, excluded: splitLines(e.target.value) }))}
-                      placeholder="Excluded (one per line)"
-                      rows={3}
-                    />
-                    <textarea
-                      value={joinLines(row.assumptions)}
-                      onChange={e => patchOutcomeRow(row.id, r => ({ ...r, assumptions: splitLines(e.target.value) }))}
-                      placeholder="Assumptions (one per line)"
-                      rows={3}
-                    />
+                    <div className="field" style={{ marginBottom: 0 }}>
+                      <label>Included</label>
+                      <textarea
+                        value={joinLines(row.included)}
+                        onChange={e => patchOutcomeRow(row.id, r => ({ ...r, included: splitLines(e.target.value) }))}
+                        placeholder="Included (one per line)"
+                        rows={3}
+                      />
+                    </div>
+                    <div className="field" style={{ marginBottom: 0 }}>
+                      <label>Excluded</label>
+                      <textarea
+                        value={joinLines(row.excluded)}
+                        onChange={e => patchOutcomeRow(row.id, r => ({ ...r, excluded: splitLines(e.target.value) }))}
+                        placeholder="Excluded (one per line)"
+                        rows={3}
+                      />
+                    </div>
+                    <div className="field" style={{ marginBottom: 0 }}>
+                      <label>Assumptions</label>
+                      <textarea
+                        value={joinLines(row.assumptions)}
+                        onChange={e => patchOutcomeRow(row.id, r => ({ ...r, assumptions: splitLines(e.target.value) }))}
+                        placeholder="Assumptions (one per line)"
+                        rows={3}
+                      />
+                    </div>
                   </div>
                   <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                     <button type="button" className="btn btn-secondary" style={{ fontSize: 12 }} onClick={() => patchOutcomeRow(row.id, r => ({ ...r, status: 'approved' as OutcomeQuoteStatus }))}>
