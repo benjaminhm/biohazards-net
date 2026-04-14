@@ -259,6 +259,44 @@ export interface AssessmentDocumentCapture {
   limitations: string
 }
 
+export type OutcomeQuoteStatus = 'suggested' | 'approved' | 'rejected' | 'edited'
+
+export interface OutcomeQuoteMetric {
+  label: string
+  value: string
+}
+
+export interface OutcomeQuoteRow {
+  id: string
+  areas: string[]
+  outcome_title: string
+  outcome_description: string
+  acceptance_criteria: string
+  price: number
+  status: OutcomeQuoteStatus
+  included: string[]
+  excluded: string[]
+  assumptions: string[]
+  verification_method: string
+  metrics?: OutcomeQuoteMetric[]
+}
+
+export interface OutcomeQuoteCapture {
+  mode: 'line_items' | 'outcomes'
+  rows: OutcomeQuoteRow[]
+  totals: {
+    subtotal: number
+    gst: number
+    total: number
+  }
+  target_pricing: {
+    target_amount?: number
+    target_price_note?: string
+  }
+  last_suggested_at?: string
+  last_reviewed_at?: string
+}
+
 /** Phase 1 job-scoped blocks for composer / future print wiring; stable string ids. */
 export type ContentBlockType = 'prose' | 'key_value' | 'table'
 
@@ -349,6 +387,8 @@ export interface AssessmentData {
    * Aggregated into the completion report when staff completion_report_capture fields are left blank.
    */
   per_execute_capture?: PerExecuteCapture
+  /** Outcome-first quote capture for HITL value-based pricing; line items remain internal engine. */
+  outcome_quote_capture?: OutcomeQuoteCapture
 }
 
 /* Secondary phone numbers on a job (beyond the primary client_phone).

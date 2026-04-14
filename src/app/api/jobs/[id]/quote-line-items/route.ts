@@ -3,7 +3,7 @@ import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import { QUOTE_SOURCE_SCHEMA_VERSION, quoteLineItemSourceHash } from '@/lib/quoteLineItemSource'
-import type { AssessmentData, JobType } from '@/lib/types'
+import type { AssessmentData, JobType, OutcomeQuoteRow, QuoteLineItemRow } from '@/lib/types'
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -36,7 +36,48 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       .eq('is_active', true)
       .maybeSingle()
 
-    if (!run) return NextResponse.json({ run: null, items: [], freshness_status: 'missing', current_source_hash: currentSourceHash })
+    const ad = (job.assessment_data ?? null) as AssessmentData | null
+    const outcomeCapture = ad?.outcome_quote_capture
+    const validOutcomes = ((outcomeCapture?.rows ?? []) as OutcomeQuoteRow[]).filter(
+      row =>
+        (row.status === 'approved' || row.status === 'edited') &&
+        row.price > 0 &&
+        row.outcome_title.trim() &&
+        row.acceptance_criteria.trim() &&
+        row.verification_method.trim()
+    )
+
+    if (!run) {
+      if (outcomeCapture?.mode === 'outcomes' && validOutcomes.length > 0) {
+        const synthetic = validOutcomes.map((row, idx) => ({
+          id: `outcome_${idx + 1}`,
+          run_id: '',
+          org_id: orgId,
+          job_id: jobId,
+          room_name: row.areas.join(', ') || 'Outcome package',
+          description: `${row.outcome_title}${row.outcome_description ? ` — ${row.outcome_description}` : ''}`,
+          qty: 1,
+          unit: 'lot',
+          rate: Number(row.price),
+          total: Number(row.price),
+          sort_order: idx,
+          source: 'ai',
+          created_at: '',
+          updated_at: '',
+          created_by_user_id: '',
+          updated_by_user_id: '',
+          deleted_at: null,
+        })) as QuoteLineItemRow[]
+        return NextResponse.json({
+          run: null,
+          items: synthetic,
+          freshness_status: 'up_to_date',
+          current_source_hash: currentSourceHash,
+          source_mode: 'outcomes',
+        })
+      }
+      return NextResponse.json({ run: null, items: [], freshness_status: 'missing', current_source_hash: currentSourceHash })
+    }
 
     const { data: items, error } = await supabase
       .from('quote_line_items')
@@ -51,11 +92,40 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
     if (error) throw error
     const freshnessStatus = run.source_hash && run.source_hash === currentSourceHash ? 'up_to_date' : 'needs_refresh'
+    if (outcomeCapture?.mode === 'outcomes' && validOutcomes.length > 0) {
+      const synthetic = validOutcomes.map((row, idx) => ({
+        id: `outcome_${idx + 1}`,
+        run_id: run.id,
+        org_id: orgId,
+        job_id: jobId,
+        room_name: row.areas.join(', ') || 'Outcome package',
+        description: `${row.outcome_title}${row.outcome_description ? ` — ${row.outcome_description}` : ''}`,
+        qty: 1,
+        unit: 'lot',
+        rate: Number(row.price),
+        total: Number(row.price),
+        sort_order: idx,
+        source: 'ai',
+        created_at: '',
+        updated_at: '',
+        created_by_user_id: '',
+        updated_by_user_id: '',
+        deleted_at: null,
+      })) as QuoteLineItemRow[]
+      return NextResponse.json({
+        run,
+        items: synthetic,
+        freshness_status: freshnessStatus,
+        current_source_hash: currentSourceHash,
+        source_mode: 'outcomes',
+      })
+    }
     return NextResponse.json({
       run,
       items: items ?? [],
       freshness_status: freshnessStatus,
       current_source_hash: currentSourceHash,
+      source_mode: 'line_items',
     })
   } catch (e: unknown) {
     return NextResponse.json(

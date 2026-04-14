@@ -6,7 +6,15 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import QuoteTab from '@/components/tabs/QuoteTab'
-import type { Job, Document, QuoteLineItemRow, QuoteLineItemRun } from '@/lib/types'
+import type {
+  Job,
+  Document,
+  OutcomeQuoteCapture,
+  OutcomeQuoteRow,
+  OutcomeQuoteStatus,
+  QuoteLineItemRow,
+  QuoteLineItemRun,
+} from '@/lib/types'
 import { mergedSowCapture, staffSowHasContent } from '@/lib/sowCapture'
 
 interface Props {
@@ -22,6 +30,65 @@ function truncate(s: string, max: number) {
   return `${t.slice(0, max).trim()}…`
 }
 
+function splitLines(value: string): string[] {
+  return value
+    .split('\n')
+    .map(v => v.trim())
+    .filter(Boolean)
+}
+
+function joinLines(value: string[] | undefined): string {
+  return (value ?? []).join('\n')
+}
+
+function toMoney(n: number): number {
+  return Math.round(n * 100) / 100
+}
+
+function makeOutcomeRow(seed = 1): OutcomeQuoteRow {
+  return {
+    id: `manual_${Date.now()}_${seed}`,
+    areas: [],
+    outcome_title: '',
+    outcome_description: '',
+    acceptance_criteria: '',
+    price: 0,
+    status: 'suggested',
+    included: [],
+    excluded: [],
+    assumptions: [],
+    verification_method: '',
+  }
+}
+
+function computeOutcomeTotals(rows: OutcomeQuoteRow[], includeGst: boolean) {
+  const subtotal = toMoney(rows.reduce((sum, row) => sum + Math.max(0, Number(row.price || 0)), 0))
+  const gst = includeGst ? toMoney(subtotal * 0.1) : 0
+  const total = toMoney(subtotal + gst)
+  return { subtotal, gst, total }
+}
+
+function isRenderableOutcome(row: OutcomeQuoteRow): boolean {
+  return (
+    (row.status === 'approved' || row.status === 'edited') &&
+    row.price > 0 &&
+    row.outcome_title.trim().length > 0 &&
+    row.acceptance_criteria.trim().length > 0 &&
+    row.verification_method.trim().length > 0
+  )
+}
+
+function invalidOutcomeRows(rows: OutcomeQuoteRow[]): string[] {
+  const bad: string[] = []
+  rows.forEach((row, idx) => {
+    if (row.status !== 'approved' && row.status !== 'edited') return
+    if (row.price <= 0) bad.push(`Outcome ${idx + 1}: price must be greater than 0`)
+    if (!row.acceptance_criteria.trim()) bad.push(`Outcome ${idx + 1}: acceptance criteria is required`)
+    if (!row.verification_method.trim()) bad.push(`Outcome ${idx + 1}: verification method is required`)
+  })
+  return bad
+}
+
 export default function QuoteCaptureTab({ job, documents, onJobUpdate, onGoToScope }: Props) {
   const sow = mergedSowCapture(job.assessment_data)
   const hasScope = staffSowHasContent(job.assessment_data)
@@ -33,6 +100,13 @@ export default function QuoteCaptureTab({ job, documents, onJobUpdate, onGoToSco
   const [freshnessStatus, setFreshnessStatus] = useState<'missing' | 'up_to_date' | 'needs_refresh'>('missing')
   const [targetAmountInput, setTargetAmountInput] = useState('')
   const [targetPriceNoteInput, setTargetPriceNoteInput] = useState('')
+  const [quoteMode, setQuoteMode] = useState<'line_items' | 'outcomes'>(
+    job.assessment_data?.outcome_quote_capture?.mode === 'outcomes' ? 'outcomes' : 'line_items'
+  )
+  const [outcomeRows, setOutcomeRows] = useState<OutcomeQuoteRow[]>(
+    job.assessment_data?.outcome_quote_capture?.rows ?? []
+  )
+  const [outcomeSuggesting, setOutcomeSuggesting] = useState(false)
 
   async function loadItems() {
     setLoading(true)
@@ -59,6 +133,12 @@ export default function QuoteCaptureTab({ job, documents, onJobUpdate, onGoToSco
     void loadItems()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job.id])
+
+  useEffect(() => {
+    const capture = job.assessment_data?.outcome_quote_capture
+    setQuoteMode(capture?.mode === 'outcomes' ? 'outcomes' : 'line_items')
+    setOutcomeRows(capture?.rows ?? [])
+  }, [job.id, job.updated_at, job.assessment_data?.outcome_quote_capture])
 
   async function regenerateSuggestions() {
     if (!hasScope) {
@@ -131,6 +211,84 @@ export default function QuoteCaptureTab({ job, documents, onJobUpdate, onGoToSco
     const data = (await res.json()) as { job?: Job; error?: string }
     if (!res.ok || !data.job) throw new Error(data.error ?? 'Could not save target pricing')
     onJobUpdate(data.job)
+  }
+
+  async function saveOutcomeCapture(nextRows: OutcomeQuoteRow[], nextMode = quoteMode) {
+    const merged = { ...(job.assessment_data ?? {}) } as Record<string, unknown>
+    const totals = computeOutcomeTotals(nextRows, addGst)
+    const current = (job.assessment_data?.outcome_quote_capture ?? {}) as Partial<OutcomeQuoteCapture>
+    merged.outcome_quote_capture = {
+      mode: nextMode,
+      rows: nextRows,
+      totals,
+      target_pricing: {
+        target_amount: target == null ? undefined : Number(target),
+        target_price_note: targetNote ?? '',
+      },
+      last_suggested_at: current.last_suggested_at,
+      last_reviewed_at: current.last_reviewed_at,
+    } satisfies OutcomeQuoteCapture
+    const res = await fetch(`/api/jobs/${job.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ assessment_data: merged }),
+    })
+    const data = (await res.json()) as { job?: Job; error?: string }
+    if (!res.ok || !data.job) throw new Error(data.error ?? 'Could not save outcome quote capture')
+    onJobUpdate(data.job)
+  }
+
+  function patchOutcomeRow(
+    rowId: string,
+    updater: (row: OutcomeQuoteRow) => OutcomeQuoteRow
+  ) {
+    setOutcomeRows(prev =>
+      prev.map(row => {
+        if (row.id !== rowId) return row
+        const next = updater(row)
+        const changed = JSON.stringify(row) !== JSON.stringify(next)
+        const statusExplicitlyChanged = row.status !== next.status
+        // HITL rule: editing content without explicit status action auto-marks as edited.
+        if (changed && !statusExplicitlyChanged && row.status !== 'edited') {
+          return { ...next, status: 'edited' }
+        }
+        return next
+      })
+    )
+  }
+
+  async function suggestOutcomeRows() {
+    if (!hasScope) {
+      window.alert('Capture Scope of Work first.')
+      return
+    }
+    setOutcomeSuggesting(true)
+    try {
+      const trimmedTarget = targetAmountInput.trim()
+      const parsedTarget = trimmedTarget === '' ? null : Number(trimmedTarget)
+      if (parsedTarget != null && (!Number.isFinite(parsedTarget) || parsedTarget < 0)) {
+        throw new Error('Target amount must be a number >= 0')
+      }
+      await saveTargetPricingForSuggestions(parsedTarget, targetPriceNoteInput.trim())
+      const res = await fetch(`/api/jobs/${job.id}/quote-outcomes/suggest`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          target_amount: parsedTarget,
+          target_price_note: targetPriceNoteInput.trim(),
+        }),
+      })
+      const data = (await res.json()) as { rows?: OutcomeQuoteRow[]; error?: string }
+      if (!res.ok) throw new Error(data.error ?? 'Could not suggest outcomes')
+      const rows = (data.rows ?? []).map((row, idx) => ({ ...row, id: row.id || `suggested_${idx + 1}` }))
+      setOutcomeRows(rows)
+      await saveOutcomeCapture(rows, 'outcomes')
+      setQuoteMode('outcomes')
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : 'Could not suggest outcomes')
+    } finally {
+      setOutcomeSuggesting(false)
+    }
   }
 
   async function patchAddGst(next: boolean) {
@@ -209,6 +367,36 @@ export default function QuoteCaptureTab({ job, documents, onJobUpdate, onGoToSco
 
       <div
         style={{
+          marginBottom: 18,
+          padding: '10px 12px',
+          borderRadius: 12,
+          border: '1px solid var(--border)',
+          background: 'var(--surface-2)',
+          display: 'flex',
+          gap: 8,
+        }}
+      >
+        <button
+          type="button"
+          className={quoteMode === 'line_items' ? 'btn btn-primary' : 'btn btn-secondary'}
+          style={{ fontSize: 12 }}
+          onClick={() => setQuoteMode('line_items')}
+        >
+          Line items mode
+        </button>
+        <button
+          type="button"
+          className={quoteMode === 'outcomes' ? 'btn btn-primary' : 'btn btn-secondary'}
+          style={{ fontSize: 12 }}
+          onClick={() => setQuoteMode('outcomes')}
+        >
+          Outcome pricing mode
+        </button>
+      </div>
+
+      {quoteMode === 'line_items' && (
+      <div
+        style={{
           marginBottom: 28,
           padding: '16px 18px',
           borderRadius: 12,
@@ -254,6 +442,219 @@ export default function QuoteCaptureTab({ job, documents, onJobUpdate, onGoToSco
           </>
         )}
       </div>
+      )}
+
+      {quoteMode === 'outcomes' && (
+        <div
+          style={{
+            marginBottom: 28,
+            padding: '16px 18px',
+            borderRadius: 12,
+            border: '1px solid var(--border)',
+            background: 'var(--surface-2)',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <div
+              style={{
+                fontSize: 12,
+                fontWeight: 700,
+                letterSpacing: '0.08em',
+                textTransform: 'uppercase',
+                color: 'var(--accent)',
+              }}
+            >
+              Suggested outcomes (HITL)
+            </div>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              style={{ fontSize: 13 }}
+              onClick={() => void suggestOutcomeRows()}
+              disabled={outcomeSuggesting || !hasScope}
+              title={hasScope ? 'Suggest outcomes from scope and context' : 'Capture scope first'}
+            >
+              {outcomeSuggesting ? 'Generating…' : 'Suggest outcomes'}
+            </button>
+          </div>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 12px', lineHeight: 1.5 }}>
+            Outcome pricing focuses on results per area. Approve/edit outcomes and pricing before rendering client quote.
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 10px', marginBottom: 12 }}>
+            <div className="field" style={{ marginBottom: 0 }}>
+              <label>Target Amount</label>
+              <input
+                type="number"
+                min="0"
+                step="50"
+                placeholder="0.00"
+                value={targetAmountInput}
+                onChange={e => setTargetAmountInput(e.target.value)}
+              />
+            </div>
+            <div className="field" style={{ marginBottom: 0 }}>
+              <label>GST Note</label>
+              <input
+                type="text"
+                value={targetPriceNoteInput}
+                onChange={e => setTargetPriceNoteInput(e.target.value)}
+                placeholder="e.g. inc. GST  or  + GST"
+              />
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              style={{ fontSize: 12 }}
+              onClick={() => setOutcomeRows(prev => [...prev, makeOutcomeRow(prev.length + 1)])}
+            >
+              Add outcome row
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              style={{ fontSize: 12 }}
+              onClick={async () => {
+                try {
+                  const guardrails = invalidOutcomeRows(outcomeRows)
+                  if (guardrails.length > 0) {
+                    throw new Error(guardrails[0])
+                  }
+                  await saveOutcomeCapture(outcomeRows, 'outcomes')
+                  window.alert('Outcome pricing saved.')
+                } catch (e) {
+                  window.alert(e instanceof Error ? e.message : 'Could not save outcome pricing')
+                }
+              }}
+            >
+              Save outcomes
+            </button>
+          </div>
+
+          {outcomeRows.length === 0 ? (
+            <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>No outcome rows yet.</div>
+          ) : (
+            <div style={{ display: 'grid', gap: 12 }}>
+              {outcomeRows.map((row, idx) => {
+                const rowValid = isRenderableOutcome(row)
+                return (
+                  <div key={row.id} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 10 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginBottom: 8, alignItems: 'center' }}>
+                      <strong style={{ fontSize: 13 }}>Outcome {idx + 1}</strong>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span className="badge" style={{ fontSize: 11 }}>{row.status}</span>
+                        <button
+                          type="button"
+                          className="btn btn-ghost"
+                          style={{ fontSize: 12, color: '#F87171' }}
+                          onClick={() => setOutcomeRows(prev => prev.filter(x => x.id !== row.id))}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                      <input
+                        value={row.outcome_title}
+                        onChange={e => patchOutcomeRow(row.id, r => ({ ...r, outcome_title: e.target.value }))}
+                        placeholder="Outcome title"
+                      />
+                      <input
+                        value={row.areas.join(', ')}
+                        onChange={e => patchOutcomeRow(row.id, r => ({ ...r, areas: e.target.value.split(',').map(v => v.trim()).filter(Boolean) }))}
+                        placeholder="Areas (comma separated)"
+                      />
+                    </div>
+                    <textarea
+                      value={row.outcome_description}
+                      onChange={e => patchOutcomeRow(row.id, r => ({ ...r, outcome_description: e.target.value }))}
+                      placeholder="Outcome description"
+                      rows={2}
+                      style={{ marginTop: 8 }}
+                    />
+                    <textarea
+                      value={row.acceptance_criteria}
+                      onChange={e => patchOutcomeRow(row.id, r => ({ ...r, acceptance_criteria: e.target.value }))}
+                      placeholder="Acceptance criteria"
+                      rows={2}
+                      style={{ marginTop: 8 }}
+                    />
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={row.price}
+                        onChange={e => patchOutcomeRow(row.id, r => ({ ...r, price: Math.max(0, Number(e.target.value || 0)) }))}
+                        placeholder="Price"
+                      />
+                      <input
+                        value={row.verification_method}
+                        onChange={e => patchOutcomeRow(row.id, r => ({ ...r, verification_method: e.target.value }))}
+                        placeholder="Verification method"
+                      />
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginTop: 8 }}>
+                      <textarea
+                        value={joinLines(row.included)}
+                        onChange={e => patchOutcomeRow(row.id, r => ({ ...r, included: splitLines(e.target.value) }))}
+                        placeholder="Included (one per line)"
+                        rows={3}
+                      />
+                      <textarea
+                        value={joinLines(row.excluded)}
+                        onChange={e => patchOutcomeRow(row.id, r => ({ ...r, excluded: splitLines(e.target.value) }))}
+                        placeholder="Excluded (one per line)"
+                        rows={3}
+                      />
+                      <textarea
+                        value={joinLines(row.assumptions)}
+                        onChange={e => patchOutcomeRow(row.id, r => ({ ...r, assumptions: splitLines(e.target.value) }))}
+                        placeholder="Assumptions (one per line)"
+                        rows={3}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                      <button type="button" className="btn btn-secondary" style={{ fontSize: 12 }} onClick={() => patchOutcomeRow(row.id, r => ({ ...r, status: 'approved' as OutcomeQuoteStatus }))}>
+                        Approve
+                      </button>
+                      <button type="button" className="btn btn-ghost" style={{ fontSize: 12 }} onClick={() => patchOutcomeRow(row.id, r => ({ ...r, status: 'rejected' as OutcomeQuoteStatus }))}>
+                        Reject
+                      </button>
+                      <button type="button" className="btn btn-ghost" style={{ fontSize: 12 }} onClick={() => patchOutcomeRow(row.id, r => ({ ...r, status: 'suggested' as OutcomeQuoteStatus }))}>
+                        Reset suggested
+                      </button>
+                      {!rowValid && (
+                        <span style={{ alignSelf: 'center', fontSize: 12, color: '#F59E0B' }}>
+                          Needs title, acceptance criteria, verification method, and price &gt; 0
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          <div style={{ marginTop: 12, fontSize: 13, color: 'var(--text-muted)' }}>
+            Subtotal (ex-GST): <strong style={{ color: 'var(--text)' }}>${computeOutcomeTotals(outcomeRows, addGst).subtotal.toFixed(2)}</strong>
+            {addGst && (
+              <>
+                <br />
+                GST (10%): <strong style={{ color: 'var(--text)' }}>${computeOutcomeTotals(outcomeRows, addGst).gst.toFixed(2)}</strong>
+                <br />
+                Total (inc. GST): <strong style={{ color: 'var(--text)' }}>${computeOutcomeTotals(outcomeRows, addGst).total.toFixed(2)}</strong>
+              </>
+            )}
+          </div>
+          {invalidOutcomeRows(outcomeRows).length > 0 && (
+            <div style={{ marginTop: 10, fontSize: 12, color: '#F59E0B' }}>
+              Publish/build guardrails: approved/edited outcomes require price &gt; 0, acceptance criteria, and verification method.
+            </div>
+          )}
+        </div>
+      )}
 
       <div
         style={{

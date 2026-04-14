@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { DocType, QuoteLineItemRow } from '@/lib/types'
+import type { AssessmentData, DocType, OutcomeQuoteRow, QuoteLineItemRow } from '@/lib/types'
 
 /** Map DB quote rows → quote document `line_items` + totals; clear placeholder intro when present. */
 export function quoteLineItemsContentPatch(
@@ -87,7 +87,50 @@ export async function fetchQuoteLineItemsMergeContext(
 
   if (error) throw error
   const add_gst_to_total = Boolean(run.add_gst_to_total)
-  return { rows: (items ?? []) as QuoteLineItemRow[], add_gst_to_total }
+  const dbRows = (items ?? []) as QuoteLineItemRow[]
+
+  const { data: job } = await supabase
+    .from('jobs')
+    .select('assessment_data')
+    .eq('id', jobId)
+    .maybeSingle()
+
+  const ad = (job?.assessment_data ?? null) as AssessmentData | null
+  const capture = ad?.outcome_quote_capture
+  const outcomeRows = (capture?.rows ?? []) as OutcomeQuoteRow[]
+  const approvedOutcomes = outcomeRows.filter(
+    row =>
+      (row.status === 'approved' || row.status === 'edited') &&
+      row.price > 0 &&
+      row.outcome_title.trim() &&
+      row.acceptance_criteria.trim() &&
+      row.verification_method.trim()
+  )
+
+  if (capture?.mode === 'outcomes' && approvedOutcomes.length > 0) {
+    const syntheticRows: QuoteLineItemRow[] = approvedOutcomes.map((row, idx) => ({
+      id: `outcome_${idx + 1}`,
+      run_id: run.id,
+      org_id: '',
+      job_id: jobId,
+      room_name: row.areas.join(', ') || 'Outcome package',
+      description: `${row.outcome_title}${row.outcome_description ? ` — ${row.outcome_description}` : ''}`,
+      qty: 1,
+      unit: 'lot',
+      rate: Number(row.price),
+      total: Number(row.price),
+      sort_order: idx,
+      source: 'ai',
+      created_at: '',
+      updated_at: '',
+      created_by_user_id: '',
+      updated_by_user_id: '',
+      deleted_at: null,
+    }))
+    return { rows: syntheticRows, add_gst_to_total }
+  }
+
+  return { rows: dbRows, add_gst_to_total }
 }
 
 /** Active run line items for a job (service client; used by print and server merge). */
