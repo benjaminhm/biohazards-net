@@ -127,6 +127,62 @@ const VIDEO_INITIAL: VideoScriptCapture = {
   scenes: '',
 }
 
+const CASE_BUBBLE: React.CSSProperties = {
+  width: '100%',
+  minHeight: 110,
+  padding: '14px 16px',
+  borderRadius: 16,
+  border: '1px solid var(--border)',
+  background: 'var(--surface)',
+  color: 'var(--text)',
+  fontSize: 14,
+  lineHeight: 1.5,
+  resize: 'vertical',
+  fontFamily: 'inherit',
+  boxSizing: 'border-box',
+}
+
+const CASE_SECTION_LABEL: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 700,
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase',
+  color: 'var(--accent)',
+  marginTop: 20,
+  marginBottom: 8,
+}
+
+const WRITTEN_FIELDS: { key: keyof WrittenCaseStudyCapture; label: string; placeholder: string; rows?: number }[] = [
+  { key: 'case_title', label: 'Case title', placeholder: 'Sanitised case title.', rows: 2 },
+  { key: 'case_type', label: 'Case type', placeholder: 'Trauma, flood, meth, mould, sewage, hoarding, other.', rows: 2 },
+  { key: 'region_context', label: 'Region context', placeholder: 'Metro / regional / coastal / remote (no exact address).', rows: 2 },
+  { key: 'urgency_level', label: 'Urgency level', placeholder: 'Standard / urgent / emergency.', rows: 2 },
+  { key: 'call_context_summary', label: 'Call context summary', placeholder: 'What triggered the response and immediate problem framing.', rows: 3 },
+  { key: 'caller_presentation', label: 'Caller presentation', placeholder: 'Tone, communication quality, stress indicators in non-graphic objective terms.', rows: 3 },
+  { key: 'constraints_at_intake', label: 'Constraints at intake', placeholder: 'Access limits, timing, occupants, insurer or authority constraints.', rows: 3 },
+  { key: 'initial_objective', label: 'Initial objective', placeholder: 'Target outcome agreed at dispatch.', rows: 2 },
+  { key: 'iaq_findings', label: 'IAQ findings', placeholder: 'Assessment observations and contamination/risk findings.', rows: 3 },
+  { key: 'plan_rationale', label: 'Plan rationale', placeholder: 'Why this strategy and controls were selected.', rows: 3 },
+  { key: 'execution_sequence', label: 'Execution sequence', placeholder: 'Step-by-step non-graphic process narrative.', rows: 4 },
+  { key: 'review_verification', label: 'Review and verification', placeholder: 'How completion/verification was checked.', rows: 3 },
+  { key: 'hazard_profile', label: 'Hazard profile', placeholder: 'Key hazards and exposure pathways.', rows: 3 },
+  { key: 'control_measures', label: 'Control measures', placeholder: 'Containment, PPE, workflow controls, administrative safeguards.', rows: 3 },
+  { key: 'outcome_summary', label: 'Outcome summary', placeholder: 'Result and closure status.', rows: 3 },
+  { key: 'handover_summary', label: 'Handover summary', placeholder: 'What was communicated at handover and next steps.', rows: 3 },
+  { key: 'key_lessons', label: 'Key lessons', placeholder: 'Scientific/practical lessons from the case.', rows: 3 },
+  { key: 'training_takeaways', label: 'Training takeaways', placeholder: 'What students should apply in future cases.', rows: 3 },
+]
+
+const VIDEO_FIELDS: { key: keyof VideoScriptCapture; label: string; placeholder: string; rows?: number }[] = [
+  { key: 'hook', label: 'Hook', placeholder: 'Opening in 1-2 lines suited to YouTube narrative pacing.', rows: 2 },
+  { key: 'setup', label: 'Setup', placeholder: 'Non-graphic contextual setup from written case.', rows: 3 },
+  { key: 'method', label: 'Method', placeholder: 'How the team approached the case and why.', rows: 3 },
+  { key: 'outcome', label: 'Outcome', placeholder: 'Outcome and verification summary in audience-friendly wording.', rows: 3 },
+  { key: 'lessons', label: 'Lessons', placeholder: 'Top 3-5 lessons for viewers.', rows: 3 },
+  { key: 'cta', label: 'Call to action', placeholder: 'Next step for learner/viewer.', rows: 2 },
+  { key: 'scenes', label: 'Scene breakdown', placeholder: 'Scene-by-scene outline and narration cues.', rows: 8 },
+]
+
 function UnsavedNavigationGuard({
   setActiveTab,
   children,
@@ -707,27 +763,10 @@ export default function JobPage() {
                   </div>
                 </div>
                 <div style={{ ...workflowCardStyle, display: 'grid', gap: 10 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700 }}>Written Case Study Fields</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 8 }}>
-                    <input value={writtenCapture.case_title} onChange={e => updateWritten('case_title', e.target.value)} placeholder="Case title" style={{ padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)' }} />
-                    <input value={writtenCapture.case_type} onChange={e => updateWritten('case_type', e.target.value)} placeholder="Case type" style={{ padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)' }} />
-                    <input value={writtenCapture.region_context} onChange={e => updateWritten('region_context', e.target.value)} placeholder="Region context" style={{ padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)' }} />
-                    <input value={writtenCapture.urgency_level} onChange={e => updateWritten('urgency_level', e.target.value)} placeholder="Urgency level" style={{ padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)' }} />
-                  </div>
-                  <textarea value={writtenCapture.call_context_summary} onChange={e => updateWritten('call_context_summary', e.target.value)} placeholder="Call context summary" rows={3} style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)' }} />
-                  <textarea value={writtenCapture.caller_presentation} onChange={e => updateWritten('caller_presentation', e.target.value)} placeholder="Caller presentation (scientific/non-graphic)" rows={2} style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)' }} />
-                  <textarea value={writtenCapture.constraints_at_intake} onChange={e => updateWritten('constraints_at_intake', e.target.value)} placeholder="Constraints at intake" rows={2} style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)' }} />
-                  <textarea value={writtenCapture.initial_objective} onChange={e => updateWritten('initial_objective', e.target.value)} placeholder="Initial objective" rows={2} style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)' }} />
-                  <textarea value={writtenCapture.iaq_findings} onChange={e => updateWritten('iaq_findings', e.target.value)} placeholder="IAQ findings" rows={3} style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)' }} />
-                  <textarea value={writtenCapture.plan_rationale} onChange={e => updateWritten('plan_rationale', e.target.value)} placeholder="Plan rationale" rows={3} style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)' }} />
-                  <textarea value={writtenCapture.execution_sequence} onChange={e => updateWritten('execution_sequence', e.target.value)} placeholder="Execution sequence" rows={3} style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)' }} />
-                  <textarea value={writtenCapture.review_verification} onChange={e => updateWritten('review_verification', e.target.value)} placeholder="Review and verification" rows={2} style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)' }} />
-                  <textarea value={writtenCapture.hazard_profile} onChange={e => updateWritten('hazard_profile', e.target.value)} placeholder="Hazard profile" rows={2} style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)' }} />
-                  <textarea value={writtenCapture.control_measures} onChange={e => updateWritten('control_measures', e.target.value)} placeholder="Control measures" rows={2} style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)' }} />
-                  <textarea value={writtenCapture.outcome_summary} onChange={e => updateWritten('outcome_summary', e.target.value)} placeholder="Outcome summary" rows={2} style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)' }} />
-                  <textarea value={writtenCapture.handover_summary} onChange={e => updateWritten('handover_summary', e.target.value)} placeholder="Handover summary" rows={2} style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)' }} />
-                  <textarea value={writtenCapture.key_lessons} onChange={e => updateWritten('key_lessons', e.target.value)} placeholder="Key lessons" rows={2} style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)' }} />
-                  <textarea value={writtenCapture.training_takeaways} onChange={e => updateWritten('training_takeaways', e.target.value)} placeholder="Training takeaways" rows={2} style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)' }} />
+                  <div style={{ fontSize: 14, fontWeight: 700 }}>Written Case Study</div>
+                  <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>
+                    Capture a scientific non-graphic narrative in sequence, then generate and save JSON.
+                  </p>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                     <button className="btn btn-secondary" style={{ fontSize: 12 }} onClick={generateWrittenNarrative}>Generate Written Draft</button>
                     <button
@@ -742,8 +781,23 @@ export default function JobPage() {
                       Save JSON Payload
                     </button>
                   </div>
+                  {WRITTEN_FIELDS.map(({ key, label, placeholder, rows }, idx) => (
+                    <div key={key}>
+                      <div style={idx === 0 ? { ...CASE_SECTION_LABEL, marginTop: 4 } : CASE_SECTION_LABEL}>{label}</div>
+                      <textarea
+                        value={writtenCapture[key]}
+                        onChange={e => updateWritten(key, e.target.value)}
+                        placeholder={placeholder}
+                        rows={rows ?? 3}
+                        style={CASE_BUBBLE}
+                      />
+                    </div>
+                  ))}
                   {writtenGenerated && (
-                    <textarea value={writtenGenerated} readOnly rows={10} style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)' }} />
+                    <>
+                      <div style={CASE_SECTION_LABEL}>Generated narrative draft</div>
+                      <textarea value={writtenGenerated} readOnly rows={10} style={CASE_BUBBLE} />
+                    </>
                   )}
                   {writtenSavedJson && (
                     <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 10, background: 'var(--surface-2)' }}>
@@ -791,14 +845,17 @@ export default function JobPage() {
                   </div>
                 </div>
                 <div style={{ ...workflowCardStyle, display: 'grid', gap: 10 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700 }}>Video Script Fields</div>
+                  <div style={{ fontSize: 14, fontWeight: 700 }}>Video Script Case Study</div>
+                  <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>
+                    Build YouTube-ready narrative from written case facts, then generate and save JSON.
+                  </p>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 8 }}>
-                    <select value={videoCapture.target_platform} onChange={e => updateVideo('target_platform', e.target.value as VideoScriptCapture['target_platform'])} style={{ padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)' }}>
+                    <select value={videoCapture.target_platform} onChange={e => updateVideo('target_platform', e.target.value as VideoScriptCapture['target_platform'])} style={{ ...CASE_BUBBLE, minHeight: 44, padding: '10px 12px' }}>
                       <option value="youtube_long">YouTube long</option>
                       <option value="youtube_short">YouTube short</option>
                       <option value="training_portal_video">Training portal video</option>
                     </select>
-                    <input type="number" value={videoCapture.duration_target_sec} onChange={e => updateVideo('duration_target_sec', Number(e.target.value) || 0)} placeholder="Duration target seconds" style={{ padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)' }} />
+                    <input type="number" value={videoCapture.duration_target_sec} onChange={e => updateVideo('duration_target_sec', Number(e.target.value) || 0)} placeholder="Duration target seconds" style={{ ...CASE_BUBBLE, minHeight: 44, padding: '10px 12px' }} />
                   </div>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                     <button className="btn btn-secondary" style={{ fontSize: 12 }} onClick={generateVideoFromWritten}>Generate from Written Case</button>
@@ -814,13 +871,18 @@ export default function JobPage() {
                       Save JSON Payload
                     </button>
                   </div>
-                  <textarea value={videoCapture.hook} onChange={e => updateVideo('hook', e.target.value)} placeholder="Hook" rows={2} style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)' }} />
-                  <textarea value={videoCapture.setup} onChange={e => updateVideo('setup', e.target.value)} placeholder="Setup" rows={2} style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)' }} />
-                  <textarea value={videoCapture.method} onChange={e => updateVideo('method', e.target.value)} placeholder="Method" rows={2} style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)' }} />
-                  <textarea value={videoCapture.outcome} onChange={e => updateVideo('outcome', e.target.value)} placeholder="Outcome" rows={2} style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)' }} />
-                  <textarea value={videoCapture.lessons} onChange={e => updateVideo('lessons', e.target.value)} placeholder="Lessons" rows={2} style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)' }} />
-                  <textarea value={videoCapture.cta} onChange={e => updateVideo('cta', e.target.value)} placeholder="Call to action" rows={2} style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)' }} />
-                  <textarea value={videoCapture.scenes} onChange={e => updateVideo('scenes', e.target.value)} placeholder="Scene breakdown" rows={8} style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)' }} />
+                  {VIDEO_FIELDS.map(({ key, label, placeholder, rows }, idx) => (
+                    <div key={key}>
+                      <div style={idx === 0 ? { ...CASE_SECTION_LABEL, marginTop: 4 } : CASE_SECTION_LABEL}>{label}</div>
+                      <textarea
+                        value={videoCapture[key]}
+                        onChange={e => updateVideo(key, e.target.value)}
+                        placeholder={placeholder}
+                        rows={rows ?? 3}
+                        style={CASE_BUBBLE}
+                      />
+                    </div>
+                  ))}
                   <button
                     className="btn btn-primary"
                     style={{ fontSize: 12, width: 'fit-content' }}
@@ -829,7 +891,10 @@ export default function JobPage() {
                     Generate Video Narrative
                   </button>
                   {videoGenerated && (
-                    <textarea value={videoGenerated} readOnly rows={10} style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)' }} />
+                    <>
+                      <div style={CASE_SECTION_LABEL}>Generated video narrative</div>
+                      <textarea value={videoGenerated} readOnly rows={10} style={CASE_BUBBLE} />
+                    </>
                   )}
                   {videoSavedJson && (
                     <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 10, background: 'var(--surface-2)' }}>
