@@ -20,7 +20,7 @@
  * appropriate builder function.
  */
 import type {
-  DocType, Photo, CompanyProfile, Area,
+  DocType, Photo, PhotoCategory, CompanyProfile, Area,
   QuoteContent, SOWContent, AssessmentDocumentContent, SWMSContent, AuthorityToProceedContent,
   EngagementAgreementContent, ReportContent, CertificateOfDecontaminationContent,
   WasteDisposalManifestContent, JSAContent, NDAContent, RiskAssessmentContent,
@@ -594,6 +594,80 @@ function photoGrid(photos: Photo[], heading: string): string {
   `
 }
 
+/** Completion report only: all phases, grouped by room then assessment → before → during → after; within each, by upload time. */
+const REPORT_APPENDIX_PHASE_ORDER: PhotoCategory[] = ['assessment', 'before', 'during', 'after']
+
+const REPORT_APPENDIX_PHASE_LABEL: Record<PhotoCategory, string> = {
+  assessment: 'Assessment',
+  before: 'Before',
+  during: 'During',
+  after: 'After',
+}
+
+function formatPhotoUploadedAtForPrint(iso: string): string {
+  try {
+    const d = new Date(iso)
+    if (Number.isNaN(d.getTime())) return ''
+    return d.toLocaleString('en-AU', { dateStyle: 'short', timeStyle: 'short' })
+  } catch {
+    return ''
+  }
+}
+
+function completionReportAppendixPhotoCard(p: Photo): string {
+  const cap = (p.caption || '').trim()
+  const up = formatPhotoUploadedAtForPrint(p.uploaded_at)
+  const capture = (p.capture_phase || '').trim() ? `Capture: ${p.capture_phase}` : ''
+  return `
+        <div class="photo-card">
+          <img src="${esc(p.file_url)}" alt="${esc(cap || p.area_ref || REPORT_APPENDIX_PHASE_LABEL[p.category])}">
+          <div class="photo-meta">
+            <div class="photo-area">${esc((p.area_ref || '').trim() || '—')}</div>
+            <div class="photo-cap"><strong>Category:</strong> ${esc(REPORT_APPENDIX_PHASE_LABEL[p.category])}</div>
+            ${capture ? `<div class="photo-cap">${esc(capture)}</div>` : ''}
+            ${cap ? `<div class="photo-cap"><strong>Caption:</strong> ${esc(cap)}</div>` : ''}
+            ${up ? `<div class="photo-cap" style="font-size:8pt;color:var(--sow-muted)">Uploaded: ${esc(up)}</div>` : ''}
+          </div>
+        </div>`
+}
+
+function completionReportPhotoAppendix(photos: Photo[], areas: Area[]): string {
+  if (!photos.length) return ''
+  const groups = groupPhotosByRoomAndStage(photos, areas)
+  const roomBlocks = groups.map(group => {
+    const phaseParts: string[] = []
+    for (const phase of REPORT_APPENDIX_PHASE_ORDER) {
+      const pics = [...group.stages[phase]].sort((a, b) => {
+        const ta = new Date(a.uploaded_at).getTime()
+        const tb = new Date(b.uploaded_at).getTime()
+        const na = Number.isNaN(ta) ? 0 : ta
+        const nb = Number.isNaN(tb) ? 0 : tb
+        return na - nb
+      })
+      if (!pics.length) continue
+      const label = REPORT_APPENDIX_PHASE_LABEL[phase]
+      phaseParts.push(`
+    <div class="label" style="margin-top:12px;font-size:8.5pt;letter-spacing:0.08em">${esc(label)} (${pics.length})</div>
+    <div class="photos-grid">
+      ${pics.map(completionReportAppendixPhotoCard).join('')}
+    </div>`)
+    }
+    if (!phaseParts.length) return ''
+    const note = (group.note || '').trim()
+    return `
+    <div class="label" style="margin-top:20px;color:#1a1a1a">${esc(group.room)}</div>
+    ${note ? `<div class="body-text" style="margin-top:-4px;margin-bottom:6px;font-size:9pt"><strong>Room notes:</strong> ${esc(note)}</div>` : ''}
+    ${phaseParts.join('')}`
+  })
+  const inner = roomBlocks.filter(Boolean).join('')
+  if (!inner.trim()) return ''
+  return `
+    <div class="label" style="margin-top:22px">Photo appendix</div>
+    <div class="body-text" style="margin-bottom:10px;font-size:9pt;color:var(--sow-mid)">All job photos by room and phase (assessment, before, during, after). Within each group, order is by upload time.</div>
+    ${inner}
+  `
+}
+
 function roomPhotoSections(groups: RoomPhotoGroup[], heading: string, stages: Array<'assessment' | 'before' | 'during' | 'after'>): string {
   const visible = filterGroupedStages(groups, stages)
   if (!visible.length) return ''
@@ -886,9 +960,7 @@ function buildEngagementHTML(c: EngagementAgreementContent, company: CompanyProf
 
 // ── 6. Completion Report ──────────────────────────────────────────────────────
 
-function buildReportMid(c: ReportContent, photos: Photo[], groups: RoomPhotoGroup[], includeCompletion: boolean): string {
-  const during = photos.filter(p => p.category === 'during')
-  const after  = photos.filter(p => p.category === 'after')
+function buildReportMid(c: ReportContent, photos: Photo[], areas: Area[], includeCompletion: boolean): string {
   return `
     ${section('Executive Summary', c.executive_summary)}
     ${section('Site Conditions on Arrival', c.site_conditions)}
@@ -896,16 +968,22 @@ function buildReportMid(c: ReportContent, photos: Photo[], groups: RoomPhotoGrou
     ${section('Methodology', c.methodology)}
     ${section('Products &amp; Equipment Used', c.products_used)}
     ${section('Waste Disposal', c.waste_disposal)}
-    ${c.include_photos !== false ? roomPhotoSections(groups, 'During Works Photos', ['during']) : photoGrid(during, 'During Works Photos')}
     ${section('Photo Record', c.photo_record)}
     ${section('Outcome', c.outcome)}
-    ${c.include_photos !== false ? roomPhotoSections(groups, 'Completion Photos', ['after']) : photoGrid(after, 'Completion Photos')}
+    ${c.include_photos !== false ? completionReportPhotoAppendix(photos, areas) : ''}
     ${includeCompletion ? completedBySow((c.completed_by ?? c.technician_signoff ?? '').trim()) : ''}
   `
 }
 
-function buildReportHTML(c: ReportContent, photos: Photo[], groups: RoomPhotoGroup[], company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
-  const mid = buildReportMid(c, photos, groups, true)
+function buildReportHTML(
+  c: ReportContent,
+  photos: Photo[],
+  areas: Area[],
+  company: CompanyProfile | null,
+  client: ClientInfo | undefined,
+  screenActionBar: boolean,
+): string {
+  const mid = buildReportMid(c, photos, areas, true)
   return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
@@ -1067,7 +1145,7 @@ export function buildPrintMidHTML(
     case 'engagement_agreement':
       return buildEngagementMid(c as unknown as EngagementAgreementContent, includeCompletion)
     case 'report':
-      return buildReportMid(c as unknown as ReportContent, photos, groups, includeCompletion)
+      return buildReportMid(c as unknown as ReportContent, photos, areas, includeCompletion)
     case 'certificate_of_decontamination':
       return buildCODMid(c as unknown as CertificateOfDecontaminationContent, includeCompletion)
     case 'waste_disposal_manifest':
@@ -1159,7 +1237,7 @@ export function buildPrintHTML(
     case 'swms':                       return buildSWMSHTML(c as unknown as SWMSContent, company, client, screenActionBar)
     case 'authority_to_proceed':       return buildATPHTML(c as unknown as AuthorityToProceedContent, company, client, screenActionBar)
     case 'engagement_agreement':       return buildEngagementHTML(c as unknown as EngagementAgreementContent, company, client, screenActionBar)
-    case 'report':                     return buildReportHTML(c as unknown as ReportContent, photos, groups, company, client, screenActionBar)
+    case 'report':                     return buildReportHTML(c as unknown as ReportContent, photos, areas, company, client, screenActionBar)
     case 'certificate_of_decontamination': return buildCODHTML(c as unknown as CertificateOfDecontaminationContent, company, client, screenActionBar)
     case 'waste_disposal_manifest':    return buildWDMHTML(c as unknown as WasteDisposalManifestContent, company, client, screenActionBar)
     case 'jsa':                        return buildJSAHTML(c as unknown as JSAContent, company, client, screenActionBar)
