@@ -59,6 +59,7 @@ import {
 } from '@/lib/unsavedChangesContext'
 
 type Tab = 'home' | 'docs' | 'details' | 'assessment' | 'case_studies' | 'scope_capture' | 'quote_capture' | 'pre_remediation_checklist_capture' | 'progress_capture' | 'progress_notes_capture' | 'quality_checks_capture' | 'recommendations_capture' | 'progress_report_generate' | 'client_feedback_capture' | 'team_feedback_capture' | 'engagement_agreement_capture' | 'nda_capture' | 'authority_to_proceed_capture' | 'swms_capture' | 'jsa_capture' | 'risk_assessment_capture' | 'waste_disposal_manifest_capture' | 'iaq_multi_capture' | 'quote' | 'photos' | 'messages' | 'invoice'
+type CaseStudyWorkflowStatus = 'draft' | 'approved' | 'published'
 
 function UnsavedNavigationGuard({
   setActiveTab,
@@ -179,6 +180,12 @@ export default function JobPage() {
   /** Secondary tabs when viewing Assessment (Presentation → Hazards → Risks → Document) */
   const [assessmentSection, setAssessmentSection] = useState<'presentation' | 'hazards' | 'risks' | 'document'>('presentation')
   const [caseStudiesSection, setCaseStudiesSection] = useState<'written' | 'video_script'>('written')
+  const [writtenCaseStatus, setWrittenCaseStatus] = useState<CaseStudyWorkflowStatus>('draft')
+  const [writtenCaseReviewer, setWrittenCaseReviewer] = useState('')
+  const [writtenCaseReviewedAt, setWrittenCaseReviewedAt] = useState('')
+  const [videoCaseStatus, setVideoCaseStatus] = useState<CaseStudyWorkflowStatus>('draft')
+  const [videoCaseReviewer, setVideoCaseReviewer] = useState('')
+  const [videoCaseReviewedAt, setVideoCaseReviewedAt] = useState('')
 
   const assessmentPresentationBtnStyle = {
     padding: '8px 16px',
@@ -332,6 +339,24 @@ export default function JobPage() {
     color: 'var(--text-muted)',
     fontSize: 14,
     fontWeight: 600,
+  }
+
+  const workflowCardStyle: React.CSSProperties = {
+    border: '1px solid var(--border)',
+    borderRadius: 12,
+    padding: 14,
+    background: 'var(--surface)',
+    marginBottom: 12,
+  }
+
+  function nowStamp() {
+    return new Date().toISOString()
+  }
+
+  function statusBadgeStyle(status: CaseStudyWorkflowStatus): React.CSSProperties {
+    if (status === 'published') return { color: '#4ADE80', border: '1px solid rgba(74,222,128,0.35)', background: 'rgba(74,222,128,0.10)' }
+    if (status === 'approved') return { color: '#60A5FA', border: '1px solid rgba(96,165,250,0.35)', background: 'rgba(96,165,250,0.10)' }
+    return { color: 'var(--text-muted)', border: '1px solid var(--border)', background: 'var(--surface-2)' }
   }
 
   return (
@@ -530,10 +555,78 @@ export default function JobPage() {
               </button>
             </div>
             {caseStudiesSection === 'written' && (
-              <div style={emptyRoomStyle}>Written Case Study (empty room)</div>
+              <div>
+                <div style={workflowCardStyle}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Written Case Study Workflow</div>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Draft {'->'} Approved {'->'} Published</div>
+                    </div>
+                    <span style={{ ...statusBadgeStyle(writtenCaseStatus), borderRadius: 999, padding: '4px 10px', fontSize: 11, fontWeight: 700, textTransform: 'uppercase' }}>
+                      {writtenCaseStatus}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+                    <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={() => setWrittenCaseStatus('draft')}>Set Draft</button>
+                    <button
+                      className="btn btn-secondary"
+                      style={{ fontSize: 12 }}
+                      onClick={() => {
+                        setWrittenCaseStatus('approved')
+                        setWrittenCaseReviewer('Current User')
+                        setWrittenCaseReviewedAt(nowStamp())
+                      }}
+                    >
+                      Approve
+                    </button>
+                    <button className="btn btn-primary" style={{ fontSize: 12 }} disabled={writtenCaseStatus !== 'approved'} onClick={() => setWrittenCaseStatus('published')}>
+                      Publish
+                    </button>
+                  </div>
+                  <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-muted)', display: 'grid', gap: 2 }}>
+                    <div>Reviewer: {writtenCaseReviewer || '-'}</div>
+                    <div>Reviewed at: {writtenCaseReviewedAt ? new Date(writtenCaseReviewedAt).toLocaleString('en-AU') : '-'}</div>
+                  </div>
+                </div>
+                <div style={emptyRoomStyle}>Written Case Study (empty room)</div>
+              </div>
             )}
             {caseStudiesSection === 'video_script' && (
-              <div style={emptyRoomStyle}>Video Script Case Study (empty room)</div>
+              <div>
+                <div style={workflowCardStyle}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Video Script Case Study Workflow</div>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Derived from written case after approval</div>
+                    </div>
+                    <span style={{ ...statusBadgeStyle(videoCaseStatus), borderRadius: 999, padding: '4px 10px', fontSize: 11, fontWeight: 700, textTransform: 'uppercase' }}>
+                      {videoCaseStatus}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+                    <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={() => setVideoCaseStatus('draft')}>Set Draft</button>
+                    <button
+                      className="btn btn-secondary"
+                      style={{ fontSize: 12 }}
+                      onClick={() => {
+                        setVideoCaseStatus('approved')
+                        setVideoCaseReviewer('Current User')
+                        setVideoCaseReviewedAt(nowStamp())
+                      }}
+                    >
+                      Approve
+                    </button>
+                    <button className="btn btn-primary" style={{ fontSize: 12 }} disabled={videoCaseStatus !== 'approved'} onClick={() => setVideoCaseStatus('published')}>
+                      Publish
+                    </button>
+                  </div>
+                  <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-muted)', display: 'grid', gap: 2 }}>
+                    <div>Reviewer: {videoCaseReviewer || '-'}</div>
+                    <div>Reviewed at: {videoCaseReviewedAt ? new Date(videoCaseReviewedAt).toLocaleString('en-AU') : '-'}</div>
+                  </div>
+                </div>
+                <div style={emptyRoomStyle}>Video Script Case Study (empty room)</div>
+              </div>
             )}
           </>
         )}
