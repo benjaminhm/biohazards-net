@@ -58,7 +58,7 @@ import {
   useUnsavedChanges,
 } from '@/lib/unsavedChangesContext'
 
-type Tab = 'home' | 'docs' | 'details' | 'assessment' | 'scope_capture' | 'quote_capture' | 'pre_remediation_checklist_capture' | 'progress_capture' | 'progress_notes_capture' | 'quality_checks_capture' | 'recommendations_capture' | 'progress_report_generate' | 'client_feedback_capture' | 'team_feedback_capture' | 'engagement_agreement_capture' | 'nda_capture' | 'authority_to_proceed_capture' | 'swms_capture' | 'jsa_capture' | 'risk_assessment_capture' | 'waste_disposal_manifest_capture' | 'iaq_multi_capture' | 'quote' | 'photos' | 'messages' | 'invoice'
+type Tab = 'home' | 'docs' | 'details' | 'assessment' | 'case_studies' | 'scope_capture' | 'quote_capture' | 'pre_remediation_checklist_capture' | 'progress_capture' | 'progress_notes_capture' | 'quality_checks_capture' | 'recommendations_capture' | 'progress_report_generate' | 'client_feedback_capture' | 'team_feedback_capture' | 'engagement_agreement_capture' | 'nda_capture' | 'authority_to_proceed_capture' | 'swms_capture' | 'jsa_capture' | 'risk_assessment_capture' | 'waste_disposal_manifest_capture' | 'iaq_multi_capture' | 'quote' | 'photos' | 'messages' | 'invoice'
 
 function UnsavedNavigationGuard({
   setActiveTab,
@@ -91,6 +91,8 @@ function pageTitleForTab(tab: Tab, job: Job): string {
       return 'Job details'
     case 'assessment':
       return 'Assessment'
+    case 'case_studies':
+      return 'Case studies'
     case 'scope_capture':
       return 'Scope of work'
     case 'quote_capture':
@@ -154,7 +156,7 @@ const STATUS_LABELS: Record<JobStatus, string> = {
 export default function JobPage() {
   const { id }       = useParams<{ id: string }>()
   const searchParams = useSearchParams()
-  const { caps, isAdmin, loading: userLoading } = useUser()
+  const { caps, isAdmin, loading: userLoading, org } = useUser()
   /** Field workers (no view_all_jobs) use /field; ops staff use full queue. */
   const jobsListHref = userLoading
     ? '/jobs/queue'
@@ -306,6 +308,7 @@ export default function JobPage() {
   const allTabs: { id: Tab; label: string; show: boolean }[] = [
     { id: 'home',       label: 'Home',         show: caps.generate_documents },
     { id: 'details',    label: 'Details',                                                          show: true },
+    { id: 'case_studies', label: 'Case Studies',                                                   show: job.org_id ? (org?.features?.case_studies_tab === true) : false },
     { id: 'photos',     label: `Photos${photos.length ? ` (${photos.length})` : ''}`,             show: caps.upload_photos_assigned || caps.upload_photos_any },
     { id: 'docs',       label: 'Docs',                                                             show: true },
     { id: 'messages',   label: job.inbound_email_address ? (unreadSms > 0 ? `💬 Messages (${unreadSms})` : '💬 Messages') : (unreadSms > 0 ? `💬 SMS (${unreadSms})` : '💬 SMS'), show: caps.send_sms && isActiveJob },
@@ -465,6 +468,9 @@ export default function JobPage() {
         )}
         {activeTab === 'assessment' && assessmentSection === 'document' && (
           <AssessmentDocumentTab job={job} onJobUpdate={setJob} />
+        )}
+        {activeTab === 'case_studies' && (
+          <div style={emptyRoomStyle}>Case studies (empty room)</div>
         )}
         {activeTab === 'scope_capture' && (
           <ScopeOfWorkTab job={job} documents={documents} onJobUpdate={setJob} />

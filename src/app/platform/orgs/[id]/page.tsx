@@ -83,6 +83,12 @@ function orgWebsiteCardEnabled(org: OrgRow): boolean {
   return f.website_card === true
 }
 
+function orgCaseStudiesTabEnabled(org: OrgRow): boolean {
+  const f = org.features
+  if (!f || typeof f !== 'object') return false
+  return f.case_studies_tab === true
+}
+
 const PLAN_COLORS: Record<string, { bg: string; fg: string }> = {
   solo:     { bg: 'rgba(100,100,100,0.12)', fg: '#888' },
   team:     { bg: 'rgba(59,130,246,0.1)',   fg: '#60A5FA' },
@@ -108,6 +114,7 @@ export default function OrgProfilePage() {
   const [deleteSubmitting, setDeleteSubmitting] = useState(false)
   const [trainingToggleBusy, setTrainingToggleBusy] = useState(false)
   const [websiteToggleBusy, setWebsiteToggleBusy] = useState(false)
+  const [caseStudiesToggleBusy, setCaseStudiesToggleBusy] = useState(false)
 
   async function loadSendLog() {
     try {
@@ -231,6 +238,27 @@ export default function OrgProfilePage() {
       await load()
     } finally {
       setWebsiteToggleBusy(false)
+    }
+  }
+
+  async function handleToggleCaseStudiesTab() {
+    if (!data) return
+    const next = !orgCaseStudiesTabEnabled(data.org)
+    setCaseStudiesToggleBusy(true)
+    try {
+      const res = await fetch(`/api/admin/orgs/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ features: { case_studies_tab: next } }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        alert(typeof j.error === 'string' ? j.error : 'Could not update case studies tab flag')
+        return
+      }
+      await load()
+    } finally {
+      setCaseStudiesToggleBusy(false)
     }
   }
 
@@ -754,6 +782,52 @@ export default function OrgProfilePage() {
                 }}
               >
                 {trainingToggleBusy ? 'Saving…' : orgTrainingEducationEnabled(org) ? 'On' : 'Off'}
+              </button>
+            </div>
+          </div>
+        </Card>
+
+        <Card title="Case Studies tab">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.55, margin: 0 }}>
+              Controls whether the <strong style={{ color: 'var(--text)' }}>Case Studies</strong> primary tab is visible in job files for this organisation.
+              Default is off, so the tab stays hidden unless you enable it here.
+            </p>
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              gap: 16, flexWrap: 'wrap',
+              padding: '12px 14px',
+              background: 'var(--surface-2)',
+              border: '1px solid var(--border)',
+              borderRadius: 10,
+            }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Job primary tab</div>
+                <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>
+                  {orgCaseStudiesTabEnabled(org)
+                    ? 'Enabled — team can access the Case Studies tab in job files.'
+                    : 'Disabled — Case Studies tab is hidden in job files.'}
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={caseStudiesToggleBusy}
+                onClick={() => void handleToggleCaseStudiesTab()}
+                title={orgCaseStudiesTabEnabled(org) ? 'Turn off Case Studies tab' : 'Turn on Case Studies tab'}
+                style={{
+                  padding: '10px 20px',
+                  borderRadius: 8,
+                  border: `1px solid ${orgCaseStudiesTabEnabled(org) ? 'rgba(34,197,94,0.45)' : 'var(--border)'}`,
+                  background: orgCaseStudiesTabEnabled(org) ? 'rgba(34,197,94,0.12)' : 'var(--surface-3)',
+                  color: orgCaseStudiesTabEnabled(org) ? '#4ADE80' : 'var(--text-muted)',
+                  fontWeight: 700,
+                  fontSize: 13,
+                  cursor: caseStudiesToggleBusy ? 'wait' : 'pointer',
+                  opacity: caseStudiesToggleBusy ? 0.65 : 1,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {caseStudiesToggleBusy ? 'Saving…' : orgCaseStudiesTabEnabled(org) ? 'On' : 'Off'}
               </button>
             </div>
           </div>
