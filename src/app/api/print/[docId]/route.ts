@@ -54,8 +54,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ docId: 
   const docType = doc.type as DocType
   if (docType === 'quote' || docType === 'iaq_multi') {
     try {
-      const { rows, add_gst_to_total } = await fetchQuoteLineItemsMergeContext(supabase, doc.job_id)
-      docContent = mergeQuoteLineItemsIntoDocContent(docType, docContent, rows, { add_gst_to_total })
+      const { rows, add_gst_to_total, outcome_rows } = await fetchQuoteLineItemsMergeContext(supabase, doc.job_id)
+      docContent = mergeQuoteLineItemsIntoDocContent(docType, docContent, rows, { add_gst_to_total, outcome_rows })
     } catch {
       /* keep stored content if quote tables unavailable */
     }

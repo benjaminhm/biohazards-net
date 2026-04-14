@@ -5,6 +5,7 @@ import type { AssessmentData, DocType, OutcomeQuoteRow, QuoteLineItemRow } from 
 export function quoteLineItemsContentPatch(
   rows: QuoteLineItemRow[],
   addGstToTotal = false,
+  outcomeRows?: OutcomeQuoteRow[],
 ): Record<string, unknown> {
   const lineItems = rows.map(row => ({
     description: row.description,
@@ -19,6 +20,7 @@ export function quoteLineItemsContentPatch(
   const total = Math.round((subtotal + gst) * 100) / 100
   return {
     line_items: lineItems,
+    outcome_rows: outcomeRows ?? [],
     subtotal,
     gst,
     total,
@@ -28,6 +30,7 @@ export function quoteLineItemsContentPatch(
 
 export interface MergeQuoteLineItemsOptions {
   add_gst_to_total?: boolean
+  outcome_rows?: OutcomeQuoteRow[]
 }
 
 /** Overlay active Quote Capture line items onto standalone quote or iaq_multi bundle quote part. */
@@ -37,7 +40,7 @@ export function mergeQuoteLineItemsIntoDocContent(
   rows: QuoteLineItemRow[],
   options?: MergeQuoteLineItemsOptions,
 ): Record<string, unknown> {
-  const patch = quoteLineItemsContentPatch(rows, options?.add_gst_to_total === true)
+  const patch = quoteLineItemsContentPatch(rows, options?.add_gst_to_total === true, options?.outcome_rows)
   if (Object.keys(patch).length === 0) return content
   if (docType === 'quote') {
     return { ...content, ...patch }
@@ -66,14 +69,14 @@ export function mergeQuoteLineItemsIntoDocContent(
 export async function fetchQuoteLineItemsMergeContext(
   supabase: SupabaseClient,
   jobId: string,
-): Promise<{ rows: QuoteLineItemRow[]; add_gst_to_total: boolean }> {
+): Promise<{ rows: QuoteLineItemRow[]; add_gst_to_total: boolean; outcome_rows: OutcomeQuoteRow[] }> {
   const { data: run, error: runErr } = await supabase
     .from('quote_line_item_runs')
     .select('id, add_gst_to_total')
     .eq('job_id', jobId)
     .eq('is_active', true)
     .maybeSingle()
-  if (runErr || !run) return { rows: [], add_gst_to_total: false }
+  if (runErr || !run) return { rows: [], add_gst_to_total: false, outcome_rows: [] }
 
   const { data: items, error } = await supabase
     .from('quote_line_items')
@@ -127,10 +130,10 @@ export async function fetchQuoteLineItemsMergeContext(
       updated_by_user_id: '',
       deleted_at: null,
     }))
-    return { rows: syntheticRows, add_gst_to_total }
+    return { rows: syntheticRows, add_gst_to_total, outcome_rows: approvedOutcomes }
   }
 
-  return { rows: dbRows, add_gst_to_total }
+  return { rows: dbRows, add_gst_to_total, outcome_rows: [] }
 }
 
 /** Active run line items for a job (service client; used by print and server merge). */

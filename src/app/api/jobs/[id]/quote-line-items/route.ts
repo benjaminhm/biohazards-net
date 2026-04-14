@@ -71,6 +71,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         return NextResponse.json({
           run: null,
           items: synthetic,
+          outcome_rows: validOutcomes,
           freshness_status: 'up_to_date',
           current_source_hash: currentSourceHash,
           source_mode: 'outcomes',
@@ -115,6 +116,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       return NextResponse.json({
         run,
         items: synthetic,
+        outcome_rows: validOutcomes,
         freshness_status: freshnessStatus,
         current_source_hash: currentSourceHash,
         source_mode: 'outcomes',

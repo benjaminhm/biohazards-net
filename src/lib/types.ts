@@ -608,6 +608,8 @@ export interface QuoteContent {
   reference: string
   intro: string
   line_items: LineItem[]
+  /** Outcome-based quote rows (preferred render path when present). */
+  outcome_rows?: OutcomeQuoteRow[]
   subtotal: number
   gst: number
   total: number

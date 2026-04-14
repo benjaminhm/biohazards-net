@@ -13,7 +13,7 @@
 
 import { useEffect, useState, useRef, Suspense } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
-import type { CompanyProfile, DocType, Job, Photo, ProgressNote, ProgressRoomNote, QuoteLineItemRow } from '@/lib/types'
+import type { CompanyProfile, DocType, Job, OutcomeQuoteRow, Photo, ProgressNote, ProgressRoomNote, QuoteLineItemRow } from '@/lib/types'
 import { DOC_TYPE_LABELS } from '@/lib/types'
 import { composeDocumentContent, buildComposedPreviewHtml, type ComposeDocumentOptions } from '@/lib/composeDocument'
 import { mergeQuoteLineItemsIntoDocContent } from '@/lib/quoteLineItemsForDocuments'
@@ -100,7 +100,8 @@ function DocViewerInner() {
             const quoteRes = await fetch(`/api/jobs/${jobId}/quote-line-items`).then(r => r.json())
             const rows = (quoteRes.items ?? []) as QuoteLineItemRow[]
             const add_gst_to_total = quoteRes.run?.add_gst_to_total === true
-            next = mergeQuoteLineItemsIntoDocContent(docType, next, rows, { add_gst_to_total })
+            const outcome_rows = (quoteRes.outcome_rows ?? []) as OutcomeQuoteRow[]
+            next = mergeQuoteLineItemsIntoDocContent(docType, next, rows, { add_gst_to_total, outcome_rows })
           }
           setContent(next)
         }
@@ -132,7 +133,8 @@ function DocViewerInner() {
           const quoteRes = await fetch(`/api/jobs/${jobId}/quote-line-items`).then(r => r.json())
           const rows = (quoteRes.items ?? []) as QuoteLineItemRow[]
           const add_gst_to_total = quoteRes.run?.add_gst_to_total === true
-          finalComposed = mergeQuoteLineItemsIntoDocContent(docType, composed, rows, { add_gst_to_total })
+          const outcome_rows = (quoteRes.outcome_rows ?? []) as OutcomeQuoteRow[]
+          finalComposed = mergeQuoteLineItemsIntoDocContent(docType, composed, rows, { add_gst_to_total, outcome_rows })
         }
         setContent(finalComposed)
         router.replace(`/jobs/${jobId}/docs/${docType}`, { scroll: false })

@@ -792,6 +792,8 @@ function buildQuoteMid(
   includeCompletion: boolean,
 ): string {
   const before = photos.filter(p => ['before','assessment'].includes(p.category))
+  const outcomeRows = (c.outcome_rows ?? []).filter(row => row && Number(row.price) > 0)
+  const hasOutcomeRows = outcomeRows.length > 0
   const items = (c.line_items || []).map(li => `
     <tr>
       <td>${esc(li.description)}</td>
@@ -801,14 +803,36 @@ function buildQuoteMid(
       <td class="r">${fmtMoney(li.total)}</td>
     </tr>
   `).join('')
+  const outcomeBlocks = outcomeRows.map((row, idx) => {
+    const areas = row.areas?.length ? row.areas.join(', ') : 'General site scope'
+    const included = (row.included ?? []).filter(Boolean).map(text => `<li>${esc(text)}</li>`).join('')
+    const excluded = (row.excluded ?? []).filter(Boolean).map(text => `<li>${esc(text)}</li>`).join('')
+    const assumptions = (row.assumptions ?? []).filter(Boolean).map(text => `<li>${esc(text)}</li>`).join('')
+    return `
+      <div class="sow-muted-box">
+        <div class="label">Outcome ${idx + 1}</div>
+        <div class="body-text"><strong>${esc(row.outcome_title || 'Outcome')}</strong></div>
+        ${row.outcome_description?.trim() ? `<div class="body-text">${esc(row.outcome_description)}</div>` : ''}
+        <div class="label">Areas</div><div class="body-text">${esc(areas)}</div>
+        <div class="label">Acceptance Criteria</div><div class="body-text">${esc(row.acceptance_criteria || '—')}</div>
+        <div class="label">Verification Method</div><div class="body-text">${esc(row.verification_method || '—')}</div>
+        ${included ? `<div class="label">Included</div><ul class="body-text">${included}</ul>` : ''}
+        ${excluded ? `<div class="label">Excluded</div><ul class="body-text">${excluded}</ul>` : ''}
+        ${assumptions ? `<div class="label">Assumptions</div><ul class="body-text">${assumptions}</ul>` : ''}
+        <div class="label">Outcome Price</div><div class="body-text"><strong>${fmtMoney(Number(row.price || 0))}</strong></div>
+      </div>
+    `
+  }).join('')
 
   return `
     <div class="label">Overview</div><div class="body-text sow-rich">${richBodyHtmlForPrint(c.intro)}</div>
     <div class="label">Scope &amp; Pricing</div>
+    ${hasOutcomeRows ? outcomeBlocks : `
     <table>
       <thead><tr><th>Description</th><th class="r">Qty</th><th class="r">Unit</th><th class="r">Rate</th><th class="r">Total</th></tr></thead>
       <tbody>${items}</tbody>
     </table>
+    `}
     <div class="totals">
       <div class="tot-row"><span>Subtotal</span><span class="amt">${fmtMoney(c.subtotal)}</span></div>
       ${c.gst > 0 ? `<div class="tot-row"><span>GST (10%)</span><span class="amt">${fmtMoney(c.gst)}</span></div>` : ''}

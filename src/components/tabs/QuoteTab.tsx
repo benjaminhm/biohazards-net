@@ -225,7 +225,14 @@ export default function QuoteTab({ job, documents, onJobUpdate, hideTargetPricin
           </Link>
         </div>
       ) : (
-        <Link href={`/jobs/${job.id}/docs/quote`}>
+        <Link
+          href={`/jobs/${job.id}/docs/quote`}
+          onClick={() => {
+            // #region agent log
+            fetch('http://127.0.0.1:7393/ingest/16e333f0-921c-42c8-9145-442e5f4c52c3',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'723539'},body:JSON.stringify({sessionId:'723539',runId:'quote-doc-debug',hypothesisId:'H1',location:'src/components/tabs/QuoteTab.tsx:generateLink',message:'Generate quote link clicked',data:{href:`/jobs/${job.id}/docs/quote`,hasExistingQuote:Boolean(existingQuote)},timestamp:Date.now()})}).catch(()=>{})
+            // #endregion
+          }}
+        >
           <button className="btn btn-secondary" style={{ width: '100%', padding: 14, fontSize: 14 }}>
             ＋ Generate Quote with Claude
           </button>
