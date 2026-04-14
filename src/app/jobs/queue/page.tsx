@@ -124,18 +124,73 @@ function DeleteModal({ clientName, onConfirm, onCancel }: {
   )
 }
 
-function JobCard({ job, onDelete }: { job: Job; onDelete: (id: string) => void }) {
+function JobCard({
+  job,
+  showArchived,
+  onDelete,
+  onJobPatched,
+  onRemoveJob,
+}: {
+  job: Job
+  showArchived: boolean
+  onDelete: (id: string) => void
+  onJobPatched: (job: Job) => void
+  onRemoveJob: (id: string) => void
+}) {
   const [showModal, setShowModal] = useState(false)
   const [deleted, setDeleted] = useState(false)
+  const [statusSaving, setStatusSaving] = useState(false)
+  const [archiveSaving, setArchiveSaving] = useState(false)
   const { caps } = useUser()
   const price = job.assessment_data?.target_price
   const priceNote = job.assessment_data?.target_price_note
+  const isArchived = Boolean(job.archived_at)
 
   async function handleConfirm() {
     await fetch(`/api/jobs/${job.id}`, { method: 'DELETE' })
     setDeleted(true)
     setShowModal(false)
     onDelete(job.id)
+  }
+
+  async function handleStatusChange(next: JobStatus) {
+    if (next === job.status || statusSaving) return
+    setStatusSaving(true)
+    try {
+      const res = await fetch(`/api/jobs/${job.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: next }),
+      })
+      const data = (await res.json()) as { job?: Job; error?: string }
+      if (!res.ok) throw new Error(data.error ?? 'Could not update status')
+      if (data.job) onJobPatched(data.job)
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : 'Could not update status')
+    } finally {
+      setStatusSaving(false)
+    }
+  }
+
+  async function setArchived(archived: boolean) {
+    if (archiveSaving) return
+    setArchiveSaving(true)
+    try {
+      const res = await fetch(`/api/jobs/${job.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ archived }),
+      })
+      const data = (await res.json()) as { job?: Job; error?: string }
+      if (!res.ok) throw new Error(data.error ?? 'Could not update archive')
+      if (!data.job) return
+      if (archived && !showArchived) onRemoveJob(job.id)
+      else onJobPatched(data.job)
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : 'Could not update archive')
+    } finally {
+      setArchiveSaving(false)
+    }
   }
 
   if (deleted) return null
@@ -149,7 +204,14 @@ function JobCard({ job, onDelete }: { job: Job; onDelete: (id: string) => void }
           onCancel={() => setShowModal(false)}
         />
       )}
-      <div className="card" style={{ marginBottom: 10 }}>
+      <div
+        className="card"
+        style={{
+          marginBottom: 10,
+          opacity: isArchived ? 0.88 : 1,
+          border: isArchived ? '1px dashed var(--border)' : undefined,
+        }}
+      >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
           <Link href={`/jobs/${job.id}`} style={{ flex: 1, minWidth: 0, textDecoration: 'none', color: 'inherit' }}>
             <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 2 }}>{job.client_name}</div>
@@ -161,26 +223,90 @@ function JobCard({ job, onDelete }: { job: Job; onDelete: (id: string) => void }
                 {URGENCY_ICON[job.urgency]} {JOB_TYPE_LABELS[job.job_type] ?? job.job_type}
               </span>
               <span className={`badge badge-${job.urgency}`}>{job.urgency}</span>
+              {isArchived && (
+                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>Archived</span>
+              )}
             </div>
           </Link>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, flexShrink: 0 }}>
-            <span className={`badge badge-${job.status}`}>{STATUS_LABELS[job.status]}</span>
+            <select
+              aria-label="Job status"
+              value={job.status}
+              disabled={statusSaving || isArchived}
+              onClick={e => e.stopPropagation()}
+              onChange={e => void handleStatusChange(e.target.value as JobStatus)}
+              className={`badge badge-${job.status}`}
+              style={{
+                fontSize: 11,
+                fontWeight: 700,
+                letterSpacing: '0.06em',
+                textTransform: 'uppercase',
+                padding: '6px 10px',
+                borderRadius: 6,
+                border: '1px solid var(--border)',
+                cursor: statusSaving || isArchived ? 'not-allowed' : 'pointer',
+                maxWidth: 180,
+                background: 'var(--surface-2)',
+                color: 'inherit',
+              }}
+            >
+              {STATUS_ORDER.map(s => (
+                <option key={s} value={s}>
+                  {STATUS_LABELS[s]}
+                </option>
+              ))}
+            </select>
             {caps.view_quote && price && (
               <span style={{ fontSize: 13, fontWeight: 700, color: '#10B981' }}>
                 ${price.toLocaleString('en-AU')}{priceNote ? ` ${priceNote}` : ''}
               </span>
             )}
-            <button
-              onClick={e => { e.preventDefault(); e.stopPropagation(); setShowModal(true) }}
-              title="Delete job"
-              style={{
-                background: 'none', border: '1px solid var(--border)', borderRadius: 6,
-                padding: '4px 8px', fontSize: 13, color: 'var(--text-muted)',
-                cursor: 'pointer', transition: 'all 0.15s',
-              }}
-            >
-              🗑️
-            </button>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              {!isArchived ? (
+                <button
+                  type="button"
+                  onClick={e => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    if (window.confirm('Archive this job? It will disappear from the main queue but stay in the database for reporting.')) {
+                      void setArchived(true)
+                    }
+                  }}
+                  disabled={archiveSaving}
+                  title="Archive job"
+                  className="btn btn-ghost"
+                  style={{ fontSize: 12, padding: '4px 8px', color: 'var(--text-muted)' }}
+                >
+                  Archive
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={e => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    void setArchived(false)
+                  }}
+                  disabled={archiveSaving}
+                  title="Restore to queue"
+                  className="btn btn-secondary"
+                  style={{ fontSize: 12, padding: '4px 8px' }}
+                >
+                  Restore
+                </button>
+              )}
+              <button
+                onClick={e => { e.preventDefault(); e.stopPropagation(); setShowModal(true) }}
+                title="Permanently delete job"
+                style={{
+                  background: 'none', border: '1px solid var(--border)', borderRadius: 6,
+                  padding: '4px 8px', fontSize: 13, color: 'var(--text-muted)',
+                  cursor: 'pointer', transition: 'all 0.15s',
+                }}
+              >
+                {'\u{1F5D1}\uFE0F'}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -194,6 +320,7 @@ export default function JobQueuePage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [company, setCompany] = useState<CompanyProfile | null>(null)
+  const [showArchived, setShowArchived] = useState(false)
   const { org: ctxOrg, loading: userLoading, isAdmin, caps } = useUser()
 
   // Full pipeline board is for admins and members with view_all_jobs only.
@@ -203,6 +330,14 @@ export default function JobQueuePage() {
   }, [userLoading, isAdmin, caps.view_all_jobs, router])
 
   function handleDelete(id: string) {
+    setJobs(prev => prev.filter(j => j.id !== id))
+  }
+
+  function handleJobPatched(updated: Job) {
+    setJobs(prev => prev.map(j => (j.id === updated.id ? updated : j)))
+  }
+
+  function handleRemoveJob(id: string) {
     setJobs(prev => prev.filter(j => j.id !== id))
   }
 
@@ -220,7 +355,7 @@ export default function JobQueuePage() {
     let cancelled = false
     ;(async () => {
       try {
-        const r = await fetch('/api/jobs')
+        const r = await fetch(showArchived ? '/api/jobs?include_archived=true' : '/api/jobs')
         const data = (await r.json().catch(() => ({}))) as { jobs?: Job[]; error?: string }
         if (cancelled) return
         if (!r.ok) {
@@ -247,7 +382,7 @@ export default function JobQueuePage() {
       }
     })()
     return () => { cancelled = true }
-  }, [userLoading, isAdmin, caps.view_all_jobs])
+  }, [userLoading, isAdmin, caps.view_all_jobs, showArchived])
 
   const brandName = company?.name || ctxOrg?.name || 'Company'
 
@@ -270,7 +405,18 @@ export default function JobQueuePage() {
               <h1 style={{ fontSize: 22, fontWeight: 700 }}>Job Queue</h1>
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', color: 'var(--text-muted)' }}>
+              <input
+                type="checkbox"
+                checked={showArchived}
+                onChange={e => {
+                  setShowArchived(e.target.checked)
+                  setLoading(true)
+                }}
+              />
+              Show archived
+            </label>
             <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
               {jobs.length} job{jobs.length !== 1 ? 's' : ''}
             </div>
@@ -314,7 +460,16 @@ export default function JobQueuePage() {
                 <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{group.length}</span>
                 <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
               </div>
-              {group.map(job => <JobCard key={job.id} job={job} onDelete={handleDelete} />)}
+              {group.map(job => (
+                <JobCard
+                  key={job.id}
+                  job={job}
+                  showArchived={showArchived}
+                  onDelete={handleDelete}
+                  onJobPatched={handleJobPatched}
+                  onRemoveJob={handleRemoveJob}
+                />
+              ))}
             </div>
           )
         })}

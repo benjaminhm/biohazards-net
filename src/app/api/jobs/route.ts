@@ -25,6 +25,7 @@ export async function GET(req: Request) {
     const upcoming          = searchParams.get('upcoming') === 'true'
     const assignedOnly      = searchParams.get('assigned_only') === 'true'
     const previewPersonId   = searchParams.get('preview_person_id')
+    const includeArchived   = searchParams.get('include_archived') === 'true'
     const supabase = createServiceClient()
 
     // preview_person_id — admin fetching another person's assigned jobs for live preview.
@@ -46,12 +47,14 @@ export async function GET(req: Request) {
         .eq('org_id', orgId)
       const jobIds = (assignments ?? []).map((a: { job_id: string }) => a.job_id)
       if (jobIds.length === 0) return NextResponse.json({ jobs: [] })
-      const { data, error } = await supabase
+      let q = supabase
         .from('jobs')
         .select('*')
         .eq('org_id', orgId)
         .in('id', jobIds)
         .order('scheduled_at', { ascending: true, nullsFirst: false })
+      if (!includeArchived) q = q.is('archived_at', null)
+      const { data, error } = await q
       if (error) throw error
       return NextResponse.json({ jobs: data })
     }
@@ -81,18 +84,22 @@ export async function GET(req: Request) {
       const jobIds = (assignments ?? []).map(a => a.job_id)
       if (jobIds.length === 0) return NextResponse.json({ jobs: [] })
 
-      const { data, error } = await supabase
+      let q = supabase
         .from('jobs')
         .select('*')
         .eq('org_id', orgId)
         .in('id', jobIds)
         .order('scheduled_at', { ascending: true, nullsFirst: false })
+      if (!includeArchived) q = q.is('archived_at', null)
+
+      const { data, error } = await q
 
       if (error) throw error
       return NextResponse.json({ jobs: data })
     }
 
     let query = supabase.from('jobs').select('*').eq('org_id', orgId)
+    if (!includeArchived) query = query.is('archived_at', null)
 
     if (upcoming) {
       query = query

@@ -57,6 +57,21 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
     const body = (await req.json()) as Record<string, unknown>
     delete body.inbound_email_token
+    if (body.archived === true) {
+      body.archived_at = new Date().toISOString()
+      body.archived_by_user_id = userId ?? null
+      delete body.archived
+    } else if (body.archived === false) {
+      body.archived_at = null
+      body.archived_by_user_id = null
+      delete body.archived
+    } else if ('archived_at' in body) {
+      if (body.archived_at === null || body.archived_at === '') {
+        body.archived_by_user_id = null
+      } else if (typeof body.archived_at === 'string') {
+        body.archived_by_user_id = userId ?? null
+      }
+    }
     if ('client_phone' in body) {
       const pr = normalizeOptionalPhoneField(body.client_phone)
       if (!pr.ok) return NextResponse.json({ error: pr.error }, { status: 400 })

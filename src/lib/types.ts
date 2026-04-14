@@ -384,6 +384,9 @@ export interface Job {
   schedule_note: string | null
   created_at: string
   updated_at: string
+  /** Soft-archive: hidden from default job lists; data retained for reporting. */
+  archived_at?: string | null
+  archived_by_user_id?: string | null
   /** Pilot inbound email — set for JOB_INBOUND_EMAIL_ORG_SLUGS orgs only. */
   inbound_email_token?: string | null
   /** Populated by GET /api/jobs/[id] when pilot org; not a DB column. */
