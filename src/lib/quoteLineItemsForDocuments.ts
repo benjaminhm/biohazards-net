@@ -6,6 +6,7 @@ export function quoteLineItemsContentPatch(
   rows: QuoteLineItemRow[],
   addGstToTotal = false,
   outcomeRows?: OutcomeQuoteRow[],
+  outcomeMode?: 'outcomes' | 'line_items',
 ): Record<string, unknown> {
   const lineItems = rows.map(row => ({
     description: row.description,
@@ -14,13 +15,18 @@ export function quoteLineItemsContentPatch(
     rate: Number(row.rate || 0),
     total: Number(row.total || 0),
   }))
-  const subtotal = Math.round(lineItems.reduce((sum, row) => sum + Number(row.total || 0), 0) * 100) / 100
-  if (!lineItems.length) return {}
+  const pricedOutcomes = (outcomeRows ?? []).filter(row => Number(row.price || 0) > 0)
+  const subtotalBase = lineItems.length
+    ? lineItems.reduce((sum, row) => sum + Number(row.total || 0), 0)
+    : pricedOutcomes.reduce((sum, row) => sum + Number(row.price || 0), 0)
+  const subtotal = Math.round(subtotalBase * 100) / 100
+  if (!lineItems.length && !(outcomeRows?.length)) return {}
   const gst = addGstToTotal ? Math.round(subtotal * 0.1 * 100) / 100 : 0
   const total = Math.round((subtotal + gst) * 100) / 100
   return {
     line_items: lineItems,
     outcome_rows: outcomeRows ?? [],
+    outcome_mode: outcomeMode,
     subtotal,
     gst,
     total,
@@ -31,6 +37,7 @@ export function quoteLineItemsContentPatch(
 export interface MergeQuoteLineItemsOptions {
   add_gst_to_total?: boolean
   outcome_rows?: OutcomeQuoteRow[]
+  outcome_mode?: 'outcomes' | 'line_items'
 }
 
 /** Overlay active Quote Capture line items onto standalone quote or iaq_multi bundle quote part. */
@@ -40,7 +47,12 @@ export function mergeQuoteLineItemsIntoDocContent(
   rows: QuoteLineItemRow[],
   options?: MergeQuoteLineItemsOptions,
 ): Record<string, unknown> {
-  const patch = quoteLineItemsContentPatch(rows, options?.add_gst_to_total === true, options?.outcome_rows)
+  const patch = quoteLineItemsContentPatch(
+    rows,
+    options?.add_gst_to_total === true,
+    options?.outcome_rows,
+    options?.outcome_mode,
+  )
   if (Object.keys(patch).length === 0) return content
   if (docType === 'quote') {
     return { ...content, ...patch }
@@ -69,14 +81,14 @@ export function mergeQuoteLineItemsIntoDocContent(
 export async function fetchQuoteLineItemsMergeContext(
   supabase: SupabaseClient,
   jobId: string,
-): Promise<{ rows: QuoteLineItemRow[]; add_gst_to_total: boolean; outcome_rows: OutcomeQuoteRow[] }> {
+): Promise<{ rows: QuoteLineItemRow[]; add_gst_to_total: boolean; outcome_rows: OutcomeQuoteRow[]; outcome_mode: 'outcomes' | 'line_items' }> {
   const { data: run, error: runErr } = await supabase
     .from('quote_line_item_runs')
     .select('id, add_gst_to_total')
     .eq('job_id', jobId)
     .eq('is_active', true)
     .maybeSingle()
-  if (runErr || !run) return { rows: [], add_gst_to_total: false, outcome_rows: [] }
+  if (runErr || !run) return { rows: [], add_gst_to_total: false, outcome_rows: [], outcome_mode: 'line_items' }
 
   const { data: items, error } = await supabase
     .from('quote_line_items')
@@ -130,10 +142,14 @@ export async function fetchQuoteLineItemsMergeContext(
       updated_by_user_id: '',
       deleted_at: null,
     }))
-    return { rows: syntheticRows, add_gst_to_total, outcome_rows: approvedOutcomes }
+    return { rows: syntheticRows, add_gst_to_total, outcome_rows: outcomeRows, outcome_mode: 'outcomes' }
   }
 
-  return { rows: dbRows, add_gst_to_total, outcome_rows: [] }
+  if (capture?.mode === 'outcomes') {
+    return { rows: dbRows, add_gst_to_total, outcome_rows: outcomeRows, outcome_mode: 'outcomes' }
+  }
+
+  return { rows: dbRows, add_gst_to_total, outcome_rows: [], outcome_mode: 'line_items' }
 }
 
 /** Active run line items for a job (service client; used by print and server merge). */

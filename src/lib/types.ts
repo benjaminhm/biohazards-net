@@ -610,6 +610,8 @@ export interface QuoteContent {
   line_items: LineItem[]
   /** Outcome-based quote rows (preferred render path when present). */
   outcome_rows?: OutcomeQuoteRow[]
+  /** Controls quote output layout preference when merging live quote capture content. */
+  outcome_mode?: 'outcomes' | 'line_items'
   subtotal: number
   gst: number
   total: number

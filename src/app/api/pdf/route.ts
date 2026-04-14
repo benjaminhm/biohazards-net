@@ -47,8 +47,8 @@ export async function POST(req: Request) {
       (type === 'quote' || type === 'iaq_multi')
     ) {
       try {
-        const { rows, add_gst_to_total, outcome_rows } = await fetchQuoteLineItemsMergeContext(supabase, jobId)
-        mergedContent = mergeQuoteLineItemsIntoDocContent(type, mergedContent, rows, { add_gst_to_total, outcome_rows })
+        const { rows, add_gst_to_total, outcome_rows, outcome_mode } = await fetchQuoteLineItemsMergeContext(supabase, jobId)
+        mergedContent = mergeQuoteLineItemsIntoDocContent(type, mergedContent, rows, { add_gst_to_total, outcome_rows, outcome_mode })
       } catch {
         /* use client content */
       }

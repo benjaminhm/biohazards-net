@@ -38,7 +38,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
     const ad = (job.assessment_data ?? null) as AssessmentData | null
     const outcomeCapture = ad?.outcome_quote_capture
-    const validOutcomes = ((outcomeCapture?.rows ?? []) as OutcomeQuoteRow[]).filter(
+    const allOutcomes = (outcomeCapture?.rows ?? []) as OutcomeQuoteRow[]
+    const validOutcomes = allOutcomes.filter(
       row =>
         (row.status === 'approved' || row.status === 'edited') &&
         row.price > 0 &&
@@ -48,7 +49,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     )
 
     if (!run) {
-      if (outcomeCapture?.mode === 'outcomes' && validOutcomes.length > 0) {
+      if (outcomeCapture?.mode === 'outcomes') {
         const synthetic = validOutcomes.map((row, idx) => ({
           id: `outcome_${idx + 1}`,
           run_id: '',
@@ -71,7 +72,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         return NextResponse.json({
           run: null,
           items: synthetic,
-          outcome_rows: validOutcomes,
+          outcome_rows: allOutcomes,
           freshness_status: 'up_to_date',
           current_source_hash: currentSourceHash,
           source_mode: 'outcomes',
@@ -93,7 +94,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
     if (error) throw error
     const freshnessStatus = run.source_hash && run.source_hash === currentSourceHash ? 'up_to_date' : 'needs_refresh'
-    if (outcomeCapture?.mode === 'outcomes' && validOutcomes.length > 0) {
+    if (outcomeCapture?.mode === 'outcomes') {
       const synthetic = validOutcomes.map((row, idx) => ({
         id: `outcome_${idx + 1}`,
         run_id: run.id,
@@ -116,7 +117,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       return NextResponse.json({
         run,
         items: synthetic,
-        outcome_rows: validOutcomes,
+        outcome_rows: allOutcomes,
         freshness_status: freshnessStatus,
         current_source_hash: currentSourceHash,
         source_mode: 'outcomes',

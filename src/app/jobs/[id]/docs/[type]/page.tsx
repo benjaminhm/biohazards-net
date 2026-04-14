@@ -101,7 +101,8 @@ function DocViewerInner() {
             const rows = (quoteRes.items ?? []) as QuoteLineItemRow[]
             const add_gst_to_total = quoteRes.run?.add_gst_to_total === true
             const outcome_rows = (quoteRes.outcome_rows ?? []) as OutcomeQuoteRow[]
-            next = mergeQuoteLineItemsIntoDocContent(docType, next, rows, { add_gst_to_total, outcome_rows })
+            const outcome_mode = quoteRes.source_mode === 'outcomes' ? 'outcomes' : 'line_items'
+            next = mergeQuoteLineItemsIntoDocContent(docType, next, rows, { add_gst_to_total, outcome_rows, outcome_mode })
           }
           setContent(next)
         }
@@ -134,7 +135,8 @@ function DocViewerInner() {
           const rows = (quoteRes.items ?? []) as QuoteLineItemRow[]
           const add_gst_to_total = quoteRes.run?.add_gst_to_total === true
           const outcome_rows = (quoteRes.outcome_rows ?? []) as OutcomeQuoteRow[]
-          finalComposed = mergeQuoteLineItemsIntoDocContent(docType, composed, rows, { add_gst_to_total, outcome_rows })
+          const outcome_mode = quoteRes.source_mode === 'outcomes' ? 'outcomes' : 'line_items'
+          finalComposed = mergeQuoteLineItemsIntoDocContent(docType, composed, rows, { add_gst_to_total, outcome_rows, outcome_mode })
         }
         setContent(finalComposed)
         router.replace(`/jobs/${jobId}/docs/${docType}`, { scroll: false })

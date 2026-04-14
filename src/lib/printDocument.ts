@@ -792,8 +792,8 @@ function buildQuoteMid(
   includeCompletion: boolean,
 ): string {
   const before = photos.filter(p => ['before','assessment'].includes(p.category))
-  const outcomeRows = (c.outcome_rows ?? []).filter(row => row && Number(row.price) > 0)
-  const hasOutcomeRows = outcomeRows.length > 0
+  const outcomeRows = (c.outcome_rows ?? []).filter(Boolean)
+  const hasOutcomeRows = c.outcome_mode === 'outcomes' || outcomeRows.length > 0
   const items = (c.line_items || []).map(li => `
     <tr>
       <td>${esc(li.description)}</td>
@@ -819,15 +819,16 @@ function buildQuoteMid(
         ${included ? `<div class="label">Included</div><ul class="body-text">${included}</ul>` : ''}
         ${excluded ? `<div class="label">Excluded</div><ul class="body-text">${excluded}</ul>` : ''}
         ${assumptions ? `<div class="label">Assumptions</div><ul class="body-text">${assumptions}</ul>` : ''}
-        <div class="label">Outcome Price</div><div class="body-text"><strong>${fmtMoney(Number(row.price || 0))}</strong></div>
+        <div class="label">Outcome Price</div><div class="body-text"><strong>${Number(row.price || 0) > 0 ? fmtMoney(Number(row.price || 0)) : 'TBC'}</strong></div>
       </div>
     `
   }).join('')
+  const outcomeLayout = outcomeBlocks || `<div class="body-text">Outcome-based quote is enabled for this job. No outcomes have been drafted yet.</div>`
 
   return `
     <div class="label">Overview</div><div class="body-text sow-rich">${richBodyHtmlForPrint(c.intro)}</div>
     <div class="label">Scope &amp; Pricing</div>
-    ${hasOutcomeRows ? outcomeBlocks : `
+    ${hasOutcomeRows ? outcomeLayout : `
     <table>
       <thead><tr><th>Description</th><th class="r">Qty</th><th class="r">Unit</th><th class="r">Rate</th><th class="r">Total</th></tr></thead>
       <tbody>${items}</tbody>
