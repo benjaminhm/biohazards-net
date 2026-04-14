@@ -55,25 +55,28 @@ MANDATORY RULES:
 
 Respond with valid JSON only (no markdown) exactly this shape:
 {
-  "written_capture": {
-    "case_title": "",
-    "case_type": "",
-    "region_context": "",
-    "urgency_level": "",
-    "call_context_summary": "",
-    "caller_presentation": "",
-    "constraints_at_intake": "",
-    "initial_objective": "",
-    "iaq_findings": "",
-    "plan_rationale": "",
-    "execution_sequence": "",
-    "review_verification": "",
-    "hazard_profile": "",
-    "control_measures": "",
-    "outcome_summary": "",
-    "handover_summary": "",
-    "key_lessons": "",
-    "training_takeaways": ""
+  "case_study": {
+    "meta": { "id": "", "created_at": "", "job_id": "", "company": "", "author": "" },
+    "snapshot": { "title": "", "subtitle": "", "client_type": "", "location": "", "job_type": "", "duration": "", "headline_result": "" },
+    "challenge": { "summary": "", "details": "", "risks_or_hazards": [], "regulatory_requirements": [], "why_professional_needed": "" },
+    "solution": {
+      "approach_summary": "",
+      "steps": [{ "step_number": 1, "title": "", "description": "" }],
+      "equipment_used": [],
+      "chemicals_or_products_used": [],
+      "safety_protocols": [],
+      "certifications_applied": []
+    },
+    "results": {
+      "outcome_summary": "",
+      "metrics": [{ "label": "", "value": "" }],
+      "before_after": { "before": "", "after": "" },
+      "clearance_testing": "",
+      "compliance_status": ""
+    },
+    "testimonial": { "quote": "", "client_name": "", "client_role": "", "permission_granted": false },
+    "key_takeaways": [],
+    "media": { "photos_before": [], "photos_after": [], "documents_referenced": [] }
   },
   "written_draft": ""
 }`
@@ -326,7 +329,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     return NextResponse.json({
-      written_capture: parsed.written_capture ?? {},
+      case_study: parsed.case_study ?? {},
       written_draft: typeof parsed.written_draft === 'string' ? parsed.written_draft : '',
     })
   } catch (e: unknown) {

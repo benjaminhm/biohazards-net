@@ -310,6 +310,7 @@ export default function JobPage() {
   const [videoCaseReviewedAt, setVideoCaseReviewedAt] = useState('')
   const [writtenCapture, setWrittenCapture] = useState<WrittenCaseStudyCapture>(WRITTEN_INITIAL)
   const [writtenGenerated, setWrittenGenerated] = useState('')
+  const [writtenCaseStudyJson, setWrittenCaseStudyJson] = useState<Record<string, unknown> | null>(null)
   const [writtenSavedJson, setWrittenSavedJson] = useState('')
   const [writtenSavedAt, setWrittenSavedAt] = useState('')
   const [videoCapture, setVideoCapture] = useState<VideoScriptCapture>(VIDEO_INITIAL)
@@ -500,6 +501,76 @@ export default function JobPage() {
     setVideoCapture(prev => ({ ...prev, [key]: value }))
   }
 
+  function buildCaseStudySchemaFromForm() {
+    const steps = writtenCapture.execution_sequence
+      .split('\n')
+      .map(s => s.trim())
+      .filter(Boolean)
+      .slice(0, 8)
+      .map((description, idx) => ({
+        step_number: idx + 1,
+        title: `Step ${idx + 1}`,
+        description,
+      }))
+    return {
+      case_study: {
+        meta: {
+          id: '',
+          created_at: new Date().toISOString(),
+          job_id: job.id,
+          company: job.client_organization_name || '',
+          author: '',
+        },
+        snapshot: {
+          title: writtenCapture.case_title,
+          subtitle: writtenCapture.initial_objective,
+          client_type: job.client_contact_role || '',
+          location: writtenCapture.region_context || 'anonymised',
+          job_type: writtenCapture.case_type || job.job_type,
+          duration: '',
+          headline_result: writtenCapture.outcome_summary,
+        },
+        challenge: {
+          summary: writtenCapture.call_context_summary,
+          details: writtenCapture.caller_presentation,
+          risks_or_hazards: [writtenCapture.hazard_profile].filter(Boolean),
+          regulatory_requirements: [],
+          why_professional_needed: writtenCapture.constraints_at_intake,
+        },
+        solution: {
+          approach_summary: writtenCapture.plan_rationale,
+          steps: steps.length ? steps : [{ step_number: 1, title: '', description: '' }],
+          equipment_used: [],
+          chemicals_or_products_used: [],
+          safety_protocols: [writtenCapture.control_measures].filter(Boolean),
+          certifications_applied: [],
+        },
+        results: {
+          outcome_summary: writtenCapture.outcome_summary,
+          metrics: [{ label: '', value: '' }],
+          before_after: {
+            before: writtenCapture.call_context_summary,
+            after: writtenCapture.review_verification,
+          },
+          clearance_testing: writtenCapture.review_verification,
+          compliance_status: '',
+        },
+        testimonial: {
+          quote: '',
+          client_name: '',
+          client_role: '',
+          permission_granted: false,
+        },
+        key_takeaways: [writtenCapture.key_lessons, writtenCapture.training_takeaways].filter(Boolean),
+        media: {
+          photos_before: [],
+          photos_after: [],
+          documents_referenced: [],
+        },
+      },
+    }
+  }
+
   async function generateWrittenNarrative() {
     setCaseStudyError('')
     setWrittenGenerating(true)
@@ -513,15 +584,15 @@ export default function JobPage() {
         }),
       })
       const data = (await res.json()) as {
-        written_capture?: Partial<WrittenCaseStudyCapture>
+        case_study?: Record<string, unknown>
         written_draft?: string
         error?: string
       }
       if (!res.ok) throw new Error(data.error ?? 'Could not generate written case study')
-      if (data.written_capture && typeof data.written_capture === 'object') {
-        setWrittenCapture(prev => ({ ...prev, ...data.written_capture }))
-      }
       setWrittenGenerated((data.written_draft ?? '').trim())
+      if (data.case_study && typeof data.case_study === 'object') {
+        setWrittenCaseStudyJson(data.case_study)
+      }
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Could not generate written case study'
       setCaseStudyError(message)
@@ -832,7 +903,11 @@ export default function JobPage() {
                       className="btn btn-ghost"
                       style={{ fontSize: 12 }}
                       onClick={() => {
-                        const payload = JSON.stringify({ schema_version: '1.0', ...writtenCapture }, null, 2)
+                        const payload = JSON.stringify(
+                          writtenCaseStudyJson ? { case_study: writtenCaseStudyJson } : buildCaseStudySchemaFromForm(),
+                          null,
+                          2
+                        )
                         setWrittenSavedJson(payload)
                         setWrittenSavedAt(nowStamp())
                       }}
