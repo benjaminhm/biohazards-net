@@ -308,7 +308,7 @@ export default function JobPage() {
   const allTabs: { id: Tab; label: string; show: boolean }[] = [
     { id: 'home',       label: 'Home',         show: caps.generate_documents },
     { id: 'details',    label: 'Details',                                                          show: true },
-    { id: 'case_studies', label: 'Case Studies',                                                   show: job.org_id ? (org?.features?.case_studies_tab === true) : false },
+    { id: 'case_studies', label: 'Case Studies',                                                   show: org?.features?.case_studies_tab === true },
     { id: 'photos',     label: `Photos${photos.length ? ` (${photos.length})` : ''}`,             show: caps.upload_photos_assigned || caps.upload_photos_any },
     { id: 'docs',       label: 'Docs',                                                             show: true },
     { id: 'messages',   label: job.inbound_email_address ? (unreadSms > 0 ? `💬 Messages (${unreadSms})` : '💬 Messages') : (unreadSms > 0 ? `💬 SMS (${unreadSms})` : '💬 SMS'), show: caps.send_sms && isActiveJob },
