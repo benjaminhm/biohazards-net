@@ -316,6 +316,9 @@ export default function JobPage() {
   const [videoGenerated, setVideoGenerated] = useState('')
   const [videoSavedJson, setVideoSavedJson] = useState('')
   const [videoSavedAt, setVideoSavedAt] = useState('')
+  const [writtenGenerating, setWrittenGenerating] = useState(false)
+  const [videoGenerating, setVideoGenerating] = useState(false)
+  const [caseStudyError, setCaseStudyError] = useState('')
 
   const assessmentPresentationBtnStyle = {
     padding: '8px 16px',
@@ -497,22 +500,39 @@ export default function JobPage() {
     setVideoCapture(prev => ({ ...prev, [key]: value }))
   }
 
-  function generateWrittenNarrative() {
-    const summary =
-      `Case: ${writtenCapture.case_title || 'Untitled'}\n` +
-      `Type: ${writtenCapture.case_type} | Region: ${writtenCapture.region_context} | Urgency: ${writtenCapture.urgency_level}\n\n` +
-      `Intake\n${writtenCapture.call_context_summary}\n\n` +
-      `Caller presentation\n${writtenCapture.caller_presentation}\n\n` +
-      `IAQ findings\n${writtenCapture.iaq_findings}\n\n` +
-      `Plan rationale\n${writtenCapture.plan_rationale}\n\n` +
-      `Execution\n${writtenCapture.execution_sequence}\n\n` +
-      `Review and verification\n${writtenCapture.review_verification}\n\n` +
-      `Outcome\n${writtenCapture.outcome_summary}\n\n` +
-      `Lessons\n${writtenCapture.key_lessons}`
-    setWrittenGenerated(summary.trim())
+  async function generateWrittenNarrative() {
+    setCaseStudyError('')
+    setWrittenGenerating(true)
+    try {
+      const res = await fetch(`/api/jobs/${id}/suggest-case-study`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'written',
+          written_capture: writtenCapture,
+        }),
+      })
+      const data = (await res.json()) as {
+        written_capture?: Partial<WrittenCaseStudyCapture>
+        written_draft?: string
+        error?: string
+      }
+      if (!res.ok) throw new Error(data.error ?? 'Could not generate written case study')
+      if (data.written_capture && typeof data.written_capture === 'object') {
+        setWrittenCapture(prev => ({ ...prev, ...data.written_capture }))
+      }
+      setWrittenGenerated((data.written_draft ?? '').trim())
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Could not generate written case study'
+      setCaseStudyError(message)
+      window.alert(message)
+    } finally {
+      setWrittenGenerating(false)
+    }
   }
 
   function generateVideoFromWritten() {
+    setCaseStudyError('')
     const setup = writtenCapture.call_context_summary || writtenCapture.initial_objective
     const method = `${writtenCapture.plan_rationale}\n${writtenCapture.execution_sequence}`.trim()
     const outcome = writtenCapture.outcome_summary || writtenCapture.handover_summary
@@ -531,6 +551,38 @@ export default function JobPage() {
       lessons: prev.lessons || lessons || '',
       scenes: prev.scenes || generatedScenes,
     }))
+  }
+
+  async function generateVideoNarrative() {
+    setCaseStudyError('')
+    setVideoGenerating(true)
+    try {
+      const res = await fetch(`/api/jobs/${id}/suggest-case-study`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'video',
+          written_capture: writtenCapture,
+          video_capture: videoCapture,
+        }),
+      })
+      const data = (await res.json()) as {
+        video_capture?: Partial<VideoScriptCapture>
+        video_draft?: string
+        error?: string
+      }
+      if (!res.ok) throw new Error(data.error ?? 'Could not generate video narrative')
+      if (data.video_capture && typeof data.video_capture === 'object') {
+        setVideoCapture(prev => ({ ...prev, ...data.video_capture }))
+      }
+      setVideoGenerated((data.video_draft ?? '').trim())
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Could not generate video narrative'
+      setCaseStudyError(message)
+      window.alert(message)
+    } finally {
+      setVideoGenerating(false)
+    }
   }
 
   return (
@@ -767,8 +819,15 @@ export default function JobPage() {
                   <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>
                     Capture a scientific non-graphic narrative in sequence, then generate and save JSON.
                   </p>
+                  {caseStudyError && (
+                    <div style={{ border: '1px solid #7f1d1d', background: 'rgba(127,29,29,0.15)', color: '#fecaca', borderRadius: 8, padding: '8px 10px', fontSize: 12 }}>
+                      {caseStudyError}
+                    </div>
+                  )}
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    <button className="btn btn-secondary" style={{ fontSize: 12 }} onClick={generateWrittenNarrative}>Generate Written Draft</button>
+                    <button className="btn btn-secondary" style={{ fontSize: 12 }} onClick={generateWrittenNarrative} disabled={writtenGenerating}>
+                      {writtenGenerating ? 'Generating…' : 'Generate Written Draft'}
+                    </button>
                     <button
                       className="btn btn-ghost"
                       style={{ fontSize: 12 }}
@@ -849,6 +908,11 @@ export default function JobPage() {
                   <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>
                     Build YouTube-ready narrative from written case facts, then generate and save JSON.
                   </p>
+                  {caseStudyError && (
+                    <div style={{ border: '1px solid #7f1d1d', background: 'rgba(127,29,29,0.15)', color: '#fecaca', borderRadius: 8, padding: '8px 10px', fontSize: 12 }}>
+                      {caseStudyError}
+                    </div>
+                  )}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 8 }}>
                     <select value={videoCapture.target_platform} onChange={e => updateVideo('target_platform', e.target.value as VideoScriptCapture['target_platform'])} style={{ ...CASE_BUBBLE, minHeight: 44, padding: '10px 12px' }}>
                       <option value="youtube_long">YouTube long</option>
@@ -886,9 +950,10 @@ export default function JobPage() {
                   <button
                     className="btn btn-primary"
                     style={{ fontSize: 12, width: 'fit-content' }}
-                    onClick={() => setVideoGenerated(`Hook: ${videoCapture.hook}\n\nSetup: ${videoCapture.setup}\n\nMethod: ${videoCapture.method}\n\nOutcome: ${videoCapture.outcome}\n\nLessons: ${videoCapture.lessons}\n\nCTA: ${videoCapture.cta}\n\nScenes:\n${videoCapture.scenes}`)}
+                    onClick={generateVideoNarrative}
+                    disabled={videoGenerating}
                   >
-                    Generate Video Narrative
+                    {videoGenerating ? 'Generating…' : 'Generate Video Narrative'}
                   </button>
                   {videoGenerated && (
                     <>
