@@ -33,6 +33,7 @@ interface Props {
   job: Job
   documents: Document[]
   onJobUpdate: (job: Job) => void
+  hideTargetPricing?: boolean
 }
 
 function mergeDefaults(saved: AssessmentData | null) {
@@ -56,7 +57,7 @@ function quoteFieldsEqual(
   )
 }
 
-export default function QuoteTab({ job, documents, onJobUpdate }: Props) {
+export default function QuoteTab({ job, documents, onJobUpdate, hideTargetPricing = false }: Props) {
   const [fields, setFields] = useState(mergeDefaults(job.assessment_data))
   const [saving,  setSaving]  = useState(false)
   const [saved,   setSaved]   = useState(false)
@@ -124,46 +125,50 @@ export default function QuoteTab({ job, documents, onJobUpdate }: Props) {
   return (
     <div style={{ paddingBottom: 40 }}>
 
-      {/* ── Target price ── */}
-      {section('Pricing')}
+      {!hideTargetPricing && (
+        <>
+          {/* ── Target price ── */}
+          {section('Pricing')}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
-        <div className="field">
-          <label>
-            Target Amount
-            <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 6 }}>
-              Claude works line items back from this
-            </span>
-          </label>
-          <div style={{ position: 'relative' }}>
-            <span style={{
-              position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
-              color: 'var(--text-muted)', fontSize: 15, fontWeight: 600, pointerEvents: 'none',
-            }}>$</span>
-            <input
-              type="number"
-              value={fields.target_price ?? ''}
-              onChange={e => {
-                const n = parseFloat(e.target.value)
-                set('target_price', isNaN(n) ? undefined : n)
-              }}
-              placeholder="0.00"
-              min="0"
-              step="50"
-              style={{ paddingLeft: 24 }}
-            />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
+            <div className="field">
+              <label>
+                Target Amount
+                <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 6 }}>
+                  Claude works line items back from this
+                </span>
+              </label>
+              <div style={{ position: 'relative' }}>
+                <span style={{
+                  position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
+                  color: 'var(--text-muted)', fontSize: 15, fontWeight: 600, pointerEvents: 'none',
+                }}>$</span>
+                <input
+                  type="number"
+                  value={fields.target_price ?? ''}
+                  onChange={e => {
+                    const n = parseFloat(e.target.value)
+                    set('target_price', isNaN(n) ? undefined : n)
+                  }}
+                  placeholder="0.00"
+                  min="0"
+                  step="50"
+                  style={{ paddingLeft: 24 }}
+                />
+              </div>
+            </div>
+            <div className="field">
+              <label>GST Note</label>
+              <input
+                type="text"
+                value={fields.target_price_note}
+                onChange={e => set('target_price_note', e.target.value)}
+                placeholder="e.g. inc. GST  or  + GST"
+              />
+            </div>
           </div>
-        </div>
-        <div className="field">
-          <label>GST Note</label>
-          <input
-            type="text"
-            value={fields.target_price_note}
-            onChange={e => set('target_price_note', e.target.value)}
-            placeholder="e.g. inc. GST  or  + GST"
-          />
-        </div>
-      </div>
+        </>
+      )}
 
       {/* ── Payment terms ── */}
       {section('Payment Terms')}

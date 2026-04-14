@@ -26,6 +26,8 @@ Rules:
 - unit examples: hrs, each, sqm, lot.
 - DO NOT include currency symbols.
 - DO NOT include totals; weight is for proportional costing.
+- TARGETING: Treat target_price_context as a key planning signal for relative workload emphasis and line-item weight allocation.
+- If target_subtotal_ex_gst is provided, prefer a practical distribution of effort that can be back-calculated to that target.
 `
 
 function parseTarget(targetPrice: number | null, note: string): { subtotal: number | null } {
@@ -66,6 +68,24 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const apiKey = getAnthropicApiKey()
     if (!apiKey) return NextResponse.json({ error: 'Anthropic is not configured' }, { status: 503 })
 
+    const body = (await req.json().catch(() => ({}))) as {
+      target_amount?: unknown
+      target_price_note?: unknown
+    }
+    const targetOverride =
+      typeof body.target_amount === 'number'
+        ? body.target_amount
+        : (typeof body.target_amount === 'string' && body.target_amount.trim() !== ''
+            ? Number(body.target_amount)
+            : null)
+    const targetOverrideValid =
+      targetOverride == null || (Number.isFinite(targetOverride) && targetOverride >= 0)
+    if (!targetOverrideValid) {
+      return NextResponse.json({ error: 'target_amount must be a number >= 0' }, { status: 400 })
+    }
+    const targetNoteOverride =
+      typeof body.target_price_note === 'string' ? body.target_price_note.trim() : null
+
     const { id: jobId } = await params
     const supabase = createServiceClient()
     const { data: job } = await supabase
@@ -95,15 +115,23 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       )
     }
 
-    const targetPrice = ad?.target_price ?? null
-    const targetPriceNote = ad?.target_price_note ?? ''
+    const targetPrice = targetOverride ?? ad?.target_price ?? null
+    const targetPriceNote = targetNoteOverride ?? ad?.target_price_note ?? ''
     const sourceState = quoteLineItemSourceHash({
       job_type: job.job_type as JobType,
       notes: job.notes ?? '',
       assessment_data: ad,
     })
 
-    const userBlock = JSON.stringify(sourceState.source)
+    const { subtotal: targetSubtotalExGst } = parseTarget(targetPrice, targetPriceNote)
+    const userBlock = JSON.stringify({
+      ...sourceState.source,
+      target_price_context: {
+        target_amount: targetPrice,
+        target_price_note: targetPriceNote,
+        target_subtotal_ex_gst: targetSubtotalExGst,
+      },
+    })
 
     const client = new Anthropic({ apiKey })
     const msg = await client.messages.create({
@@ -121,7 +149,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: 'AI did not return usable line items' }, { status: 500 })
     }
 
-    const { subtotal } = parseTarget(targetPrice, targetPriceNote)
+    const subtotal = targetSubtotalExGst
     const all = draft.flatMap(r => r.items.map(i => ({ room: r.room, ...i })))
     const totalWeight = all.reduce((s, i) => s + i.weight * Math.max(0.1, i.qty), 0) || 1
 

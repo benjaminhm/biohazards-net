@@ -31,6 +31,8 @@ export default function QuoteCaptureTab({ job, documents, onJobUpdate, onGoToSco
   const [suggesting, setSuggesting] = useState(false)
   const [addingRoom, setAddingRoom] = useState('')
   const [freshnessStatus, setFreshnessStatus] = useState<'missing' | 'up_to_date' | 'needs_refresh'>('missing')
+  const [targetAmountInput, setTargetAmountInput] = useState('')
+  const [targetPriceNoteInput, setTargetPriceNoteInput] = useState('')
 
   async function loadItems() {
     setLoading(true)
@@ -65,9 +67,19 @@ export default function QuoteCaptureTab({ job, documents, onJobUpdate, onGoToSco
     }
     setSuggesting(true)
     try {
+      const trimmedTarget = targetAmountInput.trim()
+      const parsedTarget = trimmedTarget === '' ? null : Number(trimmedTarget)
+      if (parsedTarget != null && (!Number.isFinite(parsedTarget) || parsedTarget < 0)) {
+        throw new Error('Target amount must be a number >= 0')
+      }
+      await saveTargetPricingForSuggestions(parsedTarget, targetPriceNoteInput.trim())
       const res = await fetch(`/api/jobs/${job.id}/quote-line-items/suggest`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          target_amount: parsedTarget,
+          target_price_note: targetPriceNoteInput.trim(),
+        }),
       })
       const data = (await res.json()) as { run?: QuoteLineItemRun; items?: QuoteLineItemRow[]; error?: string }
       if (!res.ok) throw new Error(data.error ?? 'Could not generate suggestions')
@@ -100,6 +112,26 @@ export default function QuoteCaptureTab({ job, documents, onJobUpdate, onGoToSco
   const grandTotal = useMemo(() => Math.round((subtotal + gstAmount) * 100) / 100, [subtotal, gstAmount])
   const target = run?.target_amount ?? job.assessment_data?.target_price ?? null
   const targetNote = run?.target_price_note ?? job.assessment_data?.target_price_note ?? ''
+
+  useEffect(() => {
+    setTargetAmountInput(target == null ? '' : String(target))
+    setTargetPriceNoteInput(targetNote ?? '')
+  }, [target, targetNote])
+
+  async function saveTargetPricingForSuggestions(nextTarget: number | null, nextNote: string) {
+    const merged = { ...(job.assessment_data ?? {}) } as Record<string, unknown>
+    if (nextTarget == null) delete merged.target_price
+    else merged.target_price = nextTarget
+    merged.target_price_note = nextNote
+    const res = await fetch(`/api/jobs/${job.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ assessment_data: merged }),
+    })
+    const data = (await res.json()) as { job?: Job; error?: string }
+    if (!res.ok || !data.job) throw new Error(data.error ?? 'Could not save target pricing')
+    onJobUpdate(data.job)
+  }
 
   async function patchAddGst(next: boolean) {
     try {
@@ -257,8 +289,52 @@ export default function QuoteCaptureTab({ job, documents, onJobUpdate, onGoToSco
         </div>
 
         <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 12px', lineHeight: 1.5 }}>
-          AI drafts line items by room from Scope of Work. You can edit description, qty, unit, and rate. Regenerate replaces current suggestions.
+          AI drafts line items by room from Scope of Work, with target amount as a key pricing constraint. You can edit description, qty, unit, and rate. Regenerate replaces current suggestions.
         </p>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 10px', marginBottom: 12 }}>
+          <div className="field" style={{ marginBottom: 0 }}>
+            <label>
+              Target Amount
+              <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 6 }}>
+                AI considers this while distributing amounts
+              </span>
+            </label>
+            <div style={{ position: 'relative' }}>
+              <span
+                style={{
+                  position: 'absolute',
+                  left: 12,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: 'var(--text-muted)',
+                  fontSize: 15,
+                  fontWeight: 600,
+                  pointerEvents: 'none',
+                }}
+              >
+                $
+              </span>
+              <input
+                type="number"
+                min="0"
+                step="50"
+                placeholder="0.00"
+                value={targetAmountInput}
+                onChange={e => setTargetAmountInput(e.target.value)}
+                style={{ paddingLeft: 24 }}
+              />
+            </div>
+          </div>
+          <div className="field" style={{ marginBottom: 0 }}>
+            <label>GST Note</label>
+            <input
+              type="text"
+              value={targetPriceNoteInput}
+              onChange={e => setTargetPriceNoteInput(e.target.value)}
+              placeholder="e.g. inc. GST  or  + GST"
+            />
+          </div>
+        </div>
         <p style={{ fontSize: 12, margin: '0 0 12px', lineHeight: 1.5, color: 'var(--text-muted)' }}>
           Source status:{' '}
           <strong style={{ color: freshnessStatus === 'up_to_date' ? '#10B981' : freshnessStatus === 'needs_refresh' ? '#F59E0B' : 'var(--text)' }}>
@@ -401,7 +477,7 @@ export default function QuoteCaptureTab({ job, documents, onJobUpdate, onGoToSco
         </div>
       </div>
 
-      <QuoteTab job={job} documents={documents} onJobUpdate={onJobUpdate} />
+      <QuoteTab job={job} documents={documents} onJobUpdate={onJobUpdate} hideTargetPricing />
     </div>
   )
 }
