@@ -466,6 +466,8 @@ export interface QuoteLineItemRun {
   job_id: string
   target_amount: number | null
   target_price_note: string
+  /** When true, merged quote/PDF uses line sum as ex-GST subtotal, adds 10% GST, total inc-GST. */
+  add_gst_to_total?: boolean
   is_active: boolean
   source_hash?: string | null
   source_schema_version?: number

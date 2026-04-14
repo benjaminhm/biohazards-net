@@ -2,7 +2,10 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { DocType, QuoteLineItemRow } from '@/lib/types'
 
 /** Map DB quote rows → quote document `line_items` + totals; clear placeholder intro when present. */
-export function quoteLineItemsContentPatch(rows: QuoteLineItemRow[]): Record<string, unknown> {
+export function quoteLineItemsContentPatch(
+  rows: QuoteLineItemRow[],
+  addGstToTotal = false,
+): Record<string, unknown> {
   const lineItems = rows.map(row => ({
     description: row.description,
     qty: Number(row.qty || 0),
@@ -12,13 +15,19 @@ export function quoteLineItemsContentPatch(rows: QuoteLineItemRow[]): Record<str
   }))
   const subtotal = Math.round(lineItems.reduce((sum, row) => sum + Number(row.total || 0), 0) * 100) / 100
   if (!lineItems.length) return {}
+  const gst = addGstToTotal ? Math.round(subtotal * 0.1 * 100) / 100 : 0
+  const total = Math.round((subtotal + gst) * 100) / 100
   return {
     line_items: lineItems,
     subtotal,
-    gst: 0,
-    total: subtotal,
+    gst,
+    total,
     intro: '',
   }
+}
+
+export interface MergeQuoteLineItemsOptions {
+  add_gst_to_total?: boolean
 }
 
 /** Overlay active Quote Capture line items onto standalone quote or iaq_multi bundle quote part. */
@@ -26,8 +35,9 @@ export function mergeQuoteLineItemsIntoDocContent(
   docType: DocType,
   content: Record<string, unknown>,
   rows: QuoteLineItemRow[],
+  options?: MergeQuoteLineItemsOptions,
 ): Record<string, unknown> {
-  const patch = quoteLineItemsContentPatch(rows)
+  const patch = quoteLineItemsContentPatch(rows, options?.add_gst_to_total === true)
   if (Object.keys(patch).length === 0) return content
   if (docType === 'quote') {
     return { ...content, ...patch }
@@ -52,18 +62,18 @@ export function mergeQuoteLineItemsIntoDocContent(
   return content
 }
 
-/** Active run line items for a job (service client; used by print and server merge). */
-export async function fetchActiveQuoteLineItemsForJob(
+/** Active run + line items for merging into quote documents and print. */
+export async function fetchQuoteLineItemsMergeContext(
   supabase: SupabaseClient,
   jobId: string,
-): Promise<QuoteLineItemRow[]> {
+): Promise<{ rows: QuoteLineItemRow[]; add_gst_to_total: boolean }> {
   const { data: run, error: runErr } = await supabase
     .from('quote_line_item_runs')
-    .select('id')
+    .select('id, add_gst_to_total')
     .eq('job_id', jobId)
     .eq('is_active', true)
     .maybeSingle()
-  if (runErr || !run) return []
+  if (runErr || !run) return { rows: [], add_gst_to_total: false }
 
   const { data: items, error } = await supabase
     .from('quote_line_items')
@@ -76,5 +86,15 @@ export async function fetchActiveQuoteLineItemsForJob(
     .order('created_at', { ascending: true })
 
   if (error) throw error
-  return (items ?? []) as QuoteLineItemRow[]
+  const add_gst_to_total = Boolean(run.add_gst_to_total)
+  return { rows: (items ?? []) as QuoteLineItemRow[], add_gst_to_total }
+}
+
+/** Active run line items for a job (service client; used by print and server merge). */
+export async function fetchActiveQuoteLineItemsForJob(
+  supabase: SupabaseClient,
+  jobId: string,
+): Promise<QuoteLineItemRow[]> {
+  const { rows } = await fetchQuoteLineItemsMergeContext(supabase, jobId)
+  return rows
 }

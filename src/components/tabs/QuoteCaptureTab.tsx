@@ -92,8 +92,29 @@ export default function QuoteCaptureTab({ job, documents, onJobUpdate, onGoToSco
   }, [items])
 
   const subtotal = useMemo(() => items.reduce((s, i) => s + Number(i.total || 0), 0), [items])
+  const addGst = run?.add_gst_to_total === true
+  const gstAmount = useMemo(
+    () => (addGst ? Math.round(subtotal * 0.1 * 100) / 100 : 0),
+    [addGst, subtotal],
+  )
+  const grandTotal = useMemo(() => Math.round((subtotal + gstAmount) * 100) / 100, [subtotal, gstAmount])
   const target = run?.target_amount ?? job.assessment_data?.target_price ?? null
   const targetNote = run?.target_price_note ?? job.assessment_data?.target_price_note ?? ''
+
+  async function patchAddGst(next: boolean) {
+    try {
+      const res = await fetch(`/api/jobs/${job.id}/quote-line-items/run`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ add_gst_to_total: next }),
+      })
+      const data = (await res.json()) as { run?: QuoteLineItemRun; error?: string }
+      if (!res.ok) throw new Error(data.error ?? 'Could not update GST setting')
+      if (data.run) setRun(data.run)
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : 'Could not update GST setting')
+    }
+  }
 
   async function patchItem(itemId: string, patch: Partial<QuoteLineItemRow>) {
     const body = {
@@ -335,11 +356,45 @@ export default function QuoteCaptureTab({ job, documents, onJobUpdate, onGoToSco
           </div>
         )}
 
+        <label
+          style={{
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 10,
+            marginTop: 14,
+            fontSize: 13,
+            cursor: 'pointer',
+            lineHeight: 1.45,
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={addGst}
+            onChange={e => void patchAddGst(e.target.checked)}
+            style={{ marginTop: 2 }}
+          />
+          <span style={{ color: 'var(--text)' }}>
+            Add 10% GST to quote totals
+            <span style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', fontWeight: 400, marginTop: 4 }}>
+              Line amounts are ex-GST; the generated quote and PDF include subtotal, GST, and total when enabled.
+            </span>
+          </span>
+        </label>
+
         <div style={{ marginTop: 12, fontSize: 13, color: 'var(--text-muted)' }}>
-          Subtotal from suggestions: <strong style={{ color: 'var(--text)' }}>${subtotal.toFixed(2)}</strong>
+          Subtotal (ex-GST): <strong style={{ color: 'var(--text)' }}>${subtotal.toFixed(2)}</strong>
+          {addGst && (
+            <>
+              <br />
+              GST (10%): <strong style={{ color: 'var(--text)' }}>${gstAmount.toFixed(2)}</strong>
+              <br />
+              Total (inc. GST): <strong style={{ color: 'var(--text)' }}>${grandTotal.toFixed(2)}</strong>
+            </>
+          )}
           {target != null && (
             <>
-              {' '}· Target: <strong style={{ color: 'var(--text)' }}>${Number(target).toFixed(2)}</strong>
+              <br />
+              Target: <strong style={{ color: 'var(--text)' }}>${Number(target).toFixed(2)}</strong>
               {' '}({targetNote || 'no GST note'})
             </>
           )}

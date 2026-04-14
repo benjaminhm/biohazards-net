@@ -17,7 +17,7 @@ import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import { buildPrintHTML } from '@/lib/printDocument'
 import {
-  fetchActiveQuoteLineItemsForJob,
+  fetchQuoteLineItemsMergeContext,
   mergeQuoteLineItemsIntoDocContent,
 } from '@/lib/quoteLineItemsForDocuments'
 import type { DocType } from '@/lib/types'
@@ -54,8 +54,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ docId: 
   const docType = doc.type as DocType
   if (docType === 'quote' || docType === 'iaq_multi') {
     try {
-      const rows = await fetchActiveQuoteLineItemsForJob(supabase, doc.job_id)
-      docContent = mergeQuoteLineItemsIntoDocContent(docType, docContent, rows)
+      const { rows, add_gst_to_total } = await fetchQuoteLineItemsMergeContext(supabase, doc.job_id)
+      docContent = mergeQuoteLineItemsIntoDocContent(docType, docContent, rows, { add_gst_to_total })
     } catch {
       /* keep stored content if quote tables unavailable */
     }

@@ -99,7 +99,8 @@ function DocViewerInner() {
           if (docType === 'quote' || docType === 'iaq_multi') {
             const quoteRes = await fetch(`/api/jobs/${jobId}/quote-line-items`).then(r => r.json())
             const rows = (quoteRes.items ?? []) as QuoteLineItemRow[]
-            next = mergeQuoteLineItemsIntoDocContent(docType, next, rows)
+            const add_gst_to_total = quoteRes.run?.add_gst_to_total === true
+            next = mergeQuoteLineItemsIntoDocContent(docType, next, rows, { add_gst_to_total })
           }
           setContent(next)
         }
@@ -130,7 +131,8 @@ function DocViewerInner() {
         if (docType === 'quote' || docType === 'iaq_multi') {
           const quoteRes = await fetch(`/api/jobs/${jobId}/quote-line-items`).then(r => r.json())
           const rows = (quoteRes.items ?? []) as QuoteLineItemRow[]
-          finalComposed = mergeQuoteLineItemsIntoDocContent(docType, composed, rows)
+          const add_gst_to_total = quoteRes.run?.add_gst_to_total === true
+          finalComposed = mergeQuoteLineItemsIntoDocContent(docType, composed, rows, { add_gst_to_total })
         }
         setContent(finalComposed)
         router.replace(`/jobs/${jobId}/docs/${docType}`, { scroll: false })

@@ -125,6 +125,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const all = draft.flatMap(r => r.items.map(i => ({ room: r.room, ...i })))
     const totalWeight = all.reduce((s, i) => s + i.weight * Math.max(0.1, i.qty), 0) || 1
 
+    const { data: prevActive } = await supabase
+      .from('quote_line_item_runs')
+      .select('add_gst_to_total')
+      .eq('job_id', jobId)
+      .eq('org_id', orgId)
+      .eq('is_active', true)
+      .maybeSingle()
+    const preserveGst = Boolean((prevActive as { add_gst_to_total?: boolean } | null)?.add_gst_to_total)
+
     // Regenerate replaces current active suggestions.
     await supabase
       .from('quote_line_item_runs')
@@ -140,6 +149,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         job_id: jobId,
         target_amount: targetPrice,
         target_price_note: targetPriceNote,
+        add_gst_to_total: preserveGst,
         is_active: true,
         source_hash: sourceState.hash,
         source_schema_version: QUOTE_SOURCE_SCHEMA_VERSION,

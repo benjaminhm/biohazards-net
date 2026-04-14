@@ -21,7 +21,7 @@ import { createElement } from 'react'
 import { JobPDFDocument } from '@/components/PDFDocument'
 import { createServiceClient } from '@/lib/supabase'
 import {
-  fetchActiveQuoteLineItemsForJob,
+  fetchQuoteLineItemsMergeContext,
   mergeQuoteLineItemsIntoDocContent,
 } from '@/lib/quoteLineItemsForDocuments'
 import type { DocType } from '@/lib/types'
@@ -47,8 +47,8 @@ export async function POST(req: Request) {
       (type === 'quote' || type === 'iaq_multi')
     ) {
       try {
-        const rows = await fetchActiveQuoteLineItemsForJob(supabase, jobId)
-        mergedContent = mergeQuoteLineItemsIntoDocContent(type, mergedContent, rows)
+        const { rows, add_gst_to_total } = await fetchQuoteLineItemsMergeContext(supabase, jobId)
+        mergedContent = mergeQuoteLineItemsIntoDocContent(type, mergedContent, rows, { add_gst_to_total })
       } catch {
         /* use client content */
       }
