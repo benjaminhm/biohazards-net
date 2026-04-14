@@ -501,7 +501,7 @@ export default function JobPage() {
     setVideoCapture(prev => ({ ...prev, [key]: value }))
   }
 
-  function buildCaseStudySchemaFromForm() {
+  function buildCaseStudySchemaFromForm(currentJob: Job) {
     const steps = writtenCapture.execution_sequence
       .split('\n')
       .map(s => s.trim())
@@ -517,16 +517,16 @@ export default function JobPage() {
         meta: {
           id: '',
           created_at: new Date().toISOString(),
-          job_id: job.id,
-          company: job.client_organization_name || '',
+          job_id: currentJob.id,
+          company: currentJob.client_organization_name || '',
           author: '',
         },
         snapshot: {
           title: writtenCapture.case_title,
           subtitle: writtenCapture.initial_objective,
-          client_type: job.client_contact_role || '',
+          client_type: currentJob.client_contact_role || '',
           location: writtenCapture.region_context || 'anonymised',
-          job_type: writtenCapture.case_type || job.job_type,
+          job_type: writtenCapture.case_type || currentJob.job_type,
           duration: '',
           headline_result: writtenCapture.outcome_summary,
         },
@@ -904,7 +904,7 @@ export default function JobPage() {
                       style={{ fontSize: 12 }}
                       onClick={() => {
                         const payload = JSON.stringify(
-                          writtenCaseStudyJson ? { case_study: writtenCaseStudyJson } : buildCaseStudySchemaFromForm(),
+                          writtenCaseStudyJson ? { case_study: writtenCaseStudyJson } : buildCaseStudySchemaFromForm(job),
                           null,
                           2
                         )
