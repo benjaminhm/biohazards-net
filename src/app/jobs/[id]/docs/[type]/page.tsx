@@ -156,6 +156,7 @@ function DocViewerInner() {
         origin,
         {
           client_name: job.client_name,
+          client_organization_name: job.client_organization_name,
           client_email: job.client_email,
           client_phone: job.client_phone,
         },

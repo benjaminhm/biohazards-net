@@ -27,7 +27,11 @@
 import { useState, useRef } from 'react'
 
 const FIELD_LABELS: Record<string, string> = {
-  client_name: 'Client Name',
+  client_name: 'Primary contact name',
+  client_organization_name: 'Organisation',
+  client_contact_role: 'Contact role',
+  client_contact_relationship: 'Relationship to site / incident',
+  insurance_claim_ref: 'Insurance claim #',
   client_phone: 'Phone',
   client_email: 'Email',
   site_address: 'Site Address',

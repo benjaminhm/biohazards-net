@@ -66,7 +66,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     const { data: jobRow, error: jobErr } = await supabase
       .from('jobs')
-      .select('id, job_type, site_address, urgency, client_name, notes, assessment_data')
+      .select(
+        'id, job_type, site_address, urgency, client_name, client_organization_name, client_contact_role, client_contact_relationship, insurance_claim_ref, notes, assessment_data',
+      )
       .eq('id', jobId)
       .eq('org_id', orgId)
       .maybeSingle()
@@ -82,6 +84,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       site_address: string
       urgency: string | null
       client_name: string
+      client_organization_name: string | null
+      client_contact_role: string | null
+      client_contact_relationship: string | null
+      insurance_claim_ref: string | null
       notes: string | null
       assessment_data: AssessmentData | null
     }
@@ -126,6 +132,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         site_address: job.site_address,
         urgency: job.urgency,
         client_name: job.client_name,
+        client_organization_name: (job.client_organization_name ?? '').trim() || null,
+        client_contact_role: (job.client_contact_role ?? '').trim() || null,
+        client_contact_relationship: (job.client_contact_relationship ?? '').trim() || null,
+        insurance_claim_ref: (job.insurance_claim_ref ?? '').trim() || null,
         notes: job.notes,
       },
       sow_planned: {

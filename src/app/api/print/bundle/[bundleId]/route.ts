@@ -36,7 +36,13 @@ export async function GET(_req: Request, { params }: { params: Promise<{ bundleI
   const [companyRes, photosRes, jobRes, docsRes] = await Promise.all([
     supabase.from('company_profile').select('*').limit(1).maybeSingle(),
     supabase.from('photos').select('*').eq('job_id', jobId).order('uploaded_at', { ascending: true }),
-    supabase.from('jobs').select('client_name,client_email,client_phone,assessment_data').eq('id', jobId).single(),
+    supabase
+      .from('jobs')
+      .select(
+        'client_name,client_organization_name,client_email,client_phone,assessment_data',
+      )
+      .eq('id', jobId)
+      .single(),
     supabase.from('documents').select('*').eq('job_id', jobId).in('id', ids),
   ])
 

@@ -217,8 +217,10 @@ export default function DetailsTab({ job, onJobUpdate, readOnly, skipBriefing }:
   function downloadVCard() {
     const serviceLabel = JOB_TYPES.find(t => t.value === job.job_type)?.label ?? job.job_type
     const suburb = extractSuburb(job.site_address)
-    // Contact name: "John Smith · Unattended Death · Newstead"
-    const contactName = [job.client_name, serviceLabel, suburb].filter(Boolean).join(' · ')
+    // Contact name: "ACME · John Smith · Unattended Death · Newstead"
+    const contactName = [job.client_organization_name, job.client_name, serviceLabel, suburb]
+      .filter(Boolean)
+      .join(' · ')
 
     // Primary number — both formats so phone matches +61 incoming texts
     const phone04 = normalizeAUPhone(job.client_phone)
@@ -301,10 +303,24 @@ export default function DetailsTab({ job, onJobUpdate, readOnly, skipBriefing }:
 
       <SmartFill
         onApply={async (fields) => {
-          const allowed = ['client_name', 'client_phone', 'client_email', 'site_address', 'job_type', 'urgency']
+          const allowed = [
+            'client_name',
+            'client_organization_name',
+            'client_contact_role',
+            'client_contact_relationship',
+            'insurance_claim_ref',
+            'client_phone',
+            'client_email',
+            'site_address',
+            'job_type',
+            'urgency',
+          ]
           const updates: Record<string, string> = {}
           for (const key of allowed) {
             if (fields[key]) updates[key] = fields[key]
+          }
+          if (fields.company_name && !updates.client_organization_name) {
+            updates.client_organization_name = fields.company_name
           }
           setSaving(true)
           try {
@@ -329,8 +345,20 @@ export default function DetailsTab({ job, onJobUpdate, readOnly, skipBriefing }:
       />
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 20px' }}>
+        <div className="field" style={{ gridColumn: '1 / -1' }}>
+          <label>Organisation (optional)</label>
+          <EditableField
+            label=""
+            value={job.client_organization_name ?? ''}
+            onChange={v => updateField('client_organization_name', v)}
+          />
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+            Company or account name when the person you deal with is a representative.
+          </div>
+        </div>
+
         <div className="field">
-          <label>Client Name</label>
+          <label>Primary contact name</label>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             <div style={{ flex: 1 }}>
               <EditableField label="" value={job.client_name} onChange={v => updateField('client_name', v)} />
@@ -339,6 +367,37 @@ export default function DetailsTab({ job, onJobUpdate, readOnly, skipBriefing }:
               <button onClick={downloadVCard} title="Save contact to phone" style={actionBtn}>💾</button>
             )}
           </div>
+        </div>
+
+        <div className="field">
+          <label>Contact role (optional)</label>
+          <EditableField
+            label=""
+            value={job.client_contact_role ?? ''}
+            onChange={v => updateField('client_contact_role', v)}
+          />
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>e.g. Property manager, facilities, OHS</div>
+        </div>
+
+        <div className="field" style={{ gridColumn: '1 / -1' }}>
+          <label>Relationship to site / incident (optional)</label>
+          <EditableField
+            label=""
+            value={job.client_contact_relationship ?? ''}
+            onChange={v => updateField('client_contact_relationship', v)}
+          />
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+            e.g. Tenant, owner, family member of occupant, insurer representative.
+          </div>
+        </div>
+
+        <div className="field" style={{ gridColumn: '1 / -1' }}>
+          <label>Insurance claim # (optional)</label>
+          <EditableField
+            label=""
+            value={job.insurance_claim_ref ?? ''}
+            onChange={v => updateField('insurance_claim_ref', v)}
+          />
         </div>
 
         {/* Phone — primary + additional numbers */}

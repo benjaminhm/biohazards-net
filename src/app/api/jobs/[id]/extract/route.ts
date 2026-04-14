@@ -54,13 +54,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       content: `Extract contact and job details from this message. Return ONLY valid JSON with these fields (use empty string if not found):
 
 {
-  "client_name": "first and last name of the contact",
+  "client_name": "primary contact person first and last name (the person you would call)",
+  "client_organization_name": "company or legal client name if the contact works for an organisation",
+  "client_contact_role": "their role if stated e.g. property manager, son, insurer",
+  "client_contact_relationship": "relationship to the site or incident e.g. tenant, owner, family member of occupant",
+  "insurance_claim_ref": "insurance claim number or reference if mentioned",
   "client_phone": "phone number",
   "client_email": "email address",
   "site_address": "full site address where the job is located",
   "job_type": "one of: crime_scene | hoarding | mold | sewage | trauma | unattended_death | flood | other",
   "urgency": "one of: standard | urgent | emergency",
-  "company_name": "company or business name if mentioned"
+  "company_name": "deprecated alias for client_organization_name — prefer client_organization_name"
 }
 
 For job_type: infer from context (e.g. 'unattended death', 'decomposition' → unattended_death, 'hoarding cleanup' → hoarding).

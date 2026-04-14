@@ -383,8 +383,10 @@ function cssSowPrint(): string {
 
 // ── Action bar (shown on screen, hidden in print) ─────────────────────────────
 
-interface ClientInfo {
+export interface ClientInfo {
   client_name?: string
+  /** When set, shown with contact name in the Client meta cell (e.g. "ACME — Jane Smith"). */
+  client_organization_name?: string
   client_email?: string
   client_phone?: string
   printUrl?: string
@@ -451,7 +453,10 @@ interface BrandedMeta {
 }
 
 function defaultBrandedMeta(company: CompanyProfile | null, client?: ClientInfo): BrandedMeta {
-  const clientName = client?.client_name?.trim() || '—'
+  const org = (client?.client_organization_name ?? '').trim()
+  const person = (client?.client_name ?? '').trim()
+  const clientName =
+    org && person ? `${org} — ${person}` : org || person || '—'
   const clientContact = [
     (client?.client_phone || '').trim(),
     (client?.client_email || '').trim(),

@@ -366,6 +366,14 @@ export interface Job {
   urgency: JobUrgency
   job_type: JobType
   client_name: string
+  /** Company or legal account name when the person in client_name is a representative. */
+  client_organization_name?: string
+  /** Title / role of the primary contact (e.g. property manager). */
+  client_contact_role?: string
+  /** Relationship to the site or incident (e.g. tenant, family member, insurer rep). */
+  client_contact_relationship?: string
+  /** Insurer claim or reference number if applicable. */
+  insurance_claim_ref?: string
   client_phone: string
   client_phones: PhoneEntry[]   // additional numbers beyond primary
   client_email: string

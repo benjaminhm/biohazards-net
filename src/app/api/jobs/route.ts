@@ -119,8 +119,13 @@ export async function POST(req: Request) {
     const { orgId } = await getOrgId(req, userId ?? null)
     if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    const body = await req.json()
-    const { client_name, client_phone, client_email, site_address, job_type, urgency } = body
+    const body = await req.json() as Record<string, unknown>
+    const client_name = body.client_name
+    const client_phone = body.client_phone
+    const client_email = body.client_email
+    const site_address = body.site_address
+    const job_type = body.job_type
+    const urgency = body.urgency
 
     if (!client_name || !site_address || !job_type) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
@@ -133,11 +138,17 @@ export async function POST(req: Request) {
       clientPhoneOut = pr.value ?? ''
     }
 
+    const str = (k: string) => (typeof body[k] === 'string' ? (body[k] as string) : '')
+
     const supabase = createServiceClient()
     const { data, error } = await supabase
       .from('jobs')
       .insert({
         client_name,
+        client_organization_name: str('client_organization_name'),
+        client_contact_role: str('client_contact_role'),
+        client_contact_relationship: str('client_contact_relationship'),
+        insurance_claim_ref: str('insurance_claim_ref'),
         client_phone: clientPhoneOut,
         client_email: client_email ?? '',
         site_address,

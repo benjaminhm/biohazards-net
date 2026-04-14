@@ -36,7 +36,11 @@ export default function NewJobPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [form, setForm] = useState({
+    client_organization_name: '',
     client_name: '',
+    client_contact_role: '',
+    client_contact_relationship: '',
+    insurance_claim_ref: '',
     client_phone: '',
     client_email: '',
     site_address: '',
@@ -90,10 +94,24 @@ export default function NewJobPage() {
         <SmartFill
           defaultOpen
           onApply={fields => {
-            const allowed = ['client_name', 'client_phone', 'client_email', 'site_address', 'job_type', 'urgency']
+            const keys: (keyof typeof form)[] = [
+              'client_organization_name',
+              'client_name',
+              'client_contact_role',
+              'client_contact_relationship',
+              'insurance_claim_ref',
+              'client_phone',
+              'client_email',
+              'site_address',
+              'job_type',
+              'urgency',
+            ]
             const updates: Partial<typeof form> = {}
-            for (const key of allowed) {
-              if (fields[key]) updates[key as keyof typeof form] = fields[key] as JobType & JobUrgency & string
+            for (const key of keys) {
+              if (fields[key]) updates[key] = fields[key] as never
+            }
+            if (fields.company_name && !updates.client_organization_name) {
+              updates.client_organization_name = fields.company_name
             }
             setForm(f => ({ ...f, ...updates }))
           }}
@@ -106,14 +124,53 @@ export default function NewJobPage() {
           )}
 
           <div className="field">
-            <label>Client Name *</label>
+            <label>Organisation (optional)</label>
+            <input
+              type="text"
+              value={form.client_organization_name}
+              onChange={e => set('client_organization_name', e.target.value)}
+              placeholder="Company or account name"
+            />
+          </div>
+
+          <div className="field">
+            <label>Primary contact name *</label>
             <input
               data-devid="P5-E2"
               type="text"
               value={form.client_name}
               onChange={e => set('client_name', e.target.value)}
-              placeholder="Full name or organisation"
+              placeholder="Person you deal with"
               autoFocus
+            />
+          </div>
+
+          <div className="field">
+            <label>Contact role (optional)</label>
+            <input
+              type="text"
+              value={form.client_contact_role}
+              onChange={e => set('client_contact_role', e.target.value)}
+              placeholder="e.g. Property manager"
+            />
+          </div>
+
+          <div className="field">
+            <label>Relationship to site / incident (optional)</label>
+            <input
+              type="text"
+              value={form.client_contact_relationship}
+              onChange={e => set('client_contact_relationship', e.target.value)}
+              placeholder="e.g. Tenant, family member of occupant"
+            />
+          </div>
+
+          <div className="field">
+            <label>Insurance claim # (optional)</label>
+            <input
+              type="text"
+              value={form.insurance_claim_ref}
+              onChange={e => set('insurance_claim_ref', e.target.value)}
             />
           </div>
 

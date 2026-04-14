@@ -33,7 +33,7 @@ import {
   type CompletionReportComposeContext,
 } from '@/lib/perCompletionAssembly'
 import { assessmentDocumentHasContent, mergedAssessmentDocumentCapture } from '@/lib/assessmentDocumentCapture'
-import { buildPrintHTML } from '@/lib/printDocument'
+import { buildPrintHTML, type ClientInfo } from '@/lib/printDocument'
 import type { CompanyProfile } from '@/lib/types'
 
 export type ComposeSource = 'staff_sow' | 'assessment_facts' | 'skeleton' | 'assessment_capture'
@@ -434,7 +434,7 @@ export function buildComposedPreviewHtml(
   company: CompanyProfile | null,
   jobId: string,
   appUrl: string,
-  client?: { client_name?: string; client_email?: string; client_phone?: string },
+  client?: ClientInfo,
 ): string {
   return buildPrintHTML(type, content, photos, areas, company, jobId, appUrl, client, { screenActionBar: false })
 }
