@@ -281,7 +281,7 @@ function composeReport(job: Job, opts?: ComposeDocumentOptions['report']): Compo
     outcome: fieldOrDash(m.outcome),
     technician_signoff: fieldOrDash(m.technician_signoff),
     include_photos: true,
-    completed_by: '',
+    completed_by: (m.technician_signoff ?? '').trim(),
   }
   let source: ComposeSource = 'skeleton'
   if (completionReportCaptureHasContent(staff)) source = 'assessment_capture'

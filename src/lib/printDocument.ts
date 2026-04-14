@@ -900,7 +900,7 @@ function buildReportMid(c: ReportContent, photos: Photo[], groups: RoomPhotoGrou
     ${section('Photo Record', c.photo_record)}
     ${section('Outcome', c.outcome)}
     ${c.include_photos !== false ? roomPhotoSections(groups, 'Completion Photos', ['after']) : photoGrid(after, 'Completion Photos')}
-    ${includeCompletion ? completedBySow(c.completed_by) : ''}
+    ${includeCompletion ? completedBySow((c.completed_by ?? c.technician_signoff ?? '').trim()) : ''}
   `
 }
 

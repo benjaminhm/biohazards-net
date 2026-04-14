@@ -155,14 +155,24 @@ export default function DetailsTab({ job, onJobUpdate, readOnly, skipBriefing }:
   const [editingNoteIdx, setEditingNoteIdx] = useState<number | null>(null)
   const [editingNoteText, setEditingNoteText] = useState('')
 
+  /** Only updates parent job when PATCH returned a full job; avoids setJob(undefined) → "Job not found". */
+  function commitJobPatchResult(res: Response, data: { job?: Job; error?: string }): boolean {
+    if (!res.ok || !data.job) {
+      alert(data.error || `Save failed (${res.status})`)
+      return false
+    }
+    onJobUpdate(data.job)
+    return true
+  }
+
   async function updateNotes(newLines: string[]) {
     const res = await fetch(`/api/jobs/${job.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ notes: newLines.join('\n') }),
     })
-    const data = await res.json()
-    onJobUpdate(data.job)
+    const data = (await res.json()) as { job?: Job; error?: string }
+    commitJobPatchResult(res, data)
   }
 
   async function deleteNote(idx: number) {
@@ -190,8 +200,8 @@ export default function DetailsTab({ job, onJobUpdate, readOnly, skipBriefing }:
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ [field]: value }),
       })
-      const data = await res.json()
-      onJobUpdate(data.job)
+      const data = (await res.json()) as { job?: Job; error?: string }
+      commitJobPatchResult(res, data)
     } finally {
       setSaving(false)
     }
@@ -206,9 +216,10 @@ export default function DetailsTab({ job, onJobUpdate, readOnly, skipBriefing }:
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: noteText }),
       })
-      const data = await res.json()
-      onJobUpdate(data.job)
-      setNoteText('')
+      const data = (await res.json()) as { job?: Job; error?: string }
+      if (commitJobPatchResult(res, data)) {
+        setNoteText('')
+      }
     } finally {
       setAddingNote(false)
     }
@@ -266,11 +277,13 @@ export default function DetailsTab({ job, onJobUpdate, readOnly, skipBriefing }:
   }
 
   async function saveExtraPhones(phones: PhoneEntry[]) {
-    await fetch(`/api/jobs/${job.id}`, {
+    const res = await fetch(`/api/jobs/${job.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ client_phones: phones }),
-    }).then(r => r.json()).then(d => onJobUpdate(d.job))
+    })
+    const data = (await res.json()) as { job?: Job; error?: string }
+    commitJobPatchResult(res, data)
   }
 
   function addExtraPhone() {
@@ -329,8 +342,8 @@ export default function DetailsTab({ job, onJobUpdate, readOnly, skipBriefing }:
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(updates),
             })
-            const data = await res.json()
-            onJobUpdate(data.job)
+            const data = (await res.json()) as { job?: Job; error?: string }
+            commitJobPatchResult(res, data)
           } finally {
             setSaving(false)
           }
