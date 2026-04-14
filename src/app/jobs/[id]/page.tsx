@@ -50,6 +50,7 @@ import InvoiceTab from '@/components/tabs/InvoiceTab'
 import ProgressNotesTab from '@/components/tabs/ProgressNotesTab'
 import ProgressPhotosTab from '@/components/tabs/ProgressPhotosTab'
 import CompletionReportTab from '@/components/tabs/CompletionReportTab'
+import PerExecuteCapturePanel from '@/components/tabs/PerExecuteCapturePanel'
 import { useUser } from '@/lib/userContext'
 import {
   UnsavedChangesProvider,
@@ -488,13 +489,13 @@ export default function JobPage() {
         )}
         {activeTab === 'progress_notes_capture' && <ProgressNotesTab job={job} />}
         {activeTab === 'quality_checks_capture' && (
-          <div style={emptyRoomStyle}>Quality Control Checks (empty room)</div>
+          <PerExecuteCapturePanel job={job} onJobUpdate={setJob} emphasis="quality_checks" />
         )}
         {activeTab === 'recommendations_capture' && (
-          <div style={emptyRoomStyle}>Recommendations (empty room)</div>
+          <PerExecuteCapturePanel job={job} onJobUpdate={setJob} emphasis="recommendations" />
         )}
         {activeTab === 'progress_report_generate' && (
-          <CompletionReportTab job={job} onJobUpdate={setJob} />
+          <CompletionReportTab job={job} photos={photos} onJobUpdate={setJob} />
         )}
         {activeTab === 'client_feedback_capture' && (
           <div style={emptyRoomStyle}>Client feedback (empty room)</div>
@@ -521,7 +522,7 @@ export default function JobPage() {
           <div style={emptyRoomStyle}>{DOC_TYPE_LABELS.risk_assessment} (empty room)</div>
         )}
         {activeTab === 'waste_disposal_manifest_capture' && (
-          <div style={emptyRoomStyle}>{DOC_TYPE_LABELS.waste_disposal_manifest} (empty room)</div>
+          <PerExecuteCapturePanel job={job} onJobUpdate={setJob} emphasis="waste_manifest_notes" />
         )}
         {activeTab === 'iaq_multi_capture' && (
           <IaqBundleCaptureTab job={job} documents={documents} onJobUpdate={setJob} />

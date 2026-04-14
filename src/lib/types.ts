@@ -344,6 +344,11 @@ export interface AssessmentData {
   content_blocks_version?: number
   /** Execute → Completion Report capture (feeds composed report; use Data Capture, not Reflect → Generate). */
   completion_report_capture?: CompletionReportCapture
+  /**
+   * Execute-phase narrative silos (recommendations, QC, waste manifest notes).
+   * Aggregated into the completion report when staff completion_report_capture fields are left blank.
+   */
+  per_execute_capture?: PerExecuteCapture
 }
 
 /* Secondary phone numbers on a job (beyond the primary client_phone).
@@ -635,6 +640,13 @@ export interface EngagementAgreementContent {
   completed_by?: string
   /** @deprecated Legacy */
   acceptance?: string
+}
+
+/** Execute-phase silo text; completion report assembly prefers this when staff fields are empty. */
+export interface PerExecuteCapture {
+  recommendations: string
+  quality_checks: string
+  waste_manifest_notes: string
 }
 
 /** Completion Report field capture — aligns with ReportContent narrative sections. */

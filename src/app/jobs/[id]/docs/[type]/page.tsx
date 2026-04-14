@@ -13,9 +13,9 @@
 
 import { useEffect, useState, useRef, useCallback, Suspense } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
-import type { CompanyProfile, DocType, Job, Photo, QuoteLineItemRow } from '@/lib/types'
+import type { CompanyProfile, DocType, Job, Photo, ProgressNote, ProgressRoomNote, QuoteLineItemRow } from '@/lib/types'
 import { DOC_TYPE_LABELS } from '@/lib/types'
-import { composeDocumentContent, buildComposedPreviewHtml } from '@/lib/composeDocument'
+import { composeDocumentContent, buildComposedPreviewHtml, type ComposeDocumentOptions } from '@/lib/composeDocument'
 import { mergeQuoteLineItemsIntoDocContent } from '@/lib/quoteLineItemsForDocuments'
 
 function DocViewerInner() {
@@ -112,7 +112,21 @@ function DocViewerInner() {
       const composeKey = `${jobId}:${docType}:${spCompose ?? ''}:${spGen ?? ''}`
       if (wantCompose && j && lastComposeKeyRef.current !== composeKey) {
         lastComposeKeyRef.current = composeKey
-        const { content: composed } = composeDocumentContent(docType, j)
+        let composeOpts: ComposeDocumentOptions | undefined
+        if (docType === 'report') {
+          const [pnRes, prnRes] = await Promise.all([
+            fetch(`/api/jobs/${jobId}/progress-notes`).then(r => r.json()),
+            fetch(`/api/jobs/${jobId}/progress-room-notes`).then(r => r.json()),
+          ])
+          composeOpts = {
+            report: {
+              photos: ph as Photo[],
+              progressNotes: (pnRes.notes ?? []) as ProgressNote[],
+              progressRoomNotes: (prnRes.notes ?? []) as ProgressRoomNote[],
+            },
+          }
+        }
+        const { content: composed } = composeDocumentContent(docType, j, composeOpts)
         let finalComposed = composed
         if (docType === 'quote' || docType === 'iaq_multi') {
           const quoteRes = await fetch(`/api/jobs/${jobId}/quote-line-items`).then(r => r.json())
@@ -242,7 +256,19 @@ function DocViewerInner() {
         {saveErr && <div style={{ fontSize: 12, color: '#F87171', flexShrink: 0, maxWidth: 200 }}>{saveErr}</div>}
         {saveOk && <div style={{ fontSize: 12, color: '#4ADE80', flexShrink: 0 }}>✓</div>}
         {docType !== 'iaq_multi' && (
-          <button type="button" data-devid="P3-E2" onClick={() => void buildWithClaude()} disabled={building || !job} className="btn btn-secondary" style={{ fontSize: 12, padding: '6px 10px', flexShrink: 0 }}>
+          <button
+            type="button"
+            data-devid="P3-E2"
+            onClick={() => void buildWithClaude()}
+            disabled={building || !job}
+            className="btn btn-secondary"
+            style={{ fontSize: 12, padding: '6px 10px', flexShrink: 0 }}
+            title={
+              docType === 'report'
+                ? 'Optional: full-document Claude pass. Routine completion reporting uses the job Completion Report tab (deterministic preview + capture).'
+                : undefined
+            }
+          >
             {building ? <><span className="spinner" /> Build…</> : '✨ Build'}
           </button>
         )}

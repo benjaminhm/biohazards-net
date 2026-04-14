@@ -27,6 +27,11 @@ import type {
 } from '@/lib/types'
 import { mergedSowCapture, staffSowHasContent } from '@/lib/sowCapture'
 import { mergedCompletionReportCapture, completionReportCaptureHasContent } from '@/lib/completionReportCapture'
+import {
+  assembleCompletionReportFromSources,
+  mergeStaffCompletionWithAssembly,
+  type CompletionReportComposeContext,
+} from '@/lib/perCompletionAssembly'
 import { assessmentDocumentHasContent, mergedAssessmentDocumentCapture } from '@/lib/assessmentDocumentCapture'
 import { buildPrintHTML } from '@/lib/printDocument'
 import type { CompanyProfile } from '@/lib/types'
@@ -36,6 +41,11 @@ export type ComposeSource = 'staff_sow' | 'assessment_facts' | 'skeleton' | 'ass
 export interface ComposeDocumentResult {
   content: Record<string, unknown>
   source: ComposeSource
+}
+
+/** Optional data for composing the completion report from execute-phase sources (photos, notes, PER silos). */
+export interface ComposeDocumentOptions {
+  report?: Partial<Pick<CompletionReportComposeContext, 'photos' | 'progressNotes' | 'progressRoomNotes'>>
 }
 
 const todayRef = () => new Date().toISOString().slice(0, 10).replace(/-/g, '')
@@ -244,14 +254,24 @@ function fieldOrDash(s: string | undefined): string {
   return t || '—'
 }
 
-function composeReport(job: Job): ComposeDocumentResult {
-  const m = mergedCompletionReportCapture(job.assessment_data)
+function composeReport(job: Job, opts?: ComposeDocumentOptions['report']): ComposeDocumentResult {
+  const ctx: CompletionReportComposeContext = {
+    photos: opts?.photos ?? [],
+    progressNotes: opts?.progressNotes ?? [],
+    progressRoomNotes: opts?.progressRoomNotes ?? [],
+  }
+  const staff = mergedCompletionReportCapture(job.assessment_data)
+  const assembled = assembleCompletionReportFromSources(job, ctx)
+  const m = mergeStaffCompletionWithAssembly(staff, assembled)
+
+  const execLine = (m.executive_summary ?? '').trim()
+    ? fieldOrDash(m.executive_summary)
+    : '— To be completed after works.'
+
   const c: ReportContent = {
     title: 'Completion Report',
     reference: refPrefix('report', job.id),
-    executive_summary: fieldOrDash(m.executive_summary) === '—' && !completionReportCaptureHasContent(m)
-      ? '— To be completed after works.'
-      : fieldOrDash(m.executive_summary),
+    executive_summary: execLine,
     site_conditions: fieldOrDash(m.site_conditions),
     works_carried_out: fieldOrDash(m.works_carried_out),
     methodology: fieldOrDash(m.methodology),
@@ -263,7 +283,9 @@ function composeReport(job: Job): ComposeDocumentResult {
     include_photos: true,
     completed_by: '',
   }
-  const source: ComposeSource = completionReportCaptureHasContent(m) ? 'assessment_capture' : 'skeleton'
+  let source: ComposeSource = 'skeleton'
+  if (completionReportCaptureHasContent(staff)) source = 'assessment_capture'
+  else if (completionReportCaptureHasContent(assembled)) source = 'assessment_facts'
   return { content: { ...c }, source }
 }
 
@@ -370,7 +392,7 @@ function composeIaqMulti(job: Job): ComposeDocumentResult {
   }
 }
 
-export function composeDocumentContent(type: DocType, job: Job): ComposeDocumentResult {
+export function composeDocumentContent(type: DocType, job: Job, options?: ComposeDocumentOptions): ComposeDocumentResult {
   switch (type) {
     case 'iaq_multi':
       return composeIaqMulti(job)
@@ -387,7 +409,7 @@ export function composeDocumentContent(type: DocType, job: Job): ComposeDocument
     case 'engagement_agreement':
       return composeEngagement(job)
     case 'report':
-      return composeReport(job)
+      return composeReport(job, options?.report)
     case 'certificate_of_decontamination':
       return composeCod(job)
     case 'waste_disposal_manifest':
