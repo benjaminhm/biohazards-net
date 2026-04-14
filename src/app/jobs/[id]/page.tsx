@@ -178,6 +178,7 @@ export default function JobPage() {
   const [activeTab, setActiveTab] = useState<Tab>(initialTab)
   /** Secondary tabs when viewing Assessment (Presentation → Hazards → Risks → Document) */
   const [assessmentSection, setAssessmentSection] = useState<'presentation' | 'hazards' | 'risks' | 'document'>('presentation')
+  const [caseStudiesSection, setCaseStudiesSection] = useState<'written' | 'video_script'>('written')
 
   const assessmentPresentationBtnStyle = {
     padding: '8px 16px',
@@ -235,6 +236,10 @@ export default function JobPage() {
 
   useEffect(() => {
     if (activeTab !== 'assessment') setAssessmentSection('presentation')
+  }, [activeTab])
+
+  useEffect(() => {
+    if (activeTab !== 'case_studies') setCaseStudiesSection('written')
   }, [activeTab])
 
   async function refreshDocumentBundles() {
@@ -470,7 +475,67 @@ export default function JobPage() {
           <AssessmentDocumentTab job={job} onJobUpdate={setJob} />
         )}
         {activeTab === 'case_studies' && (
-          <div style={emptyRoomStyle}>Case studies (empty room)</div>
+          <>
+            <div
+              role="tablist"
+              aria-label="Case studies sections"
+              style={{
+                display: 'flex',
+                gap: 0,
+                flexWrap: 'wrap',
+                marginBottom: 20,
+                marginTop: 12,
+                borderBottom: '1px solid var(--border)',
+              }}
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={caseStudiesSection === 'written'}
+                onClick={() => setCaseStudiesSection('written')}
+                style={{
+                  padding: '8px 16px',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: caseStudiesSection === 'written' ? 'var(--accent)' : 'var(--text-muted)',
+                  borderBottom: caseStudiesSection === 'written' ? '2px solid var(--accent)' : '2px solid transparent',
+                  transition: 'color 0.15s, border-color 0.15s',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  marginBottom: -1,
+                }}
+              >
+                Written Case Study
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={caseStudiesSection === 'video_script'}
+                onClick={() => setCaseStudiesSection('video_script')}
+                style={{
+                  padding: '8px 16px',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: caseStudiesSection === 'video_script' ? 'var(--accent)' : 'var(--text-muted)',
+                  borderBottom: caseStudiesSection === 'video_script' ? '2px solid var(--accent)' : '2px solid transparent',
+                  transition: 'color 0.15s, border-color 0.15s',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  marginBottom: -1,
+                }}
+              >
+                Video Script Case Study
+              </button>
+            </div>
+            {caseStudiesSection === 'written' && (
+              <div style={emptyRoomStyle}>Written Case Study (empty room)</div>
+            )}
+            {caseStudiesSection === 'video_script' && (
+              <div style={emptyRoomStyle}>Video Script Case Study (empty room)</div>
+            )}
+          </>
         )}
         {activeTab === 'scope_capture' && (
           <ScopeOfWorkTab job={job} documents={documents} onJobUpdate={setJob} />
