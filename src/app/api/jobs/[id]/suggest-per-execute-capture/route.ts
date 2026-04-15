@@ -11,6 +11,7 @@ import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import { getAnthropicApiKey } from '@/lib/loadAnthropicEnvFallback'
 import { mergedSowCapture } from '@/lib/sowCapture'
+import { fetchPhotosForEvidenceSuggest, inferCapturePhaseFromCategory } from '@/lib/photoCapturePhase'
 import { normalizePerExecuteCaptureDraft } from '@/lib/perExecuteCapture'
 import type { AssessmentData, JobType, PerExecuteCapture, Photo } from '@/lib/types'
 
@@ -94,10 +95,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const ad = job.assessment_data
 
     const [photosRes, pnRes, prnRes] = await Promise.all([
-      supabase
-        .from('photos')
-        .select('area_ref, category, caption, capture_phase')
-        .eq('job_id', jobId),
+      fetchPhotosForEvidenceSuggest(supabase, jobId),
       supabase
         .from('progress_notes')
         .select('room, body, created_at')
@@ -120,7 +118,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       area_ref: (p.area_ref || '').trim() || null,
       category: p.category,
       caption: (p.caption || '').trim() || null,
-      capture_phase: p.capture_phase ?? null,
+      capture_phase: p.capture_phase != null ? p.capture_phase : inferCapturePhaseFromCategory(p.category),
     }))
 
     const sow = mergedSowCapture(ad)

@@ -11,6 +11,7 @@ import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import { shouldRetryPhotoInsertWithoutCapturePhase } from '@/lib/photoRowInsert'
+import { inferCapturePhaseFromCategory } from '@/lib/photoCapturePhase'
 
 const PHOTO_CATEGORIES = ['before', 'during', 'after', 'assessment'] as const
 
@@ -21,10 +22,6 @@ function normalizePhotoId(raw: string | undefined): string | null {
   if (!id || id === 'undefined') return null
   const re = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
   return re.test(id) ? id : null
-}
-
-function inferCapturePhaseFromCategory(category: string): 'assessment' | 'progress' {
-  return category === 'during' || category === 'after' ? 'progress' : 'assessment'
 }
 
 async function assertPhotoInOrg(

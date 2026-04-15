@@ -5,6 +5,7 @@ import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import { getAnthropicApiKey } from '@/lib/loadAnthropicEnvFallback'
 import { mergedSowCapture } from '@/lib/sowCapture'
+import { fetchPhotosForCaseStudySuggest, inferCapturePhaseFromCategory } from '@/lib/photoCapturePhase'
 import type { AssessmentData, JobType } from '@/lib/types'
 
 type GenerateMode = 'written' | 'video'
@@ -185,12 +186,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     const [photosRes, docsRes, pnRes, prnRes, liRes, bundlesRes] = await Promise.all([
-      supabase
-        .from('photos')
-        .select('area_ref, category, caption, capture_phase, uploaded_at')
-        .eq('job_id', jobId)
-        .order('uploaded_at', { ascending: false })
-        .limit(200),
+      fetchPhotosForCaseStudySuggest(supabase, jobId),
       supabase
         .from('documents')
         .select('id, type, created_at, file_url')
@@ -253,11 +249,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       },
       assessment_data: ad,
       sow_capture: sow,
-      photos: (photosRes.data ?? []).map((p: { area_ref: string | null; category: string; caption: string | null; capture_phase: string | null; uploaded_at: string }) => ({
+      photos: (photosRes.data ?? []).map((p: { area_ref: string | null; category: string; caption: string | null; capture_phase?: string | null; uploaded_at: string }) => ({
         area_ref: (p.area_ref ?? '').trim() || null,
         category: p.category,
         caption: (p.caption ?? '').trim() || null,
-        capture_phase: p.capture_phase,
+        capture_phase: p.capture_phase != null && p.capture_phase !== '' ? p.capture_phase : inferCapturePhaseFromCategory(p.category),
         uploaded_at: p.uploaded_at,
       })),
       documents: (docsRes.data ?? []).map((d: { id: string; type: string; created_at: string; file_url: string | null }) => ({
