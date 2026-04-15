@@ -9,6 +9,10 @@ import type { AssessmentData, JobType, OutcomeQuoteRow } from '@/lib/types'
 
 const SYSTEM = `You draft outcome-based quote rows for Australian biohazard remediation jobs.
 
+You will receive two things:
+1. A structured "context" object with all known facts about the job (assessment data, scope of work, photos, documents). This is your ONLY data source — never invent rooms, hazards, or scope that do not appear in the context.
+2. An optional "instruction" string from the staff member telling you how to structure the quote (e.g. phasing, grouping, pricing approach). Follow it closely when provided; if empty, use your best professional judgment.
+
 Return ONLY valid JSON with this shape:
 {
   "rows": [
@@ -34,6 +38,8 @@ Rules:
 - No graphic detail; professional scientific wording.
 - status must be "suggested" for every row.
 - price must be >= 0 and represented as number.
+- All facts (areas, hazards, contamination, PPE, waste, methodology) must come from the context object. Do not hallucinate data.
+- The instruction steers structure and emphasis, not facts.
 `
 
 function safeNumber(v: unknown, fallback: number): number {
@@ -84,6 +90,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const apiKey = getAnthropicApiKey()
     if (!apiKey) return NextResponse.json({ error: 'Anthropic is not configured' }, { status: 503 })
     const client = new Anthropic({ apiKey })
+
+    const body = (await req.json().catch(() => ({}))) as { instruction?: string }
+    const instruction = typeof body.instruction === 'string' ? body.instruction.trim() : ''
 
     const { id: jobId } = await params
     const supabase = createServiceClient()
@@ -142,11 +151,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       })),
     }
 
+    const userPayload = instruction
+      ? JSON.stringify({ instruction, context })
+      : JSON.stringify({ context })
+
     const msg = await client.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 8192,
       system: SYSTEM,
-      messages: [{ role: 'user', content: JSON.stringify(context) }],
+      messages: [{ role: 'user', content: userPayload }],
     })
     const raw = msg.content[0]?.type === 'text' ? msg.content[0].text.trim() : ''
     const jsonMatch = raw.match(/\{[\s\S]*\}/)

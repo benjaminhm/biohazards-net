@@ -1,6 +1,6 @@
 /*
- * Quote capture — outcome-based pricing editor.
- * Pure HITL: no AI calls, no external data wiring.
+ * Quote capture — collaborative outcome-based pricing editor.
+ * AI suggests from structured data + staff instruction; HITL edits and saves.
  * Persists to assessment_data.outcome_quote_capture via PATCH /api/jobs/[id].
  */
 'use client'
@@ -83,6 +83,31 @@ function AutoGrow({
   )
 }
 
+const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
+  suggested: { bg: 'rgba(59,130,246,0.15)', fg: '#60A5FA' },
+  edited:    { bg: 'rgba(250,204,21,0.15)', fg: '#FACC15' },
+  approved:  { bg: 'rgba(34,197,94,0.15)',  fg: '#22C55E' },
+  rejected:  { bg: 'rgba(248,113,113,0.15)', fg: '#F87171' },
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const c = STATUS_COLORS[status] ?? STATUS_COLORS.edited
+  return (
+    <span style={{
+      fontSize: 10,
+      fontWeight: 600,
+      textTransform: 'uppercase',
+      letterSpacing: '0.06em',
+      padding: '2px 7px',
+      borderRadius: 4,
+      background: c.bg,
+      color: c.fg,
+    }}>
+      {status}
+    </span>
+  )
+}
+
 const SECTION: CSSProperties = {
   fontSize: 12,
   fontWeight: 700,
@@ -96,6 +121,10 @@ export default function QuoteCaptureTab({ job, documents: _docs, onJobUpdate, on
   const ad = job.assessment_data
   const existing = ad?.outcome_quote_capture
   const addGst = shouldAddGst(ad?.target_price_note ?? '')
+
+  const [instruction, setInstruction] = useState('')
+  const [suggesting, setSuggesting] = useState(false)
+  const [suggestError, setSuggestError] = useState('')
 
   const [rows, setRows] = useState<OutcomeQuoteRow[]>(existing?.rows ?? [])
   const [paymentTerms, setPaymentTerms] = useState(ad?.payment_terms ?? '')
@@ -125,6 +154,30 @@ export default function QuoteCaptureTab({ job, documents: _docs, onJobUpdate, on
     setRows(prev => prev.filter(r => r.id !== id))
     setSaved(false)
     setSaveError('')
+  }
+
+  async function suggest() {
+    setSuggesting(true)
+    setSuggestError('')
+    try {
+      const res = await fetch(`/api/jobs/${job.id}/quote-outcomes/suggest`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instruction }),
+      })
+      const data = (await res.json()) as { rows?: OutcomeQuoteRow[]; error?: string }
+      if (!res.ok || !data.rows?.length) {
+        setSuggestError(data.error ?? 'No outcomes returned')
+        return
+      }
+      setRows(data.rows)
+      setSaved(false)
+      setSaveError('')
+    } catch (e) {
+      setSuggestError(e instanceof Error ? e.message : 'Suggest failed')
+    } finally {
+      setSuggesting(false)
+    }
   }
 
   async function save() {
@@ -164,6 +217,41 @@ export default function QuoteCaptureTab({ job, documents: _docs, onJobUpdate, on
   return (
     <div style={{ maxWidth: 720, paddingBottom: 40 }}>
 
+      {/* ── AI instruction ── */}
+      <div style={SECTION}>Instruct</div>
+
+      <div className="field" style={{ marginBottom: 6 }}>
+        <AutoGrow
+          value={instruction}
+          onChange={setInstruction}
+          placeholder="Tell the AI how to structure the quote — e.g. &quot;Two phases: Phase A carpet removal and assessment, Phase B full decon if seepage confirmed. Emergency rate.&quot;"
+          rows={2}
+        />
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 20 }}>
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={suggest}
+          disabled={suggesting}
+          style={{ fontSize: 13, padding: '8px 18px', touchAction: 'manipulation' }}
+        >
+          {suggesting ? 'Thinking…' : 'Suggest outcomes'}
+        </button>
+        {suggesting && (
+          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+            Reading job data and generating…
+          </span>
+        )}
+      </div>
+
+      {suggestError && (
+        <div style={{ fontSize: 13, color: '#F87171', marginBottom: 12, lineHeight: 1.45 }} role="alert">
+          {suggestError}
+        </div>
+      )}
+
       {/* ── Outcome rows ── */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={SECTION}>Outcomes</div>
@@ -189,7 +277,7 @@ export default function QuoteCaptureTab({ job, documents: _docs, onJobUpdate, on
 
       {rows.length === 0 && (
         <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
-          No outcomes yet — add one below.
+          No outcomes yet — use Suggest or add one manually.
         </div>
       )}
 
@@ -205,7 +293,10 @@ export default function QuoteCaptureTab({ job, documents: _docs, onJobUpdate, on
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-              <strong style={{ fontSize: 13 }}>Outcome {idx + 1}</strong>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <strong style={{ fontSize: 13 }}>Outcome {idx + 1}</strong>
+                <StatusBadge status={row.status} />
+              </div>
               <button
                 type="button"
                 onClick={() => removeRow(row.id)}
