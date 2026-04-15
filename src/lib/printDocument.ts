@@ -843,6 +843,33 @@ function buildQuoteMid(
     ${section('Notes &amp; Conditions', c.notes)}
     ${section('Payment Terms', c.payment_terms)}
     ${section('Quote Validity', c.validity)}
+    ${(() => {
+      const a = c.authorisation
+      if (!a) return ''
+      const hasContent = [a.access_details, a.special_conditions, a.liability_statement, a.acceptance_statement].some(v => v?.trim())
+      if (!hasContent) return ''
+      return `
+        <div class="label">Authorisation</div>
+        ${a.access_details?.trim() ? `<div class="label" style="font-size:7pt;margin-top:10px">Access Details</div><div class="body-text">${esc(a.access_details)}</div>` : ''}
+        ${a.special_conditions?.trim() ? `<div class="label" style="font-size:7pt;margin-top:10px">Special Conditions</div><div class="body-text">${esc(a.special_conditions)}</div>` : ''}
+        ${a.liability_statement?.trim() ? `<div class="label" style="font-size:7pt;margin-top:10px">Liability</div><div class="body-text">${esc(a.liability_statement)}</div>` : ''}
+        ${a.acceptance_statement?.trim() ? `
+          <div style="margin-top:18px;padding:16px;border:1px solid var(--sow-rule);border-radius:8px;background:var(--sow-blue-xs);">
+            <div class="body-text" style="margin-bottom:14px;">${esc(a.acceptance_statement)}</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:10px;">
+              <div>
+                <div style="font-size:7.5pt;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--sow-muted);margin-bottom:6px;">Client Signature</div>
+                <div style="border-bottom:1px solid var(--sow-navy);min-height:32px;"></div>
+              </div>
+              <div>
+                <div style="font-size:7.5pt;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--sow-muted);margin-bottom:6px;">Date</div>
+                <div style="border-bottom:1px solid var(--sow-navy);min-height:32px;"></div>
+              </div>
+            </div>
+          </div>
+        ` : ''}
+      `
+    })()}
     ${c.include_photos !== false ? roomPhotoSections(groups, 'Site Condition Photos', ['assessment', 'before']) : photoGrid(before, 'Site Condition Photos')}
     ${includeCompletion ? completedBySow(c.completed_by) : ''}
   `

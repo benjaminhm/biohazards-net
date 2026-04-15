@@ -186,21 +186,35 @@ function composeSow(job: Job): ComposeDocumentResult {
 }
 
 function composeQuote(job: Job): ComposeDocumentResult {
+  const ad = job.assessment_data
+  const cap = ad?.outcome_quote_capture
+  const auth = cap?.authorisation
+  const hasCapture = cap && cap.rows?.length > 0
   const c: QuoteContent = {
     title: 'Quote',
     reference: refPrefix('quote', job.id),
-    intro: '— Add line items and pricing in Quote capture, or complete the quote in Edit fields after assessment.',
+    intro: hasCapture
+      ? ''
+      : '— Add line items and pricing in Quote capture, or complete the quote in Edit fields after assessment.',
     line_items: [],
-    subtotal: 0,
-    gst: 0,
-    total: 0,
-    notes: '',
-    payment_terms: job.assessment_data?.payment_terms ?? '',
-    validity: '30 days from date of issue',
+    outcome_rows: hasCapture ? cap.rows : undefined,
+    outcome_mode: hasCapture ? 'outcomes' : undefined,
+    subtotal: cap?.totals?.subtotal ?? 0,
+    gst: cap?.totals?.gst ?? 0,
+    total: cap?.totals?.total ?? 0,
+    notes: cap?.notes ?? '',
+    payment_terms: ad?.payment_terms ?? '',
+    validity: cap?.validity || '30 days from date of issue',
     include_photos: true,
     completed_by: '',
+    authorisation: auth ? {
+      access_details: auth.access_details,
+      special_conditions: auth.special_conditions,
+      liability_statement: auth.liability_statement,
+      acceptance_statement: auth.acceptance_statement,
+    } : undefined,
   }
-  return { content: { ...c }, source: 'skeleton' }
+  return { content: { ...c }, source: hasCapture ? 'assessment_capture' : 'skeleton' }
 }
 
 function composeSwms(job: Job): ComposeDocumentResult {
@@ -219,17 +233,18 @@ function composeSwms(job: Job): ComposeDocumentResult {
 }
 
 function composeAtp(job: Job): ComposeDocumentResult {
+  const auth = job.assessment_data?.outcome_quote_capture?.authorisation
   const c: AuthorityToProceedContent = {
     title: 'Authority to Proceed',
     reference: refPrefix('authority_to_proceed', job.id),
     scope_summary: '— To be completed.',
-    access_details: job.assessment_data?.access_restrictions ?? '—',
-    special_conditions: '—',
-    liability_acknowledgment: '—',
+    access_details: auth?.access_details || job.assessment_data?.access_restrictions || '—',
+    special_conditions: auth?.special_conditions || '—',
+    liability_acknowledgment: auth?.liability_statement || '—',
     payment_authorisation: '—',
     completed_by: '',
   }
-  return { content: { ...c }, source: 'skeleton' }
+  return { content: { ...c }, source: auth ? 'assessment_capture' : 'skeleton' }
 }
 
 function composeEngagement(job: Job): ComposeDocumentResult {

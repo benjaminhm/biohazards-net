@@ -1,5 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { AssessmentData, DocType, OutcomeQuoteRow, QuoteLineItemRow } from '@/lib/types'
+import type { AssessmentData, DocType, OutcomeQuoteRow, QuoteAuthorisation, QuoteLineItemRow } from '@/lib/types'
+
+export interface QuoteCaptureFields {
+  notes?: string
+  payment_terms?: string
+  validity?: string
+  authorisation?: QuoteAuthorisation
+}
 
 /** Map DB quote rows → quote document `line_items` + totals; clear placeholder intro when present. */
 export function quoteLineItemsContentPatch(
@@ -7,6 +14,7 @@ export function quoteLineItemsContentPatch(
   addGstToTotal = false,
   outcomeRows?: OutcomeQuoteRow[],
   outcomeMode?: 'outcomes' | 'line_items',
+  captureFields?: QuoteCaptureFields,
 ): Record<string, unknown> {
   const lineItems = rows.map(row => ({
     description: row.description,
@@ -23,7 +31,7 @@ export function quoteLineItemsContentPatch(
   if (!lineItems.length && !(outcomeRows?.length)) return {}
   const gst = addGstToTotal ? Math.round(subtotal * 0.1 * 100) / 100 : 0
   const total = Math.round((subtotal + gst) * 100) / 100
-  return {
+  const patch: Record<string, unknown> = {
     line_items: lineItems,
     outcome_rows: outcomeRows ?? [],
     outcome_mode: outcomeMode,
@@ -32,12 +40,18 @@ export function quoteLineItemsContentPatch(
     total,
     intro: '',
   }
+  if (captureFields?.notes) patch.notes = captureFields.notes
+  if (captureFields?.payment_terms) patch.payment_terms = captureFields.payment_terms
+  if (captureFields?.validity) patch.validity = captureFields.validity
+  if (captureFields?.authorisation) patch.authorisation = captureFields.authorisation
+  return patch
 }
 
 export interface MergeQuoteLineItemsOptions {
   add_gst_to_total?: boolean
   outcome_rows?: OutcomeQuoteRow[]
   outcome_mode?: 'outcomes' | 'line_items'
+  capture_fields?: QuoteCaptureFields
 }
 
 /** Overlay active Quote Capture line items onto standalone quote or iaq_multi bundle quote part. */
@@ -52,6 +66,7 @@ export function mergeQuoteLineItemsIntoDocContent(
     options?.add_gst_to_total === true,
     options?.outcome_rows,
     options?.outcome_mode,
+    options?.capture_fields,
   )
   if (Object.keys(patch).length === 0) return content
   if (docType === 'quote') {
@@ -77,18 +92,26 @@ export function mergeQuoteLineItemsIntoDocContent(
   return content
 }
 
+export interface QuoteLineItemsMergeContext {
+  rows: QuoteLineItemRow[]
+  add_gst_to_total: boolean
+  outcome_rows: OutcomeQuoteRow[]
+  outcome_mode: 'outcomes' | 'line_items'
+  capture_fields: QuoteCaptureFields
+}
+
 /** Active run + line items for merging into quote documents and print. */
 export async function fetchQuoteLineItemsMergeContext(
   supabase: SupabaseClient,
   jobId: string,
-): Promise<{ rows: QuoteLineItemRow[]; add_gst_to_total: boolean; outcome_rows: OutcomeQuoteRow[]; outcome_mode: 'outcomes' | 'line_items' }> {
+): Promise<QuoteLineItemsMergeContext> {
   const { data: run, error: runErr } = await supabase
     .from('quote_line_item_runs')
     .select('id, add_gst_to_total')
     .eq('job_id', jobId)
     .eq('is_active', true)
     .maybeSingle()
-  if (runErr || !run) return { rows: [], add_gst_to_total: false, outcome_rows: [], outcome_mode: 'line_items' }
+  if (runErr || !run) return { rows: [], add_gst_to_total: false, outcome_rows: [], outcome_mode: 'line_items', capture_fields: {} }
 
   const { data: items, error } = await supabase
     .from('quote_line_items')
@@ -113,6 +136,14 @@ export async function fetchQuoteLineItemsMergeContext(
   const ad = (job?.assessment_data ?? null) as AssessmentData | null
   const capture = ad?.outcome_quote_capture
   const outcomeRows = (capture?.rows ?? []) as OutcomeQuoteRow[]
+
+  const capture_fields: QuoteCaptureFields = {
+    notes: capture?.notes ?? '',
+    payment_terms: ad?.payment_terms ?? '',
+    validity: capture?.validity ?? '',
+    authorisation: capture?.authorisation,
+  }
+
   const approvedOutcomes = outcomeRows.filter(
     row =>
       (row.status === 'approved' || row.status === 'edited') &&
@@ -142,14 +173,14 @@ export async function fetchQuoteLineItemsMergeContext(
       updated_by_user_id: '',
       deleted_at: null,
     }))
-    return { rows: syntheticRows, add_gst_to_total, outcome_rows: outcomeRows, outcome_mode: 'outcomes' }
+    return { rows: syntheticRows, add_gst_to_total, outcome_rows: outcomeRows, outcome_mode: 'outcomes', capture_fields }
   }
 
   if (capture?.mode === 'outcomes') {
-    return { rows: dbRows, add_gst_to_total, outcome_rows: outcomeRows, outcome_mode: 'outcomes' }
+    return { rows: dbRows, add_gst_to_total, outcome_rows: outcomeRows, outcome_mode: 'outcomes', capture_fields }
   }
 
-  return { rows: dbRows, add_gst_to_total, outcome_rows: [], outcome_mode: 'line_items' }
+  return { rows: dbRows, add_gst_to_total, outcome_rows: [], outcome_mode: 'line_items', capture_fields }
 }
 
 /** Active run line items for a job (service client; used by print and server merge). */

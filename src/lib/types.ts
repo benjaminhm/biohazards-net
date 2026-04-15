@@ -633,6 +633,13 @@ export interface QuoteContent {
   payment_terms: string
   validity: string
   include_photos?: boolean
+  /** Start-work authorisation block (from outcome_quote_capture.authorisation). */
+  authorisation?: {
+    access_details: string
+    special_conditions: string
+    liability_statement: string
+    acceptance_statement: string
+  }
   /** Staff / internal completion line; client signing is via PandaDoc, not in-app */
   completed_by?: string
 }
