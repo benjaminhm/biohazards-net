@@ -6,7 +6,7 @@
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import QuoteTab from '@/components/tabs/QuoteTab'
-import type { Job, Document, OutcomeQuoteCapture, OutcomeQuoteRow, OutcomeQuoteStatus } from '@/lib/types'
+import type { Job, Document, OutcomeQuoteCapture, OutcomeQuoteRow } from '@/lib/types'
 import { mergedSowCapture, staffSowHasContent } from '@/lib/sowCapture'
 
 interface Props {
@@ -54,7 +54,7 @@ function makeOutcomeRow(seed = 1): OutcomeQuoteRow {
     outcome_description: '',
     acceptance_criteria: '',
     price: 0,
-    status: 'suggested',
+    status: 'edited',
     included: [],
     excluded: [],
     assumptions: [],
@@ -62,23 +62,12 @@ function makeOutcomeRow(seed = 1): OutcomeQuoteRow {
   }
 }
 
-function isRenderableOutcome(row: OutcomeQuoteRow): boolean {
-  return (
-    (row.status === 'approved' || row.status === 'edited') &&
-    row.price > 0 &&
-    row.outcome_title.trim().length > 0 &&
-    row.acceptance_criteria.trim().length > 0 &&
-    row.verification_method.trim().length > 0
-  )
-}
-
 function invalidOutcomeRows(rows: OutcomeQuoteRow[]): string[] {
   const bad: string[] = []
   rows.forEach((row, idx) => {
-    if (row.status !== 'approved' && row.status !== 'edited') return
     if (row.price <= 0) bad.push(`Outcome ${idx + 1}: price must be greater than 0`)
-    if (!row.acceptance_criteria.trim()) bad.push(`Outcome ${idx + 1}: acceptance criteria is required`)
-    if (!row.verification_method.trim()) bad.push(`Outcome ${idx + 1}: verification method is required`)
+    if (!row.outcome_title.trim()) bad.push(`Outcome ${idx + 1}: objective is required`)
+    if (!row.outcome_description.trim()) bad.push(`Outcome ${idx + 1}: description is required`)
   })
   return bad
 }
@@ -92,8 +81,7 @@ function applyOutcomeRowPatch(
     if (row.id !== rowId) return row
     const next = updater(row)
     const changed = JSON.stringify(row) !== JSON.stringify(next)
-    const statusExplicitlyChanged = row.status !== next.status
-    if (changed && !statusExplicitlyChanged && row.status !== 'edited') {
+    if (changed && row.status !== 'edited') {
       return { ...next, status: 'edited' }
     }
     return next
@@ -146,7 +134,6 @@ export default function QuoteCaptureTab({ job, documents, onJobUpdate, onGoToSco
     job.assessment_data?.outcome_quote_capture?.rows ?? []
   )
   const [outcomeSuggesting, setOutcomeSuggesting] = useState(false)
-  const [savingStatusRowId, setSavingStatusRowId] = useState<string | null>(null)
   const addGst = shouldAddGstFromNote(job.assessment_data?.target_price_note ?? '')
 
   useEffect(() => {
@@ -185,19 +172,6 @@ export default function QuoteCaptureTab({ job, documents, onJobUpdate, onGoToSco
 
   function patchOutcomeRow(rowId: string, updater: (row: OutcomeQuoteRow) => OutcomeQuoteRow) {
     setOutcomeRows(prev => applyOutcomeRowPatch(prev, rowId, updater))
-  }
-
-  async function setOutcomeStatusAndSave(rowId: string, status: OutcomeQuoteStatus) {
-    const nextRows = applyOutcomeRowPatch(outcomeRows, rowId, r => ({ ...r, status }))
-    setOutcomeRows(nextRows)
-    setSavingStatusRowId(rowId)
-    try {
-      await saveOutcomeCapture(nextRows)
-    } catch (e) {
-      window.alert(e instanceof Error ? e.message : 'Could not save outcome status')
-    } finally {
-      setSavingStatusRowId(null)
-    }
   }
 
   async function suggestOutcomeRows() {
@@ -344,13 +318,11 @@ export default function QuoteCaptureTab({ job, documents, onJobUpdate, onGoToSco
         ) : (
           <div style={{ display: 'grid', gap: 12 }}>
             {outcomeRows.map((row, idx) => {
-              const rowValid = isRenderableOutcome(row)
               return (
                 <div key={row.id} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 10 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginBottom: 8, alignItems: 'center' }}>
                     <strong style={{ fontSize: 13 }}>Outcome {idx + 1}</strong>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span className="badge" style={{ fontSize: 11 }}>{row.status}</span>
                       <button
                         type="button"
                         className="btn btn-ghost"
@@ -363,11 +335,11 @@ export default function QuoteCaptureTab({ job, documents, onJobUpdate, onGoToSco
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                     <div className="field" style={{ marginBottom: 0 }}>
-                      <label>Outcome title</label>
+                      <label>Objective</label>
                       <AutoGrowTextarea
                         value={row.outcome_title}
-                        onChange={next => patchOutcomeRow(row.id, r => ({ ...r, outcome_title: next }))}
-                        placeholder="Outcome title"
+                        onChange={next => patchOutcomeRow(row.id, r => ({ ...r, outcome_title: next, status: 'edited' }))}
+                        placeholder="Objective"
                         rows={1}
                       />
                     </div>
@@ -375,7 +347,7 @@ export default function QuoteCaptureTab({ job, documents, onJobUpdate, onGoToSco
                       <label>Areas</label>
                       <AutoGrowTextarea
                         value={row.areas.join(', ')}
-                        onChange={next => patchOutcomeRow(row.id, r => ({ ...r, areas: next.split(',').map(v => v.trim()).filter(Boolean) }))}
+                        onChange={next => patchOutcomeRow(row.id, r => ({ ...r, areas: next.split(',').map(v => v.trim()).filter(Boolean), status: 'edited' }))}
                         placeholder="Areas (comma separated)"
                         rows={1}
                       />
@@ -385,48 +357,28 @@ export default function QuoteCaptureTab({ job, documents, onJobUpdate, onGoToSco
                     <label>Outcome description</label>
                     <AutoGrowTextarea
                       value={row.outcome_description}
-                      onChange={next => patchOutcomeRow(row.id, r => ({ ...r, outcome_description: next }))}
+                      onChange={next => patchOutcomeRow(row.id, r => ({ ...r, outcome_description: next, status: 'edited' }))}
                       placeholder="Outcome description"
                       rows={2}
                     />
                   </div>
                   <div className="field" style={{ marginBottom: 0, marginTop: 8 }}>
-                    <label>Acceptance criteria</label>
-                    <AutoGrowTextarea
-                      value={row.acceptance_criteria}
-                      onChange={next => patchOutcomeRow(row.id, r => ({ ...r, acceptance_criteria: next }))}
-                      placeholder="Acceptance criteria"
-                      rows={2}
+                    <label>Price</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={row.price}
+                      onChange={e => patchOutcomeRow(row.id, r => ({ ...r, price: Math.max(0, Number(e.target.value || 0)), status: 'edited' }))}
+                      placeholder="Price"
                     />
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
-                    <div className="field" style={{ marginBottom: 0 }}>
-                      <label>Price</label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={row.price}
-                        onChange={e => patchOutcomeRow(row.id, r => ({ ...r, price: Math.max(0, Number(e.target.value || 0)) }))}
-                        placeholder="Price"
-                      />
-                    </div>
-                    <div className="field" style={{ marginBottom: 0 }}>
-                      <label>Verification method</label>
-                      <AutoGrowTextarea
-                        value={row.verification_method}
-                        onChange={next => patchOutcomeRow(row.id, r => ({ ...r, verification_method: next }))}
-                        placeholder="Verification method"
-                        rows={1}
-                      />
-                    </div>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginTop: 8 }}>
                     <div className="field" style={{ marginBottom: 0 }}>
                       <label>Included</label>
                       <AutoGrowTextarea
                         value={joinLines(row.included)}
-                        onChange={next => patchOutcomeRow(row.id, r => ({ ...r, included: splitLines(next) }))}
+                        onChange={next => patchOutcomeRow(row.id, r => ({ ...r, included: splitLines(next), status: 'edited' }))}
                         placeholder="Included (one per line)"
                         rows={3}
                       />
@@ -435,7 +387,7 @@ export default function QuoteCaptureTab({ job, documents, onJobUpdate, onGoToSco
                       <label>Excluded</label>
                       <AutoGrowTextarea
                         value={joinLines(row.excluded)}
-                        onChange={next => patchOutcomeRow(row.id, r => ({ ...r, excluded: splitLines(next) }))}
+                        onChange={next => patchOutcomeRow(row.id, r => ({ ...r, excluded: splitLines(next), status: 'edited' }))}
                         placeholder="Excluded (one per line)"
                         rows={3}
                       />
@@ -444,45 +396,11 @@ export default function QuoteCaptureTab({ job, documents, onJobUpdate, onGoToSco
                       <label>Assumptions</label>
                       <AutoGrowTextarea
                         value={joinLines(row.assumptions)}
-                        onChange={next => patchOutcomeRow(row.id, r => ({ ...r, assumptions: splitLines(next) }))}
+                        onChange={next => patchOutcomeRow(row.id, r => ({ ...r, assumptions: splitLines(next), status: 'edited' }))}
                         placeholder="Assumptions (one per line)"
                         rows={3}
                       />
                     </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                    <button
-                      type="button"
-                      className="btn btn-secondary"
-                      style={{ fontSize: 12 }}
-                      disabled={savingStatusRowId === row.id}
-                      onClick={() => void setOutcomeStatusAndSave(row.id, 'approved')}
-                    >
-                      Approve
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-ghost"
-                      style={{ fontSize: 12 }}
-                      disabled={savingStatusRowId === row.id}
-                      onClick={() => void setOutcomeStatusAndSave(row.id, 'rejected')}
-                    >
-                      Reject
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-ghost"
-                      style={{ fontSize: 12 }}
-                      disabled={savingStatusRowId === row.id}
-                      onClick={() => void setOutcomeStatusAndSave(row.id, 'suggested')}
-                    >
-                      Reset suggested
-                    </button>
-                    {!rowValid && (
-                      <span style={{ alignSelf: 'center', fontSize: 12, color: '#F59E0B' }}>
-                        Needs title, acceptance criteria, verification method, and price &gt; 0
-                      </span>
-                    )}
                   </div>
                 </div>
               )
@@ -503,7 +421,7 @@ export default function QuoteCaptureTab({ job, documents, onJobUpdate, onGoToSco
         </div>
         {invalidOutcomeRows(outcomeRows).length > 0 && (
           <div style={{ marginTop: 10, fontSize: 12, color: '#F59E0B' }}>
-            Publish/build guardrails: approved/edited outcomes require price &gt; 0, acceptance criteria, and verification method.
+            Outcome guardrails: each row needs objective, description, and price &gt; 0.
           </div>
         )}
       </div>
