@@ -32,7 +32,6 @@ Rules:
 - Outcome-first language (value/results), not labour breakdown.
 - Keep room/area context in each row.
 - No graphic detail; professional scientific wording.
-- Use target_price_context as a key pricing signal.
 - status must be "suggested" for every row.
 - price must be >= 0 and represented as number.
 `
@@ -82,21 +81,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const { orgId } = await getOrgId(req, userId)
     if (!orgId) return NextResponse.json({ error: 'Organisation unavailable' }, { status: 403 })
 
-    const body = (await req.json().catch(() => ({}))) as {
-      target_amount?: unknown
-      target_price_note?: unknown
-    }
-    const targetAmount =
-      typeof body.target_amount === 'number'
-        ? body.target_amount
-        : (typeof body.target_amount === 'string' && body.target_amount.trim()
-            ? Number(body.target_amount)
-            : null)
-    if (targetAmount != null && (!Number.isFinite(targetAmount) || targetAmount < 0)) {
-      return NextResponse.json({ error: 'target_amount must be a number >= 0' }, { status: 400 })
-    }
-    const targetPriceNote = typeof body.target_price_note === 'string' ? body.target_price_note.trim() : ''
-
     const apiKey = getAnthropicApiKey()
     if (!apiKey) return NextResponse.json({ error: 'Anthropic is not configured' }, { status: 503 })
     const client = new Anthropic({ apiKey })
@@ -145,10 +129,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         waste: sow.waste,
         exclusions: sow.exclusions,
         caveats: sow.caveats,
-      },
-      target_price_context: {
-        target_amount: targetAmount ?? ad?.target_price ?? null,
-        target_price_note: targetPriceNote || ad?.target_price_note || '',
       },
       photo_metadata: (photosRes.data ?? []).map((p: { area_ref: string | null; category: string; caption: string | null }) => ({
         area_ref: (p.area_ref ?? '').trim() || null,

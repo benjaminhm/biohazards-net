@@ -39,9 +39,8 @@ function shouldAddGstFromNote(note: string): boolean {
   return n.includes('ex') || n.includes('excl') || n.includes('+ gst') || n.includes('+gst')
 }
 
-function computeOutcomeTotals(rows: OutcomeQuoteRow[], targetPriceNote: string) {
+function computeOutcomeTotals(rows: OutcomeQuoteRow[], addGst: boolean) {
   const subtotal = toMoney(rows.reduce((sum, row) => sum + Math.max(0, Number(row.price || 0)), 0))
-  const addGst = shouldAddGstFromNote(targetPriceNote)
   const gst = addGst ? toMoney(subtotal * 0.1) : 0
   const total = toMoney(subtotal + gst)
   return { subtotal, gst, total }
@@ -143,46 +142,22 @@ function AutoGrowTextarea({
 export default function QuoteCaptureTab({ job, documents, onJobUpdate, onGoToScope }: Props) {
   const sow = mergedSowCapture(job.assessment_data)
   const hasScope = staffSowHasContent(job.assessment_data)
-  const [targetAmountInput, setTargetAmountInput] = useState('')
-  const [targetPriceNoteInput, setTargetPriceNoteInput] = useState('')
   const [outcomeRows, setOutcomeRows] = useState<OutcomeQuoteRow[]>(
     job.assessment_data?.outcome_quote_capture?.rows ?? []
   )
   const [outcomeSuggesting, setOutcomeSuggesting] = useState(false)
   const [savingStatusRowId, setSavingStatusRowId] = useState<string | null>(null)
-
-  const target = job.assessment_data?.target_price ?? null
-  const targetNote = job.assessment_data?.target_price_note ?? ''
+  const addGst = shouldAddGstFromNote(job.assessment_data?.target_price_note ?? '')
 
   useEffect(() => {
     const capture = job.assessment_data?.outcome_quote_capture
     setOutcomeRows(capture?.rows ?? [])
   }, [job.id, job.updated_at, job.assessment_data?.outcome_quote_capture])
 
-  useEffect(() => {
-    setTargetAmountInput(target == null ? '' : String(target))
-    setTargetPriceNoteInput(targetNote)
-  }, [target, targetNote])
-
   const totals = useMemo(
-    () => computeOutcomeTotals(outcomeRows, targetPriceNoteInput.trim()),
-    [outcomeRows, targetPriceNoteInput]
+    () => computeOutcomeTotals(outcomeRows, addGst),
+    [outcomeRows, addGst]
   )
-
-  async function saveTargetPricingForSuggestions(nextTarget: number | null, nextNote: string) {
-    const merged = { ...(job.assessment_data ?? {}) } as Record<string, unknown>
-    if (nextTarget == null) delete merged.target_price
-    else merged.target_price = nextTarget
-    merged.target_price_note = nextNote
-    const res = await fetch(`/api/jobs/${job.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ assessment_data: merged }),
-    })
-    const data = (await res.json()) as { job?: Job; error?: string }
-    if (!res.ok || !data.job) throw new Error(data.error ?? 'Could not save target pricing')
-    onJobUpdate(data.job)
-  }
 
   async function saveOutcomeCapture(nextRows: OutcomeQuoteRow[]) {
     const merged = { ...(job.assessment_data ?? {}) } as Record<string, unknown>
@@ -190,10 +165,10 @@ export default function QuoteCaptureTab({ job, documents, onJobUpdate, onGoToSco
     merged.outcome_quote_capture = {
       mode: 'outcomes',
       rows: nextRows,
-      totals: computeOutcomeTotals(nextRows, targetPriceNoteInput.trim()),
+      totals: computeOutcomeTotals(nextRows, addGst),
       target_pricing: {
-        target_amount: targetAmountInput.trim() === '' ? undefined : Number(targetAmountInput),
-        target_price_note: targetPriceNoteInput.trim(),
+        target_amount: undefined,
+        target_price_note: '',
       },
       last_suggested_at: current.last_suggested_at,
       last_reviewed_at: current.last_reviewed_at,
@@ -232,19 +207,9 @@ export default function QuoteCaptureTab({ job, documents, onJobUpdate, onGoToSco
     }
     setOutcomeSuggesting(true)
     try {
-      const trimmedTarget = targetAmountInput.trim()
-      const parsedTarget = trimmedTarget === '' ? null : Number(trimmedTarget)
-      if (parsedTarget != null && (!Number.isFinite(parsedTarget) || parsedTarget < 0)) {
-        throw new Error('Target amount must be a number >= 0')
-      }
-      await saveTargetPricingForSuggestions(parsedTarget, targetPriceNoteInput.trim())
       const res = await fetch(`/api/jobs/${job.id}/quote-outcomes/suggest`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          target_amount: parsedTarget,
-          target_price_note: targetPriceNoteInput.trim(),
-        }),
       })
       const data = (await res.json()) as { rows?: OutcomeQuoteRow[]; error?: string }
       if (!res.ok) throw new Error(data.error ?? 'Could not suggest outcomes')
@@ -346,29 +311,6 @@ export default function QuoteCaptureTab({ job, documents, onJobUpdate, onGoToSco
           </button>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 10px', marginBottom: 12 }}>
-          <div className="field" style={{ marginBottom: 0 }}>
-            <label>Target Amount</label>
-            <input
-              type="number"
-              min="0"
-              step="50"
-              placeholder="0.00"
-              value={targetAmountInput}
-              onChange={e => setTargetAmountInput(e.target.value)}
-            />
-          </div>
-          <div className="field" style={{ marginBottom: 0 }}>
-            <label>GST Note</label>
-            <input
-              type="text"
-              value={targetPriceNoteInput}
-              onChange={e => setTargetPriceNoteInput(e.target.value)}
-              placeholder="e.g. inc. GST  or  + GST"
-            />
-          </div>
-        </div>
-
         <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
           <button
             type="button"
@@ -386,12 +328,6 @@ export default function QuoteCaptureTab({ job, documents, onJobUpdate, onGoToSco
               try {
                 const guardrails = invalidOutcomeRows(outcomeRows)
                 if (guardrails.length > 0) throw new Error(guardrails[0])
-                const trimmedTarget = targetAmountInput.trim()
-                const parsedTarget = trimmedTarget === '' ? null : Number(trimmedTarget)
-                if (parsedTarget != null && (!Number.isFinite(parsedTarget) || parsedTarget < 0)) {
-                  throw new Error('Target amount must be a number >= 0')
-                }
-                await saveTargetPricingForSuggestions(parsedTarget, targetPriceNoteInput.trim())
                 await saveOutcomeCapture(outcomeRows)
                 window.alert('Outcome pricing saved.')
               } catch (e) {
