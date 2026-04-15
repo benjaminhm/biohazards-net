@@ -60,7 +60,7 @@ export async function POST(req: Request) {
         : Promise.resolve({ data: [] }),
       supabase.from('company_profile').select('*').limit(1).maybeSingle(),
       jobId
-        ? supabase.from('jobs').select('assessment_data').eq('id', jobId).maybeSingle()
+        ? supabase.from('jobs').select('assessment_data,site_address').eq('id', jobId).maybeSingle()
         : Promise.resolve({ data: null }),
     ])
 
@@ -72,6 +72,7 @@ export async function POST(req: Request) {
       company: companyRes.data ?? null,
       jobId,
       areas: jobRes.data?.assessment_data?.areas ?? [],
+      siteAddress: jobRes.data?.site_address ?? undefined,
     } as any))
 
     return new Response(buffer as unknown as BodyInit, {

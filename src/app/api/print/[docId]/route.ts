@@ -41,7 +41,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ docId: 
     supabase
       .from('jobs')
       .select(
-        'client_name,client_organization_name,client_email,client_phone,assessment_data',
+        'client_name,client_organization_name,client_email,client_phone,site_address,assessment_data',
       )
       .eq('id', doc.job_id)
       .single(),
@@ -69,7 +69,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ docId: 
     companyRes.data ?? null,
     doc.job_id,
     appUrl,
-    { ...jobRes.data, printUrl },
+    { ...jobRes.data, site_address: jobRes.data?.site_address, printUrl },
   )
 
   return new NextResponse(html, {

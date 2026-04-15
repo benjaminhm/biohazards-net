@@ -257,15 +257,29 @@ function RoomStageSection({
   )
 }
 
-function QuotePDF({ content, photos, company, areas = [] }: { content: QuoteContent; photos: PhotoWithData[]; company: CompanyProfile | null; areas?: Area[] }) {
+function QuotePDF({
+  content,
+  photos,
+  company,
+  areas = [],
+  siteAddress,
+}: {
+  content: QuoteContent
+  photos: PhotoWithData[]
+  company: CompanyProfile | null
+  areas?: Area[]
+  siteAddress?: string
+}) {
   const today = new Date().toLocaleDateString('en-AU', { day: '2-digit', month: 'long', year: 'numeric' })
   const fmt = (n: number) => `$${Number(n).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
   const beforePhotos = photos.filter(p => p.category === 'before' || p.category === 'assessment').slice(0, 6)
+  const site = (siteAddress ?? '').trim()
 
   return (
     <Page size="A4" style={styles.page}>
       <Header reference={content.reference} date={today} company={company} />
       <Text style={styles.docTitle}>{content.title}</Text>
+      {site ? <Section label="Site address" text={site} /> : null}
       <Section label="Overview" text={content.intro} />
 
       <Text style={styles.sectionLabel}>Scope & Pricing</Text>
@@ -339,11 +353,13 @@ function IaqMultiPDF({
   photos,
   company,
   areas = [],
+  siteAddress,
 }: {
   bundle: { reference?: string; title?: string; parts?: Array<{ type: DocType; content: Record<string, unknown> }> }
   photos: PhotoWithData[]
   company: CompanyProfile | null
   areas?: Area[]
+  siteAddress?: string
 }) {
   const today = new Date().toLocaleDateString('en-AU', { day: '2-digit', month: 'long', year: 'numeric' })
   const parts = bundle.parts ?? []
@@ -410,6 +426,7 @@ function IaqMultiPDF({
         <Header reference={bundleRef} date={today} company={company} />
         <Text style={styles.docTitle}>{bundleTitle}</Text>
         <Text style={styles.partSubtitle}>Part 3 of 3 — Quote</Text>
+        {(siteAddress ?? '').trim() ? <Section label="Site address" text={(siteAddress ?? '').trim()} /> : null}
         <Section label="Overview" text={quote.intro} />
 
         <Text style={styles.sectionLabel}>Scope & Pricing</Text>
@@ -552,21 +569,24 @@ interface JobPDFDocumentProps {
   company: CompanyProfile | null
   jobId?: string
   areas?: Area[]
+  /** Job site / address of works (jobs.site_address). */
+  siteAddress?: string
 }
 
-export function JobPDFDocument({ type, content, photos, company, jobId, areas = [] }: JobPDFDocumentProps) {
+export function JobPDFDocument({ type, content, photos, company, jobId, areas = [], siteAddress }: JobPDFDocumentProps) {
   photos = photosForComposedReports(photos)
   const name = company?.name || 'Brisbane Biohazard Cleaning'
   return (
     <Document title={name} author={name}>
       {type === 'quote' ? (
-        <QuotePDF content={content as QuoteContent} photos={photos} company={company} areas={areas} />
+        <QuotePDF content={content as QuoteContent} photos={photos} company={company} areas={areas} siteAddress={siteAddress} />
       ) : type === 'iaq_multi' ? (
         <IaqMultiPDF
           bundle={content as { reference?: string; title?: string; parts?: Array<{ type: DocType; content: Record<string, unknown> }> }}
           photos={photos}
           company={company}
           areas={areas}
+          siteAddress={siteAddress}
         />
       ) : (
         <SOWOrReportPDF content={content as SOWContent | ReportContent} type={type} photos={photos} company={company} areas={areas} />

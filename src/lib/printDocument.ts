@@ -390,6 +390,8 @@ export interface ClientInfo {
   client_organization_name?: string
   client_email?: string
   client_phone?: string
+  /** Job site / address of works (from jobs.site_address). */
+  site_address?: string
   printUrl?: string
 }
 
@@ -789,10 +791,11 @@ function buildQuoteMid(
   _company: CompanyProfile | null,
   _jobId: string,
   _appUrl: string,
-  _client: ClientInfo | undefined,
+  client: ClientInfo | undefined,
   includeCompletion: boolean,
 ): string {
   const before = photos.filter(p => ['before','assessment'].includes(p.category))
+  const siteLine = (client?.site_address ?? '').trim()
   const outcomeRows = (c.outcome_rows ?? []).filter(Boolean)
   const hasOutcomeRows = c.outcome_mode === 'outcomes' || outcomeRows.length > 0
   const items = (c.line_items || []).map(li => `
@@ -825,6 +828,12 @@ function buildQuoteMid(
   const outcomeLayout = outcomeBlocks || `<div class="body-text">Outcome-based quote is enabled for this job. No outcomes have been drafted yet.</div>`
 
   return `
+    ${siteLine ? `
+    <div class="sow-summary" style="margin-bottom:20px;">
+      <div class="sow-meta-label" style="margin-bottom:6px;">Site address</div>
+      <div class="body-text" style="font-weight:500;color:var(--sow-navy);">${esc(siteLine)}</div>
+    </div>
+    ` : ''}
     <div class="label">Overview</div><div class="body-text sow-rich">${richBodyHtmlForPrint(c.intro)}</div>
     <div class="label">Scope &amp; Pricing</div>
     ${hasOutcomeRows ? outcomeLayout : `
