@@ -125,10 +125,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const ad = job.assessment_data
 
     const [photosRes, pnRes, prnRes] = await Promise.all([
-      supabase
-        .from('photos')
-        .select('area_ref, category, caption, capture_phase')
-        .eq('job_id', jobId),
+      fetchPhotosForEvidenceSuggest(supabase, jobId),
       supabase
         .from('progress_notes')
         .select('room, body, created_at')
