@@ -84,6 +84,7 @@ export async function POST(req: Request) {
       category: nextCategory,
       capture_phase: nextPhase,
       org_id: orgId,
+      include_in_composed_reports: true,
     })
     const { data: photo, error: insErr } = ins
     if (insErr) throw insErr

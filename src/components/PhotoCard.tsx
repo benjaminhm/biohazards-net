@@ -6,7 +6,7 @@
  */
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Image from 'next/image'
 import type { Photo, PhotoCategory } from '@/lib/types'
 
@@ -48,7 +48,13 @@ export default function PhotoCard({
   const [captionDraft, setCaptionDraft] = useState(photo.caption)
   const [categoryDraft, setCategoryDraft] = useState<PhotoCategory>(photo.category)
   const [areaRefDraft, setAreaRefDraft] = useState(photo.area_ref || '')
+  const [includeInReports, setIncludeInReports] = useState(photo.include_in_composed_reports !== false)
+  const [savingInclude, setSavingInclude] = useState(false)
   const categoryOptions = CATEGORIES.filter(c => !allowedCategories || allowedCategories.includes(c.value))
+
+  useEffect(() => {
+    setIncludeInReports(photo.include_in_composed_reports !== false)
+  }, [photo.id, photo.include_in_composed_reports])
 
   async function handleDelete() {
     if (!confirm('Delete this photo?')) return
@@ -69,6 +75,26 @@ export default function PhotoCard({
     setCaptionDraft(photo.caption)
     setCategoryDraft(photo.category)
     setAreaRefDraft(photo.area_ref || '')
+  }
+
+  async function toggleIncludeInReports(next: boolean) {
+    if (savingInclude || deleting) return
+    setSavingInclude(true)
+    const prev = includeInReports
+    setIncludeInReports(next)
+    const res = await fetch(`/api/photos/${photo.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ include_in_composed_reports: next }),
+    })
+    const data = (await res.json()) as { photo?: Photo; error?: string }
+    if (!res.ok || !data.photo) {
+      setIncludeInReports(prev)
+      window.alert(data.error ?? 'Could not update')
+    } else {
+      onUpdate(data.photo)
+    }
+    setSavingInclude(false)
   }
 
   async function saveDetails() {
@@ -246,6 +272,26 @@ export default function PhotoCard({
             </div>
           </>
         )}
+        <label
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            fontSize: 11,
+            color: 'var(--text-muted)',
+            cursor: savingInclude || deleting ? 'wait' : 'pointer',
+            marginTop: editingDetails ? 10 : 8,
+            userSelect: 'none',
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={includeInReports}
+            disabled={savingInclude || deleting}
+            onChange={e => void toggleIncludeInReports(e.target.checked)}
+          />
+          Include in composed reports
+        </label>
       </div>
     </div>
   )

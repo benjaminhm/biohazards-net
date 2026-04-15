@@ -21,14 +21,21 @@ export type PhotoInsertRow = {
   category: string
   capture_phase: string
   org_id?: string
+  /** Defaults true in DB; omit on legacy inserts after column retries. */
+  include_in_composed_reports?: boolean
 }
 
 export async function insertPhotoRow(supabase: SupabaseClient, row: PhotoInsertRow) {
   let ins = await supabase.from('photos').insert(row).select().single()
 
+  // Drop newest optional columns first (migration 033), then capture_phase (027).
   if (ins.error && shouldRetryPhotoInsertWithoutCapturePhase(ins.error)) {
-    const { capture_phase: _c, ...legacy } = row
-    ins = await supabase.from('photos').insert(legacy).select().single()
+    const { include_in_composed_reports: _i, ...withoutInclude } = row
+    ins = await supabase.from('photos').insert(withoutInclude).select().single()
+  }
+  if (ins.error && shouldRetryPhotoInsertWithoutCapturePhase(ins.error)) {
+    const { capture_phase: _c, include_in_composed_reports: _i, ...minimal } = row
+    ins = await supabase.from('photos').insert(minimal).select().single()
   }
 
   return ins

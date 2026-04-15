@@ -28,6 +28,7 @@ import type {
 } from './types'
 import { DOC_TYPE_LABELS } from './types'
 import { filterGroupedStages, groupPhotosByRoomAndStage, type RoomPhotoGroup } from './photoGroups'
+import { photosForComposedReports } from '@/lib/photosForComposedReports'
 
 /** Matches the navy header when `company` is missing (meta grid used to show "—" while header showed this name). */
 const DEFAULT_PRINT_ORG_NAME = 'Brisbane Biohazard Cleaning'
@@ -1254,6 +1255,7 @@ export function buildPrintHTML(
   options?: BuildPrintHTMLOptions,
 ): string {
   const c = content as Record<string, unknown>
+  photos = photosForComposedReports(photos)
   const groups = groupPhotosByRoomAndStage(photos, areas)
   const screenActionBar = options?.screenActionBar !== false
   switch (type) {

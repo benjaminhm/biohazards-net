@@ -442,6 +442,8 @@ export interface Photo {
   category: PhotoCategory
   /** Capture workflow marker to separate assessment vs progress evidence. */
   capture_phase?: PhotoCapturePhase
+  /** When false, omitted from composed quote/SOW/report/PDF outputs (default true). */
+  include_in_composed_reports?: boolean
   uploaded_at: string
 }
 

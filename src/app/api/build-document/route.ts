@@ -40,6 +40,7 @@ import {
 import { mergedSowCapture, staffSowCaptureBlock } from '@/lib/sowCapture'
 import { staffAssessmentDocumentBlock } from '@/lib/assessmentDocumentCapture'
 import { sourceHash } from '@/lib/sourceHash'
+import { photosForComposedReports } from '@/lib/photosForComposedReports'
 
 const client = new Anthropic()
 
@@ -440,7 +441,8 @@ export async function POST(req: Request) {
     }
 
     const platformDbRules = await fetchPlatformDocumentRules()
-    const prompt = buildPrompt(type, job, photos ?? [], company, platformDbRules)
+    const composedPhotos = photosForComposedReports(photos ?? [])
+    const prompt = buildPrompt(type, job, composedPhotos, company, platformDbRules)
 
     // Optionally prepend a style guide PDF as a Claude document block.
     // document_rules[type + '_pdf'] stores the public URL of an example
@@ -491,7 +493,7 @@ export async function POST(req: Request) {
 
     const content = JSON.parse(jsonMatch[0]) as Record<string, unknown>
     if (type === 'report') {
-      content._source_hash = buildReportSourceHash(job, photos ?? [])
+      content._source_hash = buildReportSourceHash(job, composedPhotos)
       content._source_schema_version = 1
       content._source_generated_at = new Date().toISOString()
     }

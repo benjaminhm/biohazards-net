@@ -6,7 +6,7 @@
  *   /object/public/photos/(.+) — this path format is specific to Supabase's
  *   public bucket URL structure.
  *
- * PATCH  /api/photos/[id] — update photo metadata (caption, area_ref, category)
+ * PATCH  /api/photos/[id] — update photo metadata (caption, area_ref, category, include_in_composed_reports)
  */
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
@@ -62,9 +62,12 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       return NextResponse.json({ error: 'Photo not found' }, { status: 404 })
     }
 
-    const patch: Record<string, string> = {}
+    const patch: Record<string, string | boolean> = {}
     if (typeof body.caption === 'string') patch.caption = body.caption
     if (typeof body.area_ref === 'string') patch.area_ref = body.area_ref
+    if (typeof body.include_in_composed_reports === 'boolean') {
+      patch.include_in_composed_reports = body.include_in_composed_reports
+    }
     if (typeof body.category === 'string' && (PHOTO_CATEGORIES as readonly string[]).includes(body.category)) {
       if (existing.capture_phase === 'progress' && (body.category === 'before' || body.category === 'assessment')) {
         return NextResponse.json(

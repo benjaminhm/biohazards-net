@@ -52,6 +52,7 @@ export async function POST(req: Request) {
       category: nextCategory,
       capture_phase: nextPhase,
       org_id: orgId ?? undefined,
+      include_in_composed_reports: true,
     })
 
     if (error) throw error

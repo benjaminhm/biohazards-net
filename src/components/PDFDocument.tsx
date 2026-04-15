@@ -38,6 +38,7 @@ import type {
   Area,
 } from '@/lib/types'
 import { filterGroupedStages, groupPhotosByRoomAndStage } from '@/lib/photoGroups'
+import { photosForComposedReports } from '@/lib/photosForComposedReports'
 
 const ORANGE = '#FF6B35'
 const BLACK = '#111111'
@@ -554,6 +555,7 @@ interface JobPDFDocumentProps {
 }
 
 export function JobPDFDocument({ type, content, photos, company, jobId, areas = [] }: JobPDFDocumentProps) {
+  photos = photosForComposedReports(photos)
   const name = company?.name || 'Brisbane Biohazard Cleaning'
   return (
     <Document title={name} author={name}>

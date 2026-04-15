@@ -11,6 +11,7 @@
  */
 import type { Job, Photo } from './types'
 import { filterGroupedStages, groupPhotosByRoomAndStage } from './photoGroups'
+import { photosForComposedReports } from '@/lib/photosForComposedReports'
 
 /**
  * Formats job and assessment data into a text block injected into every prompt.
@@ -80,6 +81,7 @@ function buildPhotoEvidenceBlock(photos: Photo[], categories: string[]): string 
 export function buildQuotePrompt(job: Job, photos: Photo[]): string {
   const a = job.assessment_data
   if (!a) return ''
+  photos = photosForComposedReports(photos)
 
   const photoBlock = buildPhotoEvidenceBlock(photos, ['before', 'assessment'])
 
@@ -147,6 +149,7 @@ Return ONLY the JSON object.`
 export function buildSOWPrompt(job: Job, photos: Photo[]): string {
   const a = job.assessment_data
   if (!a) return ''
+  photos = photosForComposedReports(photos)
 
   const photoBlock = buildPhotoEvidenceBlock(photos, ['before', 'assessment'])
 
@@ -179,6 +182,7 @@ Be specific to this job. Use the photo notes as direct evidence to describe cond
 export function buildReportPrompt(job: Job, photos: Photo[]): string {
   const a = job.assessment_data
   if (!a) return ''
+  photos = photosForComposedReports(photos)
 
   const progressPhotos = photos.filter(p => {
     if (p.capture_phase === 'progress') return true
