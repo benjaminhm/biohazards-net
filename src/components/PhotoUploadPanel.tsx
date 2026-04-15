@@ -2,8 +2,8 @@
  * components/PhotoUploadPanel.tsx
  *
  * Photo upload queue (camera / gallery, staging, category, caption) embedded in
- * each Assessment area card. `fixedAreaRef` sets `area_ref` on save; signed URL,
- * compress, POST /api/photos.
+ * each Assessment area card. `fixedAreaRef` sets `area_ref` on save; compress locally,
+ * then POST multipart to /api/photos/upload (server writes Storage + DB).
  */
 'use client'
 
@@ -166,42 +166,27 @@ export default function PhotoUploadPanel({
     setUploadProgress(prev => ({ ...prev, [p.id]: 'uploading' }))
     try {
       const compressed = await compressImage(p.file)
-      const fileName = `${Date.now()}-${p.file.name.replace(/[^a-z0-9.]/gi, '_')}`
 
-      const urlRes = await fetch('/api/photos/upload-url', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jobId, fileName, contentType: 'image/jpeg' }),
-      })
-      const { signedUrl, publicUrl, error: urlErr } = await urlRes.json()
-      if (urlErr) throw new Error(urlErr)
+      const fd = new FormData()
+      fd.append('job_id', jobId)
+      fd.append('file', compressed, 'upload.jpg')
+      fd.append('caption', p.caption)
+      fd.append('area_ref', p.areaRef)
+      fd.append('category', p.category)
+      fd.append('capture_phase', fixedCapturePhase)
 
-      const uploadRes = await fetch(signedUrl, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'image/jpeg' },
-        body: compressed,
-      })
-      if (!uploadRes.ok) throw new Error('Upload failed')
-
-      const saveRes = await fetch('/api/photos', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          job_id: jobId,
-          file_url: publicUrl,
-          caption: p.caption,
-          area_ref: p.areaRef,
-          category: p.category,
-          capture_phase: fixedCapturePhase,
-        }),
-      })
-      const { photo, error: saveErr } = await saveRes.json()
-      if (saveErr) throw new Error(saveErr)
+      const saveRes = await fetch('/api/photos/upload', { method: 'POST', body: fd })
+      const saveJson = (await saveRes.json()) as { photo?: Photo; error?: string }
+      const { photo, error: saveErr } = saveJson
+      if (!saveRes.ok || saveErr) throw new Error(saveErr || `Upload failed (${saveRes.status})`)
+      if (!photo) throw new Error('No photo returned')
 
       setUploadProgress(prev => ({ ...prev, [p.id]: 'done' }))
       return photo
-    } catch {
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
       setUploadProgress(prev => ({ ...prev, [p.id]: 'error' }))
+      setUploadError(msg)
       return null
     }
   }

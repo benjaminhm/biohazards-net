@@ -5,7 +5,8 @@
  *
  * Client-side upload pattern:
  *   1. Call this endpoint to get a signed URL + the resulting public URL
- *   2. PUT the (compressed) file blob directly to the signed URL
+ *   2. PUT multipart FormData to the signed URL (same shape as storage-js uploadToSignedUrl:
+ *      append cacheControl + file blob under field name '')
  *   3. Call /api/photos to record the public URL in the database
  *
  * Path format: {jobId}/{timestamp}.{ext}
