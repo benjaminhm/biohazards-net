@@ -8,6 +8,7 @@ import { NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
+import { insertPhotoRow } from '@/lib/photoRowInsert'
 
 const PHOTO_CATEGORIES = ['before', 'during', 'after', 'assessment'] as const
 const PHOTO_PHASES = ['assessment', 'progress'] as const
@@ -75,20 +76,16 @@ export async function POST(req: Request) {
       )
     }
 
-    const { data: photo, error: insErr } = await supabase
-      .from('photos')
-      .insert({
-        job_id: jobId,
-        file_url: publicUrl,
-        caption,
-        area_ref,
-        category: nextCategory,
-        capture_phase: nextPhase,
-        org_id: orgId,
-      })
-      .select()
-      .single()
-
+    const ins = await insertPhotoRow(supabase, {
+      job_id: jobId,
+      file_url: publicUrl,
+      caption,
+      area_ref,
+      category: nextCategory,
+      capture_phase: nextPhase,
+      org_id: orgId,
+    })
+    const { data: photo, error: insErr } = ins
     if (insErr) throw insErr
     return NextResponse.json({ photo }, { status: 201 })
   } catch (err: unknown) {

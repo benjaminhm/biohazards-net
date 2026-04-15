@@ -14,6 +14,7 @@ import { NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
+import { insertPhotoRow } from '@/lib/photoRowInsert'
 
 const PHOTO_CATEGORIES = ['before', 'during', 'after', 'assessment'] as const
 const PHOTO_PHASES = ['assessment', 'progress'] as const
@@ -43,19 +44,15 @@ export async function POST(req: Request) {
     }
 
     const supabase = createServiceClient()
-    const { data, error } = await supabase
-      .from('photos')
-      .insert({
-        job_id,
-        file_url,
-        caption: caption ?? '',
-        area_ref: area_ref ?? '',
-        category: nextCategory,
-        capture_phase: nextPhase,
-        org_id: orgId ?? undefined,
-      })
-      .select()
-      .single()
+    const { data, error } = await insertPhotoRow(supabase, {
+      job_id,
+      file_url,
+      caption: caption ?? '',
+      area_ref: area_ref ?? '',
+      category: nextCategory,
+      capture_phase: nextPhase,
+      org_id: orgId ?? undefined,
+    })
 
     if (error) throw error
     return NextResponse.json({ photo: data }, { status: 201 })
