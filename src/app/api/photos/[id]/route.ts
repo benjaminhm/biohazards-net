@@ -2,40 +2,116 @@
  * app/api/photos/[id]/route.ts
  *
  * DELETE /api/photos/[id] — delete photo from both Storage and the DB.
- *   Storage path is extracted from the public URL by matching
- *   /object/public/photos/(.+) — this path format is specific to Supabase's
- *   public bucket URL structure.
+ *   Storage path is taken from the public URL (/object/public/{bucket}/…).
  *
- * PATCH  /api/photos/[id] — update photo metadata (caption, area_ref, category, include_in_composed_reports)
+ * PATCH /api/photos/[id] — update photo metadata (caption, area_ref, category, include_in_composed_reports)
  */
 import { NextResponse } from 'next/server'
+import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
+import { getOrgId } from '@/lib/org'
 
-export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+const PHOTO_CATEGORIES = ['before', 'during', 'after', 'assessment'] as const
+
+/** Loose UUID check — avoids bad dynamic segment values (e.g. literal "undefined"). */
+function normalizePhotoId(raw: string | undefined): string | null {
+  if (raw == null || typeof raw !== 'string') return null
+  const id = decodeURIComponent(raw.trim())
+  if (!id || id === 'undefined') return null
+  const re = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+  return re.test(id) ? id : null
+}
+
+async function assertPhotoInOrg(
+  supabase: ReturnType<typeof createServiceClient>,
+  photoId: string,
+  orgId: string,
+): Promise<{ ok: true; capture_phase: string; category: string } | { ok: false; status: number; error: string }> {
+  const { data: photo, error: photoErr } = await supabase
+    .from('photos')
+    .select('id, capture_phase, category, job_id')
+    .eq('id', photoId)
+    .maybeSingle()
+
+  if (photoErr) {
+    return { ok: false, status: 500, error: photoErr.message || 'Photo lookup failed' }
+  }
+  if (!photo) {
+    return { ok: false, status: 404, error: 'Photo not found' }
+  }
+
+  const { data: job, error: jobErr } = await supabase
+    .from('jobs')
+    .select('id')
+    .eq('id', photo.job_id)
+    .eq('org_id', orgId)
+    .maybeSingle()
+
+  if (jobErr) {
+    return { ok: false, status: 500, error: jobErr.message || 'Job lookup failed' }
+  }
+  if (!job) {
+    return { ok: false, status: 404, error: 'Photo not found' }
+  }
+
+  return { ok: true, capture_phase: photo.capture_phase, category: photo.category }
+}
+
+/** PostgREST: unknown column include_in_composed_reports before migration 033 / cache. */
+function shouldRetryPhotoUpdateWithoutIncludeColumn(e: { code?: string; message?: string }): boolean {
+  const msg = (e.message ?? '').toLowerCase()
+  return (
+    e.code === 'PGRST204' ||
+    msg.includes('include_in_composed_reports') ||
+    (msg.includes('schema cache') && msg.includes('column'))
+  )
+}
+
+function storageRemovePathFromPublicUrl(fileUrl: string): { bucket: string; path: string } | null {
   try {
-    const { id } = await params
-    const supabase = createServiceClient()
+    const url = new URL(fileUrl)
+    const m = url.pathname.match(/\/object\/public\/([^/]+)\/(.+)/)
+    if (!m) return null
+    return { bucket: m[1], path: m[2] }
+  } catch {
+    return null
+  }
+}
 
-    // Get the photo record first so we can delete from Storage too
+export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const { userId } = await auth()
+    const { orgId } = await getOrgId(req, userId ?? null)
+    if (!orgId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const id = normalizePhotoId((await params).id)
+    if (!id) {
+      return NextResponse.json({ error: 'Invalid photo id' }, { status: 400 })
+    }
+
+    const supabase = createServiceClient()
+    const gate = await assertPhotoInOrg(supabase, id, orgId)
+    if (!gate.ok) {
+      return NextResponse.json({ error: gate.error }, { status: gate.status })
+    }
+
     const { data: photo, error: fetchErr } = await supabase
       .from('photos')
       .select('file_url')
       .eq('id', id)
-      .single()
+      .maybeSingle()
 
     if (fetchErr) throw fetchErr
 
-    // Delete from Supabase Storage
     if (photo?.file_url) {
-      const url = new URL(photo.file_url)
-      // Extract path after /object/public/photos/
-      const match = url.pathname.match(/\/object\/public\/photos\/(.+)/)
-      if (match) {
-        await supabase.storage.from('photos').remove([match[1]])
+      const loc = storageRemovePathFromPublicUrl(photo.file_url)
+      if (loc) {
+        await supabase.storage.from(loc.bucket).remove([loc.path])
       }
     }
 
-    // Delete from database
     const { error } = await supabase.from('photos').delete().eq('id', id)
     if (error) throw error
 
@@ -46,21 +122,27 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   }
 }
 
-const PHOTO_CATEGORIES = ['before', 'during', 'after', 'assessment'] as const
-
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { id } = await params
+    const { userId } = await auth()
+    const { orgId } = await getOrgId(req, userId ?? null)
+    if (!orgId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const id = normalizePhotoId((await params).id)
+    if (!id) {
+      return NextResponse.json({ error: 'Invalid photo id' }, { status: 400 })
+    }
+
     const body = (await req.json()) as Record<string, unknown>
     const supabase = createServiceClient()
-    const { data: existing, error: existingErr } = await supabase
-      .from('photos')
-      .select('id, capture_phase, category')
-      .eq('id', id)
-      .single()
-    if (existingErr || !existing) {
-      return NextResponse.json({ error: 'Photo not found' }, { status: 404 })
+
+    const gate = await assertPhotoInOrg(supabase, id, orgId)
+    if (!gate.ok) {
+      return NextResponse.json({ error: gate.error }, { status: gate.status })
     }
+    const existing = { capture_phase: gate.capture_phase, category: gate.category }
 
     const patch: Record<string, string | boolean> = {}
     if (typeof body.caption === 'string') patch.caption = body.caption
@@ -72,7 +154,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       if (existing.capture_phase === 'progress' && (body.category === 'before' || body.category === 'assessment')) {
         return NextResponse.json(
           { error: 'Progress photos can only be During or After' },
-          { status: 400 }
+          { status: 400 },
         )
       }
       patch.category = body.category
@@ -81,15 +163,25 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
     }
 
-    const { data, error } = await supabase
-      .from('photos')
-      .update(patch)
-      .eq('id', id)
-      .select()
-      .single()
+    let upd = await supabase.from('photos').update(patch).eq('id', id).select().single()
 
-    if (error) throw error
-    return NextResponse.json({ photo: data })
+    if (upd.error && shouldRetryPhotoUpdateWithoutIncludeColumn(upd.error)) {
+      const { include_in_composed_reports: _i, ...rest } = patch
+      if (Object.keys(rest).length > 0) {
+        upd = await supabase.from('photos').update(rest).eq('id', id).select().single()
+      } else {
+        return NextResponse.json(
+          {
+            error:
+              'include_in_composed_reports is not available on the server yet. Run the latest Supabase migration (033) or reload the API schema cache.',
+          },
+          { status: 503 },
+        )
+      }
+    }
+
+    if (upd.error) throw upd.error
+    return NextResponse.json({ photo: upd.data })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Unknown error'
     return NextResponse.json({ error: msg }, { status: 500 })

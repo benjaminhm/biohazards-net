@@ -24,6 +24,10 @@ const CATEGORY_COLORS: Record<PhotoCategory, string> = {
   assessment: '#60A5FA',
 }
 
+function hasPersistedPhotoId(id: string | undefined): id is string {
+  return typeof id === 'string' && id.length > 0 && id !== 'undefined'
+}
+
 export interface PhotoCardProps {
   photo: Photo
   areaNames?: string[]
@@ -57,10 +61,19 @@ export default function PhotoCard({
   }, [photo.id, photo.include_in_composed_reports])
 
   async function handleDelete() {
+    if (!hasPersistedPhotoId(photo.id)) {
+      window.alert('This photo has no id yet. Refresh the page or re-upload.')
+      return
+    }
     if (!confirm('Delete this photo?')) return
     setDeleting(true)
-    await fetch(`/api/photos/${photo.id}`, { method: 'DELETE' })
-    onDelete(photo.id)
+    const res = await fetch(`/api/photos/${photo.id}`, { method: 'DELETE' })
+    if (res.ok) onDelete(photo.id)
+    else {
+      const data = (await res.json().catch(() => ({}))) as { error?: string }
+      window.alert(data.error ?? `Could not delete (${res.status})`)
+    }
+    setDeleting(false)
   }
 
   function openEdit() {
@@ -78,6 +91,10 @@ export default function PhotoCard({
   }
 
   async function toggleIncludeInReports(next: boolean) {
+    if (!hasPersistedPhotoId(photo.id)) {
+      window.alert('This photo has no id yet. Refresh the page or finish uploading.')
+      return
+    }
     if (savingInclude || deleting) return
     setSavingInclude(true)
     const prev = includeInReports
@@ -98,6 +115,10 @@ export default function PhotoCard({
   }
 
   async function saveDetails() {
+    if (!hasPersistedPhotoId(photo.id)) {
+      window.alert('This photo has no id yet. Refresh the page or finish uploading.')
+      return
+    }
     const res = await fetch(`/api/photos/${photo.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
