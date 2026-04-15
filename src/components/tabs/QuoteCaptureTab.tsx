@@ -165,7 +165,27 @@ export default function QuoteCaptureTab({ job, documents: _docs, onJobUpdate, on
     <div style={{ maxWidth: 720, paddingBottom: 40 }}>
 
       {/* ── Outcome rows ── */}
-      <div style={SECTION}>Outcomes</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={SECTION}>Outcomes</div>
+        {rows.length > 0 && (
+          <button
+            type="button"
+            onClick={() => { setRows([]); setSaved(false); setSaveError('') }}
+            style={{
+              fontSize: 11,
+              color: '#F87171',
+              background: 'none',
+              border: '1px solid #F87171',
+              borderRadius: 6,
+              cursor: 'pointer',
+              padding: '3px 10px',
+              marginBottom: 10,
+            }}
+          >
+            Clear all
+          </button>
+        )}
+      </div>
 
       {rows.length === 0 && (
         <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
