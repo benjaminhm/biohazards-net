@@ -4,7 +4,7 @@
  */
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import QuoteTab from '@/components/tabs/QuoteTab'
 import type { Job, Document, OutcomeQuoteCapture, OutcomeQuoteRow, OutcomeQuoteStatus } from '@/lib/types'
 import { mergedSowCapture, staffSowHasContent } from '@/lib/sowCapture'
@@ -84,6 +84,62 @@ function invalidOutcomeRows(rows: OutcomeQuoteRow[]): string[] {
   return bad
 }
 
+function applyOutcomeRowPatch(
+  rows: OutcomeQuoteRow[],
+  rowId: string,
+  updater: (row: OutcomeQuoteRow) => OutcomeQuoteRow,
+): OutcomeQuoteRow[] {
+  return rows.map(row => {
+    if (row.id !== rowId) return row
+    const next = updater(row)
+    const changed = JSON.stringify(row) !== JSON.stringify(next)
+    const statusExplicitlyChanged = row.status !== next.status
+    if (changed && !statusExplicitlyChanged && row.status !== 'edited') {
+      return { ...next, status: 'edited' }
+    }
+    return next
+  })
+}
+
+function AutoGrowTextarea({
+  value,
+  onChange,
+  placeholder,
+  rows = 2,
+  style,
+}: {
+  value: string
+  onChange: (next: string) => void
+  placeholder?: string
+  rows?: number
+  style?: CSSProperties
+}) {
+  const ref = useRef<HTMLTextAreaElement | null>(null)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [value])
+
+  return (
+    <textarea
+      ref={ref}
+      value={value}
+      onChange={e => onChange(e.target.value)}
+      onInput={e => {
+        const el = e.currentTarget
+        el.style.height = 'auto'
+        el.style.height = `${el.scrollHeight}px`
+      }}
+      placeholder={placeholder}
+      rows={rows}
+      style={{ resize: 'none', overflow: 'hidden', minHeight: `${rows * 1.6}em`, ...style }}
+    />
+  )
+}
+
 export default function QuoteCaptureTab({ job, documents, onJobUpdate, onGoToScope }: Props) {
   const sow = mergedSowCapture(job.assessment_data)
   const hasScope = staffSowHasContent(job.assessment_data)
@@ -93,6 +149,7 @@ export default function QuoteCaptureTab({ job, documents, onJobUpdate, onGoToSco
     job.assessment_data?.outcome_quote_capture?.rows ?? []
   )
   const [outcomeSuggesting, setOutcomeSuggesting] = useState(false)
+  const [savingStatusRowId, setSavingStatusRowId] = useState<string | null>(null)
 
   const target = job.assessment_data?.target_price ?? null
   const targetNote = job.assessment_data?.target_price_note ?? ''
@@ -152,18 +209,20 @@ export default function QuoteCaptureTab({ job, documents, onJobUpdate, onGoToSco
   }
 
   function patchOutcomeRow(rowId: string, updater: (row: OutcomeQuoteRow) => OutcomeQuoteRow) {
-    setOutcomeRows(prev =>
-      prev.map(row => {
-        if (row.id !== rowId) return row
-        const next = updater(row)
-        const changed = JSON.stringify(row) !== JSON.stringify(next)
-        const statusExplicitlyChanged = row.status !== next.status
-        if (changed && !statusExplicitlyChanged && row.status !== 'edited') {
-          return { ...next, status: 'edited' }
-        }
-        return next
-      })
-    )
+    setOutcomeRows(prev => applyOutcomeRowPatch(prev, rowId, updater))
+  }
+
+  async function setOutcomeStatusAndSave(rowId: string, status: OutcomeQuoteStatus) {
+    const nextRows = applyOutcomeRowPatch(outcomeRows, rowId, r => ({ ...r, status }))
+    setOutcomeRows(nextRows)
+    setSavingStatusRowId(rowId)
+    try {
+      await saveOutcomeCapture(nextRows)
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : 'Could not save outcome status')
+    } finally {
+      setSavingStatusRowId(null)
+    }
   }
 
   async function suggestOutcomeRows() {
@@ -369,35 +428,37 @@ export default function QuoteCaptureTab({ job, documents, onJobUpdate, onGoToSco
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                     <div className="field" style={{ marginBottom: 0 }}>
                       <label>Outcome title</label>
-                      <input
+                      <AutoGrowTextarea
                         value={row.outcome_title}
-                        onChange={e => patchOutcomeRow(row.id, r => ({ ...r, outcome_title: e.target.value }))}
+                        onChange={next => patchOutcomeRow(row.id, r => ({ ...r, outcome_title: next }))}
                         placeholder="Outcome title"
+                        rows={1}
                       />
                     </div>
                     <div className="field" style={{ marginBottom: 0 }}>
                       <label>Areas</label>
-                      <input
+                      <AutoGrowTextarea
                         value={row.areas.join(', ')}
-                        onChange={e => patchOutcomeRow(row.id, r => ({ ...r, areas: e.target.value.split(',').map(v => v.trim()).filter(Boolean) }))}
+                        onChange={next => patchOutcomeRow(row.id, r => ({ ...r, areas: next.split(',').map(v => v.trim()).filter(Boolean) }))}
                         placeholder="Areas (comma separated)"
+                        rows={1}
                       />
                     </div>
                   </div>
                   <div className="field" style={{ marginBottom: 0, marginTop: 8 }}>
                     <label>Outcome description</label>
-                    <textarea
+                    <AutoGrowTextarea
                       value={row.outcome_description}
-                      onChange={e => patchOutcomeRow(row.id, r => ({ ...r, outcome_description: e.target.value }))}
+                      onChange={next => patchOutcomeRow(row.id, r => ({ ...r, outcome_description: next }))}
                       placeholder="Outcome description"
                       rows={2}
                     />
                   </div>
                   <div className="field" style={{ marginBottom: 0, marginTop: 8 }}>
                     <label>Acceptance criteria</label>
-                    <textarea
+                    <AutoGrowTextarea
                       value={row.acceptance_criteria}
-                      onChange={e => patchOutcomeRow(row.id, r => ({ ...r, acceptance_criteria: e.target.value }))}
+                      onChange={next => patchOutcomeRow(row.id, r => ({ ...r, acceptance_criteria: next }))}
                       placeholder="Acceptance criteria"
                       rows={2}
                     />
@@ -416,50 +477,69 @@ export default function QuoteCaptureTab({ job, documents, onJobUpdate, onGoToSco
                     </div>
                     <div className="field" style={{ marginBottom: 0 }}>
                       <label>Verification method</label>
-                      <input
+                      <AutoGrowTextarea
                         value={row.verification_method}
-                        onChange={e => patchOutcomeRow(row.id, r => ({ ...r, verification_method: e.target.value }))}
+                        onChange={next => patchOutcomeRow(row.id, r => ({ ...r, verification_method: next }))}
                         placeholder="Verification method"
+                        rows={1}
                       />
                     </div>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginTop: 8 }}>
                     <div className="field" style={{ marginBottom: 0 }}>
                       <label>Included</label>
-                      <textarea
+                      <AutoGrowTextarea
                         value={joinLines(row.included)}
-                        onChange={e => patchOutcomeRow(row.id, r => ({ ...r, included: splitLines(e.target.value) }))}
+                        onChange={next => patchOutcomeRow(row.id, r => ({ ...r, included: splitLines(next) }))}
                         placeholder="Included (one per line)"
                         rows={3}
                       />
                     </div>
                     <div className="field" style={{ marginBottom: 0 }}>
                       <label>Excluded</label>
-                      <textarea
+                      <AutoGrowTextarea
                         value={joinLines(row.excluded)}
-                        onChange={e => patchOutcomeRow(row.id, r => ({ ...r, excluded: splitLines(e.target.value) }))}
+                        onChange={next => patchOutcomeRow(row.id, r => ({ ...r, excluded: splitLines(next) }))}
                         placeholder="Excluded (one per line)"
                         rows={3}
                       />
                     </div>
                     <div className="field" style={{ marginBottom: 0 }}>
                       <label>Assumptions</label>
-                      <textarea
+                      <AutoGrowTextarea
                         value={joinLines(row.assumptions)}
-                        onChange={e => patchOutcomeRow(row.id, r => ({ ...r, assumptions: splitLines(e.target.value) }))}
+                        onChange={next => patchOutcomeRow(row.id, r => ({ ...r, assumptions: splitLines(next) }))}
                         placeholder="Assumptions (one per line)"
                         rows={3}
                       />
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                    <button type="button" className="btn btn-secondary" style={{ fontSize: 12 }} onClick={() => patchOutcomeRow(row.id, r => ({ ...r, status: 'approved' as OutcomeQuoteStatus }))}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      style={{ fontSize: 12 }}
+                      disabled={savingStatusRowId === row.id}
+                      onClick={() => void setOutcomeStatusAndSave(row.id, 'approved')}
+                    >
                       Approve
                     </button>
-                    <button type="button" className="btn btn-ghost" style={{ fontSize: 12 }} onClick={() => patchOutcomeRow(row.id, r => ({ ...r, status: 'rejected' as OutcomeQuoteStatus }))}>
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      style={{ fontSize: 12 }}
+                      disabled={savingStatusRowId === row.id}
+                      onClick={() => void setOutcomeStatusAndSave(row.id, 'rejected')}
+                    >
                       Reject
                     </button>
-                    <button type="button" className="btn btn-ghost" style={{ fontSize: 12 }} onClick={() => patchOutcomeRow(row.id, r => ({ ...r, status: 'suggested' as OutcomeQuoteStatus }))}>
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      style={{ fontSize: 12 }}
+                      disabled={savingStatusRowId === row.id}
+                      onClick={() => void setOutcomeStatusAndSave(row.id, 'suggested')}
+                    >
                       Reset suggested
                     </button>
                     {!rowValid && (
