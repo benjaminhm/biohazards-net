@@ -226,15 +226,15 @@ export default function PersonPage() {
       .finally(() => setAccessLoading(false))
   }, [tab, id])
 
-  // Load all active jobs + this person's assignments when Jobs tab opens
+  // Load all non-archived jobs + this person's assignments when Jobs tab opens
   useEffect(() => {
     if ((tab !== 'jobs' && tab !== 'invoices') || !person) return
     setJobsLoading(true)
-    const ACTIVE = ['lead','assessed','quoted','accepted','scheduled','underway']
+    const VISIBLE = ['lead','assessed','quoted','accepted','scheduled','underway','completed','cancelled']
     fetch('/api/jobs')
       .then(r => r.json())
       .then(async d => {
-        const active = (d.jobs ?? []).filter((j: { status: string }) => ACTIVE.includes(j.status))
+        const active = (d.jobs ?? []).filter((j: { status: string }) => VISIBLE.includes(j.status))
         setAllJobs(active)
         // For each job, check if this person is assigned
         const assigned = new Set<string>()
@@ -882,7 +882,7 @@ export default function PersonPage() {
         {tab === 'jobs' && (
           <div>
             <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16, lineHeight: 1.5 }}>
-              Toggle to assign or remove {person?.name.split(' ')[0]} from any active job. Changes reflect immediately in their app view.
+              Toggle to assign or remove {person?.name.split(' ')[0]} from any active job. Completed and cancelled jobs remain visible until archived. Changes reflect immediately in their app view.
             </div>
 
             {jobsLoading ? (
@@ -900,6 +900,7 @@ export default function PersonPage() {
                 {allJobs.map(job => {
                   const assigned = assignedJobIds.has(job.id)
                   const toggling = togglingJobId === job.id
+                  const closed = job.status === 'completed' || job.status === 'cancelled'
                   return (
                     <div key={job.id} style={{
                       display: 'flex', alignItems: 'center', gap: 12,
@@ -907,10 +908,23 @@ export default function PersonPage() {
                       background: assigned ? 'rgba(34,197,94,0.06)' : 'var(--surface)',
                       border: `1px solid ${assigned ? 'rgba(34,197,94,0.2)' : 'var(--border)'}`,
                       transition: 'all 0.15s',
+                      opacity: closed ? 0.55 : 1,
                     }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 2 }}>
-                          {job.client_name}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                          <span style={{ fontWeight: 600, fontSize: 14 }}>
+                            {job.client_name}
+                          </span>
+                          {closed && (
+                            <span style={{
+                              fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em',
+                              padding: '1px 6px', borderRadius: 4,
+                              background: job.status === 'completed' ? 'rgba(34,197,94,0.15)' : 'rgba(248,113,113,0.15)',
+                              color: job.status === 'completed' ? '#22C55E' : '#F87171',
+                            }}>
+                              {job.status}
+                            </span>
+                          )}
                         </div>
                         <div style={{ fontSize: 12, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {job.site_address}
