@@ -10,6 +10,7 @@ import { NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
+import { shouldRetryPhotoInsertWithoutCapturePhase } from '@/lib/photoRowInsert'
 
 const PHOTO_CATEGORIES = ['before', 'during', 'after', 'assessment'] as const
 
@@ -22,23 +23,43 @@ function normalizePhotoId(raw: string | undefined): string | null {
   return re.test(id) ? id : null
 }
 
+function inferCapturePhaseFromCategory(category: string): 'assessment' | 'progress' {
+  return category === 'during' || category === 'after' ? 'progress' : 'assessment'
+}
+
 async function assertPhotoInOrg(
   supabase: ReturnType<typeof createServiceClient>,
   photoId: string,
   orgId: string,
 ): Promise<{ ok: true; capture_phase: string; category: string } | { ok: false; status: number; error: string }> {
-  const { data: photo, error: photoErr } = await supabase
+  let photoRes = await supabase
     .from('photos')
     .select('id, capture_phase, category, job_id')
     .eq('id', photoId)
     .maybeSingle()
 
+  if (photoRes.error && shouldRetryPhotoInsertWithoutCapturePhase(photoRes.error)) {
+    photoRes = await supabase.from('photos').select('id, category, job_id').eq('id', photoId).maybeSingle()
+  }
+
+  const { data: photoRow, error: photoErr } = photoRes
   if (photoErr) {
     return { ok: false, status: 500, error: photoErr.message || 'Photo lookup failed' }
   }
-  if (!photo) {
+  if (!photoRow) {
     return { ok: false, status: 404, error: 'Photo not found' }
   }
+
+  const photo = photoRow as {
+    id: string
+    category: string
+    job_id: string
+    capture_phase?: string
+  }
+  const capture_phase =
+    photo.capture_phase != null && photo.capture_phase !== ''
+      ? photo.capture_phase
+      : inferCapturePhaseFromCategory(photo.category)
 
   const { data: job, error: jobErr } = await supabase
     .from('jobs')
@@ -54,7 +75,7 @@ async function assertPhotoInOrg(
     return { ok: false, status: 404, error: 'Photo not found' }
   }
 
-  return { ok: true, capture_phase: photo.capture_phase, category: photo.category }
+  return { ok: true, capture_phase, category: photo.category }
 }
 
 /** PostgREST: unknown column include_in_composed_reports before migration 033 / cache. */
