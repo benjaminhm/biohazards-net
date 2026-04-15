@@ -6,7 +6,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import type { Job, Document, OutcomeQuoteCapture, OutcomeQuoteRow } from '@/lib/types'
+import type { Job, Document, OutcomeQuoteCapture, OutcomeQuoteRow, QuoteAuthorisation } from '@/lib/types'
 
 interface Props {
   job: Job
@@ -126,10 +126,22 @@ export default function QuoteCaptureTab({ job, documents: _docs, onJobUpdate, on
   const [suggesting, setSuggesting] = useState(false)
   const [suggestError, setSuggestError] = useState('')
 
+  const DEFAULT_LIABILITY = 'Liability is limited to the value of services quoted. The service provider accepts no responsibility for pre-existing damage, concealed conditions, or third-party property unless expressly agreed in writing.'
+  const DEFAULT_ACCEPTANCE = 'By signing below, the client authorises the above works to commence under the terms and conditions stated in this document.'
+
   const [rows, setRows] = useState<OutcomeQuoteRow[]>(existing?.rows ?? [])
   const [paymentTerms, setPaymentTerms] = useState(ad?.payment_terms ?? '')
   const [validity, setValidity] = useState('')
   const [notes, setNotes] = useState('')
+  const [auth, setAuth] = useState<QuoteAuthorisation>(() => {
+    const a = existing?.authorisation
+    return {
+      access_details: a?.access_details ?? '',
+      special_conditions: a?.special_conditions ?? '',
+      liability_statement: a?.liability_statement ?? DEFAULT_LIABILITY,
+      acceptance_statement: a?.acceptance_statement ?? DEFAULT_ACCEPTANCE,
+    }
+  })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [saveError, setSaveError] = useState('')
@@ -138,6 +150,13 @@ export default function QuoteCaptureTab({ job, documents: _docs, onJobUpdate, on
     const cap = job.assessment_data?.outcome_quote_capture
     setRows(cap?.rows ?? [])
     setPaymentTerms(job.assessment_data?.payment_terms ?? '')
+    const a = cap?.authorisation
+    setAuth({
+      access_details: a?.access_details ?? '',
+      special_conditions: a?.special_conditions ?? '',
+      liability_statement: a?.liability_statement ?? DEFAULT_LIABILITY,
+      acceptance_statement: a?.acceptance_statement ?? DEFAULT_ACCEPTANCE,
+    })
     setSaved(false)
     setSaveError('')
   }, [job.id, job.updated_at])
@@ -152,6 +171,12 @@ export default function QuoteCaptureTab({ job, documents: _docs, onJobUpdate, on
 
   function removeRow(id: string) {
     setRows(prev => prev.filter(r => r.id !== id))
+    setSaved(false)
+    setSaveError('')
+  }
+
+  function patchAuth(patch: Partial<QuoteAuthorisation>) {
+    setAuth(prev => ({ ...prev, ...patch }))
     setSaved(false)
     setSaveError('')
   }
@@ -192,6 +217,7 @@ export default function QuoteCaptureTab({ job, documents: _docs, onJobUpdate, on
         rows,
         totals: computeTotals(rows, addGst),
         target_pricing: {},
+        authorisation: auth,
         last_reviewed_at: new Date().toISOString(),
       } satisfies OutcomeQuoteCapture
       const res = await fetch(`/api/jobs/${job.id}`, {
@@ -456,6 +482,49 @@ export default function QuoteCaptureTab({ job, documents: _docs, onJobUpdate, on
           value={notes}
           onChange={v => { setNotes(v); setSaved(false); setSaveError('') }}
           placeholder="Job-specific conditions, caveats, or clarifications"
+          rows={2}
+        />
+      </div>
+
+      {/* ── Authorisation ── */}
+      <div style={SECTION}>Authorisation</div>
+
+      <div className="field">
+        <label>Access details</label>
+        <AutoGrow
+          value={auth.access_details}
+          onChange={v => patchAuth({ access_details: v })}
+          placeholder="How and when can the technician access the site? e.g. key from agent, meet on site 7am"
+          rows={2}
+        />
+      </div>
+
+      <div className="field">
+        <label>Special conditions</label>
+        <AutoGrow
+          value={auth.special_conditions}
+          onChange={v => patchAuth({ special_conditions: v })}
+          placeholder="Client-specific constraints — e.g. no work before 8am, pets on site, insurance requirements"
+          rows={2}
+        />
+      </div>
+
+      <div className="field">
+        <label>Liability statement</label>
+        <AutoGrow
+          value={auth.liability_statement}
+          onChange={v => patchAuth({ liability_statement: v })}
+          placeholder="Liability limitation clause"
+          rows={2}
+        />
+      </div>
+
+      <div className="field">
+        <label>Acceptance statement</label>
+        <AutoGrow
+          value={auth.acceptance_statement}
+          onChange={v => patchAuth({ acceptance_statement: v })}
+          placeholder="Client authorisation wording for signature"
           rows={2}
         />
       </div>

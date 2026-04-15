@@ -281,6 +281,15 @@ export interface OutcomeQuoteRow {
   metrics?: OutcomeQuoteMetric[]
 }
 
+export interface QuoteAuthorisation {
+  access_details: string
+  special_conditions: string
+  liability_statement: string
+  acceptance_statement: string
+  accepted_by?: string
+  accepted_at?: string
+}
+
 export interface OutcomeQuoteCapture {
   mode: 'line_items' | 'outcomes'
   rows: OutcomeQuoteRow[]
@@ -293,6 +302,7 @@ export interface OutcomeQuoteCapture {
     target_amount?: number
     target_price_note?: string
   }
+  authorisation?: QuoteAuthorisation
   last_suggested_at?: string
   last_reviewed_at?: string
 }
