@@ -302,6 +302,8 @@ export interface OutcomeQuoteCapture {
     target_amount?: number
     target_price_note?: string
   }
+  validity?: string
+  notes?: string
   authorisation?: QuoteAuthorisation
   last_suggested_at?: string
   last_reviewed_at?: string

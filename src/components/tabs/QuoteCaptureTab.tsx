@@ -131,8 +131,8 @@ export default function QuoteCaptureTab({ job, documents: _docs, onJobUpdate, on
 
   const [rows, setRows] = useState<OutcomeQuoteRow[]>(existing?.rows ?? [])
   const [paymentTerms, setPaymentTerms] = useState(ad?.payment_terms ?? '')
-  const [validity, setValidity] = useState('')
-  const [notes, setNotes] = useState('')
+  const [validity, setValidity] = useState(existing?.validity ?? '')
+  const [notes, setNotes] = useState(existing?.notes ?? '')
   const [auth, setAuth] = useState<QuoteAuthorisation>(() => {
     const a = existing?.authorisation
     return {
@@ -150,6 +150,8 @@ export default function QuoteCaptureTab({ job, documents: _docs, onJobUpdate, on
     const cap = job.assessment_data?.outcome_quote_capture
     setRows(cap?.rows ?? [])
     setPaymentTerms(job.assessment_data?.payment_terms ?? '')
+    setValidity(cap?.validity ?? '')
+    setNotes(cap?.notes ?? '')
     const a = cap?.authorisation
     setAuth({
       access_details: a?.access_details ?? '',
@@ -217,6 +219,8 @@ export default function QuoteCaptureTab({ job, documents: _docs, onJobUpdate, on
         rows,
         totals: computeTotals(rows, addGst),
         target_pricing: {},
+        validity,
+        notes,
         authorisation: auth,
         last_reviewed_at: new Date().toISOString(),
       } satisfies OutcomeQuoteCapture
