@@ -80,6 +80,7 @@ export default function AssessmentTab({ job, onJobUpdate, photos, onPhotosUpdate
   const [data, setData] = useState<AssessmentData>(mergeWithDefaults(job.assessment_data))
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState('')
   const [extractError, setExtractError] = useState('')
   const [speechTarget, setSpeechTarget] = useState<SpeechTarget>(null)
   const [interimText, setInterimText] = useState('')
@@ -93,6 +94,7 @@ export default function AssessmentTab({ job, onJobUpdate, photos, onPhotosUpdate
 
   useEffect(() => {
     setData(mergeWithDefaults(job.assessment_data))
+    setSaveError('')
   }, [job.id])
 
   function addArea() {
@@ -101,6 +103,7 @@ export default function AssessmentTab({ job, onJobUpdate, photos, onPhotosUpdate
       areas: [...d.areas, { name: '', sqm: 0, hazard_level: 1, description: '', note: '' }],
     }))
     setSaved(false)
+    setSaveError('')
   }
 
   function updateArea(index: number, field: keyof Area, value: string | number) {
@@ -110,11 +113,13 @@ export default function AssessmentTab({ job, onJobUpdate, photos, onPhotosUpdate
       return { ...d, areas }
     })
     setSaved(false)
+    setSaveError('')
   }
 
   function removeArea(index: number) {
     setData(d => ({ ...d, areas: d.areas.filter((_, i) => i !== index) }))
     setSaved(false)
+    setSaveError('')
   }
 
   async function polishAreaDescription(index: number) {
@@ -240,16 +245,24 @@ export default function AssessmentTab({ job, onJobUpdate, photos, onPhotosUpdate
   async function save() {
     setSaving(true)
     setSaved(false)
+    setSaveError('')
     try {
       const res = await fetch(`/api/jobs/${job.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ assessment_data: data, status: job.status === 'lead' ? 'assessed' : job.status }),
       })
-      const resp = await res.json()
+      const resp = (await res.json()) as { job?: Job; error?: string }
+      if (!res.ok || !resp.job) {
+        setSaveError(resp.error ?? `Save failed (${res.status})`)
+        return
+      }
       onJobUpdate(resp.job)
+      setData(mergeWithDefaults(resp.job.assessment_data))
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
+    } catch (e: unknown) {
+      setSaveError(e instanceof Error ? e.message : 'Save failed')
     } finally {
       setSaving(false)
     }
@@ -277,6 +290,11 @@ export default function AssessmentTab({ job, onJobUpdate, photos, onPhotosUpdate
 
       {extractError && (
         <div style={{ fontSize: 13, color: '#F87171', marginBottom: 16, lineHeight: 1.45 }}>{extractError}</div>
+      )}
+      {saveError && (
+        <div style={{ fontSize: 13, color: '#F87171', marginBottom: 16, lineHeight: 1.45 }} role="alert">
+          {saveError}
+        </div>
       )}
 
       {/* Areas */}
@@ -405,9 +423,12 @@ export default function AssessmentTab({ job, onJobUpdate, photos, onPhotosUpdate
             <textarea
               value={area.description}
               onChange={e => updateArea(i, 'description', e.target.value)}
+              onBlur={e => updateArea(i, 'description', e.target.value)}
               placeholder="What was found here..."
               rows={2}
               style={{ resize: 'vertical' }}
+              autoComplete="off"
+              enterKeyHint="done"
             />
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
               <button
@@ -430,10 +451,17 @@ export default function AssessmentTab({ job, onJobUpdate, photos, onPhotosUpdate
       </button>
 
       <button
+        type="button"
         className="btn btn-primary"
         onClick={save}
         disabled={saving}
-        style={{ width: '100%', padding: 14, fontSize: 15 }}
+        style={{
+          width: '100%',
+          padding: 14,
+          paddingBottom: 'max(14px, env(safe-area-inset-bottom, 0px))',
+          fontSize: 15,
+          touchAction: 'manipulation',
+        }}
       >
         {saving ? <><span className="spinner" /> Saving...</> : saved ? '✓ Saved' : 'Save Assessment'}
       </button>
