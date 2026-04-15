@@ -148,9 +148,7 @@ export async function fetchQuoteLineItemsMergeContext(
     row =>
       (row.status === 'approved' || row.status === 'edited') &&
       row.price > 0 &&
-      row.outcome_title.trim() &&
-      row.acceptance_criteria.trim() &&
-      row.verification_method.trim()
+      row.outcome_title.trim()
   )
 
   if (capture?.mode === 'outcomes' && approvedOutcomes.length > 0) {

@@ -815,8 +815,6 @@ function buildQuoteMid(
         <div class="body-text"><strong>${esc(row.outcome_title || 'Outcome')}</strong></div>
         ${row.outcome_description?.trim() ? `<div class="body-text">${esc(row.outcome_description)}</div>` : ''}
         <div class="label">Areas</div><div class="body-text">${esc(areas)}</div>
-        <div class="label">Acceptance Criteria</div><div class="body-text">${esc(row.acceptance_criteria || '—')}</div>
-        <div class="label">Verification Method</div><div class="body-text">${esc(row.verification_method || '—')}</div>
         ${included ? `<div class="label">Included</div><ul class="body-text">${included}</ul>` : ''}
         ${excluded ? `<div class="label">Excluded</div><ul class="body-text">${excluded}</ul>` : ''}
         ${assumptions ? `<div class="label">Assumptions</div><ul class="body-text">${assumptions}</ul>` : ''}

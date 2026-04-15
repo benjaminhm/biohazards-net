@@ -43,9 +43,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       row =>
         (row.status === 'approved' || row.status === 'edited') &&
         row.price > 0 &&
-        row.outcome_title.trim() &&
-        row.acceptance_criteria.trim() &&
-        row.verification_method.trim()
+        row.outcome_title.trim()
     )
 
     if (!run) {
