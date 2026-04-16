@@ -19,11 +19,6 @@ function toMoney(n: number): number {
   return Math.round(n * 100) / 100
 }
 
-function shouldAddGst(note: string): boolean {
-  const n = note.toLowerCase()
-  return n.includes('ex') || n.includes('excl') || n.includes('+ gst') || n.includes('+gst')
-}
-
 function computeTotals(rows: OutcomeQuoteRow[], addGst: boolean) {
   const subtotal = toMoney(rows.reduce((s, r) => s + Math.max(0, Number(r.price || 0)), 0))
   const gst = addGst ? toMoney(subtotal * 0.1) : 0
@@ -120,7 +115,6 @@ const SECTION: CSSProperties = {
 export default function QuoteCaptureTab({ job, documents: _docs, onJobUpdate, onGoToScope: _scope }: Props) {
   const ad = job.assessment_data
   const existing = ad?.outcome_quote_capture
-  const addGst = shouldAddGst(ad?.target_price_note ?? '')
 
   const [instruction, setInstruction] = useState('')
   const [suggesting, setSuggesting] = useState(false)
@@ -145,6 +139,32 @@ export default function QuoteCaptureTab({ job, documents: _docs, onJobUpdate, on
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [saveError, setSaveError] = useState('')
+  /** Synced with quote_line_item_runs.add_gst_to_total — drives tab totals and composed/print quote. Default: ex GST. */
+  const [addGstToTotal, setAddGstToTotal] = useState(false)
+  const [gstRunLoading, setGstRunLoading] = useState(true)
+  const [gstToggleSaving, setGstToggleSaving] = useState(false)
+  const [gstError, setGstError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    setGstRunLoading(true)
+    setGstError('')
+    fetch(`/api/jobs/${job.id}/quote-line-items`)
+      .then(r => r.json())
+      .then((d: { run?: { add_gst_to_total?: boolean } }) => {
+        if (cancelled) return
+        setAddGstToTotal(d.run?.add_gst_to_total === true)
+      })
+      .catch(() => {
+        if (!cancelled) setAddGstToTotal(false)
+      })
+      .finally(() => {
+        if (!cancelled) setGstRunLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [job.id])
 
   useEffect(() => {
     const cap = job.assessment_data?.outcome_quote_capture
@@ -163,7 +183,30 @@ export default function QuoteCaptureTab({ job, documents: _docs, onJobUpdate, on
     setSaveError('')
   }, [job.id, job.updated_at])
 
-  const totals = useMemo(() => computeTotals(rows, addGst), [rows, addGst])
+  const totals = useMemo(() => computeTotals(rows, addGstToTotal), [rows, addGstToTotal])
+
+  async function persistGstToggle(next: boolean) {
+    setGstToggleSaving(true)
+    setGstError('')
+    try {
+      const res = await fetch(`/api/jobs/${job.id}/quote-line-items/run`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ add_gst_to_total: next }),
+      })
+      const data = (await res.json()) as { run?: { add_gst_to_total?: boolean }; error?: string }
+      if (!res.ok) {
+        setGstError(data.error ?? `Could not update GST (${res.status})`)
+        return
+      }
+      setAddGstToTotal(data.run?.add_gst_to_total === true)
+      setSaved(false)
+    } catch (e) {
+      setGstError(e instanceof Error ? e.message : 'Could not update GST')
+    } finally {
+      setGstToggleSaving(false)
+    }
+  }
 
   function patchRow(id: string, patch: Partial<OutcomeQuoteRow>) {
     setRows(prev => prev.map(r => (r.id === id ? { ...r, ...patch, status: 'edited' } : r)))
@@ -217,7 +260,7 @@ export default function QuoteCaptureTab({ job, documents: _docs, onJobUpdate, on
       merged.outcome_quote_capture = {
         mode: 'outcomes',
         rows,
-        totals: computeTotals(rows, addGst),
+        totals: computeTotals(rows, addGstToTotal),
         target_pricing: {},
         validity,
         notes,
@@ -428,7 +471,7 @@ export default function QuoteCaptureTab({ job, documents: _docs, onJobUpdate, on
         + Add outcome
       </button>
 
-      {/* ── Totals ── */}
+      {/* ── Totals + GST toggle (syncs quote_line_item_runs for print/composer) ── */}
       <div
         style={{
           padding: '12px 16px',
@@ -439,22 +482,84 @@ export default function QuoteCaptureTab({ job, documents: _docs, onJobUpdate, on
           fontSize: 14,
         }}
       >
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+            marginBottom: 12,
+            paddingBottom: 12,
+            borderBottom: '1px solid var(--border)',
+          }}
+        >
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 2 }}>GST on quote</div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.45 }}>
+              Off = amounts are <strong>ex GST</strong> (default). On = add 10% GST for the total shown to clients.
+            </div>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={addGstToTotal}
+            disabled={gstRunLoading || gstToggleSaving}
+            onClick={() => void persistGstToggle(!addGstToTotal)}
+            style={{
+              flexShrink: 0,
+              width: 52,
+              height: 28,
+              borderRadius: 99,
+              border: `1px solid ${addGstToTotal ? '#22C55E' : 'var(--border-2)'}`,
+              background: addGstToTotal ? '#22C55E' : 'var(--surface-2)',
+              cursor: gstRunLoading || gstToggleSaving ? 'not-allowed' : 'pointer',
+              opacity: gstRunLoading || gstToggleSaving ? 0.65 : 1,
+              position: 'relative',
+              transition: 'background 0.2s',
+            }}
+          >
+            <span
+              style={{
+                position: 'absolute',
+                top: 3,
+                left: addGstToTotal ? 26 : 3,
+                width: 20,
+                height: 20,
+                borderRadius: 99,
+                background: '#fff',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.25)',
+                transition: 'left 0.2s',
+              }}
+            />
+          </button>
+        </div>
+        {gstError && (
+          <div style={{ fontSize: 12, color: '#F87171', marginBottom: 10 }} role="alert">
+            {gstError}
+          </div>
+        )}
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-          <span style={{ color: 'var(--text-muted)' }}>Subtotal</span>
+          <span style={{ color: 'var(--text-muted)' }}>Subtotal (ex GST)</span>
           <strong>${totals.subtotal.toFixed(2)}</strong>
         </div>
-        {totals.gst > 0 && (
-          <>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-              <span style={{ color: 'var(--text-muted)' }}>GST (10%)</span>
-              <span>${totals.gst.toFixed(2)}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--border)', paddingTop: 6, marginTop: 4 }}>
-              <strong>Total (inc. GST)</strong>
-              <strong>${totals.total.toFixed(2)}</strong>
-            </div>
-          </>
+        {addGstToTotal && totals.gst > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+            <span style={{ color: 'var(--text-muted)' }}>GST (10%)</span>
+            <span>${totals.gst.toFixed(2)}</span>
+          </div>
         )}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            borderTop: '1px solid var(--border)',
+            paddingTop: 6,
+            marginTop: 4,
+          }}
+        >
+          <strong>{addGstToTotal ? 'Total (inc. GST)' : 'Total (ex GST)'}</strong>
+          <strong>${totals.total.toFixed(2)}</strong>
+        </div>
       </div>
 
       {/* ── Quote-level fields ── */}
