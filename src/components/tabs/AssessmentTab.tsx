@@ -352,7 +352,7 @@ export default function AssessmentTab({ job, onJobUpdate, photos, onPhotosUpdate
                         {r}
                       </option>
                     ))}
-                    <option value="__other__">Other (specify below)</option>
+                    <option value="__other__">Other</option>
                   </>
                 )}
               </select>
