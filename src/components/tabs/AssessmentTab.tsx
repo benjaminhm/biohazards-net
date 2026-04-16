@@ -319,11 +319,17 @@ export default function AssessmentTab({ job, onJobUpdate, photos, onPhotosUpdate
                   if (v === '') {
                     nextName = ''
                   } else if (v === '__other__') {
-                    nextName = isPreset ? 'Custom room' : cur
+                    if (isPreset) {
+                      nextName = 'Custom room'
+                    } else if (cur) {
+                      nextName = cur
+                    } else {
+                      // Empty row → non-empty area_ref so photo upload unlocks immediately
+                      nextName = 'Other'
+                    }
                   } else {
                     nextName = v
                   }
-                  // Non-preset placeholder so areaRoomSelectValue stays '__other__' when switching from a preset
                   updateArea(i, 'name', nextName)
                 }}
                 style={{
@@ -337,12 +343,18 @@ export default function AssessmentTab({ job, onJobUpdate, photos, onPhotosUpdate
                 }}
               >
                 <option value="">Select room type…</option>
-                {AREA_ROOM_TYPES.map(r => (
-                  <option key={r} value={r}>
-                    {r}
-                  </option>
-                ))}
-                <option value="__other__">Other (specify below)</option>
+                {AREA_ROOM_TYPES.length === 0 ? (
+                  <option value="__other__">Other</option>
+                ) : (
+                  <>
+                    {AREA_ROOM_TYPES.map(r => (
+                      <option key={r} value={r}>
+                        {r}
+                      </option>
+                    ))}
+                    <option value="__other__">Other (specify below)</option>
+                  </>
+                )}
               </select>
               {areaRoomSelectValue(area.name) === '__other__' && (
                 <input
