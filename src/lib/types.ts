@@ -268,6 +268,141 @@ export interface AdhocEquipmentItem {
   notes?: string
 }
 
+/* ───────────────────────── Contents inventory ───────────────────────── */
+
+/** High-level taxonomy for personal belongings / household contents. */
+export type ContentsCategory =
+  | 'furniture'
+  | 'electronics'
+  | 'clothing'
+  | 'kitchenware'
+  | 'bedding'
+  | 'personal_effects'
+  | 'decor'
+  | 'appliances'
+  | 'documents'
+  | 'other'
+
+export const CONTENTS_CATEGORY_LABELS: Record<ContentsCategory, string> = {
+  furniture:        'Furniture',
+  electronics:      'Electronics',
+  clothing:         'Clothing',
+  kitchenware:      'Kitchenware',
+  bedding:          'Bedding',
+  personal_effects: 'Personal effects',
+  decor:            'Decor',
+  appliances:       'Appliances',
+  documents:        'Documents',
+  other:            'Other',
+}
+
+/** What's happening to the item. Drives quotes, insurance, disposal manifests. */
+export type ContentsDisposition = 'salvage' | 'decontaminate' | 'discard' | 'undetermined'
+
+export const CONTENTS_DISPOSITION_LABELS: Record<ContentsDisposition, string> = {
+  salvage:        'Salvage (no clean needed)',
+  decontaminate:  'Decontaminate',
+  discard:        'Discard',
+  undetermined:   'Undetermined',
+}
+
+export interface ContentsItem {
+  id: string
+  /** Free-text room label. Prefer matching an Area.name but not enforced. */
+  room: string
+  name: string
+  category: ContentsCategory
+  quantity: number
+  disposition: ContentsDisposition
+  notes?: string
+  /** Optional replacement value in AUD — used for insurance scopes. */
+  replacement_value?: number
+  /** Source: 'manual' (tech typed it) | 'ai' (promoted from an AI suggestion). */
+  source?: 'manual' | 'ai'
+}
+
+export interface SuggestedContentsAi {
+  items: ContentsItem[]
+  generated_at: string
+}
+
+/* ───────────────────────── Structure inventory ──────────────────────── */
+
+/** Building-element taxonomy for structural assessment. */
+export type StructureElement =
+  | 'wall'
+  | 'ceiling'
+  | 'floor'
+  | 'subfloor'
+  | 'framing'
+  | 'insulation'
+  | 'drywall'
+  | 'tile'
+  | 'carpet'
+  | 'hvac'
+  | 'plumbing'
+  | 'electrical'
+  | 'roof'
+  | 'window'
+  | 'door'
+  | 'cabinetry'
+  | 'other'
+
+export const STRUCTURE_ELEMENT_LABELS: Record<StructureElement, string> = {
+  wall:       'Wall',
+  ceiling:    'Ceiling',
+  floor:      'Floor',
+  subfloor:   'Subfloor',
+  framing:    'Framing',
+  insulation: 'Insulation',
+  drywall:    'Drywall / plaster',
+  tile:       'Tile',
+  carpet:     'Carpet',
+  hvac:       'HVAC',
+  plumbing:   'Plumbing',
+  electrical: 'Electrical',
+  roof:       'Roof',
+  window:     'Window',
+  door:       'Door',
+  cabinetry:  'Cabinetry',
+  other:      'Other',
+}
+
+export type StructureCondition = 'intact' | 'affected' | 'heavily_affected' | 'compromised'
+
+export const STRUCTURE_CONDITION_LABELS: Record<StructureCondition, string> = {
+  intact:            'Intact',
+  affected:          'Affected',
+  heavily_affected:  'Heavily affected',
+  compromised:       'Compromised',
+}
+
+export type StructureAction = 'monitor' | 'clean' | 'remediate' | 'replace' | 'demolish'
+
+export const STRUCTURE_ACTION_LABELS: Record<StructureAction, string> = {
+  monitor:    'Monitor',
+  clean:      'Clean',
+  remediate:  'Remediate',
+  replace:    'Replace',
+  demolish:   'Demolish',
+}
+
+export interface StructureItem {
+  id: string
+  /** Free-text room label; prefer Area.name where applicable. */
+  room: string
+  element: StructureElement
+  condition: StructureCondition
+  action: StructureAction
+  notes?: string
+  source?: 'manual' | 'ai'
+}
+
+export interface SuggestedStructureAi {
+  items: StructureItem[]
+  generated_at: string
+}
+
 export type PreflightResult = 'go' | 'go_with_conditions' | 'no_go'
 
 export type PreflightCriticalControlId =
@@ -477,6 +612,14 @@ export interface AssessmentData {
   used_equipment_catalogue_ids?: string[]
   /** Ad-hoc equipment used on this job but not (yet) in the org catalogue. */
   adhoc_equipment_chips?: AdhocEquipmentItem[]
+  /** HITL-confirmed contents inventory (furniture, belongings, appliances…). */
+  contents_items?: ContentsItem[]
+  /** AI-proposed contents the tech has not yet accepted. */
+  suggested_contents_ai?: SuggestedContentsAi
+  /** HITL-confirmed structural element assessment (walls, floors, HVAC…). */
+  structure_items?: StructureItem[]
+  /** AI-proposed structure items the tech has not yet accepted. */
+  suggested_structure_ai?: SuggestedStructureAi
   /** Preparation phase: pre-remediation go / no-go gate (JSON payload). */
   pre_remediation_preflight?: PreRemediationPreflightChecklist
   /**
