@@ -435,6 +435,10 @@ export function composeDocumentContent(type: DocType, job: Job, options?: Compos
       return composeNda(job)
     case 'risk_assessment':
       return composeRiskAssessment(job)
+    case 'company_letter':
+      // Company Letter is composed in CompanyLetterTab and persisted through /api/documents;
+      // it intentionally doesn't use the deterministic composer pipeline.
+      throw new Error('Company Letter is not composed via composeDocumentContent; use the Company Letter tab.')
   }
 }
 

@@ -123,7 +123,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json(
         {
           error:
-            'Promote at least one approved hazard on Assessment → Hazards (Presenting) before generating risks.',
+            'Promote at least one approved hazard on Assessment → Health Hazards (Presenting) before generating risks.',
         },
         { status: 400 }
       )

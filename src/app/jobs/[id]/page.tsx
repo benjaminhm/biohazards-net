@@ -37,6 +37,7 @@ import DetailsTab from '@/components/tabs/DetailsTab'
 import AssessmentTab from '@/components/tabs/AssessmentTab'
 import AssessmentBiohazardsTab from '@/components/tabs/AssessmentBiohazardsTab'
 import AssessmentRisksTab from '@/components/tabs/AssessmentRisksTab'
+import AssessmentRecommendationsTab from '@/components/tabs/AssessmentRecommendationsTab'
 import QuoteTab from '@/components/tabs/QuoteTab'
 import PhotosTab from '@/components/tabs/PhotosTab'
 import DocumentsTab from '@/components/tabs/DocumentsTab'
@@ -302,8 +303,8 @@ export default function JobPage() {
     ? 'home'
     : ((initialTabParam as Tab | null) ?? 'home')
   const [activeTab, setActiveTab] = useState<Tab>(initialTab)
-  /** Secondary tabs when viewing Assessment (Presentation → Hazards → Risks → Document) */
-  const [assessmentSection, setAssessmentSection] = useState<'presentation' | 'hazards' | 'risks' | 'document'>('presentation')
+  /** Secondary tabs when viewing Assessment (Presentation → Health Hazards → Risks → Recommendations → Document) */
+  const [assessmentSection, setAssessmentSection] = useState<'presentation' | 'hazards' | 'risks' | 'recommendations' | 'document'>('presentation')
   const [caseStudiesSection, setCaseStudiesSection] = useState<'written' | 'video_script'>('written')
   const [writtenCaseStatus, setWrittenCaseStatus] = useState<CaseStudyWorkflowStatus>('draft')
   const [writtenCaseReviewer, setWrittenCaseReviewer] = useState('')
@@ -356,6 +357,19 @@ export default function JobPage() {
     fontWeight: 600,
     color: assessmentSection === 'risks' ? 'var(--accent)' : 'var(--text-muted)',
     borderBottom: assessmentSection === 'risks' ? '2px solid var(--accent)' : '2px solid transparent',
+    transition: 'color 0.15s, border-color 0.15s',
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    marginBottom: -1,
+  } as const
+
+  const assessmentRecommendationsBtnStyle = {
+    padding: '8px 16px',
+    fontSize: 13,
+    fontWeight: 600,
+    color: assessmentSection === 'recommendations' ? 'var(--accent)' : 'var(--text-muted)',
+    borderBottom: assessmentSection === 'recommendations' ? '2px solid var(--accent)' : '2px solid transparent',
     transition: 'color 0.15s, border-color 0.15s',
     background: 'none',
     border: 'none',
@@ -758,7 +772,7 @@ export default function JobPage() {
               onClick={() => setAssessmentSection('hazards')}
               style={assessmentBiohazardsBtnStyle}
             >
-              Hazards
+              Health Hazards
             </button>
             <button
               type="button"
@@ -768,6 +782,15 @@ export default function JobPage() {
               style={assessmentRisksBtnStyle}
             >
               Risks
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={assessmentSection === 'recommendations'}
+              onClick={() => setAssessmentSection('recommendations')}
+              style={assessmentRecommendationsBtnStyle}
+            >
+              Recommendations
             </button>
             <button
               type="button"
@@ -796,6 +819,9 @@ export default function JobPage() {
         )}
         {activeTab === 'assessment' && assessmentSection === 'risks' && (
           <AssessmentRisksTab job={job} onJobUpdate={setJob} />
+        )}
+        {activeTab === 'assessment' && assessmentSection === 'recommendations' && (
+          <AssessmentRecommendationsTab job={job} onJobUpdate={setJob} />
         )}
         {activeTab === 'assessment' && assessmentSection === 'document' && (
           <AssessmentDocumentTab job={job} onJobUpdate={setJob} />

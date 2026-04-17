@@ -20,10 +20,22 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import type { CompanyProfile, Job } from '@/lib/types'
+import type { CompanyProfile, Job, RecommendationItem } from '@/lib/types'
 
 interface Props {
   job: Job
+}
+
+/** Append a recommendation label to an existing prompt as a bullet. */
+function appendRecommendation(existing: string, label: string): string {
+  const trimmed = existing.replace(/\s+$/, '')
+  if (!trimmed) {
+    return `Cover the following recommendation for the client:\n- ${label}\n`
+  }
+  if (/(?:\n|^)\s*-\s+/m.test(trimmed)) {
+    return `${trimmed}\n- ${label}`
+  }
+  return `${trimmed}\n\nAlso cover:\n- ${label}`
 }
 
 export default function CompanyLetterTab({ job }: Props) {
@@ -59,6 +71,38 @@ export default function CompanyLetterTab({ job }: Props) {
   ].filter(Boolean) as string[]
 
   const greetingName = job.client_name?.split(' ')[0] || 'there'
+
+  /**
+   * Confirmed HITL recommendations from Assessment → Recommendations.
+   * De-duplicated across identified, generated, and manual sources;
+   * ordered by presenting_recommendation_ids so the tech stays in control.
+   */
+  const presentingRecommendations: RecommendationItem[] = useMemo(() => {
+    const ad = job.assessment_data
+    const ids = ad?.presenting_recommendation_ids ?? []
+    if (ids.length === 0) return []
+    const byId = new Map<string, RecommendationItem>()
+    for (const item of ad?.identified_recommendations_ai?.items ?? []) byId.set(item.id, item)
+    for (const item of ad?.suggested_recommendations_ai?.items ?? []) {
+      if (!byId.has(item.id)) byId.set(item.id, item)
+    }
+    for (const item of ad?.manual_recommendation_chips ?? []) byId.set(item.id, item)
+    return ids.map(id => byId.get(id)).filter((x): x is RecommendationItem => Boolean(x))
+  }, [job.assessment_data])
+
+  function insertRecommendation(item: RecommendationItem) {
+    setPrompt(prev => appendRecommendation(prev, item.label))
+  }
+
+  function insertAllRecommendations() {
+    if (presentingRecommendations.length === 0) return
+    setPrompt(prev => {
+      const lines = presentingRecommendations.map(r => `- ${r.label}`).join('\n')
+      const trimmed = prev.replace(/\s+$/, '')
+      if (!trimmed) return `Cover the following recommendations for the client:\n${lines}\n`
+      return `${trimmed}\n\nAlso cover these confirmed recommendations:\n${lines}`
+    })
+  }
 
   const contactLine = [
     company?.phone,
@@ -222,6 +266,81 @@ export default function CompanyLetterTab({ job }: Props) {
             AI drafts the body only — letterhead, client block, and footer are composed from your company and job data.
           </div>
         </div>
+        {presentingRecommendations.length > 0 && (
+          <div
+            style={{
+              border: '1px dashed var(--border-2)',
+              borderRadius: 10,
+              padding: '10px 12px',
+              background: 'var(--surface-2)',
+              display: 'grid',
+              gap: 8,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <div
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  letterSpacing: '0.06em',
+                  textTransform: 'uppercase',
+                  color: 'var(--text-muted)',
+                }}
+              >
+                Insert from Recommendations
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+                {presentingRecommendations.length} confirmed · click a chip to add it to the brief
+              </div>
+              <button
+                type="button"
+                onClick={insertAllRecommendations}
+                style={{
+                  marginLeft: 'auto',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  padding: '4px 10px',
+                  borderRadius: 6,
+                  background: 'transparent',
+                  color: 'var(--accent)',
+                  border: '1px solid var(--border)',
+                  cursor: 'pointer',
+                }}
+              >
+                Insert all
+              </button>
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {presentingRecommendations.map(item => (
+                <button
+                  key={item.id}
+                  type="button"
+                  title={item.rationale ? `${item.audience} · ${item.rationale}` : item.audience}
+                  onClick={() => insertRecommendation(item)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '6px 12px',
+                    borderRadius: 999,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    lineHeight: 1.3,
+                    background: 'rgba(96, 165, 250, 0.14)',
+                    border: '1px solid rgba(96, 165, 250, 0.4)',
+                    color: '#93C5FD',
+                    cursor: 'pointer',
+                    maxWidth: '100%',
+                    wordBreak: 'break-word',
+                  }}
+                >
+                  <span style={{ fontWeight: 800 }} aria-hidden>+</span>
+                  <span>{item.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <textarea
           value={prompt}
           onChange={e => setPrompt(e.target.value)}

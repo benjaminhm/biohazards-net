@@ -185,6 +185,28 @@ export interface SuggestedBiohazardsAi {
   generated_at: string
 }
 
+/**
+ * Audience the recommendation is targeted at — informs tone when recommendations
+ * are later pulled into Company Letter, reports, or invoice commentary.
+ */
+export type RecommendationAudience = 'client' | 'insurer' | 'occupant' | 'internal'
+
+/**
+ * A single action-oriented recommendation chip (e.g. "Replace affected plasterboard in bathroom").
+ * `rationale` is optional and lets downstream docs quote the *why* alongside the action.
+ */
+export interface RecommendationItem {
+  id: string
+  label: string
+  audience: RecommendationAudience
+  rationale?: string
+}
+
+export interface SuggestedRecommendationsAi {
+  items: RecommendationItem[]
+  generated_at: string
+}
+
 export type PreflightResult = 'go' | 'go_with_conditions' | 'no_go'
 
 export type PreflightCriticalControlId =
@@ -380,6 +402,14 @@ export interface AssessmentData {
   manual_biohazard_chips?: SuggestedRiskAiItem[]
   /** Selected hazard chip ids in "Presenting hazards" on Assessment → Hazards. */
   presenting_biohazard_ids?: string[]
+  /** AI-generated recommendation chips (broad brainstorm). */
+  suggested_recommendations_ai?: SuggestedRecommendationsAi
+  /** AI-identified recommendation chips grounded strictly in Presentation + progress notes. */
+  identified_recommendations_ai?: SuggestedRecommendationsAi
+  /** Technician-added recommendation chips; persisted across Identify/Generate. */
+  manual_recommendation_chips?: RecommendationItem[]
+  /** Selected recommendation chip ids promoted to "Presenting recommendations" (HITL-confirmed). */
+  presenting_recommendation_ids?: string[]
   /** Preparation phase: pre-remediation go / no-go gate (JSON payload). */
   pre_remediation_preflight?: PreRemediationPreflightChecklist
   /**
