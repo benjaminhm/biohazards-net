@@ -128,6 +128,13 @@ function DocViewerInner() {
             },
           }
         }
+        // Thread org catalogues so Assessment → Equipment / Chemicals picks
+        // resolve to named rows (with SDS-parsed PPE) inside the composer.
+        composeOpts = {
+          ...(composeOpts ?? {}),
+          equipmentCatalogue: co?.equipment_catalogue ?? null,
+          chemicalsCatalogue: co?.chemicals_catalogue ?? null,
+        }
         const { content: composed } = composeDocumentContent(docType, j, composeOpts)
         let finalComposed = composed
         if (docType === 'quote' || docType === 'iaq_multi') {

@@ -160,7 +160,10 @@ ${staffSowCaptureBlock(a) || 'SCOPE OF WORK — STAFF CAPTURE: (none entered yet
 
 ${staffAssessmentDocumentBlock(a) || 'ASSESSMENT DOCUMENT — STAFF CAPTURE: (none entered yet)'}
 
-${hitlSelectionsBlock(a)}
+${hitlSelectionsBlock(a, {
+  equipmentCatalogue: company?.equipment_catalogue ?? null,
+  chemicalsCatalogue: company?.chemicals_catalogue ?? null,
+})}
 `.trim()
 }
 
