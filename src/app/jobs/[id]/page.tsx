@@ -51,6 +51,7 @@ import ProgressNotesTab from '@/components/tabs/ProgressNotesTab'
 import ProgressPhotosTab from '@/components/tabs/ProgressPhotosTab'
 import CompletionReportTab from '@/components/tabs/CompletionReportTab'
 import PerExecuteCapturePanel from '@/components/tabs/PerExecuteCapturePanel'
+import CompanyLetterTab from '@/components/tabs/CompanyLetterTab'
 import { useUser } from '@/lib/userContext'
 import {
   UnsavedChangesProvider,
@@ -1156,7 +1157,7 @@ export default function JobPage() {
           <InvoiceTab jobId={id} />
         )}
         {activeTab === 'company_letter' && (
-          <div style={emptyRoomStyle}>Company Letter (coming soon)</div>
+          <CompanyLetterTab job={job} />
         )}
       </div>
     </div>
