@@ -10,7 +10,7 @@ import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import { getAnthropicApiKey } from '@/lib/loadAnthropicEnvFallback'
-import { presentingBiohazardsFromAssessment } from '@/lib/documentGenerationDrivers'
+import { presentingHealthHazardsFromAssessment } from '@/lib/documentGenerationDrivers'
 import { mergeAssessmentData } from '@/lib/riskDerivation'
 import type { AssessmentData, JobType, SuggestedRiskAiItem, SuggestedRiskCategory } from '@/lib/types'
 
@@ -138,7 +138,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     payload.job_type = job.job_type
     payload.site_address = job.site_address
 
-    const approvedHazards = presentingBiohazardsFromAssessment(ad)
+    const approvedHazards = presentingHealthHazardsFromAssessment(ad)
     if (approvedHazards.length === 0) {
       return NextResponse.json(
         {
@@ -174,7 +174,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       max_tokens: 2048,
       system: `You assist biohazard remediation technicians in Australia.
 
-You receive (1) APPROVED_HAZARDS: human-promoted hazard chips from Assessment → Hazards — these are the ONLY hazard sources you may tie risks to.
+You receive (1) APPROVED_HAZARDS: human-promoted health-hazard chips from Assessment → Health Hazards — these are the ONLY hazard sources you may tie risks to.
 You receive (2) PRESENTATION_CONTEXT: Assessment Presentation JSON — use this ONLY to judge whether each risk theme is real or highly probable for this job (explicit or clearly implied). Do not invent site facts.
 
 RULES:

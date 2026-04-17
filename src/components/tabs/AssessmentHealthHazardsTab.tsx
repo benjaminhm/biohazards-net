@@ -1,5 +1,5 @@
 /*
- * Assessment → Hazards. Identify (Presentation-only, strict) and Generate (from presenting risks).
+ * Assessment → Health Hazards. Identify (Presentation-only, strict) and Generate (from presenting risks).
  * Presenting area; autosave on +/-.
  */
 'use client'
@@ -89,7 +89,7 @@ function Subheading({ children }: { children: ReactNode }) {
   )
 }
 
-export default function AssessmentBiohazardsTab({ job, onJobUpdate }: Props) {
+export default function AssessmentHealthHazardsTab({ job, onJobUpdate }: Props) {
   const [identifyLoading, setIdentifyLoading] = useState(false)
   const [generateLoading, setGenerateLoading] = useState(false)
   const [identifyError, setIdentifyError] = useState('')
@@ -156,11 +156,11 @@ export default function AssessmentBiohazardsTab({ job, onJobUpdate }: Props) {
         body: JSON.stringify({ assessment_data: mergedAssessment }),
       })
       const payload = (await res.json()) as { job?: Job; error?: string }
-      if (!res.ok || !payload.job) throw new Error(payload.error ?? 'Could not save presenting hazards')
+      if (!res.ok || !payload.job) throw new Error(payload.error ?? 'Could not save presenting health hazards')
       onJobUpdate(payload.job)
     } catch (e: unknown) {
       setPresentingIds(prevIds)
-      window.alert(e instanceof Error ? e.message : 'Could not save presenting hazards')
+      window.alert(e instanceof Error ? e.message : 'Could not save presenting health hazards')
     } finally {
       setMoveSaving(false)
     }
@@ -330,7 +330,7 @@ export default function AssessmentBiohazardsTab({ job, onJobUpdate }: Props) {
                   </div>
                 ) : identifiedSuggested.length === 0 ? (
                   <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-                    All identified chips moved to Presenting hazards.
+                    All identified chips moved to Presenting health hazards.
                   </div>
                 ) : (
                   identifiedSuggested.map(item => (
@@ -356,7 +356,7 @@ export default function AssessmentBiohazardsTab({ job, onJobUpdate }: Props) {
                   </div>
                 ) : generatedSuggested.length === 0 ? (
                   <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-                    All suggested chips moved to Presenting hazards.
+                    All suggested chips moved to Presenting health hazards.
                   </div>
                 ) : (
                   generatedSuggested.map(item => (
@@ -429,11 +429,11 @@ export default function AssessmentBiohazardsTab({ job, onJobUpdate }: Props) {
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
                 {manualItems.length === 0 ? (
                   <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-                    Add your own hazard label when AI suggestions are close but not quite right.
+                    Add your own health hazard label when AI suggestions are close but not quite right.
                   </div>
                 ) : manualSuggested.length === 0 ? (
                   <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-                    All custom chips moved to Presenting hazards. Remove from Presenting to edit list here.
+                    All custom chips moved to Presenting health hazards. Remove from Presenting to edit list here.
                   </div>
                 ) : (
                   manualSuggested.map(item => (
@@ -567,7 +567,7 @@ export default function AssessmentBiohazardsTab({ job, onJobUpdate }: Props) {
             marginBottom: 8,
           }}
         >
-          Presenting hazards
+          Presenting health hazards
         </div>
         <div
           style={{

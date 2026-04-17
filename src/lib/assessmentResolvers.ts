@@ -9,7 +9,7 @@
  *
  * HITL CONTRACT: None of these helpers fall back to "best guess" — if the user
  * hasn't promoted a chip (or ticked a catalogue row) it's not returned. This
- * mirrors presentingRisksFromAssessment / presentingBiohazardsFromAssessment.
+ * mirrors presentingRisksFromAssessment / presentingHealthHazardsFromAssessment.
  *
  * For data that mixes catalogue refs + ad-hoc (equipment, chemicals), the
  * resolvers accept an optional catalogue and return merged records with a

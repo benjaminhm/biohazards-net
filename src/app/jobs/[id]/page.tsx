@@ -35,7 +35,7 @@ import type { Job, Photo, Document, DocumentBundle, JobStatus } from '@/lib/type
 import { DOC_TYPE_LABELS } from '@/lib/types'
 import DetailsTab from '@/components/tabs/DetailsTab'
 import AssessmentTab from '@/components/tabs/AssessmentTab'
-import AssessmentBiohazardsTab from '@/components/tabs/AssessmentBiohazardsTab'
+import AssessmentHealthHazardsTab from '@/components/tabs/AssessmentHealthHazardsTab'
 import AssessmentRisksTab from '@/components/tabs/AssessmentRisksTab'
 import AssessmentRecommendationsTab from '@/components/tabs/AssessmentRecommendationsTab'
 import AssessmentEquipmentTab from '@/components/tabs/AssessmentEquipmentTab'
@@ -907,7 +907,7 @@ export default function JobPage() {
           />
         )}
         {activeTab === 'assessment' && assessmentSection === 'hazards' && (
-          <AssessmentBiohazardsTab job={job} onJobUpdate={setJob} />
+          <AssessmentHealthHazardsTab job={job} onJobUpdate={setJob} />
         )}
         {activeTab === 'assessment' && assessmentSection === 'risks' && (
           <AssessmentRisksTab job={job} onJobUpdate={setJob} />

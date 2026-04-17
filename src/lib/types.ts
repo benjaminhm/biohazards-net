@@ -718,7 +718,7 @@ export interface AssessmentData {
   identified_biohazards_ai?: SuggestedBiohazardsAi
   /** Technician-added hazard chips; persisted across Identify/Generate. */
   manual_biohazard_chips?: SuggestedRiskAiItem[]
-  /** Selected hazard chip ids in "Presenting hazards" on Assessment → Hazards. */
+  /** Selected health-hazard chip ids in "Presenting health hazards" on Assessment → Health Hazards. */
   presenting_biohazard_ids?: string[]
   /** AI-generated recommendation chips (broad brainstorm). */
   suggested_recommendations_ai?: SuggestedRecommendationsAi

@@ -10,7 +10,7 @@ import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import { getAnthropicApiKey } from '@/lib/loadAnthropicEnvFallback'
-import { presentingBiohazardsFromAssessment } from '@/lib/documentGenerationDrivers'
+import { presentingHealthHazardsFromAssessment } from '@/lib/documentGenerationDrivers'
 import { buildPresentationContext, hasPresentationGrounding } from '@/lib/jobPresentationContext'
 import { mergeAssessmentData } from '@/lib/riskDerivation'
 import type { AssessmentData, JobType, SuggestedRiskAiItem, SuggestedRiskCategory } from '@/lib/types'
@@ -118,7 +118,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       })),
     })
 
-    const approvedHazards = presentingBiohazardsFromAssessment(ad)
+    const approvedHazards = presentingHealthHazardsFromAssessment(ad)
     if (approvedHazards.length === 0) {
       return NextResponse.json(
         {

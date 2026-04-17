@@ -39,7 +39,7 @@ import { assessmentDocumentHasContent, mergedAssessmentDocumentCapture } from '@
 import { buildPrintHTML, type ClientInfo } from '@/lib/printDocument'
 import type { CompanyProfile } from '@/lib/types'
 import {
-  presentingBiohazardsFromAssessment,
+  presentingHealthHazardsFromAssessment,
   presentingRisksFromAssessment,
 } from '@/lib/documentGenerationDrivers'
 import {
@@ -310,7 +310,7 @@ function composeAssessmentDocument(
   const hasStaff = assessmentDocumentHasContent(ad)
 
   // When staff capture is absent or sparse, seed each narrative slot from HITL.
-  const hazards = presentingBiohazardsFromAssessment(ad)
+  const hazards = presentingHealthHazardsFromAssessment(ad)
   const risks = presentingRisksFromAssessment(ad)
   const recs = presentingRecommendationsFromAssessment(ad)
   const contents = jobContentsItems(ad)

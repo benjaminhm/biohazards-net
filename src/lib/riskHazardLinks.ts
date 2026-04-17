@@ -1,5 +1,5 @@
 /*
- * Links between approved presenting hazards (Hazards tab) and risk chips (source_hazard_ids).
+ * Links between approved presenting health hazards (Health Hazards tab) and risk chips (source_hazard_ids).
  * Used when demoting/removing hazards, pruning orphans, and gating Identify/Generate risks.
  */
 import type { AssessmentData, SuggestedRiskAiItem } from './types'
