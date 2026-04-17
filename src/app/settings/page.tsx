@@ -34,6 +34,7 @@ import { useUser } from '@/lib/userContext'
 import { getPublicWebsiteLaunchChecks, isPublicWebsiteLaunchReady } from '@/lib/websiteLaunchReadiness'
 import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
 import EquipmentCatalogueSection from '@/components/settings/EquipmentCatalogueSection'
+import ChemicalsCatalogueSection from '@/components/settings/ChemicalsCatalogueSection'
 
 interface Admin { id: string; clerk_user_id: string; name: string; email: string }
 
@@ -452,6 +453,11 @@ export default function SettingsPage() {
         {/* ── Equipment catalogue ── */}
         <div className="card" style={{ marginBottom: 24 }}>
           <EquipmentCatalogueSection />
+        </div>
+
+        {/* ── Chemicals catalogue ── */}
+        <div className="card" style={{ marginBottom: 24 }}>
+          <ChemicalsCatalogueSection />
         </div>
 
         {/* ── Website ── */}

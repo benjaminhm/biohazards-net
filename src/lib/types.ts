@@ -403,6 +403,128 @@ export interface SuggestedStructureAi {
   generated_at: string
 }
 
+/* ───────────────────────── Chemicals ─────────────────────────────── */
+
+/** Simplified hazard classification. We don't try to capture full GHS — just
+ *  the operationally-meaningful buckets a remediation tech cares about. */
+export type ChemicalHazardClass =
+  | 'corrosive'
+  | 'flammable'
+  | 'toxic'
+  | 'oxidiser'
+  | 'biohazard'
+  | 'irritant'
+  | 'health_hazard'
+  | 'environmental'
+  | 'compressed_gas'
+  | 'other'
+
+export const CHEMICAL_HAZARD_CLASS_LABELS: Record<ChemicalHazardClass, string> = {
+  corrosive:       'Corrosive',
+  flammable:       'Flammable',
+  toxic:           'Toxic',
+  oxidiser:        'Oxidiser',
+  biohazard:       'Biohazard',
+  irritant:        'Irritant',
+  health_hazard:   'Health hazard',
+  environmental:   'Environmental',
+  compressed_gas:  'Compressed gas',
+  other:           'Other',
+}
+
+/** How the chemical is applied on the job — drives PPE and SWMS guidance. */
+export type ChemicalApplication =
+  | 'surface_wipe'
+  | 'spray'
+  | 'fogging'
+  | 'immersion'
+  | 'injection'
+  | 'poultice'
+  | 'other'
+
+export const CHEMICAL_APPLICATION_LABELS: Record<ChemicalApplication, string> = {
+  surface_wipe: 'Surface wipe',
+  spray:        'Spray',
+  fogging:      'Fogging',
+  immersion:    'Immersion',
+  injection:    'Injection',
+  poultice:     'Poultice',
+  other:        'Other',
+}
+
+/** Structured SDS extract. This is what the AI-driven parser produces. We
+ *  persist it on the catalogue row so future jobs can read the last-parsed
+ *  PPE / first-aid summary without re-running Claude. */
+export interface SdsParsed {
+  product_name: string
+  manufacturer?: string
+  active_ingredient?: string
+  hazard_classes: ChemicalHazardClass[]
+  signal_word?: 'danger' | 'warning' | null
+  /** Short strings pulled from SDS Section 8 — one per line. */
+  ppe_required: string[]
+  /** Short paragraph from Section 4. */
+  first_aid_summary?: string
+  /** Short paragraph summarising Section 7 handling guidance. */
+  handling_precautions?: string
+  parsed_at: string
+  source_filename?: string
+}
+
+/** Org-level chemicals catalogue row. Mirrors EquipmentCatalogueItem. */
+export interface ChemicalCatalogueItem {
+  id: string
+  name: string
+  manufacturer?: string
+  active_ingredient?: string
+  hazard_classes: ChemicalHazardClass[]
+  notes?: string
+  /** Supabase storage path in the `company-assets` bucket, e.g. sds/{org}/{id}.pdf */
+  sds_path?: string
+  /** Original filename at upload time, for UX. */
+  sds_filename?: string
+  /** Most-recent parsed SDS data; tech can re-upload to refresh. */
+  sds_parsed?: SdsParsed
+  archived?: boolean
+  created_at?: string
+}
+
+/** Per-job use of a catalogue chemical. Catalogue tick alone isn't enough:
+ *  dilution and application differ job-to-job, so we capture them here. */
+export interface JobChemicalUse {
+  catalogue_id: string
+  application: ChemicalApplication
+  /** "1:10", "neat", "50 ppm" — free-text, technician discretion. */
+  dilution?: string
+  notes?: string
+}
+
+/** Ad-hoc chemical used on this job that is NOT in the org catalogue. */
+export interface AdhocChemicalItem {
+  id: string
+  name: string
+  hazard_classes: ChemicalHazardClass[]
+  application: ChemicalApplication
+  dilution?: string
+  notes?: string
+}
+
+/** AI suggestion row. May reference catalogue_id when a match was found. */
+export interface SuggestedChemicalItem {
+  id: string
+  name: string
+  hazard_classes: ChemicalHazardClass[]
+  application: ChemicalApplication
+  dilution?: string
+  rationale?: string
+  catalogue_id?: string
+}
+
+export interface SuggestedChemicalsAi {
+  items: SuggestedChemicalItem[]
+  generated_at: string
+}
+
 export type PreflightResult = 'go' | 'go_with_conditions' | 'no_go'
 
 export type PreflightCriticalControlId =
@@ -620,6 +742,12 @@ export interface AssessmentData {
   structure_items?: StructureItem[]
   /** AI-proposed structure items the tech has not yet accepted. */
   suggested_structure_ai?: SuggestedStructureAi
+  /** HITL-confirmed chemical usage on this job (references org catalogue). */
+  used_chemical_catalogue_uses?: JobChemicalUse[]
+  /** AI-proposed chemicals the tech has not yet accepted / added. */
+  suggested_chemicals_ai?: SuggestedChemicalsAi
+  /** Ad-hoc chemicals used on this job but not (yet) in the org catalogue. */
+  adhoc_chemical_chips?: AdhocChemicalItem[]
   /** Preparation phase: pre-remediation go / no-go gate (JSON payload). */
   pre_remediation_preflight?: PreRemediationPreflightChecklist
   /**
@@ -815,6 +943,8 @@ export interface CompanyProfile {
   document_rules?: Record<string, string>  // general + per-type rules (biohazards.md)
   /** Org-level equipment catalogue feeding the Assessment → Equipment checklist. */
   equipment_catalogue?: EquipmentCatalogueItem[]
+  /** Org-level chemicals catalogue feeding the Assessment → Chemicals checklist. */
+  chemicals_catalogue?: ChemicalCatalogueItem[]
 }
 
 // ── Line items (Quote, Engagement Agreement) ──────────────────────────────────

@@ -41,6 +41,7 @@ import AssessmentRecommendationsTab from '@/components/tabs/AssessmentRecommenda
 import AssessmentEquipmentTab from '@/components/tabs/AssessmentEquipmentTab'
 import AssessmentContentsTab from '@/components/tabs/AssessmentContentsTab'
 import AssessmentStructureTab from '@/components/tabs/AssessmentStructureTab'
+import AssessmentChemicalsTab from '@/components/tabs/AssessmentChemicalsTab'
 import QuoteTab from '@/components/tabs/QuoteTab'
 import PhotosTab from '@/components/tabs/PhotosTab'
 import DocumentsTab from '@/components/tabs/DocumentsTab'
@@ -307,7 +308,7 @@ export default function JobPage() {
     : ((initialTabParam as Tab | null) ?? 'home')
   const [activeTab, setActiveTab] = useState<Tab>(initialTab)
   /** Secondary tabs when viewing Assessment (Presentation → Health Hazards → Risks → Recommendations → Equipment → Document) */
-  const [assessmentSection, setAssessmentSection] = useState<'presentation' | 'hazards' | 'risks' | 'contents' | 'structure' | 'recommendations' | 'equipment' | 'document'>('presentation')
+  const [assessmentSection, setAssessmentSection] = useState<'presentation' | 'hazards' | 'risks' | 'contents' | 'structure' | 'recommendations' | 'chemicals' | 'equipment' | 'document'>('presentation')
   const [caseStudiesSection, setCaseStudiesSection] = useState<'written' | 'video_script'>('written')
   const [writtenCaseStatus, setWrittenCaseStatus] = useState<CaseStudyWorkflowStatus>('draft')
   const [writtenCaseReviewer, setWrittenCaseReviewer] = useState('')
@@ -399,6 +400,19 @@ export default function JobPage() {
     fontWeight: 600,
     color: assessmentSection === 'recommendations' ? 'var(--accent)' : 'var(--text-muted)',
     borderBottom: assessmentSection === 'recommendations' ? '2px solid var(--accent)' : '2px solid transparent',
+    transition: 'color 0.15s, border-color 0.15s',
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    marginBottom: -1,
+  } as const
+
+  const assessmentChemicalsBtnStyle = {
+    padding: '8px 16px',
+    fontSize: 13,
+    fontWeight: 600,
+    color: assessmentSection === 'chemicals' ? 'var(--accent)' : 'var(--text-muted)',
+    borderBottom: assessmentSection === 'chemicals' ? '2px solid var(--accent)' : '2px solid transparent',
     transition: 'color 0.15s, border-color 0.15s',
     background: 'none',
     border: 'none',
@@ -855,6 +869,15 @@ export default function JobPage() {
             <button
               type="button"
               role="tab"
+              aria-selected={assessmentSection === 'chemicals'}
+              onClick={() => setAssessmentSection('chemicals')}
+              style={assessmentChemicalsBtnStyle}
+            >
+              Chemicals
+            </button>
+            <button
+              type="button"
+              role="tab"
               aria-selected={assessmentSection === 'equipment'}
               onClick={() => setAssessmentSection('equipment')}
               style={assessmentEquipmentBtnStyle}
@@ -897,6 +920,9 @@ export default function JobPage() {
         )}
         {activeTab === 'assessment' && assessmentSection === 'recommendations' && (
           <AssessmentRecommendationsTab job={job} onJobUpdate={setJob} />
+        )}
+        {activeTab === 'assessment' && assessmentSection === 'chemicals' && (
+          <AssessmentChemicalsTab job={job} onJobUpdate={setJob} />
         )}
         {activeTab === 'assessment' && assessmentSection === 'equipment' && (
           <AssessmentEquipmentTab job={job} onJobUpdate={setJob} />
