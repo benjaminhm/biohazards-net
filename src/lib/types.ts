@@ -54,6 +54,7 @@ export type DocType =
   | 'jsa'
   | 'nda'
   | 'risk_assessment'
+  | 'company_letter'
 
 export const DOC_TYPE_LABELS: Record<DocType, string> = {
   iaq_multi:                  'Assessment / Scope / Quote',
@@ -69,6 +70,7 @@ export const DOC_TYPE_LABELS: Record<DocType, string> = {
   jsa:                        'Job Safety Analysis',
   nda:                        'Non-Disclosure Agreement',
   risk_assessment:            'Risk Assessment',
+  company_letter:             'Company Letter',
 }
 
 /** IAQPER workflow phases — Job Home document groups (not the same as DocType). */
