@@ -33,6 +33,7 @@ import { DOC_TYPE_LABELS } from '@/lib/types'
 import { useUser } from '@/lib/userContext'
 import { getPublicWebsiteLaunchChecks, isPublicWebsiteLaunchReady } from '@/lib/websiteLaunchReadiness'
 import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
+import EquipmentCatalogueSection from '@/components/settings/EquipmentCatalogueSection'
 
 interface Admin { id: string; clerk_user_id: string; name: string; email: string }
 
@@ -446,6 +447,11 @@ export default function SettingsPage() {
           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 10 }}>
             💡 To upload a style guide PDF, open the document editor and click <strong>📋 Instructions</strong>
           </div>
+        </div>
+
+        {/* ── Equipment catalogue ── */}
+        <div className="card" style={{ marginBottom: 24 }}>
+          <EquipmentCatalogueSection />
         </div>
 
         {/* ── Website ── */}

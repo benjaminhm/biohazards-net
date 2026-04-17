@@ -207,6 +207,67 @@ export interface SuggestedRecommendationsAi {
   generated_at: string
 }
 
+/**
+ * Remediation-equipment taxonomy used by the org catalogue and the job checklist.
+ * Kept narrow and domain-specific so category filters stay useful in the UI.
+ */
+export type EquipmentCategory =
+  | 'ppe'
+  | 'containment'
+  | 'cleaning'
+  | 'air'
+  | 'tools'
+  | 'instruments'
+  | 'waste'
+  | 'other'
+
+export const EQUIPMENT_CATEGORY_LABELS: Record<EquipmentCategory, string> = {
+  ppe:         'PPE',
+  containment: 'Containment',
+  cleaning:    'Cleaning',
+  air:         'Air handling',
+  tools:       'Tools',
+  instruments: 'Instruments',
+  waste:       'Waste handling',
+  other:       'Other',
+}
+
+/**
+ * Org-level equipment catalogue entry (stored on company_profile.equipment_catalogue).
+ * `archived` soft-hides the row from new jobs while preserving historical job references.
+ */
+export interface EquipmentCatalogueItem {
+  id: string
+  name: string
+  category: EquipmentCategory
+  notes?: string
+  archived?: boolean
+  created_at?: string
+}
+
+/** AI-inferred equipment chip surfaced on the job Equipment tab (before HITL add). */
+export interface SuggestedEquipmentItem {
+  id: string
+  name: string
+  category: EquipmentCategory
+  rationale?: string
+  /** If the AI matched this suggestion to an existing catalogue entry, its id. */
+  catalogue_id?: string
+}
+
+export interface SuggestedEquipmentAi {
+  items: SuggestedEquipmentItem[]
+  generated_at: string
+}
+
+/** Ad-hoc equipment used on a job that is NOT (yet) in the org catalogue. */
+export interface AdhocEquipmentItem {
+  id: string
+  name: string
+  category: EquipmentCategory
+  notes?: string
+}
+
 export type PreflightResult = 'go' | 'go_with_conditions' | 'no_go'
 
 export type PreflightCriticalControlId =
@@ -410,6 +471,12 @@ export interface AssessmentData {
   manual_recommendation_chips?: RecommendationItem[]
   /** Selected recommendation chip ids promoted to "Presenting recommendations" (HITL-confirmed). */
   presenting_recommendation_ids?: string[]
+  /** AI-suggested equipment extracted from job evidence (progress notes, observations, photos). */
+  suggested_equipment_ai?: SuggestedEquipmentAi
+  /** Catalogue item ids the tech has ticked as "used on this job". */
+  used_equipment_catalogue_ids?: string[]
+  /** Ad-hoc equipment used on this job but not (yet) in the org catalogue. */
+  adhoc_equipment_chips?: AdhocEquipmentItem[]
   /** Preparation phase: pre-remediation go / no-go gate (JSON payload). */
   pre_remediation_preflight?: PreRemediationPreflightChecklist
   /**
@@ -603,6 +670,8 @@ export interface CompanyProfile {
   custom_domain: string | null
   updated_at: string
   document_rules?: Record<string, string>  // general + per-type rules (biohazards.md)
+  /** Org-level equipment catalogue feeding the Assessment → Equipment checklist. */
+  equipment_catalogue?: EquipmentCatalogueItem[]
 }
 
 // ── Line items (Quote, Engagement Agreement) ──────────────────────────────────
