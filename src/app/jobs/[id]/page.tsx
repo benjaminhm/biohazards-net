@@ -58,7 +58,7 @@ import {
   useUnsavedChanges,
 } from '@/lib/unsavedChangesContext'
 
-type Tab = 'home' | 'docs' | 'details' | 'assessment' | 'case_studies' | 'scope_capture' | 'quote_capture' | 'pre_remediation_checklist_capture' | 'progress_capture' | 'progress_notes_capture' | 'quality_checks_capture' | 'recommendations_capture' | 'progress_report_generate' | 'client_feedback_capture' | 'team_feedback_capture' | 'engagement_agreement_capture' | 'nda_capture' | 'authority_to_proceed_capture' | 'swms_capture' | 'jsa_capture' | 'risk_assessment_capture' | 'waste_disposal_manifest_capture' | 'iaq_multi_capture' | 'quote' | 'photos' | 'messages' | 'invoice'
+type Tab = 'home' | 'docs' | 'details' | 'assessment' | 'case_studies' | 'scope_capture' | 'quote_capture' | 'pre_remediation_checklist_capture' | 'progress_capture' | 'progress_notes_capture' | 'quality_checks_capture' | 'recommendations_capture' | 'progress_report_generate' | 'client_feedback_capture' | 'team_feedback_capture' | 'engagement_agreement_capture' | 'nda_capture' | 'authority_to_proceed_capture' | 'swms_capture' | 'jsa_capture' | 'risk_assessment_capture' | 'waste_disposal_manifest_capture' | 'iaq_multi_capture' | 'quote' | 'photos' | 'messages' | 'invoice' | 'company_letter'
 type CaseStudyWorkflowStatus = 'draft' | 'approved' | 'published'
 
 interface WrittenCaseStudyCapture {
@@ -260,6 +260,8 @@ function pageTitleForTab(tab: Tab, job: Job): string {
       return job.inbound_email_address ? 'Messages' : 'SMS'
     case 'invoice':
       return 'Invoice'
+    case 'company_letter':
+      return 'Company Letter'
     default:
       return 'Job'
   }
@@ -452,13 +454,14 @@ export default function JobPage() {
   const isActiveJob = !CLOSED_STATUSES.includes(job.status)
 
   const allTabs: { id: Tab; label: string; show: boolean }[] = [
-    { id: 'home',       label: 'Home',         show: caps.generate_documents },
-    { id: 'details',    label: 'Details',                                                          show: true },
-    { id: 'case_studies', label: 'Case Studies',                                                   show: org?.features?.case_studies_tab === true },
-    { id: 'photos',     label: `Photos${photos.length ? ` (${photos.length})` : ''}`,             show: caps.upload_photos_assigned || caps.upload_photos_any },
-    { id: 'docs',       label: 'Docs',                                                             show: true },
-    { id: 'messages',   label: job.inbound_email_address ? (unreadSms > 0 ? `💬 Messages (${unreadSms})` : '💬 Messages') : (unreadSms > 0 ? `💬 SMS (${unreadSms})` : '💬 SMS'), show: caps.send_sms && isActiveJob },
-    { id: 'invoice',    label: 'Invoice',                                                          show: canInvoice },
+    { id: 'home',           label: 'Home',           show: caps.generate_documents },
+    { id: 'details',        label: 'Details',        show: true },
+    { id: 'case_studies',   label: 'Case Studies',   show: org?.features?.case_studies_tab === true },
+    { id: 'photos',         label: `Photos${photos.length ? ` (${photos.length})` : ''}`, show: caps.upload_photos_assigned || caps.upload_photos_any },
+    { id: 'docs',           label: 'Docs',           show: true },
+    { id: 'company_letter', label: 'Company Letter', show: true },
+    { id: 'messages',       label: job.inbound_email_address ? (unreadSms > 0 ? `💬 Messages (${unreadSms})` : '💬 Messages') : (unreadSms > 0 ? `💬 SMS (${unreadSms})` : '💬 SMS'), show: caps.send_sms && isActiveJob },
+    { id: 'invoice',        label: 'Invoice',        show: canInvoice },
   ]
   const tabs = allTabs.filter(t => t.show)
   const pageTitle = pageTitleForTab(activeTab, job)
@@ -1151,6 +1154,9 @@ export default function JobPage() {
         )}
         {activeTab === 'invoice' && (
           <InvoiceTab jobId={id} />
+        )}
+        {activeTab === 'company_letter' && (
+          <div style={emptyRoomStyle}>Company Letter (coming soon)</div>
         )}
       </div>
     </div>
