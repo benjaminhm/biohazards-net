@@ -26,6 +26,8 @@ import { getOrgId } from '@/lib/org'
 import { getAnthropicApiKey } from '@/lib/loadAnthropicEnvFallback'
 import { buildPresentationContext } from '@/lib/jobPresentationContext'
 import { mergeAssessmentData } from '@/lib/riskDerivation'
+import { loadOrgVocabulary } from '@/lib/orgVocabularyLoader'
+import { orgVocabularyBlock } from '@/lib/orgVocabulary'
 import type {
   AssessmentData,
   JobType,
@@ -232,7 +234,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       2,
     )
 
-    const system = mode === 'identify' ? SYSTEM_IDENTIFY : SYSTEM_GENERATE
+    const baseSystem = mode === 'identify' ? SYSTEM_IDENTIFY : SYSTEM_GENERATE
+
+    const vocabulary = await loadOrgVocabulary(supabase, orgId, { kinds: ['structure_element'] })
+    const vocabularyBlock = orgVocabularyBlock('structure_element', vocabulary.structure_element)
+    const system = vocabularyBlock ? `${baseSystem}\n\n${vocabularyBlock}` : baseSystem
 
     const message = await client.messages.create({
       model: 'claude-sonnet-4-20250514',

@@ -13,6 +13,8 @@ import { getAnthropicApiKey } from '@/lib/loadAnthropicEnvFallback'
 import { presentingHealthHazardsFromAssessment } from '@/lib/documentGenerationDrivers'
 import { buildPresentationContext, hasPresentationGrounding } from '@/lib/jobPresentationContext'
 import { mergeAssessmentData } from '@/lib/riskDerivation'
+import { loadOrgVocabulary } from '@/lib/orgVocabularyLoader'
+import { orgVocabularyBlock } from '@/lib/orgVocabulary'
 import type { AssessmentData, JobType, SuggestedRiskAiItem, SuggestedRiskCategory } from '@/lib/types'
 
 const CATEGORIES: SuggestedRiskCategory[] = [
@@ -159,6 +161,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       2
     )
 
+    const vocabulary = await loadOrgVocabulary(supabase, orgId, { kinds: ['risk'] })
+    const vocabularyBlock = orgVocabularyBlock('risk', vocabulary.risk)
+
     const message = await client.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 2048,
@@ -176,7 +181,9 @@ RULES:
 - Maximum 18 suggestions. No duplicate labels. Optional "id" snake_case.
 
 Respond ONLY with valid JSON (no markdown fences):
-{"suggestions":[{"label":"...","category":"biological","source_hazard_ids":["id1"],"id":"optional_slug"}]}`,
+{"suggestions":[{"label":"...","category":"biological","source_hazard_ids":["id1"],"id":"optional_slug"}]}
+
+${vocabularyBlock}`,
       messages: [
         {
           role: 'user',

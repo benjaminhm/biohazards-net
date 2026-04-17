@@ -12,6 +12,8 @@ import { getOrgId } from '@/lib/org'
 import { getAnthropicApiKey } from '@/lib/loadAnthropicEnvFallback'
 import { allRiskChipItems } from '@/lib/documentGenerationDrivers'
 import { mergeAssessmentData } from '@/lib/riskDerivation'
+import { loadOrgVocabulary } from '@/lib/orgVocabularyLoader'
+import { orgVocabularyBlock } from '@/lib/orgVocabulary'
 import type { AssessmentData, JobType, SuggestedRiskAiItem, SuggestedRiskCategory } from '@/lib/types'
 
 const CATEGORIES: SuggestedRiskCategory[] = [
@@ -110,6 +112,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     const userBlock = JSON.stringify(payload, null, 2)
 
+    const vocabulary = await loadOrgVocabulary(supabase, orgId, { kinds: ['health_hazard'] })
+    const vocabularyBlock = orgVocabularyBlock('health_hazard', vocabulary.health_hazard)
+
     const message = await client.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 2048,
@@ -127,7 +132,9 @@ Rules:
 - Maximum 18 suggestions. No duplicates. No long sentences.
 
 Respond ONLY with valid JSON in this exact shape (no markdown fences):
-{"suggestions":[{"label":"...","category":"physical","id":"optional_slug"}]}`,
+{"suggestions":[{"label":"...","category":"physical","id":"optional_slug"}]}
+
+${vocabularyBlock}`,
       messages: [
         {
           role: 'user',

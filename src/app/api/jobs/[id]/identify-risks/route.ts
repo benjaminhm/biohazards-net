@@ -12,6 +12,8 @@ import { getOrgId } from '@/lib/org'
 import { getAnthropicApiKey } from '@/lib/loadAnthropicEnvFallback'
 import { presentingHealthHazardsFromAssessment } from '@/lib/documentGenerationDrivers'
 import { mergeAssessmentData } from '@/lib/riskDerivation'
+import { loadOrgVocabulary } from '@/lib/orgVocabularyLoader'
+import { orgVocabularyBlock } from '@/lib/orgVocabulary'
 import type { AssessmentData, JobType, SuggestedRiskAiItem, SuggestedRiskCategory } from '@/lib/types'
 
 const CATEGORIES: SuggestedRiskCategory[] = [
@@ -169,6 +171,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       2
     )
 
+    const vocabulary = await loadOrgVocabulary(supabase, orgId, { kinds: ['risk'] })
+    const vocabularyBlock = orgVocabularyBlock('risk', vocabulary.risk)
+
     const message = await client.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 2048,
@@ -186,7 +191,9 @@ RULES:
 - Each item: "label" (2–7 words), "category" one of: biological, chemical, physical, environmental, operational, "source_hazard_ids" (required, non-empty subset of approved ids), optional "id" snake_case (server may prefix ident_).
 
 Respond ONLY with valid JSON (no markdown fences):
-{"suggestions":[{"label":"...","category":"operational","source_hazard_ids":["hazard_id_here"],"id":"optional_slug"}]}`,
+{"suggestions":[{"label":"...","category":"operational","source_hazard_ids":["hazard_id_here"],"id":"optional_slug"}]}
+
+${vocabularyBlock}`,
       messages: [
         {
           role: 'user',
