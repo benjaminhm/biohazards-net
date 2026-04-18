@@ -29,9 +29,9 @@
 'use client'
 
 import React, { useEffect, useState } from 'react'
-import { useParams, useSearchParams } from 'next/navigation'
+import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import type { Job, Photo, Document, DocumentBundle, JobStatus } from '@/lib/types'
+import type { Job, Photo, Document, DocumentBundle, JobStatus, TeamCapabilities } from '@/lib/types'
 import { DOC_TYPE_LABELS } from '@/lib/types'
 import DetailsTab from '@/components/tabs/DetailsTab'
 import AssessmentTab from '@/components/tabs/AssessmentTab'
@@ -65,6 +65,158 @@ import {
 } from '@/lib/unsavedChangesContext'
 
 type Tab = 'home' | 'docs' | 'details' | 'assessment' | 'case_studies' | 'scope_capture' | 'quote_capture' | 'pre_remediation_checklist_capture' | 'progress_capture' | 'progress_notes_capture' | 'quality_checks_capture' | 'recommendations_capture' | 'progress_report_generate' | 'client_feedback_capture' | 'team_feedback_capture' | 'engagement_agreement_capture' | 'nda_capture' | 'authority_to_proceed_capture' | 'swms_capture' | 'jsa_capture' | 'risk_assessment_capture' | 'waste_disposal_manifest_capture' | 'iaq_multi_capture' | 'quote' | 'photos' | 'messages' | 'invoice' | 'company_letter'
+
+/**
+ * Home sub-tabs — sequential remediation workflow phases rendered as an empty-room strip
+ * under the Home h1. Content for each section will be wired up in subsequent PRs; phase-id
+ * renames in docWorkflow.ts, caps gating, and per-tab admin toggles come with those.
+ */
+type HomeSection =
+  | 'initial_contact'
+  | 'onsite_assessment'
+  | 'scope_of_work'
+  | 'quote'
+  | 'legal'
+  | 'safety_compliance'
+  | 'plan'
+  | 'execute'
+  | 'verify'
+  | 'review'
+
+const HOME_SECTIONS: { id: HomeSection; label: string }[] = [
+  { id: 'initial_contact', label: 'Initial Contact' },
+  { id: 'onsite_assessment', label: 'Onsite Assessment' },
+  { id: 'scope_of_work', label: 'Scope of Work' },
+  { id: 'quote', label: 'Quote' },
+  { id: 'legal', label: 'Legal' },
+  { id: 'safety_compliance', label: 'Safety and Compliance' },
+  { id: 'plan', label: 'Plan' },
+  { id: 'execute', label: 'Execute' },
+  { id: 'verify', label: 'Verify' },
+  { id: 'review', label: 'Review' },
+]
+
+const HOME_SECTION_IDS = HOME_SECTIONS.map(s => s.id) as readonly HomeSection[]
+
+/**
+ * Maps each Home sub-tab to the capability that gates its visibility. Admins and
+ * managers have all ten on via ALL_CAPABILITIES / DEFAULT_MANAGER_CAPABILITIES;
+ * members start with all ten off and rely on the admin flipping them in the
+ * team profile. See CAP_GROUPS > "Job Home — Workflow sub-tabs" in app/team/[id].
+ */
+const HOME_SECTION_TO_CAP: Record<HomeSection, keyof TeamCapabilities> = {
+  initial_contact:   'view_home_initial_contact',
+  onsite_assessment: 'view_home_onsite_assessment',
+  scope_of_work:     'view_home_scope_of_work',
+  quote:             'view_home_quote',
+  legal:             'view_home_legal',
+  safety_compliance: 'view_home_safety_compliance',
+  plan:              'view_home_plan',
+  execute:           'view_home_execute',
+  verify:            'view_home_verify',
+  review:            'view_home_review',
+}
+
+/**
+ * SubTabStrip — shared horizontal-scroll sub-tab strip used for the Home sub-tabs
+ * and their sub-sub-tabs (Legal, Safety & Compliance, Execute, Verify, Review).
+ * Matches the primary tab-slider look (accent underline, muted inactive).
+ */
+function SubTabStrip<T extends string>({
+  sections,
+  active,
+  onChange,
+  ariaLabel,
+}: {
+  sections: { id: T; label: string }[]
+  active: T
+  onChange: (id: T) => void
+  ariaLabel: string
+}) {
+  return (
+    <div
+      role="tablist"
+      aria-label={ariaLabel}
+      className="tab-slider"
+      style={{
+        display: 'flex',
+        gap: 0,
+        overflowX: 'auto',
+        borderBottom: '1px solid var(--border)',
+        marginBottom: 20,
+        marginTop: 12,
+        marginLeft: -16,
+        marginRight: -16,
+        paddingLeft: 16,
+        paddingRight: 16,
+      }}
+    >
+      {sections.map(s => {
+        const selected = active === s.id
+        return (
+          <button
+            key={s.id}
+            type="button"
+            role="tab"
+            aria-selected={selected}
+            onClick={() => onChange(s.id)}
+            style={{
+              padding: '8px 16px',
+              fontSize: 13,
+              fontWeight: 600,
+              color: selected ? 'var(--accent)' : 'var(--text-muted)',
+              borderBottom: selected ? '2px solid var(--accent)' : '2px solid transparent',
+              transition: 'color 0.15s, border-color 0.15s',
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              marginBottom: -1,
+              whiteSpace: 'nowrap',
+              flexShrink: 0,
+            }}
+          >
+            {s.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+type LegalSection = 'engagement_agreement' | 'nda'
+const LEGAL_SECTIONS: { id: LegalSection; label: string }[] = [
+  { id: 'engagement_agreement', label: 'Engagement Agreement' },
+  { id: 'nda', label: 'Non-Disclosure Agreement' },
+]
+
+type SafetySection = 'authority_to_proceed' | 'swms' | 'jsa' | 'risk_assessment'
+const SAFETY_SECTIONS: { id: SafetySection; label: string }[] = [
+  { id: 'authority_to_proceed', label: 'Authority to Proceed' },
+  { id: 'swms', label: 'SWMS' },
+  { id: 'jsa', label: 'Job Safety Analysis' },
+  { id: 'risk_assessment', label: 'Risk Assessment' },
+]
+
+type ExecuteSection = 'progress_photos' | 'progress_notes' | 'waste_manifest'
+const EXECUTE_SECTIONS: { id: ExecuteSection; label: string }[] = [
+  { id: 'progress_photos', label: 'Progress Photos' },
+  { id: 'progress_notes', label: 'Progress Notes' },
+  { id: 'waste_manifest', label: 'Waste Disposal Manifest' },
+]
+
+type VerifySection = 'quality_checks' | 'recommendations' | 'completion_report'
+const VERIFY_SECTIONS: { id: VerifySection; label: string }[] = [
+  { id: 'quality_checks', label: 'Quality Control Checks' },
+  { id: 'recommendations', label: 'Recommendations' },
+  { id: 'completion_report', label: 'Completion Report' },
+]
+
+type ReviewSection = 'client_feedback' | 'team_feedback'
+const REVIEW_SECTIONS: { id: ReviewSection; label: string }[] = [
+  { id: 'client_feedback', label: 'Client feedback' },
+  { id: 'team_feedback', label: 'Team member feedback' },
+]
+
 type CaseStudyWorkflowStatus = 'draft' | 'approved' | 'published'
 
 interface WrittenCaseStudyCapture {
@@ -287,6 +439,8 @@ const STATUS_LABELS: Record<JobStatus, string> = {
 export default function JobPage() {
   const { id }       = useParams<{ id: string }>()
   const searchParams = useSearchParams()
+  const pathname     = usePathname()
+  const router       = useRouter()
   const { caps, isAdmin, loading: userLoading, org } = useUser()
   /** Field workers (no view_all_jobs) use /field; ops staff use full queue. */
   const jobsListHref = userLoading
@@ -307,6 +461,26 @@ export default function JobPage() {
     ? 'home'
     : ((initialTabParam as Tab | null) ?? 'home')
   const [activeTab, setActiveTab] = useState<Tab>(initialTab)
+  /**
+   * Home sub-tab — initialised from ?section=… so deep links like
+   * /jobs/<id>?tab=home&section=verify restore the right pane on refresh.
+   * Unknown values fall back to 'initial_contact' to avoid a blank workflow strip.
+   */
+  const initialSectionParam = searchParams.get('section') as HomeSection | null
+  const initialSection: HomeSection = initialSectionParam && HOME_SECTION_IDS.includes(initialSectionParam)
+    ? initialSectionParam
+    : 'initial_contact'
+  const [homeSection, setHomeSection] = useState<HomeSection>(initialSection)
+  /**
+   * Sub-sub-tab state for Home sections that host multiple surfaces. Each resets to
+   * its default when the parent Home section is changed so users don't land on a
+   * stale sub-tab when switching phases.
+   */
+  const [legalSection,   setLegalSection]   = useState<LegalSection>('engagement_agreement')
+  const [safetySection,  setSafetySection]  = useState<SafetySection>('authority_to_proceed')
+  const [executeSection, setExecuteSection] = useState<ExecuteSection>('progress_photos')
+  const [verifySection,  setVerifySection]  = useState<VerifySection>('quality_checks')
+  const [reviewSection,  setReviewSection]  = useState<ReviewSection>('client_feedback')
   /** Secondary tabs when viewing Assessment (Presentation → Health Hazards → Risks → Recommendations → Equipment → Document) */
   const [assessmentSection, setAssessmentSection] = useState<'presentation' | 'hazards' | 'risks' | 'contents' | 'structure' | 'recommendations' | 'chemicals' | 'equipment' | 'document'>('presentation')
   const [caseStudiesSection, setCaseStudiesSection] = useState<'written' | 'video_script'>('written')
@@ -448,13 +622,70 @@ export default function JobPage() {
 
   useEffect(() => { fetchAll() }, [id])
 
+  /**
+   * Reset inner section state when the user leaves the parent tab/section.
+   * Assessment is shared between the primary Assessment tab and Home's Onsite Assessment
+   * sub-tab, so it only resets when both parents are inactive.
+   */
   useEffect(() => {
-    if (activeTab !== 'assessment') setAssessmentSection('presentation')
-  }, [activeTab])
+    const inAssessment = activeTab === 'assessment' || (activeTab === 'home' && homeSection === 'onsite_assessment')
+    if (!inAssessment) setAssessmentSection('presentation')
+  }, [activeTab, homeSection])
 
   useEffect(() => {
     if (activeTab !== 'case_studies') setCaseStudiesSection('written')
   }, [activeTab])
+
+  useEffect(() => {
+    if (!(activeTab === 'home' && homeSection === 'legal')) setLegalSection('engagement_agreement')
+  }, [activeTab, homeSection])
+
+  useEffect(() => {
+    if (!(activeTab === 'home' && homeSection === 'safety_compliance')) setSafetySection('authority_to_proceed')
+  }, [activeTab, homeSection])
+
+  useEffect(() => {
+    if (!(activeTab === 'home' && homeSection === 'execute')) setExecuteSection('progress_photos')
+  }, [activeTab, homeSection])
+
+  useEffect(() => {
+    if (!(activeTab === 'home' && homeSection === 'verify')) setVerifySection('quality_checks')
+  }, [activeTab, homeSection])
+
+  useEffect(() => {
+    if (!(activeTab === 'home' && homeSection === 'review')) setReviewSection('client_feedback')
+  }, [activeTab, homeSection])
+
+  /**
+   * Auto-correct the Home sub-section when the selected phase is not visible
+   * to the current user — e.g. a member arrives via ?section=verify but the
+   * admin has not granted view_home_verify. Pin to the first visible section
+   * so the strip never renders a selected-but-invisible pill.
+   */
+  useEffect(() => {
+    const isVisible = caps[HOME_SECTION_TO_CAP[homeSection]] === true
+    if (isVisible) return
+    const fallback = HOME_SECTIONS.find(s => caps[HOME_SECTION_TO_CAP[s.id]] === true)
+    if (fallback) setHomeSection(fallback.id)
+  }, [caps, homeSection])
+
+  /**
+   * URL write-back — keep ?tab= and ?section= in sync with local state so that
+   * refreshing the page, copying the URL, or using browser back/forward all
+   * land on the exact pane the user is looking at. `?section` is scrubbed
+   * outside of Home since it's meaningless for other tabs. Uses replace to
+   * avoid flooding history with a new entry per sub-tab click.
+   */
+  useEffect(() => {
+    const next = new URLSearchParams(Array.from(searchParams.entries()))
+    next.set('tab', activeTab)
+    if (activeTab === 'home') next.set('section', homeSection)
+    else next.delete('section')
+    const currentQs = searchParams.toString()
+    const nextQs = next.toString()
+    if (currentQs === nextQs) return
+    router.replace(`${pathname}${nextQs ? `?${nextQs}` : ''}`, { scroll: false })
+  }, [activeTab, homeSection, pathname, router, searchParams])
 
   async function refreshDocumentBundles() {
     const bundlesRes = await fetch(`/api/jobs/${id}/document-bundles`)
@@ -524,8 +755,15 @@ export default function JobPage() {
   const CLOSED_STATUSES: JobStatus[] = ['completed', 'report_sent', 'paid']
   const isActiveJob = !CLOSED_STATUSES.includes(job.status)
 
+  /**
+   * Filtered Home workflow strip — one entry per cap the user has. Members may
+   * have any subset; admins/managers always see all ten. If the set is empty
+   * the Home primary tab itself is hidden so we don't render a ghost shell.
+   */
+  const visibleHomeSections = HOME_SECTIONS.filter(s => caps[HOME_SECTION_TO_CAP[s.id]] === true)
+
   const allTabs: { id: Tab; label: string; show: boolean }[] = [
-    { id: 'home',           label: 'Home',           show: caps.generate_documents },
+    { id: 'home',           label: 'Home',           show: visibleHomeSections.length > 0 },
     { id: 'details',        label: 'Details',        show: true },
     { id: 'case_studies',   label: 'Case Studies',   show: org?.features?.case_studies_tab === true },
     { id: 'photos',         label: `Photos${photos.length ? ` (${photos.length})` : ''}`, show: caps.upload_photos_assigned || caps.upload_photos_any },
@@ -548,6 +786,34 @@ export default function JobPage() {
     fontSize: 14,
     fontWeight: 600,
   }
+
+  /**
+   * Render predicates — a tab/section is "showing" when either (a) the legacy
+   * primary-tab route is active (deep-link compat) or (b) the user has selected
+   * the matching sub-section under Home. This lets the content render in one
+   * place and keeps the Home workflow + the old /?tab=… URLs working.
+   */
+  const onHome = activeTab === 'home'
+  const inHome = (s: HomeSection) => onHome && homeSection === s
+  const showDetails        = activeTab === 'details' || inHome('initial_contact')
+  const showAssessmentUI   = activeTab === 'assessment' || inHome('onsite_assessment')
+  const showScope          = activeTab === 'scope_capture' || inHome('scope_of_work')
+  const showQuote          = activeTab === 'quote_capture' || inHome('quote')
+  const showPRC            = activeTab === 'pre_remediation_checklist_capture' || inHome('plan')
+  const showEngagementAgr  = activeTab === 'engagement_agreement_capture' || (inHome('legal') && legalSection === 'engagement_agreement')
+  const showNda            = activeTab === 'nda_capture' || (inHome('legal') && legalSection === 'nda')
+  const showAuthority      = activeTab === 'authority_to_proceed_capture' || (inHome('safety_compliance') && safetySection === 'authority_to_proceed')
+  const showSwms           = activeTab === 'swms_capture' || (inHome('safety_compliance') && safetySection === 'swms')
+  const showJsa            = activeTab === 'jsa_capture' || (inHome('safety_compliance') && safetySection === 'jsa')
+  const showRiskAssessment = activeTab === 'risk_assessment_capture' || (inHome('safety_compliance') && safetySection === 'risk_assessment')
+  const showProgressPhotos = activeTab === 'progress_capture' || (inHome('execute') && executeSection === 'progress_photos')
+  const showProgressNotes  = activeTab === 'progress_notes_capture' || (inHome('execute') && executeSection === 'progress_notes')
+  const showWasteManifest  = activeTab === 'waste_disposal_manifest_capture' || (inHome('execute') && executeSection === 'waste_manifest')
+  const showQualityChecks  = activeTab === 'quality_checks_capture' || (inHome('verify') && verifySection === 'quality_checks')
+  const showRecommendations= activeTab === 'recommendations_capture' || (inHome('verify') && verifySection === 'recommendations')
+  const showCompletionRpt  = activeTab === 'progress_report_generate' || (inHome('verify') && verifySection === 'completion_report')
+  const showClientFeedback = activeTab === 'client_feedback_capture' || (inHome('review') && reviewSection === 'client_feedback')
+  const showTeamFeedback   = activeTab === 'team_feedback_capture' || (inHome('review') && reviewSection === 'team_feedback')
 
   const workflowCardStyle: React.CSSProperties = {
     border: '1px solid var(--border)',
@@ -785,7 +1051,7 @@ export default function JobPage() {
 
       {/* Tab content */}
       <div data-devid="P2-E4" className="container" style={{ paddingTop: 24 }}>
-        <header style={{ marginBottom: activeTab === 'assessment' ? 0 : 22 }}>
+        <header style={{ marginBottom: showAssessmentUI || onHome ? 0 : 22 }}>
           <h1
             style={{
               fontSize: 28,
@@ -799,7 +1065,7 @@ export default function JobPage() {
             {pageTitle}
           </h1>
         </header>
-        {activeTab === 'assessment' && (
+        {showAssessmentUI && (
           <div
             role="tablist"
             aria-label="Assessment sections"
@@ -895,10 +1161,58 @@ export default function JobPage() {
             </button>
           </div>
         )}
-        {activeTab === 'details' && (
+        {activeTab === 'home' && visibleHomeSections.length > 0 && (
+          <SubTabStrip
+            sections={visibleHomeSections}
+            active={homeSection}
+            onChange={setHomeSection}
+            ariaLabel="Job workflow sections"
+          />
+        )}
+        {inHome('legal') && (
+          <SubTabStrip
+            sections={LEGAL_SECTIONS}
+            active={legalSection}
+            onChange={setLegalSection}
+            ariaLabel="Legal document sections"
+          />
+        )}
+        {inHome('safety_compliance') && (
+          <SubTabStrip
+            sections={SAFETY_SECTIONS}
+            active={safetySection}
+            onChange={setSafetySection}
+            ariaLabel="Safety and compliance document sections"
+          />
+        )}
+        {inHome('execute') && (
+          <SubTabStrip
+            sections={EXECUTE_SECTIONS}
+            active={executeSection}
+            onChange={setExecuteSection}
+            ariaLabel="Execute sub-sections"
+          />
+        )}
+        {inHome('verify') && (
+          <SubTabStrip
+            sections={VERIFY_SECTIONS}
+            active={verifySection}
+            onChange={setVerifySection}
+            ariaLabel="Verify sub-sections"
+          />
+        )}
+        {inHome('review') && (
+          <SubTabStrip
+            sections={REVIEW_SECTIONS}
+            active={reviewSection}
+            onChange={setReviewSection}
+            ariaLabel="Review sub-sections"
+          />
+        )}
+        {showDetails && (
           <DetailsTab job={job} onJobUpdate={setJob} readOnly={!isAdmin && !caps.edit_job_details} />
         )}
-        {activeTab === 'assessment' && assessmentSection === 'presentation' && (
+        {showAssessmentUI && assessmentSection === 'presentation' && (
           <AssessmentTab
             job={job}
             onJobUpdate={setJob}
@@ -906,28 +1220,28 @@ export default function JobPage() {
             onPhotosUpdate={setPhotos}
           />
         )}
-        {activeTab === 'assessment' && assessmentSection === 'hazards' && (
+        {showAssessmentUI && assessmentSection === 'hazards' && (
           <AssessmentHealthHazardsTab job={job} onJobUpdate={setJob} />
         )}
-        {activeTab === 'assessment' && assessmentSection === 'risks' && (
+        {showAssessmentUI && assessmentSection === 'risks' && (
           <AssessmentRisksTab job={job} onJobUpdate={setJob} />
         )}
-        {activeTab === 'assessment' && assessmentSection === 'contents' && (
+        {showAssessmentUI && assessmentSection === 'contents' && (
           <AssessmentContentsTab job={job} onJobUpdate={setJob} />
         )}
-        {activeTab === 'assessment' && assessmentSection === 'structure' && (
+        {showAssessmentUI && assessmentSection === 'structure' && (
           <AssessmentStructureTab job={job} onJobUpdate={setJob} />
         )}
-        {activeTab === 'assessment' && assessmentSection === 'recommendations' && (
+        {showAssessmentUI && assessmentSection === 'recommendations' && (
           <AssessmentRecommendationsTab job={job} onJobUpdate={setJob} />
         )}
-        {activeTab === 'assessment' && assessmentSection === 'chemicals' && (
+        {showAssessmentUI && assessmentSection === 'chemicals' && (
           <AssessmentChemicalsTab job={job} onJobUpdate={setJob} />
         )}
-        {activeTab === 'assessment' && assessmentSection === 'equipment' && (
+        {showAssessmentUI && assessmentSection === 'equipment' && (
           <AssessmentEquipmentTab job={job} onJobUpdate={setJob} />
         )}
-        {activeTab === 'assessment' && assessmentSection === 'document' && (
+        {showAssessmentUI && assessmentSection === 'document' && (
           <AssessmentDocumentTab job={job} onJobUpdate={setJob} />
         )}
         {activeTab === 'case_studies' && (
@@ -1183,62 +1497,65 @@ export default function JobPage() {
             )}
           </>
         )}
-        {activeTab === 'scope_capture' && (
+        {showScope && (
           <ScopeOfWorkTab job={job} documents={documents} onJobUpdate={setJob} />
         )}
-        {activeTab === 'quote_capture' && (
+        {showQuote && (
           <QuoteCaptureTab
             job={job}
             documents={documents}
             onJobUpdate={setJob}
-            onGoToScope={() => requestTabChange('scope_capture')}
+            onGoToScope={() => {
+              if (onHome) setHomeSection('scope_of_work')
+              else requestTabChange('scope_capture')
+            }}
           />
         )}
-        {activeTab === 'pre_remediation_checklist_capture' && (
+        {showPRC && (
           <PreRemediationChecklistTab job={job} onJobUpdate={setJob} />
         )}
-        {activeTab === 'progress_capture' && (
+        {showProgressPhotos && (
           <ProgressPhotosTab
             job={job}
             photos={photos}
             onPhotosUpdate={setPhotos}
           />
         )}
-        {activeTab === 'progress_notes_capture' && <ProgressNotesTab job={job} />}
-        {activeTab === 'quality_checks_capture' && (
+        {showProgressNotes && <ProgressNotesTab job={job} />}
+        {showQualityChecks && (
           <PerExecuteCapturePanel job={job} onJobUpdate={setJob} emphasis="quality_checks" />
         )}
-        {activeTab === 'recommendations_capture' && (
+        {showRecommendations && (
           <PerExecuteCapturePanel job={job} onJobUpdate={setJob} emphasis="recommendations" />
         )}
-        {activeTab === 'progress_report_generate' && (
+        {showCompletionRpt && (
           <CompletionReportTab job={job} photos={photos} onJobUpdate={setJob} />
         )}
-        {activeTab === 'client_feedback_capture' && (
+        {showClientFeedback && (
           <div style={emptyRoomStyle}>Client feedback (empty room)</div>
         )}
-        {activeTab === 'team_feedback_capture' && (
+        {showTeamFeedback && (
           <div style={emptyRoomStyle}>Team member feedback (empty room)</div>
         )}
-        {activeTab === 'engagement_agreement_capture' && (
+        {showEngagementAgr && (
           <div style={emptyRoomStyle}>{DOC_TYPE_LABELS.engagement_agreement} (empty room)</div>
         )}
-        {activeTab === 'nda_capture' && (
+        {showNda && (
           <div style={emptyRoomStyle}>{DOC_TYPE_LABELS.nda} (empty room)</div>
         )}
-        {activeTab === 'authority_to_proceed_capture' && (
+        {showAuthority && (
           <div style={emptyRoomStyle}>{DOC_TYPE_LABELS.authority_to_proceed} (empty room)</div>
         )}
-        {activeTab === 'swms_capture' && (
+        {showSwms && (
           <div style={emptyRoomStyle}>{DOC_TYPE_LABELS.swms} (empty room)</div>
         )}
-        {activeTab === 'jsa_capture' && (
+        {showJsa && (
           <div style={emptyRoomStyle}>{DOC_TYPE_LABELS.jsa} (empty room)</div>
         )}
-        {activeTab === 'risk_assessment_capture' && (
+        {showRiskAssessment && (
           <div style={emptyRoomStyle}>{DOC_TYPE_LABELS.risk_assessment} (empty room)</div>
         )}
-        {activeTab === 'waste_disposal_manifest_capture' && (
+        {showWasteManifest && (
           <PerExecuteCapturePanel job={job} onJobUpdate={setJob} emphasis="waste_manifest_notes" />
         )}
         {activeTab === 'iaq_multi_capture' && (
@@ -1254,17 +1571,6 @@ export default function JobPage() {
             assessmentData={job.assessment_data}
             onAssessmentDataUpdate={(assessment_data) => setJob(prev => prev ? { ...prev, assessment_data } : prev)}
             onPhotosUpdate={setPhotos}
-          />
-        )}
-        {activeTab === 'home' && (
-          <DocumentsTab
-            jobId={job.id}
-            documents={documents}
-            clientName={job.client_name}
-            clientEmail={job.client_email ?? ''}
-            onDocumentDeleted={docId => setDocuments(prev => prev.filter(d => d.id !== docId))}
-            onNavigate={requestTabChange}
-            showSavedSection={false}
           />
         )}
         {activeTab === 'docs' && (

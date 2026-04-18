@@ -115,6 +115,27 @@ const CAP_GROUPS: { label: string; items: { key: keyof TeamCapabilities; label: 
     label: 'Settings',
     items: [{ key: 'edit_settings', label: 'Edit company profile & settings' }],
   },
+  /*
+   * Job Home sub-tabs — one toggle per phase in the Home workflow strip
+   * (see HOME_SECTIONS in app/jobs/[id]/page.tsx). Default OFF for members so
+   * admins explicitly grant visibility per phase; admins and managers always
+   * get all ten via ALL_CAPABILITIES / DEFAULT_MANAGER_CAPABILITIES.
+   */
+  {
+    label: 'Job Home — Workflow sub-tabs',
+    items: [
+      { key: 'view_home_initial_contact',   label: 'Initial Contact' },
+      { key: 'view_home_onsite_assessment', label: 'Onsite Assessment' },
+      { key: 'view_home_scope_of_work',     label: 'Scope of Work' },
+      { key: 'view_home_quote',             label: 'Quote' },
+      { key: 'view_home_legal',             label: 'Legal' },
+      { key: 'view_home_safety_compliance', label: 'Safety and Compliance' },
+      { key: 'view_home_plan',              label: 'Plan' },
+      { key: 'view_home_execute',           label: 'Execute' },
+      { key: 'view_home_verify',            label: 'Verify' },
+      { key: 'view_home_review',            label: 'Review' },
+    ],
+  },
 ]
 
 function expiryColor(date?: string) {

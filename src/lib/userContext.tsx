@@ -108,7 +108,45 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
           : isManager
             ? { ...DEFAULT_MANAGER_CAPABILITIES, ...(d.capabilities ?? {}) }
             : { ...DEFAULT_MEMBER_CAPABILITIES,  ...(d.capabilities ?? {}) }
-        const caps: TeamCapabilities = previewCaps ?? baseCaps
+        /*
+         * Legacy-member shim for the 10 Home sub-tab caps (view_home_*). Any
+         * existing member whose org_users row pre-dates these caps will have
+         * them missing from the stored capabilities object — the merge above
+         * then falls through to DEFAULT_MEMBER_CAPABILITIES (all false) and
+         * they would see no Home at all. As a one-time migration, if the user
+         * currently has generate_documents (the old Home gate) and no
+         * view_home_* key has been explicitly stored, grant all ten. Once an
+         * admin saves caps for this member, the keys are persisted in DB and
+         * the branch stops firing.
+         */
+        const dbCaps = (d.capabilities ?? {}) as Record<string, unknown>
+        const hasAnyStoredHomeCap =
+          'view_home_initial_contact'   in dbCaps ||
+          'view_home_onsite_assessment' in dbCaps ||
+          'view_home_scope_of_work'     in dbCaps ||
+          'view_home_quote'             in dbCaps ||
+          'view_home_legal'             in dbCaps ||
+          'view_home_safety_compliance' in dbCaps ||
+          'view_home_plan'              in dbCaps ||
+          'view_home_execute'           in dbCaps ||
+          'view_home_verify'            in dbCaps ||
+          'view_home_review'            in dbCaps
+        const migratedBase: TeamCapabilities = (!isAdmin && !isManager && baseCaps.generate_documents && !hasAnyStoredHomeCap)
+          ? {
+              ...baseCaps,
+              view_home_initial_contact:   true,
+              view_home_onsite_assessment: true,
+              view_home_scope_of_work:     true,
+              view_home_quote:             true,
+              view_home_legal:             true,
+              view_home_safety_compliance: true,
+              view_home_plan:              true,
+              view_home_execute:           true,
+              view_home_verify:            true,
+              view_home_review:            true,
+            }
+          : baseCaps
+        const caps: TeamCapabilities = previewCaps ?? migratedBase
         setCtx({
           ...d,
           role,

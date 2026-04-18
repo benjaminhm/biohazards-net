@@ -1,10 +1,21 @@
 /*
  * components/tabs/DocumentsTab.tsx
  *
- * Job Home (and Docs tab): saved documents plus per-phase generate actions.
- * Workflow sections follow IAQPER (see DOC_TYPE_GROUPS in lib/types.ts).
- * IAQ “Generate documents” is consolidated above the PER separator; PER (Plan, Execute, Reflect)
- * generate actions live in a second consolidated accordion after section 6. Reflect.
+ * Docs tab: saved documents plus per-phase generate actions. Workflow sections
+ * follow the 10-phase taxonomy in DOC_TYPE_GROUPS (see lib/types.ts).
+ *
+ * Two consolidated "Generate Documents" accordions bracket the post-quote
+ * boundary:
+ *   • CLIENT_FACING accordion (initial_contact → onsite_assessment → scope_of_work
+ *     → quote → legal): renders just above the safety_compliance section so it
+ *     visually separates pre-mobilisation client deliverables from operational
+ *     docs.
+ *   • OPERATIONAL accordion (safety_compliance → plan → execute → verify →
+ *     review): renders at the review section as the final doc roll-up.
+ *
+ * This component used to render Job Home too; that surface now lives in
+ * app/jobs/[id]/page.tsx as an empty-room sub-tab strip (pending content
+ * migration).
  */
 'use client'
 
@@ -38,18 +49,30 @@ type NavigateTab =
   | 'waste_disposal_manifest_capture'
   | 'iaq_multi_capture'
 
-/** Phases whose “Generate documents” actions live in the consolidated IAQ accordion (Job Home). */
-const IAQ_PHASE_IDS: DocWorkflowPhaseId[] = ['initial_contact', 'assess', 'quote']
+/** Pre-mobilisation phases whose generate actions live in the client-facing accordion. */
+const CLIENT_FACING_PHASE_IDS: DocWorkflowPhaseId[] = [
+  'initial_contact',
+  'onsite_assessment',
+  'scope_of_work',
+  'quote',
+  'legal',
+]
 
 /** Strip leading "1. " style index from workflow labels inside generate bubbles only. */
 function workflowPhaseTitleNoNumber(label: string): string {
   return label.replace(/^\d+\.\s*/, '').trim()
 }
 
-/** PER phases whose generate actions live in the consolidated accordion below Reflect. */
-const PER_PHASE_IDS: DocWorkflowPhaseId[] = ['prepare', 'execute', 'reflect']
+/** Post-quote operational phases whose generate actions live in the second accordion. */
+const OPERATIONAL_PHASE_IDS: DocWorkflowPhaseId[] = [
+  'safety_compliance',
+  'plan',
+  'execute',
+  'verify',
+  'review',
+]
 
-/** Shared shell so IAQ + PER “Generate documents” accordions read as primary actions. */
+/** Shared shell so both "Generate documents" accordions read as primary actions. */
 const GENERATE_ACCORDION_SHELL: CSSProperties = {
   borderRadius: 12,
   border: '2px solid var(--accent)',
@@ -75,8 +98,8 @@ const GENERATE_ACCORDION_HEADER: CSSProperties = {
   cursor: 'pointer',
 }
 
-/** Plan phase doc rows: Data Capture uses empty-room tabs; Generate still opens /docs/[type]. */
-const PREPARE_DOC_CAPTURE_TAB: Record<
+/** Safety & Compliance doc rows: Data Capture uses empty-room tabs; Generate still opens /docs/[type]. */
+const SAFETY_COMPLIANCE_DOC_CAPTURE_TAB: Record<
   'authority_to_proceed' | 'swms' | 'jsa' | 'risk_assessment',
   NavigateTab
 > = {
@@ -196,47 +219,51 @@ function DataCaptureForPhase({
           Job details
         </button>
       )
-    case 'assess':
+    case 'onsite_assessment':
       return (
-        <>
-          <button
-            type="button"
-            onClick={() => n?.('assessment')}
-            style={{
-              padding: '9px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600,
-              background: 'rgba(59,130,246,0.18)', border: '1px solid rgba(96,165,250,0.55)',
-              color: '#BFDBFE', cursor: 'pointer',
-            }}
-          >
-            Assessment
-          </button>
-          <button
-            type="button"
-            onClick={() => n?.('scope_capture')}
-            style={{
-              padding: '9px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600,
-              background: 'rgba(16,185,129,0.18)', border: '1px solid rgba(52,211,153,0.55)',
-              color: '#A7F3D0', cursor: 'pointer',
-            }}
-          >
-            Scope of Work
-          </button>
-        </>
+        <button
+          type="button"
+          onClick={() => n?.('assessment')}
+          style={{
+            padding: '9px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600,
+            background: 'rgba(59,130,246,0.18)', border: '1px solid rgba(96,165,250,0.55)',
+            color: '#BFDBFE', cursor: 'pointer',
+          }}
+        >
+          Assessment
+        </button>
+      )
+    case 'scope_of_work':
+      return (
+        <button
+          type="button"
+          onClick={() => n?.('scope_capture')}
+          style={{
+            padding: '9px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600,
+            background: 'rgba(16,185,129,0.18)', border: '1px solid rgba(52,211,153,0.55)',
+            color: '#A7F3D0', cursor: 'pointer',
+          }}
+        >
+          Scope of Work
+        </button>
       )
     case 'quote':
       return (
+        <button
+          type="button"
+          onClick={() => n?.('quote_capture')}
+          style={{
+            padding: '9px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600,
+            background: 'rgba(245,158,11,0.18)', border: '1px solid rgba(251,191,36,0.55)',
+            color: '#FDE68A', cursor: 'pointer',
+          }}
+        >
+          Quote
+        </button>
+      )
+    case 'legal':
+      return (
         <>
-          <button
-            type="button"
-            onClick={() => n?.('quote_capture')}
-            style={{
-              padding: '9px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600,
-              background: 'rgba(245,158,11,0.18)', border: '1px solid rgba(251,191,36,0.55)',
-              color: '#FDE68A', cursor: 'pointer',
-            }}
-          >
-            Quote
-          </button>
           <button
             type="button"
             onClick={() => n?.('engagement_agreement_capture')}
@@ -261,9 +288,9 @@ function DataCaptureForPhase({
           </button>
         </>
       )
-    case 'prepare': {
-      const prepareDocTypes = DOC_TYPE_GROUPS.find(g => g.id === 'prepare')?.types ?? []
-      const prepareDocCaptureStyles: CSSProperties[] = [
+    case 'safety_compliance': {
+      const safetyDocTypes = DOC_TYPE_GROUPS.find(g => g.id === 'safety_compliance')?.types ?? []
+      const safetyDocCaptureStyles: CSSProperties[] = [
         { background: 'rgba(20,184,166,0.18)', border: '1px solid rgba(45,212,191,0.5)', color: '#99F6E4' },
         { background: 'rgba(99,102,241,0.18)', border: '1px solid rgba(129,140,248,0.55)', color: '#C7D2FE' },
         { background: 'rgba(244,63,94,0.15)', border: '1px solid rgba(251,113,133,0.5)', color: '#FECDD3' },
@@ -271,23 +298,12 @@ function DataCaptureForPhase({
       ]
       return (
         <>
-          <button
-            type="button"
-            onClick={() => n?.('pre_remediation_checklist_capture')}
-            style={{
-              padding: '9px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600,
-              background: 'rgba(168,85,247,0.18)', border: '1px solid rgba(192,132,252,0.55)',
-              color: '#E9D5FF', cursor: 'pointer',
-            }}
-          >
-            Pre-Remediation Checklist
-          </button>
-          {prepareDocTypes.map((type, i) => (
+          {safetyDocTypes.map((type, i) => (
             <button
               key={type}
               type="button"
               onClick={() => {
-                const tab = PREPARE_DOC_CAPTURE_TAB[type as keyof typeof PREPARE_DOC_CAPTURE_TAB]
+                const tab = SAFETY_COMPLIANCE_DOC_CAPTURE_TAB[type as keyof typeof SAFETY_COMPLIANCE_DOC_CAPTURE_TAB]
                 if (tab) n?.(tab)
               }}
               style={{
@@ -296,7 +312,7 @@ function DataCaptureForPhase({
                 fontSize: 13,
                 fontWeight: 600,
                 cursor: 'pointer',
-                ...prepareDocCaptureStyles[i % prepareDocCaptureStyles.length],
+                ...safetyDocCaptureStyles[i % safetyDocCaptureStyles.length],
               }}
             >
               {DOC_TYPE_LABELS[type]}
@@ -305,6 +321,20 @@ function DataCaptureForPhase({
         </>
       )
     }
+    case 'plan':
+      return (
+        <button
+          type="button"
+          onClick={() => n?.('pre_remediation_checklist_capture')}
+          style={{
+            padding: '9px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600,
+            background: 'rgba(168,85,247,0.18)', border: '1px solid rgba(192,132,252,0.55)',
+            color: '#E9D5FF', cursor: 'pointer',
+          }}
+        >
+          Pre-Remediation Checklist
+        </button>
+      )
     case 'execute':
       return (
         <>
@@ -376,7 +406,9 @@ function DataCaptureForPhase({
           </button>
         </>
       )
-    case 'reflect':
+    case 'verify':
+      return null
+    case 'review':
       return (
         <>
           <button
@@ -434,7 +466,7 @@ export default function DocumentsTab({
     <div style={{ paddingBottom: 40 }}>
       {showCreateSection && DOC_TYPE_GROUPS.map(group => (
         <div key={group.id} style={{ marginBottom: 28 }}>
-          {group.id === 'prepare' && (
+          {group.id === 'safety_compliance' && (
             <>
               <div style={{ marginBottom: 16, ...GENERATE_ACCORDION_SHELL }}>
                 <button
@@ -470,7 +502,7 @@ export default function DocumentsTab({
                   }
                 >
                   {DOC_TYPE_GROUPS.filter(
-                    g => IAQ_PHASE_IDS.includes(g.id) && g.types.length > 0,
+                    g => CLIENT_FACING_PHASE_IDS.includes(g.id) && g.types.length > 0,
                   ).map(ig => (
                     <div key={ig.id}>
                       <div
@@ -576,7 +608,7 @@ export default function DocumentsTab({
               </div>
               <div
                 role="separator"
-                aria-label="Prepare, execute, and reflect phase"
+                aria-label="Safety, plan, execute, verify, review phase"
                 style={{
                   borderTop: '2px solid #fff',
                   marginTop: 4,
@@ -601,7 +633,7 @@ export default function DocumentsTab({
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
             <DataCaptureForPhase phaseId={group.id} onNavigate={onNavigate} />
           </div>
-          {group.id === 'reflect' && (
+          {group.id === 'review' && (
             <div style={{ marginTop: 10, ...GENERATE_ACCORDION_SHELL }}>
               <button
                 type="button"
@@ -637,7 +669,7 @@ export default function DocumentsTab({
               >
                 {DOC_TYPE_GROUPS.filter(
                   g =>
-                    PER_PHASE_IDS.includes(g.id) &&
+                    OPERATIONAL_PHASE_IDS.includes(g.id) &&
                     (g.types.length > 0 || g.id === 'execute'),
                 ).map(pg => (
                   <div key={pg.id}>

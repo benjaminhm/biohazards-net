@@ -73,14 +73,30 @@ export const DOC_TYPE_LABELS: Record<DocType, string> = {
   company_letter:             'Company Letter',
 }
 
-/** IAQPER workflow phases — Job Home document groups (not the same as DocType). */
+/**
+ * Remediation workflow phases — the 10 sequential sub-tabs under Job Home
+ * (see HOME_SECTIONS in app/jobs/[id]/page.tsx) and the doc bucket taxonomy
+ * used by the Docs tab "Generate Documents" accordions.
+ *
+ * Order matches the real workflow: intake → survey → scope → price →
+ * contract → compliance → plan → execute → verify → retrospect.
+ *
+ * Historical names: 'assess' became 'onsite_assessment'; 'prepare' became
+ * 'plan' (and its compliance docs moved to 'safety_compliance'); 'reflect'
+ * became 'review'. 'scope_of_work', 'legal', 'safety_compliance', and
+ * 'verify' are new buckets introduced by the 10-phase split.
+ */
 export type DocWorkflowPhaseId =
   | 'initial_contact'
-  | 'assess'
+  | 'onsite_assessment'
+  | 'scope_of_work'
   | 'quote'
-  | 'prepare'
+  | 'legal'
+  | 'safety_compliance'
+  | 'plan'
   | 'execute'
-  | 'reflect'
+  | 'verify'
+  | 'review'
 
 export interface DocTypeGroup {
   id: DocWorkflowPhaseId
@@ -91,32 +107,52 @@ export interface DocTypeGroup {
 export const DOC_TYPE_GROUPS: DocTypeGroup[] = [
   {
     id: 'initial_contact',
-    label: '1. Initial contact',
+    label: '1. Initial Contact',
     types: [],
   },
   {
-    id: 'assess',
-    label: '2. Assess',
-    types: ['assessment_document', 'sow'],
+    id: 'onsite_assessment',
+    label: '2. Onsite Assessment',
+    types: ['assessment_document'],
+  },
+  {
+    id: 'scope_of_work',
+    label: '3. Scope of Work',
+    types: ['sow'],
   },
   {
     id: 'quote',
-    label: '3. Quote',
-    types: ['quote', 'engagement_agreement', 'nda'],
+    label: '4. Quote',
+    types: ['quote'],
   },
   {
-    id: 'prepare',
-    label: '4. Plan',
+    id: 'legal',
+    label: '5. Legal',
+    types: ['engagement_agreement', 'nda'],
+  },
+  {
+    id: 'safety_compliance',
+    label: '6. Safety and Compliance',
     types: ['authority_to_proceed', 'swms', 'jsa', 'risk_assessment'],
   },
   {
+    id: 'plan',
+    label: '7. Plan',
+    types: [],
+  },
+  {
     id: 'execute',
-    label: '5. Execute',
+    label: '8. Execute',
     types: ['report', 'certificate_of_decontamination', 'waste_disposal_manifest'],
   },
   {
-    id: 'reflect',
-    label: '6. Reflect',
+    id: 'verify',
+    label: '9. Verify',
+    types: [],
+  },
+  {
+    id: 'review',
+    label: '10. Review',
     types: [],
   },
 ]
@@ -1274,7 +1310,48 @@ export interface TeamCapabilities {
   send_sms:            boolean
   // Settings
   edit_settings:       boolean
+  // Job Home sub-tabs — one cap per phase in HOME_SECTIONS. Admin toggles per member
+  // via the team profile; admins/managers see all. Added when Home was redesigned
+  // around the 10-phase workflow; UI does not gate on these yet (see Phase 5 plan).
+  view_home_initial_contact:   boolean
+  view_home_onsite_assessment: boolean
+  view_home_scope_of_work:     boolean
+  view_home_quote:             boolean
+  view_home_legal:             boolean
+  view_home_safety_compliance: boolean
+  view_home_plan:              boolean
+  view_home_execute:           boolean
+  view_home_verify:            boolean
+  view_home_review:            boolean
 }
+
+/* Home sub-tab defaults — granular Job Home phase visibility. Admin/manager get
+   all ten on; members get all ten off until an admin flips them in the profile. */
+const ALL_HOME_SECTION_CAPS = {
+  view_home_initial_contact: true,
+  view_home_onsite_assessment: true,
+  view_home_scope_of_work: true,
+  view_home_quote: true,
+  view_home_legal: true,
+  view_home_safety_compliance: true,
+  view_home_plan: true,
+  view_home_execute: true,
+  view_home_verify: true,
+  view_home_review: true,
+} as const
+
+const NO_HOME_SECTION_CAPS = {
+  view_home_initial_contact: false,
+  view_home_onsite_assessment: false,
+  view_home_scope_of_work: false,
+  view_home_quote: false,
+  view_home_legal: false,
+  view_home_safety_compliance: false,
+  view_home_plan: false,
+  view_home_execute: false,
+  view_home_verify: false,
+  view_home_review: false,
+} as const
 
 /* Full access — assigned to every admin/owner. */
 export const ALL_CAPABILITIES: TeamCapabilities = {
@@ -1286,6 +1363,7 @@ export const ALL_CAPABILITIES: TeamCapabilities = {
   upload_photos_assigned: true, upload_photos_any: true,
   invite_team_members: true, view_team_profiles: true,
   send_sms: true, edit_settings: true,
+  ...ALL_HOME_SECTION_CAPS,
 }
 
 /* Manager defaults — oversees jobs and team, no admin settings/pricing/docs. */
@@ -1298,6 +1376,7 @@ export const DEFAULT_MANAGER_CAPABILITIES: TeamCapabilities = {
   upload_photos_assigned: true, upload_photos_any: true,
   invite_team_members: true, view_team_profiles: true,
   send_sms: true, edit_settings: false,
+  ...ALL_HOME_SECTION_CAPS,
 }
 
 /* Minimum access for a field worker. Merged with any custom capabilities
@@ -1311,6 +1390,7 @@ export const DEFAULT_MEMBER_CAPABILITIES: TeamCapabilities = {
   upload_photos_assigned: true, upload_photos_any: false,
   invite_team_members: false, view_team_profiles: false,
   send_sms: false, edit_settings: false,
+  ...NO_HOME_SECTION_CAPS,
 }
 
 /* Join table linking a Clerk user to an org. person_id links to the people
