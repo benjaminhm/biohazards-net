@@ -836,6 +836,12 @@ export interface Job {
   client_phones: PhoneEntry[]   // additional numbers beyond primary
   client_email: string
   site_address: string
+  /** On-site contact name, captured when different from the primary caller. */
+  site_contact_name?: string
+  /** On-site contact phone (E.164 where known). */
+  site_contact_phone?: string
+  /** Free-text parking / keys / pets / discretion notes captured at Initial Contact. */
+  access_notes?: string
   notes: string
   assessment_data: AssessmentData | null
   scheduled_at: string | null

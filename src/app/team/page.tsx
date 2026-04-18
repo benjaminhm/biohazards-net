@@ -88,7 +88,7 @@ export default function TeamPage() {
       <div style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)', padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 12, position: 'sticky', top: 0, zIndex: 20 }}>
         <button onClick={() => router.push('/')} style={{ fontSize: 20, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '0 4px' }}>←</button>
         <div style={{ flex: 1 }}>
-          <div style={{ fontWeight: 700, fontSize: 16 }}>Team</div>
+          <div style={{ fontWeight: 700, fontSize: 16 }}>Team Manager</div>
           <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{active.length} active</div>
         </div>
         <button

@@ -33,7 +33,9 @@ import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigat
 import Link from 'next/link'
 import type { Job, Photo, Document, DocumentBundle, JobStatus, TeamCapabilities } from '@/lib/types'
 import { DOC_TYPE_LABELS } from '@/lib/types'
-import DetailsTab from '@/components/tabs/DetailsTab'
+import ClientDetailsTab from '@/components/tabs/ClientDetailsTab'
+import InitialContactTab from '@/components/tabs/InitialContactTab'
+import TimelineTab from '@/components/tabs/TimelineTab'
 import AssessmentTab from '@/components/tabs/AssessmentTab'
 import AssessmentHealthHazardsTab from '@/components/tabs/AssessmentHealthHazardsTab'
 import AssessmentRisksTab from '@/components/tabs/AssessmentRisksTab'
@@ -64,7 +66,7 @@ import {
   useUnsavedChanges,
 } from '@/lib/unsavedChangesContext'
 
-type Tab = 'home' | 'docs' | 'details' | 'assessment' | 'case_studies' | 'scope_capture' | 'quote_capture' | 'pre_remediation_checklist_capture' | 'progress_capture' | 'progress_notes_capture' | 'quality_checks_capture' | 'recommendations_capture' | 'progress_report_generate' | 'client_feedback_capture' | 'team_feedback_capture' | 'engagement_agreement_capture' | 'nda_capture' | 'authority_to_proceed_capture' | 'swms_capture' | 'jsa_capture' | 'risk_assessment_capture' | 'waste_disposal_manifest_capture' | 'iaq_multi_capture' | 'quote' | 'photos' | 'messages' | 'invoice' | 'company_letter'
+type Tab = 'home' | 'docs' | 'details' | 'timeline' | 'assessment' | 'case_studies' | 'scope_capture' | 'quote_capture' | 'pre_remediation_checklist_capture' | 'progress_capture' | 'progress_notes_capture' | 'quality_checks_capture' | 'recommendations_capture' | 'progress_report_generate' | 'client_feedback_capture' | 'team_feedback_capture' | 'engagement_agreement_capture' | 'nda_capture' | 'authority_to_proceed_capture' | 'swms_capture' | 'jsa_capture' | 'risk_assessment_capture' | 'waste_disposal_manifest_capture' | 'iaq_multi_capture' | 'quote' | 'photos' | 'messages' | 'invoice' | 'company_letter'
 
 /**
  * Home sub-tabs — sequential remediation workflow phases rendered as an empty-room strip
@@ -98,6 +100,14 @@ const HOME_SECTIONS: { id: HomeSection; label: string }[] = [
 
 const HOME_SECTION_IDS = HOME_SECTIONS.map(s => s.id) as readonly HomeSection[]
 
+/** Docs primary tab sub-sections: Compose (generate new) / History (filed docs). */
+type DocsSection = 'compose' | 'history'
+const DOCS_SECTIONS: { id: DocsSection; label: string }[] = [
+  { id: 'compose', label: 'Compose' },
+  { id: 'history', label: 'History' },
+]
+const DOCS_SECTION_IDS = DOCS_SECTIONS.map(s => s.id) as readonly DocsSection[]
+
 /**
  * Maps each Home sub-tab to the capability that gates its visibility. Admins and
  * managers have all ten on via ALL_CAPABILITIES / DEFAULT_MANAGER_CAPABILITIES;
@@ -115,6 +125,166 @@ const HOME_SECTION_TO_CAP: Record<HomeSection, keyof TeamCapabilities> = {
   execute:           'view_home_execute',
   verify:            'view_home_verify',
   review:            'view_home_review',
+}
+
+/**
+ * HomeWorkflowDrawer — vertical collapsible list used for the 10 Home phases.
+ *
+ * The workflow has more tabs than can comfortably live in a horizontal strip on
+ * mobile, and the phases are strictly sequential (1 → 10), so a numbered drawer
+ * communicates both the current step and the full roadmap without requiring a
+ * horizontal scroll. Desktop inherits the same layout.
+ *
+ * Closed state: a full-width button showing "{step}. {current label}" + chevron.
+ * Open state: the button remains as the trigger, followed by a vertical list of
+ * all phases with a numbered circle; tapping a row selects + auto-closes.
+ *
+ * Lower-level sub-tabs (Assessment, Legal, Safety, Execute, Verify, Review) stay
+ * on SubTabStrip — they are shallower and benefit from the horizontal layout.
+ */
+function HomeWorkflowDrawer<T extends string>({
+  sections,
+  active,
+  onChange,
+  ariaLabel,
+}: {
+  sections: { id: T; label: string }[]
+  active: T
+  onChange: (id: T) => void
+  ariaLabel: string
+}) {
+  const [open, setOpen] = useState(false)
+  const activeIndex = sections.findIndex(s => s.id === active)
+  const activeSection = activeIndex >= 0 ? sections[activeIndex] : sections[0]
+  const activeStep = activeIndex >= 0 ? activeIndex + 1 : 1
+
+  return (
+    <nav aria-label={ariaLabel} style={{ marginTop: 12, marginBottom: 20 }}>
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls="home-workflow-drawer-list"
+        onClick={() => setOpen(o => !o)}
+        style={{
+          width: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          padding: '14px 16px',
+          borderRadius: 10,
+          border: '1px solid var(--border)',
+          background: 'var(--surface)',
+          color: 'var(--text)',
+          fontSize: 15,
+          fontWeight: 700,
+          textAlign: 'left',
+          cursor: 'pointer',
+        }}
+      >
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 26,
+              height: 26,
+              borderRadius: '50%',
+              background: 'var(--blue)',
+              color: '#fff',
+              fontSize: 12,
+              fontWeight: 700,
+              flexShrink: 0,
+            }}
+          >
+            {activeStep}
+          </span>
+          <span>{activeSection?.label ?? 'Select phase'}</span>
+        </span>
+        <span
+          aria-hidden
+          style={{
+            fontSize: 13,
+            color: 'var(--text-muted)',
+            transform: open ? 'rotate(180deg)' : 'rotate(0)',
+            transition: 'transform 0.15s',
+            flexShrink: 0,
+          }}
+        >
+          ▾
+        </span>
+      </button>
+      {open && (
+        <ul
+          id="home-workflow-drawer-list"
+          role="menu"
+          style={{
+            listStyle: 'none',
+            margin: '6px 0 0',
+            padding: 6,
+            borderRadius: 10,
+            border: '1px solid var(--border)',
+            background: 'var(--surface)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 2,
+          }}
+        >
+          {sections.map((s, i) => {
+            const selected = s.id === active
+            return (
+              <li key={s.id} role="none">
+                <button
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={selected}
+                  onClick={() => {
+                    onChange(s.id)
+                    setOpen(false)
+                  }}
+                  style={{
+                    width: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    padding: '12px 14px',
+                    borderRadius: 8,
+                    border: 'none',
+                    background: selected ? 'rgba(59,130,246,0.15)' : 'transparent',
+                    color: selected ? 'var(--blue)' : 'var(--text)',
+                    fontSize: 14,
+                    fontWeight: selected ? 700 : 600,
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                  }}
+                >
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: 22,
+                      height: 22,
+                      borderRadius: '50%',
+                      fontSize: 11,
+                      fontWeight: 700,
+                      background: selected ? 'var(--blue)' : 'var(--bg)',
+                      color: selected ? '#fff' : 'var(--text-muted)',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {i + 1}
+                  </span>
+                  <span>{s.label}</span>
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </nav>
+  )
 }
 
 /**
@@ -369,7 +539,9 @@ function pageTitleForTab(tab: Tab, job: Job): string {
     case 'docs':
       return 'Docs'
     case 'details':
-      return 'Job details'
+      return 'Client details'
+    case 'timeline':
+      return 'Timeline'
     case 'assessment':
       return 'Assessment'
     case 'case_studies':
@@ -466,11 +638,27 @@ export default function JobPage() {
    * /jobs/<id>?tab=home&section=verify restore the right pane on refresh.
    * Unknown values fall back to 'initial_contact' to avoid a blank workflow strip.
    */
-  const initialSectionParam = searchParams.get('section') as HomeSection | null
-  const initialSection: HomeSection = initialSectionParam && HOME_SECTION_IDS.includes(initialSectionParam)
-    ? initialSectionParam
-    : 'initial_contact'
-  const [homeSection, setHomeSection] = useState<HomeSection>(initialSection)
+  const initialSectionParam = searchParams.get('section')
+  const initialHomeSection: HomeSection =
+    initialTab === 'home' &&
+    initialSectionParam &&
+    HOME_SECTION_IDS.includes(initialSectionParam as HomeSection)
+      ? (initialSectionParam as HomeSection)
+      : 'initial_contact'
+  const [homeSection, setHomeSection] = useState<HomeSection>(initialHomeSection)
+  /**
+   * Docs sub-tab — initialised from ?section=… when on ?tab=docs, so deep links
+   * like /jobs/<id>?tab=docs&section=history restore correctly on refresh.
+   * Defaults to 'compose' since producing a doc is the primary intent when you
+   * land on Docs.
+   */
+  const initialDocsSection: DocsSection =
+    initialTab === 'docs' &&
+    initialSectionParam &&
+    DOCS_SECTION_IDS.includes(initialSectionParam as DocsSection)
+      ? (initialSectionParam as DocsSection)
+      : 'compose'
+  const [docsSection, setDocsSection] = useState<DocsSection>(initialDocsSection)
   /**
    * Sub-sub-tab state for Home sections that host multiple surfaces. Each resets to
    * its default when the parent Home section is changed so users don't land on a
@@ -680,12 +868,13 @@ export default function JobPage() {
     const next = new URLSearchParams(Array.from(searchParams.entries()))
     next.set('tab', activeTab)
     if (activeTab === 'home') next.set('section', homeSection)
+    else if (activeTab === 'docs') next.set('section', docsSection)
     else next.delete('section')
     const currentQs = searchParams.toString()
     const nextQs = next.toString()
     if (currentQs === nextQs) return
     router.replace(`${pathname}${nextQs ? `?${nextQs}` : ''}`, { scroll: false })
-  }, [activeTab, homeSection, pathname, router, searchParams])
+  }, [activeTab, homeSection, docsSection, pathname, router, searchParams])
 
   async function refreshDocumentBundles() {
     const bundlesRes = await fetch(`/api/jobs/${id}/document-bundles`)
@@ -764,7 +953,8 @@ export default function JobPage() {
 
   const allTabs: { id: Tab; label: string; show: boolean }[] = [
     { id: 'home',           label: 'Home',           show: visibleHomeSections.length > 0 },
-    { id: 'details',        label: 'Details',        show: true },
+    { id: 'details',        label: 'Client Details', show: true },
+    { id: 'timeline',       label: 'Timeline',       show: true },
     { id: 'case_studies',   label: 'Case Studies',   show: org?.features?.case_studies_tab === true },
     { id: 'photos',         label: `Photos${photos.length ? ` (${photos.length})` : ''}`, show: caps.upload_photos_assigned || caps.upload_photos_any },
     { id: 'docs',           label: 'Docs',           show: true },
@@ -795,7 +985,9 @@ export default function JobPage() {
    */
   const onHome = activeTab === 'home'
   const inHome = (s: HomeSection) => onHome && homeSection === s
-  const showDetails        = activeTab === 'details' || inHome('initial_contact')
+  const showDetails        = activeTab === 'details'
+  const showTimeline       = activeTab === 'timeline'
+  const showInitialContact = inHome('initial_contact')
   const showAssessmentUI   = activeTab === 'assessment' || inHome('onsite_assessment')
   const showScope          = activeTab === 'scope_capture' || inHome('scope_of_work')
   const showQuote          = activeTab === 'quote_capture' || inHome('quote')
@@ -1051,7 +1243,7 @@ export default function JobPage() {
 
       {/* Tab content */}
       <div data-devid="P2-E4" className="container" style={{ paddingTop: 24 }}>
-        <header style={{ marginBottom: showAssessmentUI || onHome ? 0 : 22 }}>
+        <header style={{ marginBottom: showAssessmentUI || onHome || activeTab === 'docs' ? 0 : 22 }}>
           <h1
             style={{
               fontSize: 28,
@@ -1065,6 +1257,22 @@ export default function JobPage() {
             {pageTitle}
           </h1>
         </header>
+        {/*
+         * Strip ordering is deliberate: the Home primary strip (10 phases)
+         * renders first, then every sub-sub strip (Assessment / Legal /
+         * Safety / Execute / Verify / Review) sits directly beneath its
+         * parent phase so the visual hierarchy reads parent → child.
+         * Assessment's strip also shows on the legacy /?tab=assessment
+         * deep link, in which case the Home primary strip is hidden.
+         */}
+        {activeTab === 'home' && visibleHomeSections.length > 0 && (
+          <HomeWorkflowDrawer
+            sections={visibleHomeSections}
+            active={homeSection}
+            onChange={setHomeSection}
+            ariaLabel="Job workflow sections"
+          />
+        )}
         {showAssessmentUI && (
           <div
             role="tablist"
@@ -1161,14 +1369,6 @@ export default function JobPage() {
             </button>
           </div>
         )}
-        {activeTab === 'home' && visibleHomeSections.length > 0 && (
-          <SubTabStrip
-            sections={visibleHomeSections}
-            active={homeSection}
-            onChange={setHomeSection}
-            ariaLabel="Job workflow sections"
-          />
-        )}
         {inHome('legal') && (
           <SubTabStrip
             sections={LEGAL_SECTIONS}
@@ -1210,7 +1410,17 @@ export default function JobPage() {
           />
         )}
         {showDetails && (
-          <DetailsTab job={job} onJobUpdate={setJob} readOnly={!isAdmin && !caps.edit_job_details} />
+          <ClientDetailsTab job={job} onJobUpdate={setJob} readOnly={!isAdmin && !caps.edit_job_details} />
+        )}
+        {showTimeline && (
+          <TimelineTab job={job} onJobUpdate={setJob} readOnly={!isAdmin && !caps.edit_job_details} />
+        )}
+        {showInitialContact && (
+          <InitialContactTab
+            job={job}
+            onJobUpdate={setJob}
+            readOnly={!isAdmin && !caps.edit_job_details}
+          />
         )}
         {showAssessmentUI && assessmentSection === 'presentation' && (
           <AssessmentTab
@@ -1574,17 +1784,38 @@ export default function JobPage() {
           />
         )}
         {activeTab === 'docs' && (
-          <DocumentsTab
-            jobId={job.id}
-            documents={documents}
-            documentBundles={documentBundles}
-            onBundlesRefresh={refreshDocumentBundles}
-            canComposeBundles={caps.edit_documents}
-            clientName={job.client_name}
-            clientEmail={job.client_email ?? ''}
-            onDocumentDeleted={docId => setDocuments(prev => prev.filter(d => d.id !== docId))}
-            showCreateSection={false}
-          />
+          <>
+            <SubTabStrip
+              sections={DOCS_SECTIONS}
+              active={docsSection}
+              onChange={setDocsSection}
+              ariaLabel="Docs sections"
+            />
+            {docsSection === 'compose' && (
+              <DocumentsTab
+                jobId={job.id}
+                documents={documents}
+                clientName={job.client_name}
+                clientEmail={job.client_email ?? ''}
+                onDocumentDeleted={docId => setDocuments(prev => prev.filter(d => d.id !== docId))}
+                onNavigate={tab => requestTabChange(tab)}
+                mode="compose"
+              />
+            )}
+            {docsSection === 'history' && (
+              <DocumentsTab
+                jobId={job.id}
+                documents={documents}
+                documentBundles={documentBundles}
+                onBundlesRefresh={refreshDocumentBundles}
+                canComposeBundles={caps.edit_documents}
+                clientName={job.client_name}
+                clientEmail={job.client_email ?? ''}
+                onDocumentDeleted={docId => setDocuments(prev => prev.filter(d => d.id !== docId))}
+                mode="history"
+              />
+            )}
+          </>
         )}
         {activeTab === 'messages' && (
           <MessagesTab job={job} inboundEmailAddress={job.inbound_email_address ?? null} />

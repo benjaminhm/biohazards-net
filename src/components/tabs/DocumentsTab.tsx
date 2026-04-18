@@ -1,21 +1,21 @@
 /*
  * components/tabs/DocumentsTab.tsx
  *
- * Docs tab: saved documents plus per-phase generate actions. Workflow sections
- * follow the 10-phase taxonomy in DOC_TYPE_GROUPS (see lib/types.ts).
+ * Docs tab renderer. Supports three modes:
  *
- * Two consolidated "Generate Documents" accordions bracket the post-quote
- * boundary:
- *   • CLIENT_FACING accordion (initial_contact → onsite_assessment → scope_of_work
- *     → quote → legal): renders just above the safety_compliance section so it
- *     visually separates pre-mobilisation client deliverables from operational
- *     docs.
- *   • OPERATIONAL accordion (safety_compliance → plan → execute → verify →
- *     review): renders at the review section as the final doc roll-up.
+ *   • mode='compose' — the Compose surface: two flattened groups of "+ {kind}"
+ *     buttons (CLIENT_FACING pre-quote, OPERATIONAL post-quote) that each route
+ *     to /jobs/<id>/docs/<type>?compose=1. No data-capture buttons, no saved
+ *     docs list. This is the dedicated Docs > Compose sub-tab.
+ *   • mode='history' — the History surface: saved documents + bundles. Future:
+ *     version chains with supersede chips and the ⚠ stale indicator.
+ *   • mode='legacy' (default) — original behaviour that interleaves per-phase
+ *     data-capture buttons, accordions, and saved docs. Kept so nothing else
+ *     that imports this component breaks; new usage should prefer the other
+ *     two modes.
  *
- * This component used to render Job Home too; that surface now lives in
- * app/jobs/[id]/page.tsx as an empty-room sub-tab strip (pending content
- * migration).
+ * Workflow sections follow the 10-phase taxonomy in DOC_TYPE_GROUPS
+ * (see lib/types.ts).
  */
 'use client'
 
@@ -119,7 +119,14 @@ interface Props {
   clientEmail: string
   onDocumentDeleted: (id: string) => void
   onNavigate?: (tab: NavigateTab) => void
+  /**
+   * Preferred way to render this component. See file-level comment.
+   * When set, overrides showCreateSection/showSavedSection.
+   */
+  mode?: 'compose' | 'history' | 'legacy'
+  /** @deprecated use mode='compose' | 'history' instead. */
   showCreateSection?: boolean
+  /** @deprecated use mode='compose' | 'history' instead. */
   showSavedSection?: boolean
 }
 
@@ -440,6 +447,178 @@ function DataCaptureForPhase({
   }
 }
 
+/**
+ * ComposeView — the Docs > Compose sub-tab.
+ * Flat, accordion-free list of all composable doc kinds, grouped by phase and
+ * split by the client-facing / operational boundary (matches the legacy
+ * accordion contents). Each button routes to /jobs/<id>/docs/<type>?compose=1.
+ */
+function ComposeView({
+  jobId,
+  onNavigate,
+  router,
+}: {
+  jobId: string
+  onNavigate?: (tab: NavigateTab) => void
+  router: ReturnType<typeof useRouter>
+}) {
+  const composeBtn: CSSProperties = {
+    padding: '9px 14px',
+    borderRadius: 8,
+    fontSize: 13,
+    fontWeight: 600,
+    background: 'var(--surface)',
+    border: '1px solid var(--border)',
+    color: 'var(--text)',
+    cursor: 'pointer',
+  }
+  const phaseHeader: CSSProperties = {
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: '0.06em',
+    textTransform: 'uppercase',
+    color: 'var(--text-muted)',
+    marginBottom: 8,
+  }
+  const groupHeader: CSSProperties = {
+    fontSize: 12,
+    fontWeight: 800,
+    letterSpacing: '0.1em',
+    textTransform: 'uppercase',
+    color: 'var(--text)',
+    marginBottom: 14,
+  }
+
+  function renderGroup(phaseIds: DocWorkflowPhaseId[]) {
+    return DOC_TYPE_GROUPS.filter(g => phaseIds.includes(g.id) && g.types.length > 0).map(pg => (
+      <div key={pg.id} style={{ marginBottom: 18 }}>
+        <div style={phaseHeader}>{workflowPhaseTitleNoNumber(pg.label)}</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          {pg.types.map(type => (
+            <button
+              key={type}
+              type="button"
+              onClick={() => router.push(`/jobs/${jobId}/docs/${type}?compose=1`)}
+              style={composeBtn}
+              onMouseOver={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
+              onMouseOut={e => (e.currentTarget.style.borderColor = 'var(--border)')}
+            >
+              + {DOC_TYPE_LABELS[type]}
+            </button>
+          ))}
+        </div>
+        {pg.id === 'quote' && (
+          <>
+            <div style={{ ...phaseHeader, marginTop: 12 }}>Multi-Docs</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, rowGap: 10 }}>
+              <button
+                type="button"
+                onClick={() => onNavigate?.('iaq_multi_capture')}
+                style={{
+                  padding: '9px 14px',
+                  borderRadius: 8,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  background: 'rgba(20,184,166,0.18)',
+                  border: '1px solid rgba(45,212,191,0.5)',
+                  color: '#99F6E4',
+                  cursor: onNavigate ? 'pointer' : 'default',
+                }}
+              >
+                Assessment/Scope/Quote
+              </button>
+              <span style={{ color: 'var(--border)', userSelect: 'none' }} aria-hidden>
+                |
+              </span>
+              <button
+                type="button"
+                onClick={() => router.push(`/jobs/${jobId}/docs/iaq_multi?compose=1`)}
+                style={composeBtn}
+                onMouseOver={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
+                onMouseOut={e => (e.currentTarget.style.borderColor = 'var(--border)')}
+              >
+                + Assessment/Scope/Quote
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    ))
+  }
+
+  return (
+    <div style={{ paddingBottom: 40 }}>
+      <div style={groupHeader}>Client-facing documents</div>
+      {renderGroup(CLIENT_FACING_PHASE_IDS)}
+      <div role="separator" aria-label="Operational documents boundary" style={{ borderTop: '1px solid var(--border)', margin: '20px 0 24px' }} />
+      <div style={groupHeader}>Operational documents</div>
+      {renderGroup(OPERATIONAL_PHASE_IDS)}
+    </div>
+  )
+}
+
+/**
+ * HistoryView — the Docs > History sub-tab.
+ * Shows saved documents + bundles. Version chains and ⚠ stale chips land here
+ * in the next phase; today it renders the existing Saved Documents list.
+ */
+function HistoryView({
+  jobId,
+  documents,
+  documentBundles = [],
+  onBundlesRefresh,
+  canComposeBundles = false,
+  clientName,
+  clientEmail,
+  onDocumentDeleted,
+}: {
+  jobId: string
+  documents: Document[]
+  documentBundles?: DocumentBundle[]
+  onBundlesRefresh?: () => void | Promise<void>
+  canComposeBundles?: boolean
+  clientName: string
+  clientEmail: string
+  onDocumentDeleted: (id: string) => void
+}) {
+  if (documents.length === 0) {
+    return (
+      <div style={{ textAlign: 'center', padding: '32px 20px', color: 'var(--text-muted)', fontSize: 13 }}>
+        No saved documents yet.
+      </div>
+    )
+  }
+  return (
+    <div style={{ paddingBottom: 40 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 10 }}>
+        Saved Documents
+      </div>
+      {documents.map(doc => (
+        <DocRow
+          key={doc.id}
+          doc={doc}
+          jobId={jobId}
+          clientName={clientName}
+          clientEmail={clientEmail}
+          onDeleted={onDocumentDeleted}
+        />
+      ))}
+      {(onBundlesRefresh || documentBundles.length > 0 || canComposeBundles) && (
+        <DocumentBundlesSection
+          jobId={jobId}
+          documents={documents}
+          bundles={documentBundles}
+          clientName={clientName}
+          clientEmail={clientEmail}
+          canCompose={!!canComposeBundles && !!onBundlesRefresh}
+          canDelete={!!canComposeBundles}
+          onRefresh={onBundlesRefresh ?? (async () => {})}
+        />
+      )}
+    </div>
+  )
+}
+
 export default function DocumentsTab({
   jobId,
   documents,
@@ -450,6 +629,7 @@ export default function DocumentsTab({
   clientEmail,
   onDocumentDeleted,
   onNavigate,
+  mode,
   showCreateSection = true,
   showSavedSection = true,
 }: Props) {
@@ -461,6 +641,31 @@ export default function DocumentsTab({
 
   /** Consolidated PER generate accordion (after Reflect, Job Home). */
   const [perGenerateOpen, setPerGenerateOpen] = useState(false)
+
+  if (mode === 'compose') {
+    return (
+      <ComposeView
+        jobId={jobId}
+        onNavigate={onNavigate}
+        router={router}
+      />
+    )
+  }
+
+  if (mode === 'history') {
+    return (
+      <HistoryView
+        jobId={jobId}
+        documents={documents}
+        documentBundles={documentBundles}
+        onBundlesRefresh={onBundlesRefresh}
+        canComposeBundles={canComposeBundles}
+        clientName={clientName}
+        clientEmail={clientEmail}
+        onDocumentDeleted={onDocumentDeleted}
+      />
+    )
+  }
 
   return (
     <div style={{ paddingBottom: 40 }}>

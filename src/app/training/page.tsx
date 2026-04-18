@@ -121,7 +121,7 @@ export default function TrainingPage() {
         ← Dashboard
       </Link>
       <h1 style={{ fontSize: 26, fontWeight: 800, letterSpacing: '-0.03em', marginBottom: 6 }}>
-        Training Room
+        Knowledge Hub
       </h1>
 
       <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>

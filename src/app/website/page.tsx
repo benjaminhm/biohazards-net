@@ -1,7 +1,7 @@
 /*
  * app/website/page.tsx
  *
- * Website Dashboard — edit launch fields, AI generate stub, publish (orgs.features.website_card).
+ * Website & Marketing — edit launch fields, AI generate stub, publish (orgs.features.website_card).
  */
 'use client'
 
@@ -194,7 +194,7 @@ export default function WebsitePage() {
       </Link>
 
       <h1 style={{ fontSize: 26, fontWeight: 800, letterSpacing: '-0.03em', marginBottom: 8 }}>
-        Website Dashboard
+        Website & Marketing
       </h1>
       <p style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.55, marginBottom: 28, maxWidth: 640 }}>
         Build and launch your public presence on biohazards.net, then add domains, email, and growth services.
@@ -202,7 +202,7 @@ export default function WebsitePage() {
 
       {showGate ? (
         <p style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.55, maxWidth: 520 }}>
-          The Website Dashboard is not enabled for your organisation. Contact your platform administrator if you need access.
+          Website & Marketing is not enabled for your organisation. Contact your platform administrator if you need access.
         </p>
       ) : loadingCompany && enabled ? (
         <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>Loading…</p>

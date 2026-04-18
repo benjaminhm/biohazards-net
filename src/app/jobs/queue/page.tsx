@@ -402,7 +402,7 @@ export default function JobQueuePage() {
               <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--accent)', marginBottom: 2 }}>
                 {brandName}
               </div>
-              <h1 style={{ fontSize: 22, fontWeight: 700 }}>Job Queue</h1>
+              <h1 style={{ fontSize: 22, fontWeight: 700 }}>Job Manager</h1>
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>

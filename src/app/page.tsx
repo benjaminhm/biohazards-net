@@ -18,9 +18,9 @@
  *
  * Quick Feedback can be hidden per user (localStorage) or disabled for the whole
  * org by platform admins (`orgs.features.show_quick_feedback === false`).
- * Training Room appears in the tile grid when `orgs.features.training_education` is true (platform org toggle).
- * Job Queue is the first tile (same size as others); at ≥900px with six tiles, grid is 3×2.
- * When `website_card` is on, a full-width row adds Website Dashboard + reserved placeholder tiles.
+ * Knowledge Hub appears in the tile grid when `orgs.features.training_education` is true (platform org toggle).
+ * Job Manager is the first tile (same size as others); at ≥900px with six tiles, grid is 3×2.
+ * When `website_card` is on, a full-width row adds Website & Marketing + reserved placeholder tiles.
  * Company settings open from the header cog (not a grid tile).
  * Platform operators see an optional collapsible list of all orgs
  * (GET /api/admin/orgs) when their Clerk user is in PLATFORM_ADMIN_CLERK_IDS.
@@ -139,24 +139,24 @@ export default function HomePage() {
   const homeQuickFeedbackAllowed =
     !userLoading && ctxOrg != null && ctxOrg.features?.show_quick_feedback !== false
 
-  /** Same flag as platform org “Training & education” — when false, Training Room tile is not shown on home. */
+  /** Same flag as platform org “Training & education” — when false, Knowledge Hub tile is not shown on home. */
   const trainingPortalEnabled =
     !userLoading && ctxOrg != null && ctxOrg.features?.training_education === true
 
-  /** Platform org Website Dashboard toggle — tile + reserved slot on home only when true (default off). */
+  /** Platform org Website & Marketing toggle — tile + reserved slot on home only when true (default off). */
   const websiteCardEnabled =
     !userLoading && ctxOrg != null && ctxOrg.features?.website_card === true
 
   const actionTiles = [
     { href: '/jobs/new',    icon: '＋', label: 'New Job',         sub: 'Log manually',       color: '#3B82F6' },
-    { href: '/team',        icon: '⬡',  label: 'Team',            sub: 'Staff & contractors', color: '#10B981' },
+    { href: '/team',        icon: '⬡',  label: 'Team Manager',    sub: 'Staff & contractors', color: '#10B981' },
   ]
 
   const dashboardGridTiles = [
     {
       href: '/jobs/queue',
       icon: '📋',
-      label: 'Job Queue',
+      label: 'Job Manager',
       sub: 'All active jobs — track, update, dispatch',
       color: 'var(--accent)',
     },
@@ -165,7 +165,7 @@ export default function HomePage() {
       ? [{
           href: '/training',
           icon: '📖',
-          label: 'Training Room',
+          label: 'Knowledge Hub',
           sub: 'Courses & resources',
           color: '#F59E0B',
         }]
@@ -174,7 +174,7 @@ export default function HomePage() {
       ? [{
           href: '/website',
           icon: '🌐',
-          label: 'Website Dashboard',
+          label: 'Website & Marketing',
           sub: 'Public site & marketing',
           color: '#06B6D4',
         }]
@@ -347,7 +347,7 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* ── Dashboard tiles — Job Queue + actions (+ Training when enabled); 3×2 on wide desktop when 6 tiles ── */}
+      {/* ── Dashboard tiles — Job Manager + actions (+ Knowledge Hub when enabled); 3×2 on wide desktop when 6 tiles ── */}
       <div style={{
         flex: 1,
         padding: '12px 20px 20px',
