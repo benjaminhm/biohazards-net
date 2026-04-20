@@ -18,9 +18,11 @@
  *
  * Quick Feedback can be hidden per user (localStorage) or disabled for the whole
  * org by platform admins (`orgs.features.show_quick_feedback === false`).
- * Knowledge Hub appears in the tile grid when `orgs.features.training_education` is true (platform org toggle).
- * Job Manager is the first tile (same size as others); at ≥900px with six tiles, grid is 3×2.
- * When `website_card` is on, a full-width row adds Website & Marketing + reserved placeholder tiles.
+ * Knowledge Base appears in the tile grid when `orgs.features.training_education` is true (platform org toggle).
+ * Job Manager is the first tile (same size as others); at ≥900px with 5+ tiles, grid is 3 columns.
+ * When `website_card` is on, a Marketing Manager tile is added to the grid.
+ * Inventory Manager is always visible (tracks equipment, tools, consumables & chemicals).
+ * New jobs are created from inside Job Manager — there is no separate "New Job" tile.
  * Company settings open from the header cog (not a grid tile).
  * Platform operators see an optional collapsible list of all orgs
  * (GET /api/admin/orgs) when their Clerk user is in PLATFORM_ADMIN_CLERK_IDS.
@@ -139,18 +141,13 @@ export default function HomePage() {
   const homeQuickFeedbackAllowed =
     !userLoading && ctxOrg != null && ctxOrg.features?.show_quick_feedback !== false
 
-  /** Same flag as platform org “Training & education” — when false, Knowledge Hub tile is not shown on home. */
+  /** Same flag as platform org “Training & education” — when false, Knowledge Base tile is not shown on home. */
   const trainingPortalEnabled =
     !userLoading && ctxOrg != null && ctxOrg.features?.training_education === true
 
-  /** Platform org Website & Marketing toggle — tile + reserved slot on home only when true (default off). */
+  /** Platform org Marketing Manager toggle — tile on home only when true (default off). */
   const websiteCardEnabled =
     !userLoading && ctxOrg != null && ctxOrg.features?.website_card === true
-
-  const actionTiles = [
-    { href: '/jobs/new',    icon: '＋', label: 'New Job',         sub: 'Log manually',       color: '#3B82F6' },
-    { href: '/team',        icon: '⬡',  label: 'Team Manager',    sub: 'Staff & contractors', color: '#10B981' },
-  ]
 
   const dashboardGridTiles = [
     {
@@ -160,12 +157,25 @@ export default function HomePage() {
       sub: 'All active jobs — track, update, dispatch',
       color: 'var(--accent)',
     },
-    ...actionTiles,
+    {
+      href: '/team',
+      icon: '⬡',
+      label: 'Team Manager',
+      sub: 'Staff & contractors',
+      color: '#10B981',
+    },
+    {
+      href: '/inventory',
+      icon: '📦',
+      label: 'Inventory Manager',
+      sub: 'Equipment, tools, consumables & chemicals',
+      color: '#3B82F6',
+    },
     ...(trainingPortalEnabled
       ? [{
           href: '/training',
           icon: '📖',
-          label: 'Knowledge Hub',
+          label: 'Knowledge Base',
           sub: 'Courses & resources',
           color: '#F59E0B',
         }]
@@ -174,7 +184,7 @@ export default function HomePage() {
       ? [{
           href: '/website',
           icon: '🌐',
-          label: 'Website & Marketing',
+          label: 'Marketing Manager',
           sub: 'Public site & marketing',
           color: '#06B6D4',
         }]
@@ -347,13 +357,13 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* ── Dashboard tiles — Job Manager + actions (+ Knowledge Hub when enabled); 3×2 on wide desktop when 6 tiles ── */}
+      {/* ── Dashboard tiles — Job / Team / Inventory (+ Knowledge Base + Marketing Manager when enabled); 3 cols on wide desktop when 5+ tiles ── */}
       <div style={{
         flex: 1,
         padding: '12px 20px 20px',
         display: 'grid',
         gridTemplateColumns:
-          desktopWide && dashboardGridTiles.length === 6
+          desktopWide && dashboardGridTiles.length >= 5
             ? 'repeat(3, minmax(0, 1fr))'
             : 'repeat(2, minmax(0, 1fr))',
         gap: 10,
