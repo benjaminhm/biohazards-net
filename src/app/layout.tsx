@@ -60,13 +60,24 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const satelliteDomain = orgHost ?? platformSatelliteHost
   const isSatellite = !!satelliteDomain
 
+  // #region agent log — verify Clerk provider config per request in prod via Vercel runtime logs
+  // Remove once we have confirmed isSatellite=false on app.biohazards.net in prod.
+  console.log('[clerk-provider-config]', {
+    host: headersList.get('host'),
+    subdomain: headersList.get('x-subdomain'),
+    orgHost,
+    platformSatelliteHost,
+    isSatellite,
+    satelliteDomain: isSatellite ? satelliteDomain : null,
+    signInUrl: isSatellite ? PRIMARY_SIGN_IN_URL : '(primary — no override)',
+  })
+  // #endregion
+
   return (
     <ClerkProvider
-      {...(isSatellite ? {
-        isSatellite: true,
-        domain: satelliteDomain,
-        signInUrl: PRIMARY_SIGN_IN_URL,
-      } : {})}
+      isSatellite={isSatellite}
+      domain={isSatellite ? (satelliteDomain ?? undefined) : undefined}
+      signInUrl={isSatellite ? PRIMARY_SIGN_IN_URL : undefined}
     >
       <html lang="en">
         <body>
