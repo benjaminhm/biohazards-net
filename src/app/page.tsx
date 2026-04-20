@@ -142,7 +142,7 @@ export default function HomePage() {
   const homeQuickFeedbackAllowed =
     !userLoading && ctxOrg != null && ctxOrg.features?.show_quick_feedback !== false
 
-  /** Same flag as platform org “Training & education” — when false, Knowledge Base tile is not shown on home. */
+  /** Same flag as platform org “Knowledge Base” toggle (DB: `training_education`) — when false, Knowledge Base tile is not shown on home. */
   const trainingPortalEnabled =
     !userLoading && ctxOrg != null && ctxOrg.features?.training_education === true
 
@@ -178,7 +178,7 @@ export default function HomePage() {
     },
     ...(trainingPortalEnabled
       ? [{
-          href: '/training',
+          href: '/knowledge-base',
           icon: '📖',
           label: 'Knowledge Base',
           sub: 'Courses & resources',
@@ -187,7 +187,7 @@ export default function HomePage() {
       : []),
     ...(websiteCardEnabled
       ? [{
-          href: '/website',
+          href: '/marketing',
           icon: '🌐',
           label: 'Marketing Manager',
           sub: 'Public site & marketing',

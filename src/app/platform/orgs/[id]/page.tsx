@@ -10,8 +10,8 @@
  *     — same /invite/[token] flow as team members (not Clerk email for core path)
  *   - People & invites: copy URL, email/SMS, regenerate
  *   - App users: clerk-linked accounts in this org
- *   - Website & Marketing: platform flag (orgs.features.website_card) for home-screen tile / future add-on
- *   - Training & education: platform flag (orgs.features.training_education) for in-app portal / future add-on
+ *   - Marketing Manager: platform flag (orgs.features.website_card) for home-screen tile / future add-on
+ *   - Knowledge Base: platform flag (orgs.features.training_education) for home-screen tile / future add-on
  *   - Consultation: platform flag (orgs.features.consultation) for home-screen Consultation tile
  *   - Danger zone: deactivate org (requires typing the exact org name)
  */
@@ -724,11 +724,11 @@ export default function OrgProfilePage() {
           </Card>
         )}
 
-        <Card title="Website & Marketing">
+        <Card title="Marketing Manager">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.55, margin: 0 }}>
-              Turns on the <strong style={{ color: 'var(--text)' }}>Website & Marketing</strong> entry on this organisation&apos;s app home (next to a reserved slot for future shortcuts).
-              Default is off; use as a master switch if the site card is bundled or sold as an add-on later.
+              Turns on the <strong style={{ color: 'var(--text)' }}>Marketing Manager</strong> entry on this organisation&apos;s app home (routes to /marketing).
+              Default is off; use as a master switch if the tile is bundled or sold as an add-on later.
             </p>
             <div style={{
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -742,15 +742,15 @@ export default function OrgProfilePage() {
                 <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Home tile</div>
                 <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>
                   {orgWebsiteCardEnabled(org)
-                    ? 'Enabled — members see the Website & Marketing tile and reserved slot on the home screen.'
-                    : 'Disabled — no Website & Marketing tile on the app home.'}
+                    ? 'Enabled — members see the Marketing Manager tile on the home screen.'
+                    : 'Disabled — no Marketing Manager tile on the app home.'}
                 </div>
               </div>
               <button
                 type="button"
                 disabled={websiteToggleBusy}
                 onClick={() => void handleToggleWebsiteCard()}
-                title={orgWebsiteCardEnabled(org) ? 'Turn off Website & Marketing tile' : 'Turn on Website & Marketing tile'}
+                title={orgWebsiteCardEnabled(org) ? 'Turn off Marketing Manager tile' : 'Turn on Marketing Manager tile'}
                 style={{
                   padding: '10px 20px',
                   borderRadius: 8,
@@ -770,11 +770,11 @@ export default function OrgProfilePage() {
           </div>
         </Card>
 
-        <Card title="Training & education">
+        <Card title="Knowledge Base">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.55, margin: 0 }}>
-              Turns on the in-app <strong style={{ color: 'var(--text)' }}>training &amp; education</strong> entry for this organisation (home-screen portal for owners and team).
-              Use this as the master switch if the program is bundled or sold as an add-on later.
+              Turns on the in-app <strong style={{ color: 'var(--text)' }}>Knowledge Base</strong> entry for this organisation (home tile routing to /knowledge-base).
+              Use this as the master switch if the program is bundled or sold as an add-on later. DB flag name remains <code style={{ fontSize: 12 }}>orgs.features.training_education</code>.
             </p>
             <div style={{
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -785,18 +785,18 @@ export default function OrgProfilePage() {
               borderRadius: 10,
             }}>
               <div>
-                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Portal</div>
+                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Home tile</div>
                 <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>
                   {orgTrainingEducationEnabled(org)
-                    ? 'Enabled — eligible members will see the training area when the app surface ships.'
-                    : 'Disabled — no training portal for this org.'}
+                    ? 'Enabled — members see the Knowledge Base tile on the home screen.'
+                    : 'Disabled — no Knowledge Base tile on the app home.'}
                 </div>
               </div>
               <button
                 type="button"
                 disabled={trainingToggleBusy}
                 onClick={() => void handleToggleTrainingEducation()}
-                title={orgTrainingEducationEnabled(org) ? 'Turn off training portal' : 'Turn on training portal'}
+                title={orgTrainingEducationEnabled(org) ? 'Turn off Knowledge Base tile' : 'Turn on Knowledge Base tile'}
                 style={{
                   padding: '10px 20px',
                   borderRadius: 8,

@@ -483,7 +483,7 @@ export default function SettingsPage() {
               : 'Complete all fields below then launch your public website. Clients can find you, see your services, and request a callback.'}
           </div>
 
-          {/* Checklist — same rules as Website & Marketing (lib/websiteLaunchReadiness) */}
+          {/* Checklist — same rules as Marketing Manager (lib/websiteLaunchReadiness) */}
           {!websiteLive && (() => {
             const checks = getPublicWebsiteLaunchChecks({
               name: profile.name,
