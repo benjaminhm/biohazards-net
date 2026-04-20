@@ -21,6 +21,7 @@
  * Knowledge Base appears in the tile grid when `orgs.features.training_education` is true (platform org toggle).
  * Job Manager is the first tile (same size as others); at ≥900px with 5+ tiles, grid is 3 columns.
  * When `website_card` is on, a Marketing Manager tile is added to the grid.
+ * When `consultation` is on, a Consultation tile is added to the grid.
  * Inventory Manager is always visible (tracks equipment, tools, consumables & chemicals).
  * New jobs are created from inside Job Manager — there is no separate "New Job" tile.
  * Company settings open from the header cog (not a grid tile).
@@ -149,6 +150,10 @@ export default function HomePage() {
   const websiteCardEnabled =
     !userLoading && ctxOrg != null && ctxOrg.features?.website_card === true
 
+  /** Platform org Consultation toggle — tile on home only when true (default off). */
+  const consultationEnabled =
+    !userLoading && ctxOrg != null && ctxOrg.features?.consultation === true
+
   const dashboardGridTiles = [
     {
       href: '/jobs/queue',
@@ -187,6 +192,15 @@ export default function HomePage() {
           label: 'Marketing Manager',
           sub: 'Public site & marketing',
           color: '#06B6D4',
+        }]
+      : []),
+    ...(consultationEnabled
+      ? [{
+          href: '/consultation',
+          icon: '💬',
+          label: 'Consultation',
+          sub: 'Client consultations',
+          color: '#A855F7',
         }]
       : []),
   ]

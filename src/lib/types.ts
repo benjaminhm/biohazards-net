@@ -1265,7 +1265,7 @@ export interface Org {
   custom_domain?: string
   plan: 'solo' | 'team' | 'business'
   seat_limit: number
-  /** Platform-tunable flags: `show_quick_feedback`, `training_education`, `website_card` (public site / marketing entry on home), etc. */
+  /** Platform-tunable flags: `show_quick_feedback`, `training_education`, `website_card` (public site / marketing entry on home), `consultation` (Consultation home tile), etc. */
   features: Record<string, boolean>
   is_active: boolean
   created_at: string
