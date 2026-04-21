@@ -22,6 +22,8 @@
  * Job Manager is the first tile (same size as others); at ≥900px with 5+ tiles, grid is 3 columns.
  * When `website_card` is on, a Marketing Manager tile is added to the grid.
  * When `consultation` is on, a Consultation tile is added to the grid.
+ * Brain Dump tile appears only for org admins; its list is per-admin-private
+ * (owner_user_id on every row — two admins in the same org never see each other's items).
  * Inventory Manager is always visible (tracks equipment, tools, consumables & chemicals).
  * New jobs are created from inside Job Manager — there is no separate "New Job" tile.
  * Company settings open from the header cog (not a grid tile).
@@ -201,6 +203,15 @@ export default function HomePage() {
           label: 'Consultation',
           sub: 'Client consultations',
           color: '#A855F7',
+        }]
+      : []),
+    ...(isAdmin
+      ? [{
+          href: '/brain-dump',
+          icon: '🧠',
+          label: 'Brain Dump',
+          sub: 'Your private list — AI sorts what you dump in',
+          color: '#EC4899',
         }]
       : []),
   ]
