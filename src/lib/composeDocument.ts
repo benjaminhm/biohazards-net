@@ -577,7 +577,7 @@ function composeReport(job: Job, opts?: ComposeDocumentOptions['report']): Compo
     photo_record: fieldOrDash(m.photo_record),
     outcome: fieldOrDash(m.outcome),
     technician_signoff: fieldOrDash(m.technician_signoff),
-    include_photos: true,
+    include_photos: false,
     completed_by: (m.technician_signoff ?? '').trim(),
   }
   let source: ComposeSource = 'skeleton'

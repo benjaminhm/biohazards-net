@@ -44,6 +44,12 @@ function DocViewerInner() {
 
   const docLabel   = DOC_TYPE_LABELS[docType] ?? docType
   const hasContent = Object.keys(content).length > 0
+  const supportsPhotoToggle = docType === 'report'
+  const includePhotos = content.include_photos !== false
+
+  function toggleIncludePhotos() {
+    setContent(prev => ({ ...prev, include_photos: prev.include_photos === false ? true : false }))
+  }
 
   useEffect(() => {
     const id = searchParams.get('docId')
@@ -255,6 +261,21 @@ function DocViewerInner() {
         </div>
         {saveErr && <div style={{ fontSize: 12, color: '#F87171', flexShrink: 0, maxWidth: 200 }}>{saveErr}</div>}
         {saveOk && <div style={{ fontSize: 12, color: '#4ADE80', flexShrink: 0 }}>✓</div>}
+        {supportsPhotoToggle && hasContent && (
+          <button
+            type="button"
+            data-devid="P3-photos-toggle"
+            onClick={toggleIncludePhotos}
+            className="btn btn-secondary"
+            title={includePhotos ? 'Photos included — click to compose without images' : 'No images — click to include photos'}
+            aria-pressed={includePhotos}
+            style={{ fontSize: 13, padding: '8px 12px', flexShrink: 0 }}
+          >
+            {isMobile
+              ? (includePhotos ? '🖼 On' : '🖼 Off')
+              : (includePhotos ? 'Images: On' : 'Images: Off')}
+          </button>
+        )}
         <button type="button" data-devid="P3-E7" onClick={() => save(false)} disabled={saving || !hasContent} className="btn btn-secondary" style={{ fontSize: 13, padding: '8px 12px', flexShrink: 0 }}>
           {saving ? '…' : isMobile ? '💾' : 'Save'}
         </button>
