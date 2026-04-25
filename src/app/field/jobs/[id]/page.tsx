@@ -38,6 +38,13 @@ interface FieldPhoto {
   area_ref: string
   category: string
   uploaded_at: string
+  uploaded_by_name?: string | null
+  taken_at?: string | null
+  location_lat?: number | null
+  location_lng?: number | null
+  location_accuracy_m?: number | null
+  location_label?: string | null
+  location_place_id?: string | null
 }
 
 interface FieldJobResponse {
@@ -56,24 +63,6 @@ const JOB_TYPE_LABELS: Record<string, string> = {
   unattended_death: 'Unattended Death',
   flood: 'Flood',
   other: 'Other',
-}
-
-const STATUS_LABELS: Record<string, string> = {
-  lead: 'Lead',
-  assessed: 'Assessed',
-  quoted: 'Quoted',
-  accepted: 'Accepted',
-  scheduled: 'Scheduled',
-  underway: 'Underway',
-  completed: 'Completed',
-  report_sent: 'Report Sent',
-  paid: 'Paid',
-}
-
-const URGENCY_COLOURS: Record<string, string> = {
-  standard: '#60A5FA',
-  urgent: '#F59E0B',
-  emergency: '#F87171',
 }
 
 function titleCase(value: string) {
@@ -112,6 +101,8 @@ export default function FieldJobPage() {
   const [photos, setPhotos] = useState<FieldPhoto[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [uploadingPhoto, setUploadingPhoto] = useState(false)
+  const [photoError, setPhotoError] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -137,6 +128,69 @@ export default function FieldJobPage() {
     return () => { cancelled = true }
   }, [id])
 
+  async function refreshPhotos() {
+    const res = await fetch(`/api/field/jobs/${id}`)
+    const data = (await res.json()) as FieldJobResponse
+    if (!res.ok) throw new Error(data.error || 'Could not refresh photos')
+    setPhotos(data.photos ?? [])
+  }
+
+  async function handlePhotoSelected(file: File | undefined) {
+    if (!file || uploadingPhoto) return
+    setUploadingPhoto(true)
+    setPhotoError('')
+
+    try {
+      const location = await getCurrentLocation()
+
+      const signRes = await fetch(`/api/field/jobs/${id}/photos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'sign',
+          fileName: file.name,
+          contentType: file.type || 'image/jpeg',
+        }),
+      })
+      const signData = (await signRes.json()) as { signedUrl?: string; publicUrl?: string; error?: string }
+      if (!signRes.ok || !signData.signedUrl || !signData.publicUrl) {
+        throw new Error(signData.error || 'Could not prepare photo upload')
+      }
+
+      const uploadRes = await fetch(signData.signedUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': file.type || 'image/jpeg' },
+        body: file,
+      })
+      if (!uploadRes.ok) throw new Error('Photo upload failed')
+
+      const saveRes = await fetch(`/api/field/jobs/${id}/photos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          file_url: signData.publicUrl,
+          category: 'during',
+          capture_phase: 'progress',
+          taken_at: new Date(file.lastModified || Date.now()).toISOString(),
+          location_lat: location?.lat ?? null,
+          location_lng: location?.lng ?? null,
+          location_accuracy_m: location?.accuracy ?? null,
+          location_label: null,
+          location_place_id: null,
+        }),
+      })
+      const saveData = (await saveRes.json()) as { photo?: FieldPhoto; error?: string }
+      if (!saveRes.ok) throw new Error(saveData.error || 'Could not save photo metadata')
+
+      if (saveData.photo) setPhotos(prev => [saveData.photo!, ...prev])
+      else await refreshPhotos()
+    } catch (err: unknown) {
+      setPhotoError(err instanceof Error ? err.message : 'Photo upload failed')
+    } finally {
+      setUploadingPhoto(false)
+    }
+  }
+
   if (loading) {
     return (
       <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', color: 'var(--text-muted)' }}>
@@ -158,7 +212,6 @@ export default function FieldJobPage() {
   }
 
   const serviceLabel = JOB_TYPE_LABELS[job.job_type] ?? titleCase(job.job_type)
-  const urgencyColour = URGENCY_COLOURS[job.urgency] ?? URGENCY_COLOURS.standard
   const schedule = formatSchedule(job.scheduled_at)
   const mapsUrl = `https://maps.google.com/?q=${encodeURIComponent(job.site_address)}`
   const manager = contacts.find(contact => contact.app_role === 'admin' || contact.app_role === 'manager' || contact.app_role === 'team_lead')
@@ -185,31 +238,6 @@ export default function FieldJobPage() {
       </div>
 
       <main style={{ maxWidth: 720, margin: '0 auto', padding: '20px 16px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-          <span style={{
-            fontSize: 12,
-            fontWeight: 800,
-            padding: '5px 11px',
-            borderRadius: 999,
-            color: urgencyColour,
-            background: `${urgencyColour}18`,
-            border: `1px solid ${urgencyColour}35`,
-          }}>
-            {titleCase(job.urgency)}
-          </span>
-          <span style={{
-            fontSize: 12,
-            fontWeight: 800,
-            padding: '5px 11px',
-            borderRadius: 999,
-            color: 'var(--text-muted)',
-            background: 'var(--surface)',
-            border: '1px solid var(--border)',
-          }}>
-            {STATUS_LABELS[job.status] ?? titleCase(job.status)}
-          </span>
-        </div>
-
         {manager && (
           <ContactCard title="Your Manager" contact={manager} highlight />
         )}
@@ -255,18 +283,42 @@ export default function FieldJobPage() {
           </InfoCard>
         )}
 
-        {otherContacts.length > 0 && (
-          <InfoCard title="Team Contacts">
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {otherContacts.map(contact => (
-                <ContactRow key={contact.id} contact={contact} />
-              ))}
+        <InfoCard
+          title={`Photos (${photos.length})`}
+          action={
+            <label style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              padding: '8px 12px',
+              borderRadius: 8,
+              background: uploadingPhoto ? 'var(--surface-2)' : 'var(--accent)',
+              color: uploadingPhoto ? 'var(--text-muted)' : '#fff',
+              fontSize: 12,
+              fontWeight: 850,
+              cursor: uploadingPhoto ? 'wait' : 'pointer',
+            }}>
+              {uploadingPhoto ? 'Uploading...' : 'Add Photo'}
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                disabled={uploadingPhoto}
+                onChange={e => {
+                  const file = e.target.files?.[0]
+                  e.currentTarget.value = ''
+                  void handlePhotoSelected(file)
+                }}
+                style={{ display: 'none' }}
+              />
+            </label>
+          }
+        >
+          {photoError && (
+            <div style={{ fontSize: 13, color: '#F87171', lineHeight: 1.45, marginBottom: 12 }}>
+              {photoError}
             </div>
-          </InfoCard>
-        )}
-
-        {photos.length > 0 && (
-          <InfoCard title={`Photos (${photos.length})`}>
+          )}
+          {photos.length > 0 ? (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(128px, 1fr))', gap: 10 }}>
               {photos.map(photo => (
                 <a key={photo.id} href={photo.file_url} target="_blank" rel="noreferrer" style={{ textDecoration: 'none', color: 'inherit' }}>
@@ -280,7 +332,22 @@ export default function FieldJobPage() {
                   <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'capitalize' }}>
                     {photo.category.replace(/_/g, ' ')}
                   </div>
+                  <PhotoStamp photo={photo} />
                 </a>
+              ))}
+            </div>
+          ) : (
+            <div style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--text-muted)' }}>
+              No photos have been added yet.
+            </div>
+          )}
+        </InfoCard>
+
+        {otherContacts.length > 0 && (
+          <InfoCard title="Team Contacts">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {otherContacts.map(contact => (
+                <ContactRow key={contact.id} contact={contact} />
               ))}
             </div>
           </InfoCard>
@@ -290,7 +357,7 @@ export default function FieldJobPage() {
   )
 }
 
-function InfoCard({ title, children }: { title: string; children: ReactNode }) {
+function InfoCard({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
   return (
     <section style={{
       background: 'var(--surface)',
@@ -299,15 +366,17 @@ function InfoCard({ title, children }: { title: string; children: ReactNode }) {
       padding: '16px 18px',
       marginBottom: 14,
     }}>
-      <div style={{
-        fontSize: 11,
-        fontWeight: 800,
-        textTransform: 'uppercase',
-        letterSpacing: '0.08em',
-        color: 'var(--text-muted)',
-        marginBottom: 10,
-      }}>
-        {title}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
+        <div style={{
+          fontSize: 11,
+          fontWeight: 800,
+          textTransform: 'uppercase',
+          letterSpacing: '0.08em',
+          color: 'var(--text-muted)',
+        }}>
+          {title}
+        </div>
+        {action}
       </div>
       {children}
     </section>
@@ -357,6 +426,35 @@ function ContactCard({ title, contact, highlight }: { title: string; contact: Fi
         <ContactActions phone={phone} email={contact.email} />
       </div>
     </section>
+  )
+}
+
+function PhotoStamp({ photo }: { photo: FieldPhoto }) {
+  const takenAt = photo.taken_at || photo.uploaded_at
+  const coords = typeof photo.location_lat === 'number' && typeof photo.location_lng === 'number'
+    ? `${photo.location_lat.toFixed(5)}, ${photo.location_lng.toFixed(5)}`
+    : null
+  const location = photo.location_label || coords || 'Location not captured'
+  const mapsUrl = coords
+    ? `https://maps.google.com/?q=${photo.location_lat},${photo.location_lng}`
+    : null
+
+  return (
+    <div style={{ marginTop: 6, fontSize: 10.5, lineHeight: 1.35, color: 'var(--text-muted)' }}>
+      <div>{formatDateTime(takenAt)}</div>
+      <div>By {photo.uploaded_by_name || 'Team member'}</div>
+      {mapsUrl ? (
+        <div>
+          <span>Photo location: </span>
+          <span style={{ color: 'var(--text)' }}>{location}</span>
+        </div>
+      ) : (
+        <div>{location}</div>
+      )}
+      {photo.location_accuracy_m != null && (
+        <div>Accuracy ±{Math.round(photo.location_accuracy_m)}m</div>
+      )}
+    </div>
   )
 }
 
@@ -425,3 +523,32 @@ function contactActionStyle(compact?: boolean): CSSProperties {
     fontWeight: 800,
   }
 }
+
+function formatDateTime(iso: string) {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return 'Time not captured'
+  return date.toLocaleString('en-AU', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function getCurrentLocation(): Promise<{ lat: number; lng: number; accuracy: number } | null> {
+  if (!navigator.geolocation) return Promise.resolve(null)
+
+  return new Promise(resolve => {
+    navigator.geolocation.getCurrentPosition(
+      position => resolve({
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+        accuracy: position.coords.accuracy,
+      }),
+      () => resolve(null),
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
+    )
+  })
+}
+

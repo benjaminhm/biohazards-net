@@ -1,4 +1,13 @@
-import type { JobStatus, JobType, JobUrgency, PhotoCategory, PhotoCapturePhase } from '@/lib/types'
+import {
+  ALL_CAPABILITIES,
+  DEFAULT_MANAGER_CAPABILITIES,
+  DEFAULT_MEMBER_CAPABILITIES,
+  type JobStatus,
+  type JobType,
+  type JobUrgency,
+  type PhotoCategory,
+  type PhotoCapturePhase,
+} from '@/lib/types'
 
 export const ACTIVE_FIELD_STATUSES: JobStatus[] = ['lead', 'assessed', 'quoted', 'accepted', 'scheduled', 'underway']
 
@@ -43,6 +52,15 @@ export interface FieldPhoto {
   category: PhotoCategory
   capture_phase?: PhotoCapturePhase
   uploaded_at: string
+  uploaded_by_user_id?: string | null
+  uploaded_by_person_id?: string | null
+  uploaded_by_name?: string | null
+  taken_at?: string | null
+  location_lat?: number | null
+  location_lng?: number | null
+  location_accuracy_m?: number | null
+  location_label?: string | null
+  location_place_id?: string | null
 }
 
 export interface FieldTeamContact {
@@ -76,8 +94,14 @@ export interface OrgUserAccessRow {
 export function resolveFieldAccess(row: OrgUserAccessRow | null): FieldAccess | null {
   if (!row) return null
   const role = row.role ?? 'member'
-  const caps = row.capabilities ?? {}
+  const storedCaps = row.capabilities ?? {}
   const privilegedRole = role === 'admin' || role === 'owner' || role === 'manager' || role === 'team_lead'
+  const baseCaps = role === 'admin' || role === 'owner'
+    ? ALL_CAPABILITIES
+    : role === 'manager' || role === 'team_lead'
+      ? DEFAULT_MANAGER_CAPABILITIES
+      : DEFAULT_MEMBER_CAPABILITIES
+  const caps = { ...baseCaps, ...storedCaps }
 
   return {
     role,

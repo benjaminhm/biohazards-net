@@ -21,6 +21,15 @@ export type PhotoInsertRow = {
   category: string
   capture_phase: string
   org_id?: string
+  uploaded_by_user_id?: string | null
+  uploaded_by_person_id?: string | null
+  uploaded_by_name?: string | null
+  taken_at?: string | null
+  location_lat?: number | null
+  location_lng?: number | null
+  location_accuracy_m?: number | null
+  location_label?: string | null
+  location_place_id?: string | null
   /** Defaults true in DB; omit on legacy inserts after column retries. */
   include_in_composed_reports?: boolean
 }

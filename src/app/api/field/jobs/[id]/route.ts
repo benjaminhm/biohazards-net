@@ -109,7 +109,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       access.canViewAllJobs || access.capabilities.upload_photos_any || access.capabilities.upload_photos_assigned
         ? supabase
             .from('photos')
-            .select('id, job_id, file_url, caption, area_ref, category, capture_phase, uploaded_at')
+            .select('id, job_id, file_url, caption, area_ref, category, capture_phase, uploaded_at, uploaded_by_user_id, uploaded_by_person_id, uploaded_by_name, taken_at, location_lat, location_lng, location_accuracy_m, location_label, location_place_id')
             .eq('job_id', jobId)
             .order('uploaded_at', { ascending: false })
         : Promise.resolve({ data: [], error: null }),
