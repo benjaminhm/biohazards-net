@@ -613,7 +613,7 @@ export default function JobPage() {
   const searchParams = useSearchParams()
   const pathname     = usePathname()
   const router       = useRouter()
-  const { caps, isAdmin, loading: userLoading, org } = useUser()
+  const { caps, isAdmin, isManager, loading: userLoading, org } = useUser()
   /** Field workers (no view_all_jobs) use /field; ops staff use full queue. */
   const jobsListHref = userLoading
     ? '/jobs/queue'
@@ -808,7 +808,14 @@ export default function JobPage() {
     marginBottom: -1,
   } as const
 
-  useEffect(() => { fetchAll() }, [id])
+  useEffect(() => {
+    if (userLoading) return
+    if (!isAdmin && !isManager) {
+      router.replace(`/field/jobs/${id}`)
+      return
+    }
+    fetchAll()
+  }, [id, userLoading, isAdmin, isManager, router])
 
   /**
    * Reset inner section state when the user leaves the parent tab/section.

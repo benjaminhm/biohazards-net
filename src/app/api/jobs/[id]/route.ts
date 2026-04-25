@@ -14,6 +14,32 @@ import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import { normalizeOptionalPhoneField } from '@/lib/phone'
 import { ensureJobInboundEmailToken } from '@/lib/jobInboundEmail'
+import { verifyImpersonationFromRequest } from '@/lib/impersonation'
+
+type ServiceClient = ReturnType<typeof createServiceClient>
+
+interface JobFileAccessRow {
+  role: string | null
+}
+
+function isFullJobFileRole(role: string | null | undefined) {
+  return role === 'admin' || role === 'owner' || role === 'manager' || role === 'team_lead'
+}
+
+async function canUseFullJobFile(req: Request, userId: string, orgId: string, supabase: ServiceClient) {
+  const impersonation = await verifyImpersonationFromRequest(req, userId)
+  if (impersonation?.orgId === orgId) return true
+
+  const { data: orgUser, error } = await supabase
+    .from('org_users')
+    .select('role')
+    .eq('clerk_user_id', userId)
+    .eq('org_id', orgId)
+    .maybeSingle()
+
+  if (error) throw error
+  return isFullJobFileRole((orgUser as JobFileAccessRow | null)?.role)
+}
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -23,6 +49,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const supabase = createServiceClient()
+    if (!userId || !(await canUseFullJobFile(req, userId, orgId, supabase))) {
+      return NextResponse.json({ error: 'Use the field job view for this account' }, { status: 403 })
+    }
 
     const [jobRes, photosRes] = await Promise.all([
       supabase.from('jobs').select('*').eq('id', id).eq('org_id', orgId).single(),
@@ -55,6 +84,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     const { orgId } = await getOrgId(req, userId ?? null)
     if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+    const supabase = createServiceClient()
+    if (!userId || !(await canUseFullJobFile(req, userId, orgId, supabase))) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
     const body = (await req.json()) as Record<string, unknown>
     delete body.inbound_email_token
     if (body.archived === true) {
@@ -78,8 +112,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       if (pr.value === undefined) delete body.client_phone
       else body.client_phone = pr.value
     }
-    const supabase = createServiceClient()
-
     const { data, error } = await supabase
       .from('jobs')
       .update({ ...body, updated_at: new Date().toISOString() })
@@ -104,6 +136,10 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
     if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const supabase = createServiceClient()
+    if (!userId || !(await canUseFullJobFile(req, userId, orgId, supabase))) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
     const { error } = await supabase.from('jobs').delete().eq('id', id).eq('org_id', orgId)
     if (error) throw error
     return NextResponse.json({ success: true })

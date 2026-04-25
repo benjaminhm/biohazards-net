@@ -18,12 +18,20 @@
  */
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { useRouter } from 'next/navigation'
 import { useClerk } from '@clerk/nextjs'
 import { useUser } from '@/lib/userContext'
 import OnboardingChecklist from '@/components/OnboardingChecklist'
-import type { Job } from '@/lib/types'
+
+interface FieldJob {
+  id: string
+  status: string
+  urgency: string
+  job_type: string
+  site_address: string
+  scheduled_at: string | null
+}
 
 const JOB_TYPE_LABELS: Record<string, string> = {
   crime_scene:    'Crime Scene',
@@ -45,6 +53,20 @@ const URGENCY_COLOR: Record<string, string> = {
 
 const ACTIVE_STATUSES = ['lead', 'assessed', 'quoted', 'accepted', 'scheduled', 'underway']
 
+function subscribePreviewState() {
+  return () => {}
+}
+
+function getPreviewStateSnapshot() {
+  const isPreview = localStorage.getItem('preview_as_field') === '1' ? '1' : '0'
+  const name = localStorage.getItem('preview_name') ?? ''
+  return `${isPreview}|${name}`
+}
+
+function getPreviewStateServerSnapshot() {
+  return '0|'
+}
+
 function fmtSchedule(iso: string) {
   const d = new Date(iso)
   const today    = new Date()
@@ -62,15 +84,15 @@ export default function FieldPage() {
   const { signOut } = useClerk()
   const { name, isAdmin, org, loading: userLoading } = useUser()
   const [showMenu, setShowMenu]     = useState(false)
-  const [jobs, setJobs]             = useState<Job[]>([])
+  const [jobs, setJobs]             = useState<FieldJob[]>([])
   const [loading, setLoading]       = useState(true)
-  const [isPreview, setIsPreview]   = useState(false)
-  const [previewName, setPreviewName] = useState('')
-
-  useEffect(() => {
-    setIsPreview(localStorage.getItem('preview_as_field') === '1')
-    setPreviewName(localStorage.getItem('preview_name') ?? '')
-  }, [])
+  const previewState = useSyncExternalStore(
+    subscribePreviewState,
+    getPreviewStateSnapshot,
+    getPreviewStateServerSnapshot
+  )
+  const [isPreviewRaw, previewName] = previewState.split('|')
+  const isPreview = isPreviewRaw === '1'
 
   function exitPreview() {
     localStorage.removeItem('preview_as_field')
@@ -83,10 +105,9 @@ export default function FieldPage() {
     if (userLoading) return
     const preview = localStorage.getItem('preview_as_field') === '1'
     if (isAdmin && !preview) { router.replace('/'); return }
-    // assigned_only=true — field workers only see jobs they are assigned to
-    fetch('/api/jobs?assigned_only=true')
+    fetch('/api/field/jobs')
       .then(r => r.json())
-      .then(d => setJobs((d.jobs ?? []).filter((j: Job) => ACTIVE_STATUSES.includes(j.status))))
+      .then(d => setJobs((d.jobs ?? []).filter((j: FieldJob) => ACTIVE_STATUSES.includes(j.status))))
       .finally(() => setLoading(false))
   }, [userLoading, isAdmin, router])
 
@@ -195,7 +216,7 @@ export default function FieldPage() {
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {todayJobs.map(j => (
-                <FieldJobCard key={j.id} job={j} onClick={() => router.push(`/jobs/${j.id}`)} highlight />
+                <FieldJobCard key={j.id} job={j} onClick={() => router.push(`/field/jobs/${j.id}`)} highlight />
               ))}
             </div>
           </section>
@@ -218,7 +239,7 @@ export default function FieldPage() {
           ) : otherJobs.length === 0 ? null : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {otherJobs.map(j => (
-                <FieldJobCard key={j.id} job={j} onClick={() => router.push(`/jobs/${j.id}`)} />
+                <FieldJobCard key={j.id} job={j} onClick={() => router.push(`/field/jobs/${j.id}`)} />
               ))}
             </div>
           )}
@@ -229,7 +250,7 @@ export default function FieldPage() {
 }
 
 function FieldJobCard({ job, onClick, highlight }: {
-  job: Job
+  job: FieldJob
   onClick: () => void
   highlight?: boolean
 }) {
