@@ -154,6 +154,13 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
   if (!person_id) return NextResponse.json({ error: 'person_id required' }, { status: 400 })
 
   const supabase = createServiceClient()
+  await supabase
+    .from('person_job_tasks')
+    .delete()
+    .eq('job_id', jobId)
+    .eq('person_id', person_id)
+    .eq('org_id', orgId)
+
   const { error } = await supabase
     .from('job_assignments')
     .delete()

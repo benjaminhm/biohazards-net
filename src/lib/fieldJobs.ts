@@ -39,9 +39,17 @@ export interface FieldJob {
   schedule_note: string | null
   created_at: string
   updated_at: string
+  assigned_tasks?: FieldAssignedTask[]
 }
 
 export type FieldJobRow = FieldJob
+
+export interface FieldAssignedTask {
+  id: string
+  job_id: string
+  body: string
+  completed: boolean
+}
 
 export interface FieldPhoto {
   id: string
@@ -129,5 +137,6 @@ export function sanitizeFieldJob(row: FieldJobRow): FieldJob {
     schedule_note: row.schedule_note ?? null,
     created_at: row.created_at,
     updated_at: row.updated_at,
+    assigned_tasks: row.assigned_tasks ?? [],
   }
 }

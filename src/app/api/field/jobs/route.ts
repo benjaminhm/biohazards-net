@@ -12,6 +12,7 @@ import { getOrgId } from '@/lib/org'
 import {
   ACTIVE_FIELD_STATUSES,
   FIELD_JOB_SELECT,
+  type FieldAssignedTask,
   type FieldJobRow,
   type OrgUserAccessRow,
   resolveFieldAccess,
@@ -71,9 +72,25 @@ export async function GET(req: Request) {
     const { data, error } = await query
     if (error) throw error
 
-    return NextResponse.json({
-      jobs: ((data ?? []) as unknown as FieldJobRow[]).map(sanitizeFieldJob),
-    })
+    const jobs = ((data ?? []) as unknown as FieldJobRow[]).map(sanitizeFieldJob)
+    if (access.personId && jobs.length > 0) {
+      const { data: taskRows, error: taskError } = await supabase
+        .from('person_job_tasks')
+        .select('id, job_id, body, completed')
+        .eq('org_id', orgId)
+        .eq('person_id', access.personId)
+        .in('job_id', jobs.map(job => job.id))
+        .order('created_at', { ascending: true })
+
+      if (taskError) throw taskError
+      const tasksByJob = ((taskRows ?? []) as FieldAssignedTask[]).reduce<Record<string, FieldAssignedTask[]>>((acc, task) => {
+        acc[task.job_id] = [...(acc[task.job_id] ?? []), task]
+        return acc
+      }, {})
+      for (const job of jobs) job.assigned_tasks = tasksByJob[job.id] ?? []
+    }
+
+    return NextResponse.json({ jobs })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Unknown error'
     return NextResponse.json({ error: msg }, { status: 500 })

@@ -31,6 +31,7 @@ interface FieldJob {
   job_type: string
   site_address: string
   scheduled_at: string | null
+  assigned_tasks?: { id: string; body: string; completed: boolean }[]
 }
 
 const JOB_TYPE_LABELS: Record<string, string> = {
@@ -256,6 +257,8 @@ function FieldJobCard({ job, onClick, highlight }: {
 }) {
   const urgencyColor = URGENCY_COLOR[job.urgency] ?? '#60A5FA'
   const schedule = job.scheduled_at ? fmtSchedule(job.scheduled_at) : null
+  const tasks = job.assigned_tasks ?? []
+  const openTasks = tasks.filter(task => !task.completed)
 
   return (
     <button
@@ -302,6 +305,29 @@ function FieldJobCard({ job, onClick, highlight }: {
           letterSpacing: '-0.01em',
         }}>
           {schedule.label}
+        </div>
+      )}
+
+      {tasks.length > 0 && (
+        <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ fontSize: 11, fontWeight: 800, color: openTasks.length ? 'var(--accent)' : '#22C55E', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            {openTasks.length ? `${openTasks.length} assigned task${openTasks.length > 1 ? 's' : ''}` : 'All assigned tasks done'}
+          </div>
+          {tasks.slice(0, 3).map(task => (
+            <div key={task.id} style={{
+              fontSize: 12,
+              color: task.completed ? 'var(--text-muted)' : 'var(--text)',
+              textDecoration: task.completed ? 'line-through' : 'none',
+              lineHeight: 1.35,
+            }}>
+              {task.completed ? '✓' : '•'} {task.body}
+            </div>
+          ))}
+          {tasks.length > 3 && (
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600 }}>
+              +{tasks.length - 3} more
+            </div>
+          )}
         </div>
       )}
     </button>

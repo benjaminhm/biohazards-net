@@ -41,6 +41,12 @@ interface InvoiceForm {
   job_id: string; works_undertaken: string; agreed_amount: string
   bank_account_name: string; bank_bsb: string; bank_account_number: string
 }
+interface TeamJob {
+  id: string; client_name: string; site_address: string; status: string; job_type: string; scheduled_at: string | null
+}
+interface AssignedTask {
+  id: string; job_id: string; person_id: string; body: string; completed: boolean; created_at: string
+}
 interface Person {
   id: string; name: string; email?: string; phone?: string
   role: string; status: string; notes?: string
@@ -202,10 +208,14 @@ export default function PersonPage() {
   const [smsError, setSmsError]           = useState('')
 
   // Jobs tab state
-  const [allJobs, setAllJobs]             = useState<{ id: string; client_name: string; site_address: string; status: string; job_type: string; scheduled_at: string | null }[]>([])
+  const [allJobs, setAllJobs]             = useState<TeamJob[]>([])
   const [assignedJobIds, setAssignedJobIds] = useState<Set<string>>(new Set())
   const [jobsLoading, setJobsLoading]     = useState(false)
   const [togglingJobId, setTogglingJobId] = useState<string | null>(null)
+  const [assignedTasks, setAssignedTasks] = useState<AssignedTask[]>([])
+  const [taskDrafts, setTaskDrafts]       = useState<Record<string, string>>({})
+  const [taskBusyId, setTaskBusyId]       = useState<string | null>(null)
+  const [taskErrorByJob, setTaskErrorByJob] = useState<Record<string, string>>({})
 
   // Invoice state
   const [invoices, setInvoices]           = useState<InvoiceRow[]>([])
@@ -255,17 +265,20 @@ export default function PersonPage() {
     fetch('/api/jobs')
       .then(r => r.json())
       .then(async d => {
-        const active = (d.jobs ?? []).filter((j: { status: string }) => VISIBLE.includes(j.status))
+        const active = ((d.jobs ?? []) as TeamJob[]).filter(j => VISIBLE.includes(j.status))
         setAllJobs(active)
         // For each job, check if this person is assigned
         const assigned = new Set<string>()
-        await Promise.all(active.map(async (j: { id: string }) => {
+        await Promise.all(active.map(async j => {
           const res = await fetch(`/api/jobs/${j.id}/team`)
           const td = await res.json()
           const isAssigned = (td.assignments ?? []).some((a: { people: { id: string } }) => a.people?.id === person.id)
           if (isAssigned) assigned.add(j.id)
         }))
         setAssignedJobIds(assigned)
+        const tasksRes = await fetch(`/api/people/${person.id}/assigned-tasks`)
+        const tasksData = await tasksRes.json()
+        setAssignedTasks(tasksData.tasks ?? [])
       })
       .finally(() => setJobsLoading(false))
   }, [tab, person])
@@ -320,10 +333,79 @@ export default function PersonPage() {
       })
       setAssignedJobIds(prev => {
         const next = new Set(prev)
-        isAssigned ? next.delete(jobId) : next.add(jobId)
+        if (isAssigned) next.delete(jobId)
+        else next.add(jobId)
         return next
       })
+      if (isAssigned) {
+        setAssignedTasks(prev => prev.filter(t => t.job_id !== jobId))
+        setTaskDrafts(prev => {
+          const next = { ...prev }
+          delete next[jobId]
+          return next
+        })
+      }
     } finally { setTogglingJobId(null) }
+  }
+
+  async function addAssignedTask(jobId: string) {
+    if (!person) return
+    const body = (taskDrafts[jobId] ?? '').trim()
+    if (!body) return
+    setTaskBusyId(`add:${jobId}`)
+    setTaskErrorByJob(prev => ({ ...prev, [jobId]: '' }))
+    try {
+      const res = await fetch(`/api/people/${person.id}/assigned-tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ job_id: jobId, body }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setTaskErrorByJob(prev => ({ ...prev, [jobId]: data.error ?? 'Could not add task' }))
+        return
+      }
+      setAssignedTasks(prev => [...prev, data.task])
+      setTaskDrafts(prev => ({ ...prev, [jobId]: '' }))
+    } finally {
+      setTaskBusyId(null)
+    }
+  }
+
+  async function toggleAssignedTask(task: AssignedTask) {
+    if (!person) return
+    setTaskBusyId(task.id)
+    const nextCompleted = !task.completed
+    setAssignedTasks(prev => prev.map(t => t.id === task.id ? { ...t, completed: nextCompleted } : t))
+    try {
+      const res = await fetch(`/api/people/${person.id}/assigned-tasks`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task_id: task.id, completed: nextCompleted }),
+      })
+      if (!res.ok) {
+        setAssignedTasks(prev => prev.map(t => t.id === task.id ? { ...t, completed: task.completed } : t))
+      }
+    } finally {
+      setTaskBusyId(null)
+    }
+  }
+
+  async function deleteAssignedTask(task: AssignedTask) {
+    if (!person) return
+    setTaskBusyId(task.id)
+    const previous = assignedTasks
+    setAssignedTasks(prev => prev.filter(t => t.id !== task.id))
+    try {
+      const res = await fetch(`/api/people/${person.id}/assigned-tasks`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task_id: task.id }),
+      })
+      if (!res.ok) setAssignedTasks(previous)
+    } finally {
+      setTaskBusyId(null)
+    }
   }
 
   function updateField(key: keyof Person, val: string) {
@@ -412,6 +494,10 @@ export default function PersonPage() {
 
   const avatarColor = AVATAR_COLORS[person.name.charCodeAt(0) % AVATAR_COLORS.length]
   const docs = person.people_documents ?? []
+  const tasksByJob = assignedTasks.reduce<Record<string, AssignedTask[]>>((acc, task) => {
+    acc[task.job_id] = [...(acc[task.job_id] ?? []), task]
+    return acc
+  }, {})
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', paddingBottom: 80 }}>
@@ -917,67 +1003,192 @@ export default function PersonPage() {
                 <div style={{ fontSize: 13 }}>Create a job first to assign team members.</div>
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
                 {allJobs.map(job => {
                   const assigned = assignedJobIds.has(job.id)
                   const toggling = togglingJobId === job.id
                   const closed = job.status === 'completed' || job.status === 'cancelled'
+                  const jobTasks = tasksByJob[job.id] ?? []
+                  const completedCount = jobTasks.filter(t => t.completed).length
                   return (
                     <div key={job.id} style={{
-                      display: 'flex', alignItems: 'center', gap: 12,
-                      padding: '14px 16px', borderRadius: 12,
+                      display: 'flex', flexDirection: 'column', gap: 12,
+                      padding: '16px', borderRadius: 16,
                       background: assigned ? 'rgba(34,197,94,0.06)' : 'var(--surface)',
                       border: `1px solid ${assigned ? 'rgba(34,197,94,0.2)' : 'var(--border)'}`,
                       transition: 'all 0.15s',
                       opacity: closed ? 0.55 : 1,
                     }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
-                          <span style={{ fontWeight: 600, fontSize: 14 }}>
-                            {job.client_name}
-                          </span>
-                          {closed && (
-                            <span style={{
-                              fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em',
-                              padding: '1px 6px', borderRadius: 4,
-                              background: job.status === 'completed' ? 'rgba(34,197,94,0.15)' : 'rgba(248,113,113,0.15)',
-                              color: job.status === 'completed' ? '#22C55E' : '#F87171',
-                            }}>
-                              {job.status}
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+                            <span style={{ fontWeight: 700, fontSize: 14 }}>
+                              {job.client_name}
                             </span>
+                            {closed && (
+                              <span style={{
+                                fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em',
+                                padding: '1px 6px', borderRadius: 4,
+                                background: job.status === 'completed' ? 'rgba(34,197,94,0.15)' : 'rgba(248,113,113,0.15)',
+                                color: job.status === 'completed' ? '#22C55E' : '#F87171',
+                              }}>
+                                {job.status}
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.35 }}>
+                            {job.site_address}
+                          </div>
+                          {job.scheduled_at && (
+                            <div style={{ fontSize: 11, color: 'var(--accent)', marginTop: 5, fontWeight: 600 }}>
+                              {new Date(job.scheduled_at).toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                            </div>
                           )}
                         </div>
-                        <div style={{ fontSize: 12, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {job.site_address}
-                        </div>
-                        {job.scheduled_at && (
-                          <div style={{ fontSize: 11, color: 'var(--accent)', marginTop: 3, fontWeight: 600 }}>
-                            {new Date(job.scheduled_at).toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                        <button
+                          onClick={() => toggleJobAssignment(job.id)}
+                          disabled={toggling}
+                          aria-label={assigned ? `Remove ${person.name} from ${job.client_name}` : `Assign ${person.name} to ${job.client_name}`}
+                          style={{
+                            flexShrink: 0,
+                            width: 52, height: 28, borderRadius: 99,
+                            background: assigned ? '#22C55E' : 'var(--surface-2)',
+                            border: `1px solid ${assigned ? '#22C55E' : 'var(--border-2)'}`,
+                            cursor: toggling ? 'not-allowed' : 'pointer',
+                            position: 'relative', transition: 'all 0.2s',
+                            opacity: toggling ? 0.6 : 1,
+                          }}
+                        >
+                          <div style={{
+                            position: 'absolute', top: 3,
+                            left: assigned ? 26 : 3,
+                            width: 20, height: 20, borderRadius: 99,
+                            background: '#fff',
+                            transition: 'left 0.2s',
+                            boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                          }} />
+                        </button>
+                      </div>
+
+                      <div style={{
+                        borderTop: '1px solid var(--border)',
+                        paddingTop: 12,
+                        opacity: assigned ? 1 : 0.45,
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)' }}>
+                            Assigned tasks
                           </div>
+                          {assigned && jobTasks.length > 0 && (
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                              {completedCount}/{jobTasks.length} done
+                            </div>
+                          )}
+                        </div>
+
+                        {!assigned ? (
+                          <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                            Assign this job to add member-specific tasks.
+                          </div>
+                        ) : (
+                          <>
+                            {jobTasks.length === 0 ? (
+                              <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.4, marginBottom: 10 }}>
+                                No tasks for {person.name.split(' ')[0]} yet.
+                              </div>
+                            ) : (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
+                                {jobTasks.map(task => (
+                                  <div key={task.id} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '8px 10px', borderRadius: 10, background: 'var(--surface-2)' }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleAssignedTask(task)}
+                                      disabled={taskBusyId === task.id}
+                                      aria-label={task.completed ? 'Mark task incomplete' : 'Mark task complete'}
+                                      style={{
+                                        marginTop: 1,
+                                        width: 18,
+                                        height: 18,
+                                        borderRadius: 5,
+                                        border: `1px solid ${task.completed ? '#22C55E' : 'var(--border-2)'}`,
+                                        background: task.completed ? '#22C55E' : 'transparent',
+                                        color: '#fff',
+                                        fontSize: 12,
+                                        lineHeight: '16px',
+                                        cursor: 'pointer',
+                                        flexShrink: 0,
+                                      }}
+                                    >
+                                      {task.completed ? '✓' : ''}
+                                    </button>
+                                    <div style={{
+                                      flex: 1,
+                                      fontSize: 12,
+                                      lineHeight: 1.45,
+                                      color: task.completed ? 'var(--text-muted)' : 'var(--text)',
+                                      textDecoration: task.completed ? 'line-through' : 'none',
+                                      whiteSpace: 'pre-wrap',
+                                    }}>
+                                      {task.body}
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => deleteAssignedTask(task)}
+                                      disabled={taskBusyId === task.id}
+                                      aria-label="Delete task"
+                                      style={{ border: 'none', background: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 0, fontSize: 14, lineHeight: 1 }}
+                                    >
+                                      ×
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            <div style={{ display: 'flex', gap: 8 }}>
+                              <input
+                                value={taskDrafts[job.id] ?? ''}
+                                onChange={e => setTaskDrafts(prev => ({ ...prev, [job.id]: e.target.value }))}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') addAssignedTask(job.id)
+                                }}
+                                placeholder={`Task for ${person.name.split(' ')[0]}...`}
+                                style={{
+                                  flex: 1,
+                                  minWidth: 0,
+                                  padding: '9px 10px',
+                                  borderRadius: 9,
+                                  border: '1px solid var(--border)',
+                                  background: 'var(--bg)',
+                                  color: 'var(--text)',
+                                  fontSize: 12,
+                                }}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => addAssignedTask(job.id)}
+                                disabled={taskBusyId === `add:${job.id}` || !(taskDrafts[job.id] ?? '').trim()}
+                                style={{
+                                  padding: '9px 12px',
+                                  borderRadius: 9,
+                                  border: 'none',
+                                  background: 'var(--accent)',
+                                  color: '#fff',
+                                  fontWeight: 700,
+                                  fontSize: 12,
+                                  cursor: 'pointer',
+                                  opacity: taskBusyId === `add:${job.id}` || !(taskDrafts[job.id] ?? '').trim() ? 0.5 : 1,
+                                }}
+                              >
+                                Add
+                              </button>
+                            </div>
+                            {taskErrorByJob[job.id] && (
+                              <div style={{ marginTop: 8, fontSize: 12, color: '#F87171' }}>{taskErrorByJob[job.id]}</div>
+                            )}
+                          </>
                         )}
                       </div>
-                      <button
-                        onClick={() => toggleJobAssignment(job.id)}
-                        disabled={toggling}
-                        style={{
-                          flexShrink: 0,
-                          width: 52, height: 28, borderRadius: 99,
-                          background: assigned ? '#22C55E' : 'var(--surface-2)',
-                          border: `1px solid ${assigned ? '#22C55E' : 'var(--border-2)'}`,
-                          cursor: toggling ? 'not-allowed' : 'pointer',
-                          position: 'relative', transition: 'all 0.2s',
-                          opacity: toggling ? 0.6 : 1,
-                        }}
-                      >
-                        <div style={{
-                          position: 'absolute', top: 3,
-                          left: assigned ? 26 : 3,
-                          width: 20, height: 20, borderRadius: 99,
-                          background: '#fff',
-                          transition: 'left 0.2s',
-                          boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-                        }} />
-                      </button>
                     </div>
                   )
                 })}
