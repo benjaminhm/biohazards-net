@@ -178,15 +178,6 @@ function cssSowPrint(): string {
     .sow-root .photo-meta { padding: 10px 12px; }
     .sow-root .photo-area { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--sow-blue); }
     .sow-root .photo-cap { font-size: 12px; color: var(--sow-mid); margin-top: 3px; }
-    .sow-root .sow-sig {
-      margin-top: 28px;
-      padding-top: 18px;
-      border-top: 1px solid var(--sow-rule);
-    }
-    .sow-root .sow-completed-by { max-width: 320px; }
-    .sow-root .sow-completed-by-label { font-size: 9pt; color: var(--sow-mid); font-weight: 500; display: block; margin-bottom: 6px; }
-    .sow-root .sow-completed-by-line { border-bottom: 1px solid var(--sow-navy); min-height: 24px; padding-bottom: 4px; font-size: 9.5pt; font-weight: 500; color: var(--sow-navy); word-break: break-word; }
-    .sow-root .sow-completed-by-placeholder { color: var(--sow-muted); }
     /* Legacy section() / tables / totals inside branded shell */
     .sow-root .sow-mid .label {
       font-size: 7.5pt;
@@ -559,19 +550,6 @@ function wrapBranded(
   `, pageTitle, client, printOptions?.screenActionBar !== false)
 }
 
-/** Internal staff completion — matches SOW signature styling. */
-function completedBySow(typedLine?: string): string {
-  const t = typedLine?.trim()
-  return `
-    <div class="sow-sig">
-      <div class="sow-completed-by">
-        <span class="sow-completed-by-label">Completed &amp; authorised by</span>
-        <div class="sow-completed-by-line">${t ? esc(t) : '<span class="sow-completed-by-placeholder">&nbsp;</span>'}</div>
-      </div>
-    </div>
-  `
-}
-
 // ── Shared fragments ──────────────────────────────────────────────────────────
 
 function section(lbl: string, text: string): string {
@@ -772,7 +750,6 @@ function buildQuoteMid(
   _jobId: string,
   _appUrl: string,
   client: ClientInfo | undefined,
-  includeCompletion: boolean,
 ): string {
   const before = photos.filter(p => ['before','assessment'].includes(p.category))
   const siteLine = (client?.site_address ?? '').trim()
@@ -846,28 +823,17 @@ function buildQuoteMid(
         ${a.liability_statement?.trim() ? `<div class="label" style="font-size:7pt;margin-top:10px">Liability</div><div class="body-text">${esc(a.liability_statement)}</div>` : ''}
         ${a.acceptance_statement?.trim() ? `
           <div style="margin-top:18px;padding:16px;border:1px solid var(--sow-rule);border-radius:8px;background:var(--sow-blue-xs);">
-            <div class="body-text" style="margin-bottom:14px;">${esc(a.acceptance_statement)}</div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:10px;">
-              <div>
-                <div style="font-size:7.5pt;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--sow-muted);margin-bottom:6px;">Client Signature</div>
-                <div style="border-bottom:1px solid var(--sow-navy);min-height:32px;"></div>
-              </div>
-              <div>
-                <div style="font-size:7.5pt;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--sow-muted);margin-bottom:6px;">Date</div>
-                <div style="border-bottom:1px solid var(--sow-navy);min-height:32px;"></div>
-              </div>
-            </div>
+            <div class="body-text">${esc(a.acceptance_statement)}</div>
           </div>
         ` : ''}
       `
     })()}
     ${c.include_photos !== false ? roomPhotoSections(groups, 'Site Condition Photos', ['assessment', 'before']) : photoGrid(before, 'Site Condition Photos')}
-    ${includeCompletion ? completedBySow(c.completed_by) : ''}
   `
 }
 
 function buildQuoteHTML(c: QuoteContent, photos: Photo[], groups: RoomPhotoGroup[], company: CompanyProfile | null, _jobId: string, _appUrl: string, client: ClientInfo | undefined, screenActionBar: boolean): string {
-  const mid = buildQuoteMid(c, photos, groups, company, _jobId, _appUrl, client, true)
+  const mid = buildQuoteMid(c, photos, groups, company, _jobId, _appUrl, client)
   return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
@@ -891,9 +857,6 @@ function buildSOWMid(
   c: SOWContent,
   photos: Photo[],
   groups: RoomPhotoGroup[],
-  client: ClientInfo | undefined,
-  areas: Area[],
-  includeCompletion: boolean,
 ): string {
   const before = photos.filter(p => ['before', 'assessment'].includes(p.category))
 
@@ -913,7 +876,6 @@ function buildSOWMid(
     ${sowBodySection('Exclusions', c.exclusions)}
     ${photosHtml}
     ${sowBodySection('Disclaimer', c.disclaimer)}
-    ${includeCompletion ? completedBySow(c.completed_by) : ''}
   `
 }
 
@@ -926,7 +888,7 @@ function buildSOWHTML(
   areas: Area[],
   screenActionBar: boolean,
 ): string {
-  const mid = buildSOWMid(c, photos, groups, client, areas, true)
+  const mid = buildSOWMid(c, photos, groups)
   return wrapBranded(
     mid,
     c.title,
@@ -944,7 +906,7 @@ function buildSOWHTML(
 
 // ── 3. SWMS ───────────────────────────────────────────────────────────────────
 
-function buildSWMSMid(c: SWMSContent, includeCompletion: boolean): string {
+function buildSWMSMid(c: SWMSContent): string {
   return `
     ${section('Project Details', c.project_details)}
     <div class="label">Work Steps, Hazards &amp; Controls</div>
@@ -954,36 +916,34 @@ function buildSWMSMid(c: SWMSContent, includeCompletion: boolean): string {
     ${section('Legislation &amp; References', c.legislation_references)}
     <div class="label">Worker Declarations</div>
     <div class="body-text">${esc(c.declarations)}</div>
-    ${includeCompletion ? completedBySow(c.completed_by) : ''}
   `
 }
 
 function buildSWMSHTML(c: SWMSContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
-  const mid = buildSWMSMid(c, true)
+  const mid = buildSWMSMid(c)
   return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
 // ── 4. Authority to Proceed ───────────────────────────────────────────────────
 
-function buildATPMid(c: AuthorityToProceedContent, includeCompletion: boolean): string {
+function buildATPMid(c: AuthorityToProceedContent): string {
   return `
     ${section('Scope of Works Authorised', c.scope_summary)}
     ${section('Site Access Details', c.access_details)}
     ${section('Special Conditions', c.special_conditions)}
     ${section('Liability Acknowledgment', c.liability_acknowledgment)}
     ${section('Payment Authorisation', c.payment_authorisation)}
-    ${includeCompletion ? completedBySow(c.completed_by) : ''}
   `
 }
 
 function buildATPHTML(c: AuthorityToProceedContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
-  const mid = buildATPMid(c, true)
+  const mid = buildATPMid(c)
   return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
 // ── 5. Engagement Agreement ───────────────────────────────────────────────────
 
-function buildEngagementMid(c: EngagementAgreementContent, includeCompletion: boolean): string {
+function buildEngagementMid(c: EngagementAgreementContent): string {
   return `
     ${section('Parties', c.parties)}
     ${section('Services', c.services_description)}
@@ -993,18 +953,17 @@ function buildEngagementMid(c: EngagementAgreementContent, includeCompletion: bo
     ${section('Dispute Resolution', c.dispute_resolution)}
     ${section('Termination', c.termination)}
     ${section('Governing Law', c.governing_law)}
-    ${includeCompletion ? completedBySow(c.completed_by) : ''}
   `
 }
 
 function buildEngagementHTML(c: EngagementAgreementContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
-  const mid = buildEngagementMid(c, true)
+  const mid = buildEngagementMid(c)
   return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
 // ── 6. Completion Report ──────────────────────────────────────────────────────
 
-function buildReportMid(c: ReportContent, photos: Photo[], areas: Area[], includeCompletion: boolean): string {
+function buildReportMid(c: ReportContent, photos: Photo[], areas: Area[]): string {
   return `
     ${section('Executive Summary', c.executive_summary)}
     ${section('Site Conditions on Arrival', c.site_conditions)}
@@ -1015,7 +974,6 @@ function buildReportMid(c: ReportContent, photos: Photo[], areas: Area[], includ
     ${section('Photo Record', c.photo_record)}
     ${section('Outcome', c.outcome)}
     ${c.include_photos !== false ? completionReportPhotoAppendix(photos, areas) : ''}
-    ${includeCompletion ? completedBySow((c.completed_by ?? c.technician_signoff ?? '').trim()) : ''}
   `
 }
 
@@ -1027,13 +985,13 @@ function buildReportHTML(
   client: ClientInfo | undefined,
   screenActionBar: boolean,
 ): string {
-  const mid = buildReportMid(c, photos, areas, true)
+  const mid = buildReportMid(c, photos, areas)
   return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
 // ── 7. Certificate of Decontamination ─────────────────────────────────────────
 
-function buildCODMid(c: CertificateOfDecontaminationContent, includeCompletion: boolean): string {
+function buildCODMid(c: CertificateOfDecontaminationContent): string {
   return `
     <div style="margin-bottom:18px">
       <div class="label">Date of Works</div><div class="body-text">${esc(c.date_of_works)}</div>
@@ -1047,36 +1005,34 @@ function buildCODMid(c: CertificateOfDecontaminationContent, includeCompletion: 
     </div>
     ${section('Limitations', c.limitations)}
     <div class="sow-muted-box" style="margin-top:22px">${esc(c.certifier_statement)}</div>
-    ${includeCompletion ? completedBySow(c.completed_by) : ''}
   `
 }
 
 function buildCODHTML(c: CertificateOfDecontaminationContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
-  const mid = buildCODMid(c, true)
+  const mid = buildCODMid(c)
   return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
 // ── 8. Waste Disposal Manifest ────────────────────────────────────────────────
 
-function buildWDMMid(c: WasteDisposalManifestContent, includeCompletion: boolean): string {
+function buildWDMMid(c: WasteDisposalManifestContent): string {
   return `
     <div class="label">Collection Date</div><div class="body-text">${esc(c.collection_date)}</div>
     <div class="label">Waste Items</div>
     ${wasteTable(c.waste_items)}
     ${section('Transport Details', c.transport_details)}
     <div class="sow-muted-box" style="margin-top:22px"><strong>Declaration:</strong> ${esc(c.declaration)}</div>
-    ${includeCompletion ? completedBySow(c.completed_by) : ''}
   `
 }
 
 function buildWDMHTML(c: WasteDisposalManifestContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
-  const mid = buildWDMMid(c, true)
+  const mid = buildWDMMid(c)
   return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
 // ── 9. JSA ────────────────────────────────────────────────────────────────────
 
-function buildJSAMid(c: JSAContent, includeCompletion: boolean): string {
+function buildJSAMid(c: JSAContent): string {
   return `
     ${section('Job Description', c.job_description)}
     <div class="label">Steps, Hazards &amp; Controls</div>
@@ -1085,18 +1041,17 @@ function buildJSAMid(c: JSAContent, includeCompletion: boolean): string {
     ${section('Emergency Contacts', c.emergency_contacts)}
     <div class="label">Worker Sign-Off</div>
     <div class="body-text">${esc(c.sign_off)}</div>
-    ${includeCompletion ? completedBySow(c.completed_by) : ''}
   `
 }
 
 function buildJSAHTML(c: JSAContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
-  const mid = buildJSAMid(c, true)
+  const mid = buildJSAMid(c)
   return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
 // ── 10. NDA ───────────────────────────────────────────────────────────────────
 
-function buildNDAMid(c: NDAContent, includeCompletion: boolean): string {
+function buildNDAMid(c: NDAContent): string {
   return `
     ${section('Parties', c.parties)}
     ${section('Confidential Information', c.confidential_information_definition)}
@@ -1105,18 +1060,17 @@ function buildNDAMid(c: NDAContent, includeCompletion: boolean): string {
     ${section('Term', c.term)}
     ${section('Remedies', c.remedies)}
     ${section('Governing Law', c.governing_law)}
-    ${includeCompletion ? completedBySow(c.completed_by) : ''}
   `
 }
 
 function buildNDAHTML(c: NDAContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
-  const mid = buildNDAMid(c, true)
+  const mid = buildNDAMid(c)
   return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
 // ── 11. Risk Assessment ───────────────────────────────────────────────────────
 
-function buildRAMid(c: RiskAssessmentContent, includeCompletion: boolean): string {
+function buildRAMid(c: RiskAssessmentContent): string {
   return `
     <div class="sow-ra-meta">
       <div><div class="label">Site</div><div class="body-text">${esc(c.site_description)}</div></div>
@@ -1130,18 +1084,17 @@ function buildRAMid(c: RiskAssessmentContent, includeCompletion: boolean): strin
     </div>
     ${section('Recommendations', c.recommendations)}
     ${section('Review Date', c.review_date)}
-    ${includeCompletion ? completedBySow(c.completed_by) : ''}
   `
 }
 
 function buildRAHTML(c: RiskAssessmentContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
-  const mid = buildRAMid(c, true)
+  const mid = buildRAMid(c)
   return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
 // ── 12. Assessment document (narrative — same capture shape as Assessment → Document) ─
 
-function buildAssessmentDocumentMid(c: AssessmentDocumentContent, includeCompletion: boolean): string {
+function buildAssessmentDocumentMid(c: AssessmentDocumentContent): string {
   return `
     ${section('Site summary', c.site_summary)}
     ${section('Hazards overview', c.hazards_overview)}
@@ -1149,20 +1102,15 @@ function buildAssessmentDocumentMid(c: AssessmentDocumentContent, includeComplet
     ${section('Control measures', c.control_measures)}
     ${section('Recommendations', c.recommendations)}
     ${section('Limitations', c.limitations)}
-    ${includeCompletion ? completedBySow(c.completed_by) : ''}
   `
 }
 
 function buildAssessmentDocumentHTML(c: AssessmentDocumentContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
-  const mid = buildAssessmentDocumentMid(c, true)
+  const mid = buildAssessmentDocumentMid(c)
   return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
-/** Mid-body HTML only (no shell). Used for composed bundles; omit per-part completion when includeCompletion is false. */
-export interface PrintMidOptions {
-  includeCompletion?: boolean
-}
-
+/** Mid-body HTML only (no shell). Used for composed bundles. */
 export function buildPrintMidHTML(
   type: DocType,
   content: Record<string, unknown>,
@@ -1172,36 +1120,34 @@ export function buildPrintMidHTML(
   jobId: string,
   appUrl: string,
   client: ClientInfo | undefined,
-  options?: PrintMidOptions,
 ): string {
-  const includeCompletion = options?.includeCompletion !== false
   const c = content as Record<string, unknown>
   const groups = groupPhotosByRoomAndStage(photos, areas)
   switch (type) {
     case 'quote':
-      return buildQuoteMid(c as unknown as QuoteContent, photos, groups, company, jobId, appUrl, client, includeCompletion)
+      return buildQuoteMid(c as unknown as QuoteContent, photos, groups, company, jobId, appUrl, client)
     case 'sow':
-      return buildSOWMid(c as unknown as SOWContent, photos, groups, client, areas, includeCompletion)
+      return buildSOWMid(c as unknown as SOWContent, photos, groups)
     case 'swms':
-      return buildSWMSMid(c as unknown as SWMSContent, includeCompletion)
+      return buildSWMSMid(c as unknown as SWMSContent)
     case 'authority_to_proceed':
-      return buildATPMid(c as unknown as AuthorityToProceedContent, includeCompletion)
+      return buildATPMid(c as unknown as AuthorityToProceedContent)
     case 'engagement_agreement':
-      return buildEngagementMid(c as unknown as EngagementAgreementContent, includeCompletion)
+      return buildEngagementMid(c as unknown as EngagementAgreementContent)
     case 'report':
-      return buildReportMid(c as unknown as ReportContent, photos, areas, includeCompletion)
+      return buildReportMid(c as unknown as ReportContent, photos, areas)
     case 'certificate_of_decontamination':
-      return buildCODMid(c as unknown as CertificateOfDecontaminationContent, includeCompletion)
+      return buildCODMid(c as unknown as CertificateOfDecontaminationContent)
     case 'waste_disposal_manifest':
-      return buildWDMMid(c as unknown as WasteDisposalManifestContent, includeCompletion)
+      return buildWDMMid(c as unknown as WasteDisposalManifestContent)
     case 'jsa':
-      return buildJSAMid(c as unknown as JSAContent, includeCompletion)
+      return buildJSAMid(c as unknown as JSAContent)
     case 'nda':
-      return buildNDAMid(c as unknown as NDAContent, includeCompletion)
+      return buildNDAMid(c as unknown as NDAContent)
     case 'risk_assessment':
-      return buildRAMid(c as unknown as RiskAssessmentContent, includeCompletion)
+      return buildRAMid(c as unknown as RiskAssessmentContent)
     case 'assessment_document':
-      return buildAssessmentDocumentMid(c as unknown as AssessmentDocumentContent, includeCompletion)
+      return buildAssessmentDocumentMid(c as unknown as AssessmentDocumentContent)
     default:
       return `<p class="body-text">${esc('Unknown document type')}</p>`
   }
@@ -1228,9 +1174,7 @@ export function buildComposedBundleHTML(
     parts.length > 0 ? referenceFromContent(parts[0].content) : '—'
   const inner = parts
     .map((p, i) => {
-      const mid = buildPrintMidHTML(p.type, p.content, photos, areas, company, jobId, appUrl, client, {
-        includeCompletion: false,
-      })
+      const mid = buildPrintMidHTML(p.type, p.content, photos, areas, company, jobId, appUrl, client)
       const label = DOC_TYPE_LABELS[p.type] ?? p.type
       return `<section class="bundle-part" data-part="${i + 1}"><div class="bundle-part-head"><span class="bundle-part-num">${i + 1}</span><span class="bundle-part-title">${esc(label)}</span></div><div class="bundle-part-body">${mid}</div></section>`
     })

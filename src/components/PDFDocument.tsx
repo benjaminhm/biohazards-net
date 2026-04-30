@@ -9,8 +9,7 @@
  * Supports DocType 'quote', 'sow', 'report', and 'iaq_multi' (3-part bundle).
  *
  * Architecture:
- *   - QuotePDF: renders the line-items pricing table, GST totals, and a
- *     completed-by line (client signing is external, e.g. PandaDoc).
+ *   - QuotePDF: renders the line-items pricing table and GST totals.
  *   - SOWOrReportPDF: renders text sections from the content object. Section
  *     keys differ between sow and report so each has its own key array.
  *   - Header/Footer: shared across all document types. Header uses company logo
@@ -112,10 +111,6 @@ const styles = StyleSheet.create({
   acceptBtn: { backgroundColor: ORANGE, borderRadius: 6, paddingVertical: 10, paddingHorizontal: 20, alignSelf: 'flex-start' },
   acceptBtnText: { fontSize: 11, fontFamily: 'Helvetica-Bold', color: '#FFFFFF' },
   acceptUrlText: { fontSize: 8, color: MUTED, marginTop: 6 },
-  // Signature block
-  sigBlock: { marginTop: 30, paddingTop: 16, borderTopWidth: 1, borderTopColor: BORDER },
-  completedByLine: { marginTop: 6, borderBottomWidth: 1, borderBottomColor: BLACK, paddingBottom: 4, minHeight: 14, maxWidth: 280 },
-  completedByLineText: { fontSize: 10, color: BLACK },
   // Footer
   footer: {
     position: 'absolute', bottom: 20, left: 50, right: 50,
@@ -355,13 +350,6 @@ function QuotePDF({
         <RoomStageSection photos={beforePhotos} areas={areas} label="Site Condition Photos" stages={['assessment', 'before']} />
       )}
 
-      <View style={styles.sigBlock}>
-        <Text style={styles.sectionLabel}>Completed & authorised by</Text>
-        <View style={styles.completedByLine}>
-          <Text style={styles.completedByLineText}>{content.completed_by?.trim() || ' '}</Text>
-        </View>
-      </View>
-
       <Footer company={company} />
     </Page>
   )
@@ -425,12 +413,6 @@ function IaqMultiPDF({
         {ASSESSMENT_PDF_SECTIONS.map(({ key, label }) => (
           <Section key={String(key)} label={label} text={(ad as unknown as Record<string, string>)[key] ?? ''} />
         ))}
-        <View style={styles.sigBlock} wrap={false}>
-          <Text style={styles.sectionLabel}>Completed & authorised by</Text>
-          <View style={styles.completedByLine}>
-            <Text style={styles.completedByLineText}>{plainTextForPdf(ad.completed_by)?.trim() || ' '}</Text>
-          </View>
-        </View>
         <Footer company={company} />
       </Page>
 
@@ -446,12 +428,6 @@ function IaqMultiPDF({
         {beforePhotos.length > 0 && sow.include_photos !== false && (
           <RoomStageSection photos={beforePhotos} areas={areas} label="Site Condition Photos — Evidence of Scope" stages={['assessment', 'before']} />
         )}
-        <View style={styles.sigBlock} wrap={false}>
-          <Text style={styles.sectionLabel}>Completed & authorised by</Text>
-          <View style={styles.completedByLine}>
-            <Text style={styles.completedByLineText}>{plainTextForPdf(sow.completed_by)?.trim() || ' '}</Text>
-          </View>
-        </View>
         <Footer company={company} />
       </Page>
 
@@ -507,12 +483,6 @@ function IaqMultiPDF({
           <RoomStageSection photos={beforePhotos} areas={areas} label="Site Condition Photos" stages={['assessment', 'before']} />
         )}
 
-        <View style={styles.sigBlock} wrap={false}>
-          <Text style={styles.sectionLabel}>Completed & authorised by</Text>
-          <View style={styles.completedByLine}>
-            <Text style={styles.completedByLineText}>{plainTextForPdf(quote.completed_by)?.trim() || ' '}</Text>
-          </View>
-        </View>
         <Footer company={company} />
       </Page>
     </>
@@ -597,15 +567,6 @@ function SOWOrReportPDF({
         />
       )}
 
-      {type === 'sow' && (
-        <View style={styles.sigBlock}>
-          <Text style={styles.sectionLabel}>Completed & authorised by</Text>
-          <View style={styles.completedByLine}>
-            <Text style={styles.completedByLineText}>{(content as SOWContent).completed_by?.trim() || ' '}</Text>
-          </View>
-        </View>
-      )}
-
       <Footer company={company} />
     </Page>
   )
@@ -622,7 +583,7 @@ interface JobPDFDocumentProps {
   siteAddress?: string
 }
 
-export function JobPDFDocument({ type, content, photos, company, jobId, areas = [], siteAddress }: JobPDFDocumentProps) {
+export function JobPDFDocument({ type, content, photos, company, areas = [], siteAddress }: JobPDFDocumentProps) {
   photos = photosForComposedReports(photos)
   const name = company?.name || 'Brisbane Biohazard Cleaning'
   return (
