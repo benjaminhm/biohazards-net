@@ -1,13 +1,19 @@
 /*
- * PATCH /api/jobs/[id]/quote-line-items/run — update active run metadata (GST toggle).
- * Creates an active run if none exists so the toggle works before line items.
+ * PATCH /api/jobs/[id]/quote-line-items/run — update active run metadata (GST mode).
+ * Creates an active run if none exists so GST works before line items.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import { QUOTE_SOURCE_SCHEMA_VERSION, quoteLineItemSourceHash } from '@/lib/quoteLineItemSource'
-import type { AssessmentData, JobType } from '@/lib/types'
+import type { AssessmentData, JobType, QuoteGstMode } from '@/lib/types'
+
+function normalizeGstMode(value: unknown, fallback?: unknown): QuoteGstMode | null {
+  if (value === 'no_gst' || value === 'inclusive' || value === 'exclusive') return value
+  if (typeof fallback === 'boolean') return fallback ? 'exclusive' : 'no_gst'
+  return null
+}
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -16,11 +22,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const { orgId } = await getOrgId(req, userId)
     if (!orgId) return NextResponse.json({ error: 'Organisation unavailable' }, { status: 403 })
     const { id: jobId } = await params
-    const body = (await req.json()) as { add_gst_to_total?: unknown }
-    if (typeof body.add_gst_to_total !== 'boolean') {
-      return NextResponse.json({ error: 'add_gst_to_total boolean required' }, { status: 400 })
+    const body = (await req.json()) as { gst_mode?: unknown; add_gst_to_total?: unknown }
+    const gst_mode = normalizeGstMode(body.gst_mode, body.add_gst_to_total)
+    if (!gst_mode) {
+      return NextResponse.json({ error: 'gst_mode required' }, { status: 400 })
     }
-    const add_gst_to_total = body.add_gst_to_total
+    const add_gst_to_total = gst_mode === 'exclusive'
 
     const supabase = createServiceClient()
     const { data: job } = await supabase
@@ -54,6 +61,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           job_id: jobId,
           target_amount: ad?.target_price ?? null,
           target_price_note: ad?.target_price_note ?? '',
+          gst_mode,
           add_gst_to_total,
           is_active: true,
           source_hash: sourceState.hash,
@@ -69,7 +77,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     } else {
       const updated = await supabase
         .from('quote_line_item_runs')
-        .update({ add_gst_to_total })
+        .update({ gst_mode, add_gst_to_total })
         .eq('id', run.id)
         .eq('org_id', orgId)
         .select()

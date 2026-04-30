@@ -105,10 +105,11 @@ function DocViewerInner() {
           if (docType === 'quote' || docType === 'iaq_multi') {
             const quoteRes = await fetch(`/api/jobs/${jobId}/quote-line-items`).then(r => r.json())
             const rows = (quoteRes.items ?? []) as QuoteLineItemRow[]
+            const gst_mode = quoteRes.run?.gst_mode
             const add_gst_to_total = quoteRes.run?.add_gst_to_total === true
             const outcome_rows = (quoteRes.outcome_rows ?? []) as OutcomeQuoteRow[]
             const outcome_mode = quoteRes.source_mode === 'outcomes' ? 'outcomes' : 'line_items'
-            next = mergeQuoteLineItemsIntoDocContent(docType, next, rows, { add_gst_to_total, outcome_rows, outcome_mode })
+            next = mergeQuoteLineItemsIntoDocContent(docType, next, rows, { gst_mode, add_gst_to_total, outcome_rows, outcome_mode })
           }
           setContent(next)
         }
@@ -146,10 +147,11 @@ function DocViewerInner() {
         if (docType === 'quote' || docType === 'iaq_multi') {
           const quoteRes = await fetch(`/api/jobs/${jobId}/quote-line-items`).then(r => r.json())
           const rows = (quoteRes.items ?? []) as QuoteLineItemRow[]
+          const gst_mode = quoteRes.run?.gst_mode
           const add_gst_to_total = quoteRes.run?.add_gst_to_total === true
           const outcome_rows = (quoteRes.outcome_rows ?? []) as OutcomeQuoteRow[]
           const outcome_mode = quoteRes.source_mode === 'outcomes' ? 'outcomes' : 'line_items'
-          finalComposed = mergeQuoteLineItemsIntoDocContent(docType, composed, rows, { add_gst_to_total, outcome_rows, outcome_mode })
+          finalComposed = mergeQuoteLineItemsIntoDocContent(docType, composed, rows, { gst_mode, add_gst_to_total, outcome_rows, outcome_mode })
         }
         setContent(finalComposed)
         router.replace(`/jobs/${jobId}/docs/${docType}`, { scroll: false })

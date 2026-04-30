@@ -471,6 +471,7 @@ function composeQuote(job: Job): ComposeDocumentResult {
     line_items: [],
     outcome_rows: hasCapture ? cap.rows : undefined,
     outcome_mode: hasCapture ? 'outcomes' : undefined,
+    gst_mode: cap?.gst_mode ?? 'no_gst',
     subtotal: cap?.totals?.subtotal ?? 0,
     gst: cap?.totals?.gst ?? 0,
     total: cap?.totals?.total ?? 0,

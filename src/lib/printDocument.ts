@@ -806,6 +806,10 @@ function buildQuoteMid(
     `
   }).join('')
   const outcomeLayout = outcomeBlocks || `<div class="body-text">Outcome-based quote is enabled for this job. No outcomes have been drafted yet.</div>`
+  const gstMode = c.gst_mode ?? (c.gst > 0 ? 'exclusive' : 'no_gst')
+  const subtotalLabel = gstMode === 'inclusive' ? 'Subtotal (ex GST)' : gstMode === 'exclusive' ? 'Subtotal (ex GST)' : 'Subtotal'
+  const gstLabel = gstMode === 'inclusive' ? 'Includes GST (10%)' : 'GST (10%)'
+  const totalLabel = gstMode === 'no_gst' ? 'TOTAL (NO GST)' : 'TOTAL (INC GST)'
 
   return `
     ${siteLine ? `
@@ -823,9 +827,9 @@ function buildQuoteMid(
     </table>
     `}
     <div class="totals">
-      <div class="tot-row"><span>Subtotal</span><span class="amt">${fmtMoney(c.subtotal)}</span></div>
-      ${c.gst > 0 ? `<div class="tot-row"><span>GST (10%)</span><span class="amt">${fmtMoney(c.gst)}</span></div>` : ''}
-      <div class="tot-row grand"><span>TOTAL</span><span class="amt">${fmtMoney(c.total)}</span></div>
+      <div class="tot-row"><span>${subtotalLabel}</span><span class="amt">${fmtMoney(c.subtotal)}</span></div>
+      ${c.gst > 0 ? `<div class="tot-row"><span>${gstLabel}</span><span class="amt">${fmtMoney(c.gst)}</span></div>` : ''}
+      <div class="tot-row grand"><span>${totalLabel}</span><span class="amt">${fmtMoney(c.total)}</span></div>
     </div>
     ${section('Notes &amp; Conditions', c.notes)}
     ${section('Payment Terms', c.payment_terms)}

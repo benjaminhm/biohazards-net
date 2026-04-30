@@ -297,6 +297,10 @@ function QuotePDF({
   const fmt = (n: number) => `$${Number(n).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
   const beforePhotos = photos.filter(p => p.category === 'before' || p.category === 'assessment').slice(0, 6)
   const site = (siteAddress ?? '').trim()
+  const gstMode = content.gst_mode ?? (content.gst > 0 ? 'exclusive' : 'no_gst')
+  const subtotalLabel = gstMode === 'inclusive' || gstMode === 'exclusive' ? 'Subtotal (ex GST)' : 'Subtotal'
+  const gstLabel = gstMode === 'inclusive' ? 'Includes GST (10%)' : 'GST (10%)'
+  const totalLabel = gstMode === 'no_gst' ? 'TOTAL (NO GST)' : 'TOTAL (INC GST)'
 
   return (
     <Page size="A4" style={styles.page}>
@@ -327,15 +331,17 @@ function QuotePDF({
 
       <View style={styles.totalsBlock}>
         <View style={styles.totalRow}>
-          <Text style={styles.totalLabel}>Subtotal</Text>
+          <Text style={styles.totalLabel}>{subtotalLabel}</Text>
           <Text style={styles.totalValue}>{fmt(content.subtotal)}</Text>
         </View>
+        {content.gst > 0 ? (
+          <View style={styles.totalRow}>
+            <Text style={styles.totalLabel}>{gstLabel}</Text>
+            <Text style={styles.totalValue}>{fmt(content.gst)}</Text>
+          </View>
+        ) : null}
         <View style={styles.totalRow}>
-          <Text style={styles.totalLabel}>GST (10%)</Text>
-          <Text style={styles.totalValue}>{fmt(content.gst)}</Text>
-        </View>
-        <View style={styles.totalRow}>
-          <Text style={styles.grandTotalLabel}>TOTAL</Text>
+          <Text style={styles.grandTotalLabel}>{totalLabel}</Text>
           <Text style={styles.grandTotalValue}>{fmt(content.total)}</Text>
         </View>
       </View>
@@ -394,6 +400,10 @@ function IaqMultiPDF({
 
   const beforePhotos = photos.filter(p => p.category === 'before' || p.category === 'assessment')
   const fmt = (n: number) => `$${Number(n).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const gstMode = quote.gst_mode ?? (quote.gst > 0 ? 'exclusive' : 'no_gst')
+  const subtotalLabel = gstMode === 'inclusive' || gstMode === 'exclusive' ? 'Subtotal (ex GST)' : 'Subtotal'
+  const gstLabel = gstMode === 'inclusive' ? 'Includes GST (10%)' : 'GST (10%)'
+  const totalLabel = gstMode === 'no_gst' ? 'TOTAL (NO GST)' : 'TOTAL (INC GST)'
 
   const sowPdfSections: Array<{ key: keyof SOWContent; label: string }> = [
     { key: 'executive_summary', label: 'Executive Summary' },
@@ -474,15 +484,17 @@ function IaqMultiPDF({
 
         <View style={styles.totalsBlock}>
           <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>Subtotal</Text>
+            <Text style={styles.totalLabel}>{subtotalLabel}</Text>
             <Text style={styles.totalValue}>{fmt(quote.subtotal)}</Text>
           </View>
+          {quote.gst > 0 ? (
+            <View style={styles.totalRow}>
+              <Text style={styles.totalLabel}>{gstLabel}</Text>
+              <Text style={styles.totalValue}>{fmt(quote.gst)}</Text>
+            </View>
+          ) : null}
           <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>GST (10%)</Text>
-            <Text style={styles.totalValue}>{fmt(quote.gst)}</Text>
-          </View>
-          <View style={styles.totalRow}>
-            <Text style={styles.grandTotalLabel}>TOTAL</Text>
+            <Text style={styles.grandTotalLabel}>{totalLabel}</Text>
             <Text style={styles.grandTotalValue}>{fmt(quote.total)}</Text>
           </View>
         </View>

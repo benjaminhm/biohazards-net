@@ -189,6 +189,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           job_id: jobId,
           target_amount: null,
           target_price_note: '',
+          gst_mode: 'no_gst',
           add_gst_to_total: false,
           is_active: true,
           source_hash: currentSourceHash,

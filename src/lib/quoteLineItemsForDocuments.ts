@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { AssessmentData, DocType, OutcomeQuoteRow, QuoteAuthorisation, QuoteLineItemRow } from '@/lib/types'
+import type { AssessmentData, DocType, OutcomeQuoteRow, QuoteAuthorisation, QuoteGstMode, QuoteLineItemRow } from '@/lib/types'
 
 export interface QuoteCaptureFields {
   notes?: string
@@ -9,13 +9,32 @@ export interface QuoteCaptureFields {
 }
 
 /** Map DB quote rows → quote document `line_items` + totals; clear placeholder intro when present. */
+function normalizeGstMode(mode?: unknown, addGstToTotal = false): QuoteGstMode {
+  if (mode === 'no_gst' || mode === 'inclusive' || mode === 'exclusive') return mode
+  return addGstToTotal ? 'exclusive' : 'no_gst'
+}
+
+function computeQuoteTotals(amount: number, gstMode: QuoteGstMode) {
+  const lineSum = Math.round(amount * 100) / 100
+  if (gstMode === 'exclusive') {
+    const gst = Math.round(lineSum * 0.1 * 100) / 100
+    return { subtotal: lineSum, gst, total: Math.round((lineSum + gst) * 100) / 100 }
+  }
+  if (gstMode === 'inclusive') {
+    const gst = Math.round((lineSum / 11) * 100) / 100
+    return { subtotal: Math.round((lineSum - gst) * 100) / 100, gst, total: lineSum }
+  }
+  return { subtotal: lineSum, gst: 0, total: lineSum }
+}
+
 export function quoteLineItemsContentPatch(
   rows: QuoteLineItemRow[],
-  addGstToTotal = false,
+  gstModeOrAddGst: QuoteGstMode | boolean = false,
   outcomeRows?: OutcomeQuoteRow[],
   outcomeMode?: 'outcomes' | 'line_items',
   captureFields?: QuoteCaptureFields,
 ): Record<string, unknown> {
+  const gstMode = typeof gstModeOrAddGst === 'string' ? gstModeOrAddGst : normalizeGstMode(null, gstModeOrAddGst)
   const lineItems = rows.map(row => ({
     description: row.description,
     qty: Number(row.qty || 0),
@@ -29,15 +48,15 @@ export function quoteLineItemsContentPatch(
     : pricedOutcomes.reduce((sum, row) => sum + Number(row.price || 0), 0)
   const subtotal = Math.round(subtotalBase * 100) / 100
   if (!lineItems.length && !(outcomeRows?.length)) return {}
-  const gst = addGstToTotal ? Math.round(subtotal * 0.1 * 100) / 100 : 0
-  const total = Math.round((subtotal + gst) * 100) / 100
+  const totals = computeQuoteTotals(subtotal, gstMode)
   const patch: Record<string, unknown> = {
     line_items: lineItems,
     outcome_rows: outcomeRows ?? [],
     outcome_mode: outcomeMode,
-    subtotal,
-    gst,
-    total,
+    gst_mode: gstMode,
+    subtotal: totals.subtotal,
+    gst: totals.gst,
+    total: totals.total,
     intro: '',
   }
   if (captureFields?.notes) patch.notes = captureFields.notes
@@ -48,6 +67,7 @@ export function quoteLineItemsContentPatch(
 }
 
 export interface MergeQuoteLineItemsOptions {
+  gst_mode?: QuoteGstMode | null
   add_gst_to_total?: boolean
   outcome_rows?: OutcomeQuoteRow[]
   outcome_mode?: 'outcomes' | 'line_items'
@@ -63,7 +83,7 @@ export function mergeQuoteLineItemsIntoDocContent(
 ): Record<string, unknown> {
   const patch = quoteLineItemsContentPatch(
     rows,
-    options?.add_gst_to_total === true,
+    normalizeGstMode(options?.gst_mode, options?.add_gst_to_total === true),
     options?.outcome_rows,
     options?.outcome_mode,
     options?.capture_fields,
@@ -94,6 +114,7 @@ export function mergeQuoteLineItemsIntoDocContent(
 
 export interface QuoteLineItemsMergeContext {
   rows: QuoteLineItemRow[]
+  gst_mode: QuoteGstMode
   add_gst_to_total: boolean
   outcome_rows: OutcomeQuoteRow[]
   outcome_mode: 'outcomes' | 'line_items'
@@ -107,11 +128,11 @@ export async function fetchQuoteLineItemsMergeContext(
 ): Promise<QuoteLineItemsMergeContext> {
   const { data: run, error: runErr } = await supabase
     .from('quote_line_item_runs')
-    .select('id, add_gst_to_total')
+    .select('*')
     .eq('job_id', jobId)
     .eq('is_active', true)
     .maybeSingle()
-  if (runErr || !run) return { rows: [], add_gst_to_total: false, outcome_rows: [], outcome_mode: 'line_items', capture_fields: {} }
+  if (runErr || !run) return { rows: [], gst_mode: 'no_gst', add_gst_to_total: false, outcome_rows: [], outcome_mode: 'line_items', capture_fields: {} }
 
   const { data: items, error } = await supabase
     .from('quote_line_items')
@@ -124,7 +145,8 @@ export async function fetchQuoteLineItemsMergeContext(
     .order('created_at', { ascending: true })
 
   if (error) throw error
-  const add_gst_to_total = Boolean(run.add_gst_to_total)
+  const gst_mode = normalizeGstMode((run as { gst_mode?: unknown }).gst_mode, Boolean(run.add_gst_to_total))
+  const add_gst_to_total = gst_mode === 'exclusive'
   const dbRows = (items ?? []) as QuoteLineItemRow[]
 
   const { data: job } = await supabase
@@ -171,14 +193,14 @@ export async function fetchQuoteLineItemsMergeContext(
       updated_by_user_id: '',
       deleted_at: null,
     }))
-    return { rows: syntheticRows, add_gst_to_total, outcome_rows: outcomeRows, outcome_mode: 'outcomes', capture_fields }
+    return { rows: syntheticRows, gst_mode, add_gst_to_total, outcome_rows: outcomeRows, outcome_mode: 'outcomes', capture_fields }
   }
 
   if (capture?.mode === 'outcomes') {
-    return { rows: dbRows, add_gst_to_total, outcome_rows: outcomeRows, outcome_mode: 'outcomes', capture_fields }
+    return { rows: dbRows, gst_mode, add_gst_to_total, outcome_rows: outcomeRows, outcome_mode: 'outcomes', capture_fields }
   }
 
-  return { rows: dbRows, add_gst_to_total, outcome_rows: [], outcome_mode: 'line_items', capture_fields }
+  return { rows: dbRows, gst_mode, add_gst_to_total, outcome_rows: [], outcome_mode: 'line_items', capture_fields }
 }
 
 /** Active run line items for a job (service client; used by print and server merge). */

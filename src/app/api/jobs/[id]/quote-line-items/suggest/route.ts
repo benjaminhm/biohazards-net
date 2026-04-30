@@ -5,7 +5,7 @@ import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import { getAnthropicApiKey } from '@/lib/loadAnthropicEnvFallback'
 import { mergedSowCapture } from '@/lib/sowCapture'
-import type { AssessmentData, JobType } from '@/lib/types'
+import type { AssessmentData, JobType, QuoteGstMode } from '@/lib/types'
 import {
   QUOTE_SOURCE_SCHEMA_VERSION,
   quoteLineItemSourceHash,
@@ -29,6 +29,11 @@ Rules:
 - TARGETING: Treat target_price_context as a key planning signal for relative workload emphasis and line-item weight allocation.
 - If target_subtotal_ex_gst is provided, prefer a practical distribution of effort that can be back-calculated to that target.
 `
+
+function gstModeFromRun(run: { gst_mode?: unknown; add_gst_to_total?: boolean } | null): QuoteGstMode {
+  if (run?.gst_mode === 'no_gst' || run?.gst_mode === 'inclusive' || run?.gst_mode === 'exclusive') return run.gst_mode
+  return run?.add_gst_to_total === true ? 'exclusive' : 'no_gst'
+}
 
 function parseTarget(targetPrice: number | null, note: string): { subtotal: number | null } {
   if (targetPrice == null || !Number.isFinite(targetPrice)) return { subtotal: null }
@@ -155,12 +160,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     const { data: prevActive } = await supabase
       .from('quote_line_item_runs')
-      .select('add_gst_to_total')
+      .select('*')
       .eq('job_id', jobId)
       .eq('org_id', orgId)
       .eq('is_active', true)
       .maybeSingle()
-    const preserveGst = Boolean((prevActive as { add_gst_to_total?: boolean } | null)?.add_gst_to_total)
+    const preserveGstMode = gstModeFromRun(prevActive as { gst_mode?: unknown; add_gst_to_total?: boolean } | null)
 
     // Regenerate replaces current active suggestions.
     await supabase
@@ -177,7 +182,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         job_id: jobId,
         target_amount: targetPrice,
         target_price_note: targetPriceNote,
-        add_gst_to_total: preserveGst,
+        gst_mode: preserveGstMode,
+        add_gst_to_total: preserveGstMode === 'exclusive',
         is_active: true,
         source_hash: sourceState.hash,
         source_schema_version: QUOTE_SOURCE_SCHEMA_VERSION,
