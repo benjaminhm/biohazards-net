@@ -12,6 +12,7 @@ import { getOrgId } from '@/lib/org'
 import {
   ACTIVE_FIELD_STATUSES,
   FIELD_JOB_SELECT,
+  type FieldAssignedNote,
   type FieldAssignedTask,
   type FieldJobRow,
   type OrgUserAccessRow,
@@ -83,11 +84,23 @@ export async function GET(req: Request) {
         .order('created_at', { ascending: true })
 
       if (taskError) throw taskError
+      const { data: noteRows, error: noteError } = await supabase
+        .from('person_job_notes')
+        .select('id, job_id, note, updated_at')
+        .eq('org_id', orgId)
+        .eq('person_id', access.personId)
+        .in('job_id', jobs.map(job => job.id))
+
+      if (noteError) throw noteError
       const tasksByJob = ((taskRows ?? []) as FieldAssignedTask[]).reduce<Record<string, FieldAssignedTask[]>>((acc, task) => {
         acc[task.job_id] = [...(acc[task.job_id] ?? []), task]
         return acc
       }, {})
-      for (const job of jobs) job.assigned_tasks = tasksByJob[job.id] ?? []
+      const notesByJob = Object.fromEntries(((noteRows ?? []) as FieldAssignedNote[]).map(note => [note.job_id, note]))
+      for (const job of jobs) {
+        job.assigned_tasks = tasksByJob[job.id] ?? []
+        job.assigned_note = notesByJob[job.id] ?? null
+      }
     }
 
     return NextResponse.json({ jobs })

@@ -47,6 +47,9 @@ interface TeamJob {
 interface AssignedTask {
   id: string; job_id: string; person_id: string; body: string; completed: boolean; created_at: string
 }
+interface AssignedNote {
+  id: string; job_id: string; person_id: string; note: string; updated_at: string
+}
 interface Person {
   id: string; name: string; email?: string; phone?: string
   role: string; status: string; notes?: string
@@ -214,8 +217,13 @@ export default function PersonPage() {
   const [togglingJobId, setTogglingJobId] = useState<string | null>(null)
   const [assignedTasks, setAssignedTasks] = useState<AssignedTask[]>([])
   const [taskDrafts, setTaskDrafts]       = useState<Record<string, string>>({})
+  const [taskEditDrafts, setTaskEditDrafts] = useState<Record<string, string>>({})
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
   const [taskBusyId, setTaskBusyId]       = useState<string | null>(null)
   const [taskErrorByJob, setTaskErrorByJob] = useState<Record<string, string>>({})
+  const [assignedNotes, setAssignedNotes] = useState<AssignedNote[]>([])
+  const [noteDrafts, setNoteDrafts]       = useState<Record<string, string>>({})
+  const [noteBusyJobId, setNoteBusyJobId] = useState<string | null>(null)
 
   // Invoice state
   const [invoices, setInvoices]           = useState<InvoiceRow[]>([])
@@ -279,6 +287,8 @@ export default function PersonPage() {
         const tasksRes = await fetch(`/api/people/${person.id}/assigned-tasks`)
         const tasksData = await tasksRes.json()
         setAssignedTasks(tasksData.tasks ?? [])
+        setAssignedNotes(tasksData.notes ?? [])
+        setNoteDrafts(Object.fromEntries((tasksData.notes ?? []).map((n: AssignedNote) => [n.job_id, n.note ?? ''])))
       })
       .finally(() => setJobsLoading(false))
   }, [tab, person])
@@ -339,7 +349,13 @@ export default function PersonPage() {
       })
       if (isAssigned) {
         setAssignedTasks(prev => prev.filter(t => t.job_id !== jobId))
+        setAssignedNotes(prev => prev.filter(n => n.job_id !== jobId))
         setTaskDrafts(prev => {
+          const next = { ...prev }
+          delete next[jobId]
+          return next
+        })
+        setNoteDrafts(prev => {
           const next = { ...prev }
           delete next[jobId]
           return next
@@ -391,6 +407,32 @@ export default function PersonPage() {
     }
   }
 
+  function startEditingTask(task: AssignedTask) {
+    setEditingTaskId(task.id)
+    setTaskEditDrafts(prev => ({ ...prev, [task.id]: task.body }))
+  }
+
+  async function saveAssignedTaskBody(task: AssignedTask) {
+    if (!person) return
+    const body = (taskEditDrafts[task.id] ?? '').trim()
+    if (!body) return
+    setTaskBusyId(task.id)
+    try {
+      const res = await fetch(`/api/people/${person.id}/assigned-tasks`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task_id: task.id, body }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        setAssignedTasks(prev => prev.map(t => t.id === task.id ? data.task : t))
+        setEditingTaskId(null)
+      }
+    } finally {
+      setTaskBusyId(null)
+    }
+  }
+
   async function deleteAssignedTask(task: AssignedTask) {
     if (!person) return
     setTaskBusyId(task.id)
@@ -405,6 +447,30 @@ export default function PersonPage() {
       if (!res.ok) setAssignedTasks(previous)
     } finally {
       setTaskBusyId(null)
+    }
+  }
+
+  async function saveAssignedNote(jobId: string) {
+    if (!person) return
+    setNoteBusyJobId(jobId)
+    setTaskErrorByJob(prev => ({ ...prev, [jobId]: '' }))
+    try {
+      const res = await fetch(`/api/people/${person.id}/assigned-tasks`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ job_id: jobId, note: noteDrafts[jobId] ?? '' }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setTaskErrorByJob(prev => ({ ...prev, [jobId]: data.error ?? 'Could not save note' }))
+        return
+      }
+      setAssignedNotes(prev => {
+        const without = prev.filter(n => n.job_id !== jobId)
+        return data.note?.note ? [...without, data.note] : without
+      })
+    } finally {
+      setNoteBusyJobId(null)
     }
   }
 
@@ -498,6 +564,7 @@ export default function PersonPage() {
     acc[task.job_id] = [...(acc[task.job_id] ?? []), task]
     return acc
   }, {})
+  const notesByJob = Object.fromEntries(assignedNotes.map(note => [note.job_id, note]))
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', paddingBottom: 80 }}>
@@ -594,7 +661,7 @@ export default function PersonPage() {
         ))}
       </div>
 
-      <div style={{ maxWidth: 600, margin: '0 auto', padding: '20px 16px' }}>
+      <div style={{ maxWidth: tab === 'jobs' ? 1120 : 600, margin: '0 auto', padding: '20px 16px' }}>
 
         {/* ── Profile ── */}
         {tab === 'profile' && (
@@ -1003,12 +1070,13 @@ export default function PersonPage() {
                 <div style={{ fontSize: 13 }}>Create a job first to assign team members.</div>
               </div>
             ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 420px), 1fr))', gap: 14 }}>
                 {allJobs.map(job => {
                   const assigned = assignedJobIds.has(job.id)
                   const toggling = togglingJobId === job.id
                   const closed = job.status === 'completed' || job.status === 'cancelled'
                   const jobTasks = tasksByJob[job.id] ?? []
+                  const jobNote = notesByJob[job.id]
                   const completedCount = jobTasks.filter(t => t.completed).length
                   return (
                     <div key={job.id} style={{
@@ -1121,25 +1189,76 @@ export default function PersonPage() {
                                     >
                                       {task.completed ? '✓' : ''}
                                     </button>
-                                    <div style={{
-                                      flex: 1,
-                                      fontSize: 12,
-                                      lineHeight: 1.45,
-                                      color: task.completed ? 'var(--text-muted)' : 'var(--text)',
-                                      textDecoration: task.completed ? 'line-through' : 'none',
-                                      whiteSpace: 'pre-wrap',
-                                    }}>
-                                      {task.body}
-                                    </div>
-                                    <button
-                                      type="button"
-                                      onClick={() => deleteAssignedTask(task)}
-                                      disabled={taskBusyId === task.id}
-                                      aria-label="Delete task"
-                                      style={{ border: 'none', background: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 0, fontSize: 14, lineHeight: 1 }}
-                                    >
-                                      ×
-                                    </button>
+                                    {editingTaskId === task.id ? (
+                                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                        <input
+                                          value={taskEditDrafts[task.id] ?? ''}
+                                          onChange={e => setTaskEditDrafts(prev => ({ ...prev, [task.id]: e.target.value }))}
+                                          onKeyDown={e => {
+                                            if (e.key === 'Enter') saveAssignedTaskBody(task)
+                                            if (e.key === 'Escape') setEditingTaskId(null)
+                                          }}
+                                          autoFocus
+                                          style={{
+                                            width: '100%',
+                                            padding: '7px 8px',
+                                            borderRadius: 7,
+                                            border: '1px solid var(--border)',
+                                            background: 'var(--bg)',
+                                            color: 'var(--text)',
+                                            fontSize: 12,
+                                          }}
+                                        />
+                                        <div style={{ display: 'flex', gap: 6 }}>
+                                          <button
+                                            type="button"
+                                            onClick={() => saveAssignedTaskBody(task)}
+                                            disabled={taskBusyId === task.id || !(taskEditDrafts[task.id] ?? '').trim()}
+                                            style={{ padding: '5px 8px', borderRadius: 7, border: 'none', background: 'var(--accent)', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+                                          >
+                                            Save
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => setEditingTaskId(null)}
+                                            style={{ padding: '5px 8px', borderRadius: 7, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-muted)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+                                          >
+                                            Cancel
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <>
+                                        <button
+                                          type="button"
+                                          onClick={() => startEditingTask(task)}
+                                          style={{
+                                            flex: 1,
+                                            border: 'none',
+                                            background: 'none',
+                                            padding: 0,
+                                            textAlign: 'left',
+                                            fontSize: 12,
+                                            lineHeight: 1.45,
+                                            color: task.completed ? 'var(--text-muted)' : 'var(--text)',
+                                            textDecoration: task.completed ? 'line-through' : 'none',
+                                            whiteSpace: 'pre-wrap',
+                                            cursor: 'text',
+                                          }}
+                                        >
+                                          {task.body}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => deleteAssignedTask(task)}
+                                          disabled={taskBusyId === task.id}
+                                          aria-label="Delete task"
+                                          style={{ border: 'none', background: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 0, fontSize: 14, lineHeight: 1 }}
+                                        >
+                                          ×
+                                        </button>
+                                      </>
+                                    )}
                                   </div>
                                 ))}
                               </div>
@@ -1186,6 +1305,56 @@ export default function PersonPage() {
                             {taskErrorByJob[job.id] && (
                               <div style={{ marginTop: 8, fontSize: 12, color: '#F87171' }}>{taskErrorByJob[job.id]}</div>
                             )}
+
+                            <div style={{ marginTop: 12, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                                <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)' }}>
+                                  Job note
+                                </div>
+                                {jobNote?.updated_at && (
+                                  <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                                    Saved {new Date(jobNote.updated_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}
+                                  </div>
+                                )}
+                              </div>
+                              <textarea
+                                value={noteDrafts[job.id] ?? ''}
+                                onChange={e => setNoteDrafts(prev => ({ ...prev, [job.id]: e.target.value }))}
+                                placeholder={`Private job note for ${person.name.split(' ')[0]}...`}
+                                rows={3}
+                                style={{
+                                  width: '100%',
+                                  boxSizing: 'border-box',
+                                  padding: '9px 10px',
+                                  borderRadius: 9,
+                                  border: '1px solid var(--border)',
+                                  background: 'var(--bg)',
+                                  color: 'var(--text)',
+                                  fontSize: 12,
+                                  resize: 'vertical',
+                                }}
+                              />
+                              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+                                <button
+                                  type="button"
+                                  onClick={() => saveAssignedNote(job.id)}
+                                  disabled={noteBusyJobId === job.id || (noteDrafts[job.id] ?? '') === (jobNote?.note ?? '')}
+                                  style={{
+                                    padding: '8px 12px',
+                                    borderRadius: 9,
+                                    border: 'none',
+                                    background: 'var(--accent)',
+                                    color: '#fff',
+                                    fontWeight: 700,
+                                    fontSize: 12,
+                                    cursor: 'pointer',
+                                    opacity: noteBusyJobId === job.id || (noteDrafts[job.id] ?? '') === (jobNote?.note ?? '') ? 0.5 : 1,
+                                  }}
+                                >
+                                  {noteBusyJobId === job.id ? 'Saving...' : 'Save note'}
+                                </button>
+                              </div>
+                            </div>
                           </>
                         )}
                       </div>

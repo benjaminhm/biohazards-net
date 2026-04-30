@@ -32,6 +32,7 @@ interface FieldJob {
   site_address: string
   scheduled_at: string | null
   assigned_tasks?: { id: string; body: string; completed: boolean }[]
+  assigned_note?: { id: string; note: string; updated_at: string } | null
 }
 
 const JOB_TYPE_LABELS: Record<string, string> = {
@@ -259,6 +260,7 @@ function FieldJobCard({ job, onClick, highlight }: {
   const schedule = job.scheduled_at ? fmtSchedule(job.scheduled_at) : null
   const tasks = job.assigned_tasks ?? []
   const openTasks = tasks.filter(task => !task.completed)
+  const note = (job.assigned_note?.note ?? '').trim()
 
   return (
     <button
@@ -328,6 +330,17 @@ function FieldJobCard({ job, onClick, highlight }: {
               +{tasks.length - 3} more
             </div>
           )}
+        </div>
+      )}
+
+      {note && (
+        <div style={{ marginTop: tasks.length > 0 ? 10 : 12, padding: '10px 12px', borderRadius: 10, background: 'rgba(96,165,250,0.08)', border: '1px solid rgba(96,165,250,0.18)' }}>
+          <div style={{ fontSize: 10, fontWeight: 800, color: '#60A5FA', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>
+            Job note
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text)', lineHeight: 1.4, whiteSpace: 'pre-wrap' }}>
+            {note}
+          </div>
         </div>
       )}
     </button>

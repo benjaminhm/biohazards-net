@@ -11,6 +11,7 @@ import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 
 const MAX_TASK_BODY = 5000
+const MAX_JOB_NOTE = 50000
 
 async function assertPerson(
   supabase: ReturnType<typeof createServiceClient>,
@@ -55,18 +56,81 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       return NextResponse.json({ error: 'Person not found' }, { status: 404 })
     }
 
-    const { data, error } = await supabase
-      .from('person_job_tasks')
-      .select('*')
-      .eq('org_id', orgId)
-      .eq('person_id', personId)
-      .order('created_at', { ascending: true })
+    const [tasksRes, notesRes] = await Promise.all([
+      supabase
+        .from('person_job_tasks')
+        .select('*')
+        .eq('org_id', orgId)
+        .eq('person_id', personId)
+        .order('created_at', { ascending: true }),
+      supabase
+        .from('person_job_notes')
+        .select('*')
+        .eq('org_id', orgId)
+        .eq('person_id', personId)
+        .order('updated_at', { ascending: false }),
+    ])
 
-    if (error) throw error
-    return NextResponse.json({ tasks: data ?? [] })
+    if (tasksRes.error) throw tasksRes.error
+    if (notesRes.error) throw notesRes.error
+    return NextResponse.json({ tasks: tasksRes.data ?? [], notes: notesRes.data ?? [] })
   } catch (e: unknown) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : 'Could not load assigned tasks' },
+      { status: 500 },
+    )
+  }
+}
+
+export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const { userId } = await auth()
+    if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const { orgId } = await getOrgId(req, userId)
+    if (!orgId) return NextResponse.json({ error: 'Organisation unavailable' }, { status: 403 })
+    const { id: personId } = await params
+    const body = (await req.json()) as { job_id?: string; note?: string }
+    const jobId = (body.job_id ?? '').trim()
+    const note = String(body.note ?? '').slice(0, MAX_JOB_NOTE)
+    if (!jobId) return NextResponse.json({ error: 'job_id is required' }, { status: 400 })
+
+    const supabase = createServiceClient()
+    if (!(await assertPerson(supabase, personId, orgId))) {
+      return NextResponse.json({ error: 'Person not found' }, { status: 404 })
+    }
+    if (!(await assertAssignedJob(supabase, personId, jobId, orgId))) {
+      return NextResponse.json({ error: 'Assign this person to the job before adding a note' }, { status: 400 })
+    }
+
+    const now = new Date().toISOString()
+    const { data: existing } = await supabase
+      .from('person_job_notes')
+      .select('created_at, created_by_user_id')
+      .eq('org_id', orgId)
+      .eq('person_id', personId)
+      .eq('job_id', jobId)
+      .maybeSingle()
+
+    const { data, error } = await supabase
+      .from('person_job_notes')
+      .upsert({
+        org_id: orgId,
+        person_id: personId,
+        job_id: jobId,
+        note,
+        created_at: existing?.created_at ?? now,
+        updated_at: now,
+        created_by_user_id: existing?.created_by_user_id ?? userId,
+        updated_by_user_id: userId,
+      }, { onConflict: 'org_id,person_id,job_id' })
+      .select()
+      .single()
+
+    if (error) throw error
+    return NextResponse.json({ note: data })
+  } catch (e: unknown) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : 'Could not save job note' },
       { status: 500 },
     )
   }
