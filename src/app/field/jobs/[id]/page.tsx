@@ -47,10 +47,34 @@ interface FieldPhoto {
   location_place_id?: string | null
 }
 
+interface FieldPreStartBriefing {
+  id: string
+  job_id: string
+  title: string
+  description: string
+  video_url: string
+  thumbnail_url: string | null
+  created_at: string
+  updated_at: string
+}
+
+interface FieldPreStartAcknowledgement {
+  id: string
+  briefing_id: string
+  job_id: string
+  person_id: string
+  viewed_at: string | null
+  acknowledged_at: string | null
+  updated_at: string
+}
+
 interface FieldJobResponse {
   job?: FieldJob
   contacts?: FieldTeamContact[]
   photos?: FieldPhoto[]
+  prestart_briefings?: FieldPreStartBriefing[]
+  prestart_acknowledgements?: FieldPreStartAcknowledgement[]
+  current_person_id?: string | null
   error?: string
 }
 
@@ -99,10 +123,14 @@ export default function FieldJobPage() {
   const [job, setJob] = useState<FieldJob | null>(null)
   const [contacts, setContacts] = useState<FieldTeamContact[]>([])
   const [photos, setPhotos] = useState<FieldPhoto[]>([])
+  const [prestartBriefings, setPrestartBriefings] = useState<FieldPreStartBriefing[]>([])
+  const [prestartAcknowledgements, setPrestartAcknowledgements] = useState<FieldPreStartAcknowledgement[]>([])
+  const [currentPersonId, setCurrentPersonId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const [photoError, setPhotoError] = useState('')
+  const [ackBusyId, setAckBusyId] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -115,6 +143,9 @@ export default function FieldJobPage() {
         setJob(data.job ?? null)
         setContacts(data.contacts ?? [])
         setPhotos(data.photos ?? [])
+        setPrestartBriefings(data.prestart_briefings ?? [])
+        setPrestartAcknowledgements(data.prestart_acknowledgements ?? [])
+        setCurrentPersonId(data.current_person_id ?? null)
       })
       .catch(err => {
         if (cancelled) return
@@ -133,6 +164,26 @@ export default function FieldJobPage() {
     const data = (await res.json()) as FieldJobResponse
     if (!res.ok) throw new Error(data.error || 'Could not refresh photos')
     setPhotos(data.photos ?? [])
+  }
+
+  async function acknowledgeBriefing(briefingId: string) {
+    if (ackBusyId) return
+    setAckBusyId(briefingId)
+    try {
+      const res = await fetch(`/api/field/jobs/${id}/prestart-briefings/${briefingId}/acknowledge`, {
+        method: 'POST',
+      })
+      const data = (await res.json()) as { acknowledgement?: FieldPreStartAcknowledgement; error?: string }
+      if (!res.ok || !data.acknowledgement) throw new Error(data.error || 'Could not acknowledge briefing')
+      setPrestartAcknowledgements(prev => {
+        const without = prev.filter(ack => ack.briefing_id !== briefingId)
+        return [data.acknowledgement!, ...without]
+      })
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Could not acknowledge briefing')
+    } finally {
+      setAckBusyId(null)
+    }
   }
 
   async function handlePhotoSelected(file: File | undefined) {
@@ -283,6 +334,26 @@ export default function FieldJobPage() {
           </InfoCard>
         )}
 
+        {prestartBriefings.length > 0 && (
+          <InfoCard title={`Pre-start Briefing (${prestartBriefings.length})`}>
+            <div style={{ display: 'grid', gap: 12 }}>
+              {prestartBriefings.map(briefing => {
+                const acknowledgement = prestartAcknowledgements.find(ack => ack.briefing_id === briefing.id)
+                return (
+                  <PreStartBriefingCard
+                    key={briefing.id}
+                    briefing={briefing}
+                    acknowledgement={acknowledgement}
+                    canAcknowledge={!!currentPersonId}
+                    busy={ackBusyId === briefing.id}
+                    onAcknowledge={() => acknowledgeBriefing(briefing.id)}
+                  />
+                )
+              })}
+            </div>
+          </InfoCard>
+        )}
+
         <InfoCard
           title={`Photos (${photos.length})`}
           action={
@@ -398,6 +469,69 @@ function NoteBlock({ label, value }: { label: string; value: string }) {
         {label}
       </div>
       {value}
+    </div>
+  )
+}
+
+function PreStartBriefingCard({
+  briefing,
+  acknowledgement,
+  canAcknowledge,
+  busy,
+  onAcknowledge,
+}: {
+  briefing: FieldPreStartBriefing
+  acknowledgement?: FieldPreStartAcknowledgement
+  canAcknowledge: boolean
+  busy: boolean
+  onAcknowledge: () => void
+}) {
+  const acknowledged = !!acknowledgement?.acknowledged_at
+  return (
+    <div style={{
+      border: acknowledged ? '1px solid rgba(74,222,128,0.35)' : '1px solid var(--border)',
+      background: acknowledged ? 'rgba(74,222,128,0.06)' : 'var(--surface-2)',
+      borderRadius: 12,
+      padding: 13,
+    }}>
+      {briefing.thumbnail_url && (
+        <a href={briefing.video_url} target="_blank" rel="noreferrer" style={{ display: 'block', marginBottom: 10 }}>
+          <div
+            aria-label=""
+            style={{
+              width: '100%',
+              height: 180,
+              background: `url(${briefing.thumbnail_url}) center / cover`,
+              borderRadius: 10,
+              border: '1px solid var(--border)',
+            }}
+          />
+        </a>
+      )}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 15, fontWeight: 850, lineHeight: 1.25 }}>{briefing.title}</div>
+          <div style={{ color: acknowledged ? '#4ADE80' : 'var(--text-muted)', fontSize: 11, fontWeight: 800, marginTop: 4 }}>
+            {acknowledged ? `Acknowledged ${formatDateTime(acknowledgement!.acknowledged_at!)}` : 'Acknowledgement required'}
+          </div>
+        </div>
+        <a href={briefing.video_url} target="_blank" rel="noreferrer" style={contactActionStyle(true)}>
+          Watch
+        </a>
+      </div>
+      {briefing.description && (
+        <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.55, whiteSpace: 'pre-wrap', marginBottom: 12 }}>
+          {briefing.description}
+        </div>
+      )}
+      <button
+        className={acknowledged ? 'btn btn-secondary' : 'btn btn-primary'}
+        disabled={busy || acknowledged || !canAcknowledge}
+        onClick={onAcknowledge}
+        style={{ width: '100%', fontSize: 13 }}
+      >
+        {acknowledged ? 'Watched and Understood' : busy ? 'Saving...' : 'I watched and understand'}
+      </button>
     </div>
   )
 }

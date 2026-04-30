@@ -59,6 +59,7 @@ import ProgressPhotosTab from '@/components/tabs/ProgressPhotosTab'
 import CompletionReportTab from '@/components/tabs/CompletionReportTab'
 import PerExecuteCapturePanel from '@/components/tabs/PerExecuteCapturePanel'
 import CompanyLetterTab from '@/components/tabs/CompanyLetterTab'
+import PreStartBriefingTab from '@/components/tabs/PreStartBriefingTab'
 import { useUser } from '@/lib/userContext'
 import {
   UnsavedChangesProvider,
@@ -66,7 +67,7 @@ import {
   useUnsavedChanges,
 } from '@/lib/unsavedChangesContext'
 
-type Tab = 'home' | 'docs' | 'details' | 'timeline' | 'assessment' | 'case_studies' | 'scope_capture' | 'quote_capture' | 'pre_remediation_checklist_capture' | 'progress_capture' | 'progress_notes_capture' | 'quality_checks_capture' | 'recommendations_capture' | 'progress_report_generate' | 'client_feedback_capture' | 'team_feedback_capture' | 'engagement_agreement_capture' | 'nda_capture' | 'authority_to_proceed_capture' | 'swms_capture' | 'jsa_capture' | 'risk_assessment_capture' | 'waste_disposal_manifest_capture' | 'iaq_multi_capture' | 'quote' | 'photos' | 'messages' | 'invoice' | 'company_letter'
+type Tab = 'home' | 'docs' | 'details' | 'timeline' | 'assessment' | 'case_studies' | 'scope_capture' | 'quote_capture' | 'pre_remediation_checklist_capture' | 'progress_capture' | 'progress_notes_capture' | 'quality_checks_capture' | 'recommendations_capture' | 'progress_report_generate' | 'client_feedback_capture' | 'team_feedback_capture' | 'engagement_agreement_capture' | 'nda_capture' | 'authority_to_proceed_capture' | 'swms_capture' | 'jsa_capture' | 'risk_assessment_capture' | 'waste_disposal_manifest_capture' | 'iaq_multi_capture' | 'quote' | 'photos' | 'messages' | 'invoice' | 'company_letter' | 'prestart_briefing'
 
 /**
  * Home sub-tabs — sequential remediation workflow phases rendered as an empty-room strip
@@ -592,6 +593,8 @@ function pageTitleForTab(tab: Tab, job: Job): string {
       return 'Invoice'
     case 'company_letter':
       return 'Company Letter'
+    case 'prestart_briefing':
+      return 'Pre-start Briefing'
     default:
       return 'Job'
   }
@@ -964,6 +967,7 @@ export default function JobPage() {
     { id: 'timeline',       label: 'Timeline',       show: true },
     { id: 'case_studies',   label: 'Case Studies',   show: org?.features?.case_studies_tab === true },
     { id: 'photos',         label: `Photos${photos.length ? ` (${photos.length})` : ''}`, show: caps.upload_photos_assigned || caps.upload_photos_any },
+    { id: 'prestart_briefing', label: 'Pre-start Briefing', show: true },
     { id: 'docs',           label: 'Docs',           show: true },
     { id: 'company_letter', label: 'Company Letter', show: true },
     { id: 'messages',       label: job.inbound_email_address ? (unreadSms > 0 ? `💬 Messages (${unreadSms})` : '💬 Messages') : (unreadSms > 0 ? `💬 SMS (${unreadSms})` : '💬 SMS'), show: caps.send_sms && isActiveJob },
@@ -1789,6 +1793,9 @@ export default function JobPage() {
             onAssessmentDataUpdate={(assessment_data) => setJob(prev => prev ? { ...prev, assessment_data } : prev)}
             onPhotosUpdate={setPhotos}
           />
+        )}
+        {activeTab === 'prestart_briefing' && (
+          <PreStartBriefingTab job={job} />
         )}
         {activeTab === 'docs' && (
           <>

@@ -99,7 +99,12 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     if (jobError) throw jobError
     if (!job) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
 
-    const [{ data: assignmentRows, error: teamError }, { data: photoRows, error: photoError }] = await Promise.all([
+    const [
+      { data: assignmentRows, error: teamError },
+      { data: photoRows, error: photoError },
+      { data: briefingRows, error: briefingError },
+      { data: acknowledgementRows, error: acknowledgementError },
+    ] = await Promise.all([
       supabase
         .from('job_assignments')
         .select('person_id, people(id, name, role, phone, email)')
@@ -113,10 +118,26 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
             .eq('job_id', jobId)
             .order('uploaded_at', { ascending: false })
         : Promise.resolve({ data: [], error: null }),
+      supabase
+        .from('job_prestart_briefings')
+        .select('id, job_id, title, description, video_url, thumbnail_url, created_at, updated_at')
+        .eq('job_id', jobId)
+        .eq('org_id', orgId)
+        .order('created_at', { ascending: true }),
+      access.personId
+        ? supabase
+            .from('job_prestart_acknowledgements')
+            .select('id, briefing_id, job_id, person_id, viewed_at, acknowledged_at, updated_at')
+            .eq('job_id', jobId)
+            .eq('org_id', orgId)
+            .eq('person_id', access.personId)
+        : Promise.resolve({ data: [], error: null }),
     ])
 
     if (teamError) throw teamError
     if (photoError) throw photoError
+    if (briefingError) throw briefingError
+    if (acknowledgementError) throw acknowledgementError
 
     const assignments = (assignmentRows ?? []) as AssignmentRow[]
     const personIds = assignments.map(assignment => assignment.person_id).filter(Boolean)
@@ -153,6 +174,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       job: sanitizeFieldJob(job as unknown as FieldJobRow),
       contacts,
       photos: (photoRows ?? []) as FieldPhoto[],
+      prestart_briefings: briefingRows ?? [],
+      prestart_acknowledgements: acknowledgementRows ?? [],
+      current_person_id: access.personId,
       permissions: access.capabilities,
     })
   } catch (err: unknown) {

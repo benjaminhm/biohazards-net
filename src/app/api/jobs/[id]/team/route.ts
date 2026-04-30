@@ -166,6 +166,12 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
     .eq('job_id', jobId)
     .eq('person_id', person_id)
     .eq('org_id', orgId)
+  await supabase
+    .from('job_prestart_acknowledgements')
+    .delete()
+    .eq('job_id', jobId)
+    .eq('person_id', person_id)
+    .eq('org_id', orgId)
 
   const { error } = await supabase
     .from('job_assignments')
