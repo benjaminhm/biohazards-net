@@ -174,6 +174,7 @@ function cssSowPrint(): string {
     .sow-root .photos-grid-single { grid-template-columns: 1fr; }
     .sow-root .photo-card { border: 1px solid var(--sow-rule); border-radius: 7px; overflow: hidden; }
     .sow-root .photo-card img { width: 100%; height: 210px; object-fit: cover; display: block; background: #f5f5f5; }
+    .sow-root .photos-grid-single .photo-card img { height: auto; object-fit: contain; }
     .sow-root .photo-meta { padding: 10px 12px; }
     .sow-root .photo-area { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--sow-blue); }
     .sow-root .photo-cap { font-size: 12px; color: var(--sow-mid); margin-top: 3px; }

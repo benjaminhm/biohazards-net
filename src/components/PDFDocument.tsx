@@ -98,7 +98,7 @@ const styles = StyleSheet.create({
   photoItem: { width: '47%', marginBottom: 10 },
   photoItemFull: { width: '100%', marginBottom: 10 },
   photoImage: { width: '100%', height: 120, objectFit: 'cover', borderRadius: 4, borderWidth: 1, borderColor: '#E5E5E5' },
-  photoImageFull: { width: '100%', height: 220, objectFit: 'cover', borderRadius: 4, borderWidth: 1, borderColor: '#E5E5E5' },
+  photoImageFull: { width: '100%', objectFit: 'contain', borderRadius: 4, borderWidth: 1, borderColor: '#E5E5E5' },
   photoAreaBadge: { fontSize: 7, fontFamily: 'Helvetica-Bold', color: ORANGE, textTransform: 'uppercase', marginTop: 4, marginBottom: 2 },
   photoNote: { fontSize: 8, color: MUTED, lineHeight: 1.4 },
   photoNoNote: { fontSize: 8, color: '#BBBBBB', fontStyle: 'italic' },
