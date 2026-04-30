@@ -275,8 +275,8 @@ export default function CompletionReportTab({ job, photos, onJobUpdate }: Props)
           Suggest content (Claude)
         </div>
         <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5, margin: '0 0 14px' }}>
-          Drafts all completion report fields and PER silos from Scope of Work, progress notes, room notes, and photo
-          metadata. Review and edit before saving. Does not persist until you save below.
+          Drafts all completion report fields and PER silos from Scope of Work, progress notes, room notes, and internal
+          photo context. Review and edit before saving. Does not persist until you save below.
         </p>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', marginBottom: 12 }}>
           <label style={{ fontSize: 13, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 8 }}>

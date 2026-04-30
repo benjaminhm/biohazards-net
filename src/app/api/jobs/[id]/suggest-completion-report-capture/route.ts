@@ -24,6 +24,7 @@ RULES:
 - Ground every statement in the provided data. Do NOT invent incidents, clearance results, legal commitments, or client quotes not supported by the JSON.
 - You MAY use standard industry-typical language when it clearly follows from the notes and job type described.
 - Write clear, professional prose suitable for a completion report. Align each JSON key to its purpose (see user message).
+- Use photo metadata only as internal context. Do NOT output raw metadata such as category labels, capture_phase values, timestamps, file IDs, or numbered metadata lists in report fields.
 - Australian English.
 
 Respond ONLY with valid JSON (no markdown fences). Shape exactly:
@@ -53,7 +54,7 @@ Field intent:
 - methodology: Planned or actual approach; tie to SOW methodology when present.
 - products_used: Chemicals, equipment, PPE if inferable; else brief neutral line or empty.
 - waste_disposal: Waste/manifest narrative for the report section.
-- photo_record: Summarise progress evidence photos (categories, areas) from metadata.
+- photo_record: Client-facing summary of photographic evidence. Mention captions only where useful; do not list raw app metadata.
 - outcome: Completion statement, limitations/exclusions not contradicted by data.
 - technician_signoff: Empty unless you have a real name/role in context; usually leave "".
 - recommendations / quality_checks / waste_manifest_notes: PER silos — client follow-up, QC/verification, waste detail.

@@ -210,7 +210,7 @@ DOCUMENT STRUCTURE — return ONLY valid JSON with no markdown, no code fences, 
   "methodology": "methodology used for this specific job type and contamination level",
   "products_used": "cleaning agents, PPE, and equipment appropriate for this biohazard type",
   "waste_disposal": "volume and disposal method — reference Australian EPA classification",
-  "photo_record": "factual summary of progress photographic evidence — ${progressPhotos.length} during/after photos. Reference specific after-photo notes as proof of completion.",
+  "photo_record": "client-facing summary of progress photographic evidence. Reference useful photo notes as proof of completion, but do not include raw app metadata such as category labels, capture phase, upload timestamps, file IDs, or numbered metadata lists.",
   "outcome": "statement that remediation is complete and site has been returned to safe condition — reference the after photos as evidence",
   "technician_signoff": "This report certifies that biohazard remediation was carried out in accordance with Australian standards and best practice"
 }
@@ -218,5 +218,5 @@ DOCUMENT STRUCTURE — return ONLY valid JSON with no markdown, no code fences, 
 Job ID for reference: ${job.id}
 Today's date: ${new Date().toISOString().slice(0, 10).replace(/-/g, '')}
 
-Write factually and authoritatively. Use the photo notes as direct evidence throughout. This document may be used for insurance or legal purposes. Return ONLY the JSON object.`
+Write factually and authoritatively. Use the photo notes as direct evidence throughout, but keep internal photo metadata out of the report. This document may be used for insurance or legal purposes. Return ONLY the JSON object.`
 }

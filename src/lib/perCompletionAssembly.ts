@@ -51,13 +51,16 @@ export function formatSowPlannedSummary(ad: AssessmentData | null | undefined): 
 export function formatProgressPhotosForReport(photos: Photo[]): string {
   const list = photos.filter(isProgressEvidencePhoto)
   if (list.length === 0) return ''
-  const lines = list.map((p, i) => {
-    const area = (p.area_ref || '').trim() || '—'
-    const cap = (p.caption || '').trim() || '—'
-    const phase = p.capture_phase === 'progress' ? 'progress' : p.capture_phase ?? '—'
-    return `${i + 1}. ${p.category} | ${phase} | ${area}\n   ${cap}`
-  })
-  return `Progress photo record (${list.length})\n\n${lines.join('\n\n')}`
+  const captionLines = list
+    .map(p => (p.caption || '').trim())
+    .filter(Boolean)
+    .map((caption, i) => `${i + 1}. ${caption}`)
+
+  if (captionLines.length === 0) {
+    return 'Progress photographic evidence was captured and retained in the job file.'
+  }
+
+  return `Progress photographic evidence was captured and retained in the job file.\n\n${captionLines.join('\n')}`
 }
 
 function activeProgressNotes(notes: ProgressNote[]): ProgressNote[] {

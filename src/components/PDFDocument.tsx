@@ -96,7 +96,9 @@ const styles = StyleSheet.create({
   // Photos section
   photoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 8 },
   photoItem: { width: '47%', marginBottom: 10 },
+  photoItemFull: { width: '100%', marginBottom: 10 },
   photoImage: { width: '100%', height: 120, objectFit: 'cover', borderRadius: 4, borderWidth: 1, borderColor: '#E5E5E5' },
+  photoImageFull: { width: '100%', height: 220, objectFit: 'cover', borderRadius: 4, borderWidth: 1, borderColor: '#E5E5E5' },
   photoAreaBadge: { fontSize: 7, fontFamily: 'Helvetica-Bold', color: ORANGE, textTransform: 'uppercase', marginTop: 4, marginBottom: 2 },
   photoNote: { fontSize: 8, color: MUTED, lineHeight: 1.4 },
   photoNoNote: { fontSize: 8, color: '#BBBBBB', fontStyle: 'italic' },
@@ -199,24 +201,34 @@ function Section({ label, text }: { label: string; text: string }) {
   )
 }
 
-function PhotoSection({ photos, label }: { photos: PhotoWithData[]; label: string }) {
+function PhotoSection({
+  photos,
+  label,
+  showAppMetadata = true,
+  singleColumn = false,
+}: {
+  photos: PhotoWithData[]
+  label: string
+  showAppMetadata?: boolean
+  singleColumn?: boolean
+}) {
   if (photos.length === 0) return null
   return (
     <View style={styles.section} break={photos.length > 4}>
       <Text style={styles.sectionLabel}>{label}</Text>
       <View style={styles.photoGrid}>
         {photos.map((p, i) => (
-          <View key={i} style={styles.photoItem}>
+          <View key={i} style={singleColumn ? styles.photoItemFull : styles.photoItem}>
             {(p.dataUrl || p.file_url) ? (
               <Image
                 src={p.dataUrl || p.file_url}
-                style={styles.photoImage}
+                style={singleColumn ? styles.photoImageFull : styles.photoImage}
               />
             ) : null}
-            {p.area_ref ? <Text style={styles.photoAreaBadge}>{p.area_ref}</Text> : null}
+            {showAppMetadata && p.area_ref ? <Text style={styles.photoAreaBadge}>{p.area_ref}</Text> : null}
             {p.caption
               ? <Text style={styles.photoNote}>{p.caption}</Text>
-              : <Text style={styles.photoNoNote}>No note</Text>
+              : showAppMetadata ? <Text style={styles.photoNoNote}>No note</Text> : null
             }
           </View>
         ))}
@@ -226,12 +238,14 @@ function PhotoSection({ photos, label }: { photos: PhotoWithData[]; label: strin
 }
 
 function RoomStageSection({
-  photos, areas = [], label, stages,
+  photos, areas = [], label, stages, showAppMetadata = true, singleColumn = false,
 }: {
   photos: PhotoWithData[]
   areas?: Area[]
   label: string
   stages: Array<'assessment' | 'before' | 'during' | 'after'>
+  showAppMetadata?: boolean
+  singleColumn?: boolean
 }) {
   const grouped = filterGroupedStages(groupPhotosByRoomAndStage(photos, areas), stages)
   if (!grouped.length) return null
@@ -242,15 +256,24 @@ function RoomStageSection({
         <View key={group.room} style={styles.roomBlock}>
           <Text style={styles.roomHeading}>{group.room}</Text>
           {group.note ? <Text style={styles.roomNote}>Room note: {group.note}</Text> : null}
-          {stages.map(stage => (
+          {showAppMetadata ? stages.map(stage => (
             group.stages[stage].length > 0 ? (
               <PhotoSection
                 key={`${group.room}-${stage}`}
                 photos={group.stages[stage].slice(0, 6)}
                 label={`${stage.charAt(0).toUpperCase() + stage.slice(1)} (${group.stages[stage].length})`}
+                showAppMetadata={showAppMetadata}
+                singleColumn={singleColumn}
               />
             ) : null
-          ))}
+          )) : (
+            <PhotoSection
+              photos={stages.flatMap(stage => group.stages[stage]).slice(0, 6)}
+              label="Photos"
+              showAppMetadata={false}
+              singleColumn={singleColumn}
+            />
+          )}
         </View>
       ))}
     </View>
@@ -542,10 +565,24 @@ function SOWOrReportPDF({
 
       {/* Report: before + after photos */}
       {type === 'report' && beforePhotos.length > 0 && (
-        <RoomStageSection photos={beforePhotos} areas={areas} label="Before — Site Conditions on Arrival" stages={['assessment', 'before']} />
+        <RoomStageSection
+          photos={beforePhotos}
+          areas={areas}
+          label="Before — Site Conditions on Arrival"
+          stages={['assessment', 'before']}
+          showAppMetadata={false}
+          singleColumn
+        />
       )}
       {type === 'report' && afterPhotos.length > 0 && (
-        <RoomStageSection photos={afterPhotos} areas={areas} label="After — Completed Works" stages={['during', 'after']} />
+        <RoomStageSection
+          photos={afterPhotos}
+          areas={areas}
+          label="After — Completed Works"
+          stages={['during', 'after']}
+          showAppMetadata={false}
+          singleColumn
+        />
       )}
 
       {type === 'sow' && (

@@ -171,6 +171,7 @@ function cssSowPrint(): string {
     .sow-root .sow-photo-block .label:first-child { margin-top: 0; }
     .sow-root .sow-photo-block .body-text { font-size: 9.5pt; color: var(--sow-mid); line-height: 1.6; }
     .sow-root .photos-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 8px; }
+    .sow-root .photos-grid-single { grid-template-columns: 1fr; }
     .sow-root .photo-card { border: 1px solid var(--sow-rule); border-radius: 7px; overflow: hidden; }
     .sow-root .photo-card img { width: 100%; height: 210px; object-fit: cover; display: block; background: #f5f5f5; }
     .sow-root .photo-meta { padding: 10px 12px; }
@@ -597,7 +598,7 @@ function photoGrid(photos: Photo[], heading: string): string {
   `
 }
 
-/** Completion report only: all phases, grouped by room then assessment → before → during → after; within each, by upload time. */
+/** Completion report only: all phases, grouped by room; internal phase/upload metadata is not printed. */
 const REPORT_APPENDIX_PHASE_ORDER: PhotoCategory[] = ['assessment', 'before', 'during', 'after']
 
 const REPORT_APPENDIX_PHASE_LABEL: Record<PhotoCategory, string> = {
@@ -607,29 +608,13 @@ const REPORT_APPENDIX_PHASE_LABEL: Record<PhotoCategory, string> = {
   after: 'After',
 }
 
-function formatPhotoUploadedAtForPrint(iso: string): string {
-  try {
-    const d = new Date(iso)
-    if (Number.isNaN(d.getTime())) return ''
-    return d.toLocaleString('en-AU', { dateStyle: 'short', timeStyle: 'short' })
-  } catch {
-    return ''
-  }
-}
-
 function completionReportAppendixPhotoCard(p: Photo): string {
   const cap = (p.caption || '').trim()
-  const up = formatPhotoUploadedAtForPrint(p.uploaded_at)
-  const capture = (p.capture_phase || '').trim() ? `Capture: ${p.capture_phase}` : ''
   return `
         <div class="photo-card">
           <img src="${esc(p.file_url)}" alt="${esc(cap || p.area_ref || REPORT_APPENDIX_PHASE_LABEL[p.category])}">
           <div class="photo-meta">
-            <div class="photo-area">${esc((p.area_ref || '').trim() || '—')}</div>
-            <div class="photo-cap"><strong>Category:</strong> ${esc(REPORT_APPENDIX_PHASE_LABEL[p.category])}</div>
-            ${capture ? `<div class="photo-cap">${esc(capture)}</div>` : ''}
-            ${cap ? `<div class="photo-cap"><strong>Caption:</strong> ${esc(cap)}</div>` : ''}
-            ${up ? `<div class="photo-cap" style="font-size:8pt;color:var(--sow-muted)">Uploaded: ${esc(up)}</div>` : ''}
+            ${cap ? `<div class="photo-cap">${esc(cap)}</div>` : ''}
           </div>
         </div>`
 }
@@ -638,35 +623,29 @@ function completionReportPhotoAppendix(photos: Photo[], areas: Area[]): string {
   if (!photos.length) return ''
   const groups = groupPhotosByRoomAndStage(photos, areas)
   const roomBlocks = groups.map(group => {
-    const phaseParts: string[] = []
-    for (const phase of REPORT_APPENDIX_PHASE_ORDER) {
-      const pics = [...group.stages[phase]].sort((a, b) => {
+    const pics = REPORT_APPENDIX_PHASE_ORDER
+      .flatMap(phase => group.stages[phase])
+      .sort((a, b) => {
         const ta = new Date(a.uploaded_at).getTime()
         const tb = new Date(b.uploaded_at).getTime()
         const na = Number.isNaN(ta) ? 0 : ta
         const nb = Number.isNaN(tb) ? 0 : tb
         return na - nb
       })
-      if (!pics.length) continue
-      const label = REPORT_APPENDIX_PHASE_LABEL[phase]
-      phaseParts.push(`
-    <div class="label" style="margin-top:12px;font-size:8.5pt;letter-spacing:0.08em">${esc(label)} (${pics.length})</div>
-    <div class="photos-grid">
-      ${pics.map(completionReportAppendixPhotoCard).join('')}
-    </div>`)
-    }
-    if (!phaseParts.length) return ''
+    if (!pics.length) return ''
     const note = (group.note || '').trim()
     return `
     <div class="label" style="margin-top:20px;color:#1a1a1a">${esc(group.room)}</div>
     ${note ? `<div class="body-text" style="margin-top:-4px;margin-bottom:6px;font-size:9pt"><strong>Room notes:</strong> ${esc(note)}</div>` : ''}
-    ${phaseParts.join('')}`
+    <div class="photos-grid photos-grid-single">
+      ${pics.map(completionReportAppendixPhotoCard).join('')}
+    </div>`
   })
   const inner = roomBlocks.filter(Boolean).join('')
   if (!inner.trim()) return ''
   return `
     <div class="label" style="margin-top:22px">Photo appendix</div>
-    <div class="body-text" style="margin-bottom:10px;font-size:9pt;color:var(--sow-mid)">All job photos by room and phase (assessment, before, during, after). Within each group, order is by upload time.</div>
+    <div class="body-text" style="margin-bottom:10px;font-size:9pt;color:var(--sow-mid)">Job photos are shown by room for visual evidence. Internal capture metadata is retained in the app only.</div>
     ${inner}
   `
 }

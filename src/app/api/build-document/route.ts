@@ -288,7 +288,7 @@ Include 6–10 realistic steps covering: site assessment, PPE donning, containme
   "methodology": "methods and techniques used",
   "products_used": "all chemicals, products, equipment used with concentrations where relevant",
   "waste_disposal": "volumes removed, packaging, disposal facility, manifest reference if applicable",
-  "photo_record": "brief description of photo documentation taken",
+  "photo_record": "brief client-facing description of photo documentation taken. Do not include raw app metadata such as category labels, capture phase, upload timestamps, file IDs, or numbered metadata lists.",
   "outcome": "final statement that site is remediated and safe",
   "technician_signoff": "Remediation completed in accordance with industry standards. Site returned to safe condition.",
   "completed_by": ""
@@ -386,7 +386,7 @@ Generate a professional ${type.replace(/_/g,' ').toUpperCase()} document.
 
 ${schemas[type]}
 
-Be specific — reference the actual site, job type, and assessment data. Do not be generic. Return ONLY the JSON object, no other text.`
+Be specific — reference the actual site, job type, and assessment data. Do not be generic. For report outputs, use photo metadata only as internal context; do not reproduce raw app metadata in the generated document. Return ONLY the JSON object, no other text.`
 }
 
 /* Fetches a PDF from a public URL and returns it as a base64 string
