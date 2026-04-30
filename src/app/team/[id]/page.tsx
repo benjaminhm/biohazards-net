@@ -224,6 +224,7 @@ export default function PersonPage() {
   const [assignedNotes, setAssignedNotes] = useState<AssignedNote[]>([])
   const [noteDrafts, setNoteDrafts]       = useState<Record<string, string>>({})
   const [noteBusyJobId, setNoteBusyJobId] = useState<string | null>(null)
+  const [noteSavedJobId, setNoteSavedJobId] = useState<string | null>(null)
 
   // Invoice state
   const [invoices, setInvoices]           = useState<InvoiceRow[]>([])
@@ -453,6 +454,7 @@ export default function PersonPage() {
   async function saveAssignedNote(jobId: string) {
     if (!person) return
     setNoteBusyJobId(jobId)
+    setNoteSavedJobId(null)
     setTaskErrorByJob(prev => ({ ...prev, [jobId]: '' }))
     try {
       const res = await fetch(`/api/people/${person.id}/assigned-tasks`, {
@@ -467,8 +469,15 @@ export default function PersonPage() {
       }
       setAssignedNotes(prev => {
         const without = prev.filter(n => n.job_id !== jobId)
-        return data.note?.note ? [...without, data.note] : without
+        return data.note ? [...without, data.note] : without
       })
+      if (data.note) {
+        setNoteDrafts(prev => ({ ...prev, [jobId]: data.note.note ?? '' }))
+        setNoteSavedJobId(jobId)
+        window.setTimeout(() => {
+          setNoteSavedJobId(current => current === jobId ? null : current)
+        }, 2500)
+      }
     } finally {
       setNoteBusyJobId(null)
     }
@@ -1313,7 +1322,9 @@ export default function PersonPage() {
                                 </div>
                                 {jobNote?.updated_at && (
                                   <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
-                                    Saved {new Date(jobNote.updated_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}
+                                    {noteSavedJobId === job.id
+                                      ? 'Saved just now'
+                                      : `Saved ${new Date(jobNote.updated_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}`}
                                   </div>
                                 )}
                               </div>
@@ -1334,7 +1345,14 @@ export default function PersonPage() {
                                   resize: 'vertical',
                                 }}
                               />
-                              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', marginTop: 8 }}>
+                                <div style={{ fontSize: 12, minHeight: 16 }}>
+                                  {taskErrorByJob[job.id] ? (
+                                    <span style={{ color: '#F87171' }}>{taskErrorByJob[job.id]}</span>
+                                  ) : noteSavedJobId === job.id ? (
+                                    <span style={{ color: '#4ADE80' }}>Job note saved.</span>
+                                  ) : null}
+                                </div>
                                 <button
                                   type="button"
                                   onClick={() => saveAssignedNote(job.id)}
