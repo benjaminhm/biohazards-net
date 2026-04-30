@@ -48,6 +48,11 @@ function rankContact(contact: FieldTeamContact) {
   return 2
 }
 
+function isMissingPrestartTableError(error: unknown) {
+  const err = error as { code?: string; message?: string } | null
+  return err?.code === '42P01' && /job_prestart_(briefings|acknowledgements)/.test(err.message ?? '')
+}
+
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id: jobId } = await params
@@ -136,8 +141,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
     if (teamError) throw teamError
     if (photoError) throw photoError
-    if (briefingError) throw briefingError
-    if (acknowledgementError) throw acknowledgementError
+    if (briefingError && !isMissingPrestartTableError(briefingError)) throw briefingError
+    if (acknowledgementError && !isMissingPrestartTableError(acknowledgementError)) throw acknowledgementError
 
     const assignments = (assignmentRows ?? []) as AssignmentRow[]
     const personIds = assignments.map(assignment => assignment.person_id).filter(Boolean)
@@ -174,8 +179,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       job: sanitizeFieldJob(job as unknown as FieldJobRow),
       contacts,
       photos: (photoRows ?? []) as FieldPhoto[],
-      prestart_briefings: briefingRows ?? [],
-      prestart_acknowledgements: acknowledgementRows ?? [],
+      prestart_briefings: briefingError ? [] : (briefingRows ?? []),
+      prestart_acknowledgements: acknowledgementError ? [] : (acknowledgementRows ?? []),
       current_person_id: access.personId,
       permissions: access.capabilities,
     })

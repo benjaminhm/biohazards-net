@@ -368,7 +368,7 @@ export default function FieldJobPage() {
               fontWeight: 850,
               cursor: uploadingPhoto ? 'wait' : 'pointer',
             }}>
-              {uploadingPhoto ? 'Uploading...' : 'Add Photo'}
+              {uploadingPhoto ? 'Uploading...' : 'Take / Upload'}
               <input
                 type="file"
                 accept="image/*"
@@ -398,12 +398,7 @@ export default function FieldJobPage() {
                     borderRadius: 10,
                     background: `url(${photo.file_url}) center / cover`,
                     border: '1px solid var(--border)',
-                    marginBottom: 5,
                   }} />
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'capitalize' }}>
-                    {photo.category.replace(/_/g, ' ')}
-                  </div>
-                  <PhotoStamp photo={photo} />
                 </a>
               ))}
             </div>
@@ -560,35 +555,6 @@ function ContactCard({ title, contact, highlight }: { title: string; contact: Fi
         <ContactActions phone={phone} email={contact.email} />
       </div>
     </section>
-  )
-}
-
-function PhotoStamp({ photo }: { photo: FieldPhoto }) {
-  const takenAt = photo.taken_at || photo.uploaded_at
-  const coords = typeof photo.location_lat === 'number' && typeof photo.location_lng === 'number'
-    ? `${photo.location_lat.toFixed(5)}, ${photo.location_lng.toFixed(5)}`
-    : null
-  const location = photo.location_label || coords || 'Location not captured'
-  const mapsUrl = coords
-    ? `https://maps.google.com/?q=${photo.location_lat},${photo.location_lng}`
-    : null
-
-  return (
-    <div style={{ marginTop: 6, fontSize: 10.5, lineHeight: 1.35, color: 'var(--text-muted)' }}>
-      <div>{formatDateTime(takenAt)}</div>
-      <div>By {photo.uploaded_by_name || 'Team member'}</div>
-      {mapsUrl ? (
-        <div>
-          <span>Photo location: </span>
-          <span style={{ color: 'var(--text)' }}>{location}</span>
-        </div>
-      ) : (
-        <div>{location}</div>
-      )}
-      {photo.location_accuracy_m != null && (
-        <div>Accuracy ±{Math.round(photo.location_accuracy_m)}m</div>
-      )}
-    </div>
   )
 }
 
