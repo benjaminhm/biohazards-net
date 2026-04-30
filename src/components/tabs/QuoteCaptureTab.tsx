@@ -115,6 +115,7 @@ const SECTION: CSSProperties = {
 export default function QuoteCaptureTab({ job, documents: _docs, onJobUpdate, onGoToScope: _scope }: Props) {
   const ad = job.assessment_data
   const existing = ad?.outcome_quote_capture
+  const fastQuote = ad?.fast_quote?.enabled ? ad.fast_quote : null
 
   const [instruction, setInstruction] = useState('')
   const [suggesting, setSuggesting] = useState(false)
@@ -289,6 +290,27 @@ export default function QuoteCaptureTab({ job, documents: _docs, onJobUpdate, on
 
   return (
     <div style={{ maxWidth: 720, paddingBottom: 40 }}>
+      {fastQuote && (
+        <div
+          style={{
+            border: '1px solid rgba(255,107,53,0.35)',
+            background: 'rgba(255,107,53,0.06)',
+            borderRadius: 12,
+            padding: 14,
+            marginBottom: 18,
+          }}
+        >
+          <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--accent)', marginBottom: 6 }}>
+            Fast Quote mode
+          </div>
+          <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.55, marginBottom: 8 }}>
+            Quote AI will treat this as a limited-information brief and draft with stronger assumptions, exclusions, and variation caveats.
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
+            {(fastQuote.transcript ?? '').trim() || 'No fast quote brief has been entered yet.'}
+          </div>
+        </div>
+      )}
 
       {/* ── AI instruction ── */}
       <div style={SECTION}>Instruct</div>

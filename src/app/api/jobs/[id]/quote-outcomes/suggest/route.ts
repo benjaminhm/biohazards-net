@@ -40,6 +40,13 @@ Rules:
 - price must be >= 0 and represented as number.
 - All facts (areas, hazards, contamination, PPE, waste, methodology) must come from the context object. Do not hallucinate data.
 - The instruction steers structure and emphasis, not facts.
+- If context.fast_quote.enabled is true, FAST QUOTE MODE applies:
+  - Treat the quote as limited-information and possibly sight-unseen.
+  - Do not imply a full site inspection, site verification, or confirmed contamination unless explicitly stated in context.
+  - Expect sparse information and draft usable outcomes from the voice brief, but keep unknowns as assumptions or staff-pricing items.
+  - Use conservative, conditional wording with strong exclusions, concealed-condition caveats, access limitations, and variation rights.
+  - If pricing is not stated or clearly inferable from staff instruction, set price to 0 rather than inventing an amount.
+  - Add assumption/exclusion lines that make the limited-information basis clear.
 `
 
 function safeNumber(v: unknown, fallback: number): number {
@@ -128,6 +135,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         urgency: job.urgency ?? null,
         notes: job.notes ?? '',
       },
+      fast_quote: ad?.fast_quote?.enabled
+        ? {
+            enabled: true,
+            transcript: ad.fast_quote.transcript ?? '',
+            limitations_acknowledged: ad.fast_quote.limitations_acknowledged === true,
+            updated_at: ad.fast_quote.updated_at ?? null,
+          }
+        : { enabled: false },
       assessment_data: ad,
       scope_of_work: {
         objective: sow.objective,

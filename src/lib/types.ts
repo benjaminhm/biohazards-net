@@ -194,6 +194,14 @@ export interface RisksHitl {
   last_reviewed_at?: string | null
 }
 
+/** Sight-unseen / limited-information quote brief captured from staff voice notes. */
+export interface FastQuoteCapture {
+  enabled: boolean
+  transcript: string
+  limitations_acknowledged: boolean
+  updated_at?: string | null
+}
+
 /** AI-extracted hazard phrases from Presentation data (Risks tab bubbles) */
 export type SuggestedRiskCategory =
   | 'biological'
@@ -733,6 +741,8 @@ export interface AssessmentData {
   estimated_waste_litres: number
   access_restrictions: string
   observations: string
+  /** Fast Quote mode — staff voice/text brief used to draft a conservative quote with strong caveats. */
+  fast_quote?: FastQuoteCapture
   target_price?: number
   target_price_note?: string
   payment_terms?: string
