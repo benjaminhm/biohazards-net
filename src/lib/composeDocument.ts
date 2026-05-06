@@ -37,6 +37,12 @@ import {
 } from '@/lib/perCompletionAssembly'
 import { assessmentDocumentHasContent, mergedAssessmentDocumentCapture } from '@/lib/assessmentDocumentCapture'
 import { collectExcludedSurfaces } from '@/lib/areaSurfaces'
+import {
+  applyPricingLayoutToContent,
+  derivePricingLayoutFromCapture,
+  normalizeSectionTerms,
+  volumePricingHasContent,
+} from '@/lib/quoteSections'
 import { buildPrintHTML, type ClientInfo } from '@/lib/printDocument'
 import type { CompanyProfile } from '@/lib/types'
 import {
@@ -472,9 +478,15 @@ function composeQuote(job: Job): ComposeDocumentResult {
   const auth = cap?.authorisation
   const areaPricing = (cap?.area_pricing ?? []).filter(r => Number(r.total ?? 0) > 0)
   const autoExcludedSurfaces = collectExcludedSurfaces(areaPricing)
+  const volumePricing = cap?.volume_pricing && volumePricingHasContent(cap.volume_pricing)
+    ? cap.volume_pricing
+    : undefined
+  const layout = derivePricingLayoutFromCapture(cap)
+  const areaTerms = normalizeSectionTerms(cap?.area_pricing_terms)
+  const volumeTerms = normalizeSectionTerms(cap?.volume_pricing_terms)
   const hasOutcomes = cap && cap.rows?.length > 0
-  const hasCapture = hasOutcomes || areaPricing.length > 0
-  const c: QuoteContent = {
+  const hasCapture = hasOutcomes || areaPricing.length > 0 || !!volumePricing
+  const raw: QuoteContent = {
     title: 'Quote',
     reference: refPrefix('quote', job.id),
     intro: hasCapture
@@ -484,6 +496,10 @@ function composeQuote(job: Job): ComposeDocumentResult {
     outcome_rows: hasOutcomes ? cap!.rows : undefined,
     outcome_mode: hasOutcomes ? 'outcomes' : undefined,
     area_pricing: areaPricing.length > 0 ? areaPricing : undefined,
+    area_pricing_terms: areaTerms,
+    volume_pricing: volumePricing,
+    volume_pricing_terms: volumeTerms,
+    pricing_layout: layout,
     auto_excluded_surfaces: autoExcludedSurfaces.length > 0 ? autoExcludedSurfaces : undefined,
     gst_mode: cap?.gst_mode ?? 'no_gst',
     subtotal: cap?.totals?.subtotal ?? 0,
@@ -501,6 +517,9 @@ function composeQuote(job: Job): ComposeDocumentResult {
       acceptance_statement: auth.acceptance_statement,
     } : undefined,
   }
+  // Apply layout flags last so disabled-section data doesn't leak into the
+  // composed content even if the capture's totals were stale.
+  const c = applyPricingLayoutToContent(raw, layout)
   return { content: { ...c }, source: hasCapture ? 'assessment_capture' : 'skeleton' }
 }
 

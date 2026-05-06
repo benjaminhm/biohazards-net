@@ -661,6 +661,12 @@ export interface OutcomeQuoteMetric {
   value: string
 }
 
+/** Row category within Section 1 ("Mobilisation, Fees & Fixed-Rate Items").
+ *  Drives the sub-grouping in the printed quote (Mobilisation, Project
+ *  Management, Surcharges, Fixed-fee scopes, Other). Defaults to 'other'
+ *  when a row hasn't been classified yet. */
+export type OutcomeKind = 'mobilisation' | 'project_mgmt' | 'surcharge' | 'fixed_scope' | 'other'
+
 export interface OutcomeQuoteRow {
   id: string
   areas: string[]
@@ -674,6 +680,8 @@ export interface OutcomeQuoteRow {
   assumptions: string[]
   verification_method: string
   metrics?: OutcomeQuoteMetric[]
+  /** Sub-category for Section 1 grouping. Optional for backwards compatibility. */
+  kind?: OutcomeKind
 }
 
 export interface QuoteAuthorisation {
@@ -728,11 +736,65 @@ export interface AreaPricingRow {
   surfaces?: SurfacePricingLine[]
 }
 
+/** Free-text inclusion / exclusion / assumption bullets that apply to a whole
+ *  pricing section (Sections 2 and 3). Section 1 keeps these per-row on each
+ *  `OutcomeQuoteRow` because each fee row tends to have its own caveats. */
+export interface SectionTerms {
+  included?: string[]
+  excluded?: string[]
+  assumptions?: string[]
+}
+
+/** Single estimated volume row inside Section 2 (Contents Removal). */
+export interface VolumePricingRow {
+  /** Free-text label (e.g. "Lounge contents", "Garage skip"). Required. */
+  description: string
+  /** Optional link to an Area in assessment_data.areas. Empty string for
+   *  free-form rows that aren't tied to a room (e.g. "Driveway pile"). */
+  area_name?: string
+  estimated_volume_m3: number
+  notes?: string
+}
+
+/** Section 2 — Contents Removal pricing block. Bills at a single $/m³ rate
+ *  applied to the sum of estimated volumes; actual is measured at uplift and
+ *  variation billed at the same rate when `is_estimate = true`. */
+export interface VolumePricingBlock {
+  rows: VolumePricingRow[]
+  unit_price_per_m3: number
+  total: number
+  /** When true, the printed quote includes the "final volume measured on
+   *  uplift; variance billed/credited at the same rate" caveat. */
+  is_estimate: boolean
+}
+
+/** Independent toggles controlling which pricing axes appear on the Quote tab
+ *  and on the printed quote. Data in disabled sections is preserved (so the
+ *  toggle is non-destructive) but excluded from totals and document output. */
+export interface QuotePricingLayout {
+  /** Section 1 — Mobilisation, fees & fixed-rate items (value-based). */
+  outcomes_enabled: boolean
+  /** Section 2 — Contents removal (per-m³ volume). */
+  per_m3_enabled: boolean
+  /** Section 3 — Remediation, cleaning & sanitisation (per-m² surfaces). */
+  per_sqm_enabled: boolean
+}
+
 export interface OutcomeQuoteCapture {
   mode: 'line_items' | 'outcomes'
+  /** Section 1 rows — value-based fees, mobilisation, surcharges, etc. */
   rows: OutcomeQuoteRow[]
-  /** Optional per-room pricing block. Rolls into `totals.subtotal` alongside `rows`. */
+  /** Section 3 — per-room/surface pricing rows. */
   area_pricing?: AreaPricingRow[]
+  /** Section-level inclusions / exclusions / assumptions for Section 3. */
+  area_pricing_terms?: SectionTerms
+  /** Section 2 — contents-removal volume pricing block. */
+  volume_pricing?: VolumePricingBlock
+  /** Section-level inclusions / exclusions / assumptions for Section 2. */
+  volume_pricing_terms?: SectionTerms
+  /** Per-job toggle state for the three pricing axes. Optional: when absent,
+   *  callers infer defaults from which section data exists. */
+  pricing_layout?: QuotePricingLayout
   gst_mode?: QuoteGstMode
   totals: {
     subtotal: number
@@ -901,6 +963,12 @@ export interface Job {
   client_phones: PhoneEntry[]   // additional numbers beyond primary
   client_email: string
   site_address: string
+  /** Google Places ID for the verified site address (when chosen via autocomplete). */
+  site_place_id?: string
+  /** Site latitude in decimal degrees (WGS-84) when geocoded. */
+  site_lat?: number | null
+  /** Site longitude in decimal degrees (WGS-84) when geocoded. */
+  site_lng?: number | null
   /** On-site contact name, captured when different from the primary caller. */
   site_contact_name?: string
   /** On-site contact phone (E.164 where known). */
@@ -1109,6 +1177,15 @@ export interface QuoteContent {
   outcome_rows?: OutcomeQuoteRow[]
   /** Per-room pricing rows (dimensions × $/m²). Rendered as a dedicated table. */
   area_pricing?: AreaPricingRow[]
+  /** Section-level Inclusions / Exclusions / Assumptions for Section 3. */
+  area_pricing_terms?: SectionTerms
+  /** Section 2 — Contents Removal volume pricing block. */
+  volume_pricing?: VolumePricingBlock
+  /** Section-level Inclusions / Exclusions / Assumptions for Section 2. */
+  volume_pricing_terms?: SectionTerms
+  /** Toggle state echoed onto the rendered content so the print path knows
+   *  which sections to suppress even if their data is non-empty. */
+  pricing_layout?: QuotePricingLayout
   /** Auto-derived from `area_pricing[].surfaces` where `included = false`.
    *  Each entry is a "Surface — Room" string ready to render under
    *  "Excluded from this quote". Computed by `collectExcludedSurfaces`; not

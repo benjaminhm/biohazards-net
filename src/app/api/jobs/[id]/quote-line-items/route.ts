@@ -3,6 +3,7 @@ import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import { QUOTE_SOURCE_SCHEMA_VERSION, quoteLineItemSourceHash } from '@/lib/quoteLineItemSource'
+import { derivePricingLayoutFromCapture, volumePricingHasContent } from '@/lib/quoteSections'
 import type { AreaPricingRow, AssessmentData, JobType, OutcomeQuoteRow, QuoteLineItemRow } from '@/lib/types'
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -42,6 +43,18 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const areaPricing = ((outcomeCapture?.area_pricing ?? []) as AreaPricingRow[]).filter(
       r => Number(r.total ?? 0) > 0,
     )
+    const areaPricingTerms = outcomeCapture?.area_pricing_terms
+    const volumePricing = outcomeCapture?.volume_pricing && volumePricingHasContent(outcomeCapture.volume_pricing)
+      ? outcomeCapture.volume_pricing
+      : undefined
+    const volumePricingTerms = outcomeCapture?.volume_pricing_terms
+    const pricingLayout = derivePricingLayoutFromCapture(outcomeCapture)
+    const sectionExtras = {
+      area_pricing_terms: areaPricingTerms,
+      volume_pricing: volumePricing,
+      volume_pricing_terms: volumePricingTerms,
+      pricing_layout: pricingLayout,
+    }
     const validOutcomes = allOutcomes.filter(
       row =>
         (row.status === 'approved' || row.status === 'edited') &&
@@ -75,12 +88,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
           items: synthetic,
           outcome_rows: allOutcomes,
           area_pricing: areaPricing,
+          ...sectionExtras,
           freshness_status: 'up_to_date',
           current_source_hash: currentSourceHash,
           source_mode: 'outcomes',
         })
       }
-      return NextResponse.json({ run: null, items: [], area_pricing: areaPricing, freshness_status: 'missing', current_source_hash: currentSourceHash })
+      return NextResponse.json({ run: null, items: [], area_pricing: areaPricing, ...sectionExtras, freshness_status: 'missing', current_source_hash: currentSourceHash })
     }
 
     const { data: items, error } = await supabase
@@ -121,6 +135,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         items: synthetic,
         outcome_rows: allOutcomes,
         area_pricing: areaPricing,
+        ...sectionExtras,
         freshness_status: freshnessStatus,
         current_source_hash: currentSourceHash,
         source_mode: 'outcomes',
@@ -130,6 +145,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       run,
       items: items ?? [],
       area_pricing: areaPricing,
+      ...sectionExtras,
       freshness_status: freshnessStatus,
       current_source_hash: currentSourceHash,
       source_mode: 'line_items',

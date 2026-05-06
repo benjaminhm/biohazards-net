@@ -13,7 +13,7 @@
 
 import { useEffect, useState, useRef, Suspense } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
-import type { AreaPricingRow, CompanyProfile, DocType, Job, OutcomeQuoteRow, Photo, ProgressNote, ProgressRoomNote, QuoteLineItemRow } from '@/lib/types'
+import type { AreaPricingRow, CompanyProfile, DocType, Job, OutcomeQuoteRow, Photo, ProgressNote, ProgressRoomNote, QuoteLineItemRow, QuotePricingLayout, SectionTerms, VolumePricingBlock } from '@/lib/types'
 import { DOC_TYPE_LABELS } from '@/lib/types'
 import { composeDocumentContent, buildComposedPreviewHtml, type ComposeDocumentOptions } from '@/lib/composeDocument'
 import { mergeQuoteLineItemsIntoDocContent } from '@/lib/quoteLineItemsForDocuments'
@@ -110,7 +110,16 @@ function DocViewerInner() {
             const outcome_rows = (quoteRes.outcome_rows ?? []) as OutcomeQuoteRow[]
             const outcome_mode = quoteRes.source_mode === 'outcomes' ? 'outcomes' : 'line_items'
             const area_pricing = (quoteRes.area_pricing ?? []) as AreaPricingRow[]
-            next = mergeQuoteLineItemsIntoDocContent(docType, next, rows, { gst_mode, add_gst_to_total, outcome_rows, outcome_mode, area_pricing })
+            const area_pricing_terms = quoteRes.area_pricing_terms as SectionTerms | undefined
+            const volume_pricing = quoteRes.volume_pricing as VolumePricingBlock | undefined
+            const volume_pricing_terms = quoteRes.volume_pricing_terms as SectionTerms | undefined
+            const pricing_layout = quoteRes.pricing_layout as QuotePricingLayout | undefined
+            next = mergeQuoteLineItemsIntoDocContent(docType, next, rows, {
+              gst_mode, add_gst_to_total, outcome_rows, outcome_mode,
+              area_pricing, area_pricing_terms,
+              volume_pricing, volume_pricing_terms,
+              pricing_layout,
+            })
           }
           setContent(next)
         }
@@ -153,7 +162,16 @@ function DocViewerInner() {
           const outcome_rows = (quoteRes.outcome_rows ?? []) as OutcomeQuoteRow[]
           const outcome_mode = quoteRes.source_mode === 'outcomes' ? 'outcomes' : 'line_items'
           const area_pricing = (quoteRes.area_pricing ?? []) as AreaPricingRow[]
-          finalComposed = mergeQuoteLineItemsIntoDocContent(docType, composed, rows, { gst_mode, add_gst_to_total, outcome_rows, outcome_mode, area_pricing })
+          const area_pricing_terms = quoteRes.area_pricing_terms as SectionTerms | undefined
+          const volume_pricing = quoteRes.volume_pricing as VolumePricingBlock | undefined
+          const volume_pricing_terms = quoteRes.volume_pricing_terms as SectionTerms | undefined
+          const pricing_layout = quoteRes.pricing_layout as QuotePricingLayout | undefined
+          finalComposed = mergeQuoteLineItemsIntoDocContent(docType, composed, rows, {
+            gst_mode, add_gst_to_total, outcome_rows, outcome_mode,
+            area_pricing, area_pricing_terms,
+            volume_pricing, volume_pricing_terms,
+            pricing_layout,
+          })
         }
         setContent(finalComposed)
         router.replace(`/jobs/${jobId}/docs/${docType}`, { scroll: false })

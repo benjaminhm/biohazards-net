@@ -30,6 +30,8 @@ import { DOC_TYPE_LABELS } from './types'
 import { filterGroupedStages, groupPhotosByRoomAndStage, type RoomPhotoGroup } from './photoGroups'
 import { photosForComposedReports } from '@/lib/photosForComposedReports'
 import { SURFACE_LABELS } from '@/lib/areaSurfaces'
+import { OUTCOME_KIND_LABELS, groupRowsByKind } from '@/lib/quoteSections'
+import type { SectionTerms, VolumePricingBlock } from '@/lib/types'
 
 /** Matches the navy header when `company` is missing (meta grid used to show "—" while header showed this name). */
 const DEFAULT_PRINT_ORG_NAME = 'Brisbane Biohazard Cleaning'
@@ -743,56 +745,80 @@ function wasteTable(items: WasteItem[]): string {
 
 // ── 1. Quote ──────────────────────────────────────────────────────────────────
 
-function buildQuoteMid(
-  c: QuoteContent,
-  photos: Photo[],
-  groups: RoomPhotoGroup[],
-  _company: CompanyProfile | null,
-  _jobId: string,
-  _appUrl: string,
-  client: ClientInfo | undefined,
-): string {
-  const before = photos.filter(p => ['before','assessment'].includes(p.category))
-  const siteLine = (client?.site_address ?? '').trim()
-  const outcomeRows = (c.outcome_rows ?? []).filter(Boolean)
-  const hasOutcomeRows = c.outcome_mode === 'outcomes' || outcomeRows.length > 0
-  const areaPricing = (c.area_pricing ?? []).filter(r => Number(r.total ?? 0) > 0)
-  const hasAreaPricing = areaPricing.length > 0
-  const items = (c.line_items || []).map(li => `
-    <tr>
-      <td>${esc(li.description)}</td>
-      <td class="r">${li.qty}</td>
-      <td class="r">${esc(li.unit)}</td>
-      <td class="r">${fmtMoney(li.rate)}</td>
-      <td class="r">${fmtMoney(li.total)}</td>
-    </tr>
-  `).join('')
-  const outcomeBlocks = outcomeRows.map((row, idx) => {
-    const areas = row.areas?.length ? row.areas.join(', ') : 'General site scope'
-    const included = (row.included ?? []).filter(Boolean).map(text => `<li>${esc(text)}</li>`).join('')
-    const excluded = (row.excluded ?? []).filter(Boolean).map(text => `<li>${esc(text)}</li>`).join('')
-    const assumptions = (row.assumptions ?? []).filter(Boolean).map(text => `<li>${esc(text)}</li>`).join('')
+/** Render section-level Inclusions / Exclusions / Assumptions (Sections 2 & 3).
+ *  Returns '' when every list is empty so the print stays tight. */
+function renderSectionTerms(t: SectionTerms | undefined): string {
+  if (!t) return ''
+  const inc = (t.included ?? []).filter(s => s?.trim())
+  const exc = (t.excluded ?? []).filter(s => s?.trim())
+  const ass = (t.assumptions ?? []).filter(s => s?.trim())
+  if (!inc.length && !exc.length && !ass.length) return ''
+  const block = (label: string, list: string[]): string =>
+    list.length
+      ? `<div class="label" style="font-size:7pt;margin-top:10px">${label}</div><ul class="body-text">${list.map(s => `<li>${esc(s)}</li>`).join('')}</ul>`
+      : ''
+  return `<div style="margin-top:6px">
+    ${block('Included', inc)}
+    ${block('Excluded', exc)}
+    ${block('Assumptions', ass)}
+  </div>`
+}
+
+/** Section 2 — Contents Removal: volume table + estimate caveat + section terms. */
+function renderVolumeSection(block: VolumePricingBlock | undefined, terms: SectionTerms | undefined): string {
+  if (!block) return ''
+  const rows = (block.rows ?? []).filter(r => Number(r.estimated_volume_m3 || 0) > 0 || (r.description ?? '').trim())
+  if (rows.length === 0 && Number(block.unit_price_per_m3 || 0) === 0) return ''
+  const rate = Math.max(0, Number(block.unit_price_per_m3 || 0))
+  const totalM3 = rows.reduce((s, r) => s + Math.max(0, Number(r.estimated_volume_m3 || 0)), 0)
+  const sectionTotal = Math.round(totalM3 * rate * 100) / 100
+  const tbody = rows.map(r => {
+    const desc = (r.description ?? '').trim() || (r.area_name ?? '').trim() || '—'
+    const m3 = Math.max(0, Number(r.estimated_volume_m3 || 0))
     return `
-      <div class="sow-muted-box">
-        <div class="label">Outcome ${idx + 1}</div>
-        <div class="body-text"><strong>${esc(row.outcome_title || 'Outcome')}</strong></div>
-        ${row.outcome_description?.trim() ? `<div class="body-text">${esc(row.outcome_description)}</div>` : ''}
-        <div class="label">Areas</div><div class="body-text">${esc(areas)}</div>
-        ${included ? `<div class="label">Included</div><ul class="body-text">${included}</ul>` : ''}
-        ${excluded ? `<div class="label">Excluded</div><ul class="body-text">${excluded}</ul>` : ''}
-        ${assumptions ? `<div class="label">Assumptions</div><ul class="body-text">${assumptions}</ul>` : ''}
-        <div class="label">Outcome Price</div><div class="body-text"><strong>${Number(row.price || 0) > 0 ? fmtMoney(Number(row.price || 0)) : 'TBC'}</strong></div>
-      </div>
+      <tr>
+        <td>${esc(desc)}${r.notes?.trim() ? `<div style="font-size:7pt;color:var(--sow-muted)">${esc(r.notes.trim())}</div>` : ''}</td>
+        <td class="r">${m3.toLocaleString('en-AU', { maximumFractionDigits: 2 })}</td>
+      </tr>
     `
   }).join('')
-  const outcomeLayout = outcomeBlocks || `<div class="body-text">Outcome-based quote is enabled for this job. No outcomes have been drafted yet.</div>`
-  const areaPricingBody = areaPricing.map(row => {
+  const caveat = block.is_estimate
+    ? `<div class="body-text" style="margin-top:8px;font-style:italic;color:var(--sow-muted)">Final volume confirmed on uplift; variance billed (or credited) at the same rate.</div>`
+    : ''
+  return `
+    <div class="label" style="margin-top:18px">2. Contents Removal</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Room / Description</th>
+          <th class="r">Est. m³</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${tbody}
+        <tr>
+          <td class="r" style="font-weight:700">Total volume × $${fmtMoney(rate).replace('$','')}/m³</td>
+          <td class="r" style="font-weight:700">${fmtMoney(sectionTotal)}</td>
+        </tr>
+      </tbody>
+    </table>
+    ${caveat}
+    ${renderSectionTerms(terms)}
+  `
+}
+
+/** Section 3 — Remediation, Cleaning & Sanitisation: per-room/surface table + terms. */
+function renderAreaPricingSection(
+  rows: NonNullable<QuoteContent['area_pricing']>,
+  terms: SectionTerms | undefined,
+): string {
+  if (rows.length === 0) return ''
+  const body = rows.map(row => {
     const dims = row.length_m > 0 && row.width_m > 0
       ? `${row.length_m}×${row.width_m}${row.height_m > 0 ? `×${row.height_m}` : ''} m`
       : '—'
     const surfaces = (row.surfaces ?? []).filter(s => s.included)
     if (surfaces.length === 0) {
-      // Legacy / pre-surfaces row — fall back to the original flat-rate single line.
       return `
         <tr>
           <td>${esc(row.area_name)}</td>
@@ -804,8 +830,7 @@ function buildQuoteMid(
         </tr>`
     }
     return surfaces.map((s, idx) => {
-      const isFirst = idx === 0
-      const roomCell = isFirst
+      const roomCell = idx === 0
         ? `<td rowspan="${surfaces.length}" style="vertical-align:top">${esc(row.area_name)}</td>
            <td rowspan="${surfaces.length}" style="vertical-align:top">${esc(dims)}</td>`
         : ''
@@ -819,35 +844,111 @@ function buildQuoteMid(
         </tr>`
     }).join('')
   }).join('')
-  const areaPricingTable = hasAreaPricing
-    ? `
-      <div class="label" style="margin-top:14px">Per-Room Pricing</div>
-      <table>
-        <thead>
+  return `
+    <div class="label" style="margin-top:18px">3. Remediation, Cleaning &amp; Sanitisation</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Room</th>
+          <th>Dimensions</th>
+          <th>Surface</th>
+          <th class="r">m²</th>
+          <th class="r">$/m²</th>
+          <th class="r">Total</th>
+        </tr>
+      </thead>
+      <tbody>${body}</tbody>
+    </table>
+    ${renderSectionTerms(terms)}
+  `
+}
+
+/** Section 1 — Mobilisation, Fees & Fixed-Rate Items: kind-grouped row blocks. */
+function renderOutcomeSection(rows: NonNullable<QuoteContent['outcome_rows']>): string {
+  if (rows.length === 0) {
+    return `<div class="body-text">— No fee items have been drafted for this quote.</div>`
+  }
+  const groups = groupRowsByKind(rows)
+  return groups.map(group => {
+    const subHeader = `<div class="label" style="margin-top:12px;font-size:8pt">— ${esc(OUTCOME_KIND_LABELS[group.kind])} —</div>`
+    const blocks = group.rows.map(row => {
+      const areas = row.areas?.length ? row.areas.join(', ') : ''
+      const included = (row.included ?? []).filter(Boolean).map(t => `<li>${esc(t)}</li>`).join('')
+      const excluded = (row.excluded ?? []).filter(Boolean).map(t => `<li>${esc(t)}</li>`).join('')
+      const assumptions = (row.assumptions ?? []).filter(Boolean).map(t => `<li>${esc(t)}</li>`).join('')
+      return `
+        <div class="sow-muted-box">
+          <div class="body-text"><strong>${esc(row.outcome_title || 'Item')}</strong></div>
+          ${row.outcome_description?.trim() ? `<div class="body-text">${esc(row.outcome_description)}</div>` : ''}
+          ${areas ? `<div class="label" style="font-size:7pt;margin-top:8px">Areas</div><div class="body-text">${esc(areas)}</div>` : ''}
+          ${included ? `<div class="label" style="font-size:7pt;margin-top:8px">Included</div><ul class="body-text">${included}</ul>` : ''}
+          ${excluded ? `<div class="label" style="font-size:7pt;margin-top:8px">Excluded</div><ul class="body-text">${excluded}</ul>` : ''}
+          ${assumptions ? `<div class="label" style="font-size:7pt;margin-top:8px">Assumptions</div><ul class="body-text">${assumptions}</ul>` : ''}
+          <div class="label" style="font-size:7pt;margin-top:8px">Price</div>
+          <div class="body-text"><strong>${Number(row.price || 0) > 0 ? fmtMoney(Number(row.price || 0)) : 'TBC'}</strong></div>
+        </div>
+      `
+    }).join('')
+    return `${subHeader}${blocks}`
+  }).join('')
+}
+
+function buildQuoteMid(
+  c: QuoteContent,
+  photos: Photo[],
+  groups: RoomPhotoGroup[],
+  _company: CompanyProfile | null,
+  _jobId: string,
+  _appUrl: string,
+  client: ClientInfo | undefined,
+): string {
+  const before = photos.filter(p => ['before','assessment'].includes(p.category))
+  const siteLine = (client?.site_address ?? '').trim()
+  const layout = c.pricing_layout
+  const outcomeRows = (c.outcome_rows ?? []).filter(Boolean)
+  const showSection1 = (layout?.outcomes_enabled ?? true) && (outcomeRows.length > 0 || (c.line_items ?? []).length > 0)
+  const areaPricing = (c.area_pricing ?? []).filter(r => Number(r.total ?? 0) > 0)
+  const showSection3 = (layout?.per_sqm_enabled ?? true) && areaPricing.length > 0
+  const volumeBlock = c.volume_pricing
+  const showSection2 = (layout?.per_m3_enabled ?? true) && !!volumeBlock && (volumeBlock.rows?.length ?? 0) > 0
+
+  const lineItemsTable = (c.line_items ?? []).length > 0
+    ? `<table>
+        <thead><tr><th>Description</th><th class="r">Qty</th><th class="r">Unit</th><th class="r">Rate</th><th class="r">Total</th></tr></thead>
+        <tbody>${(c.line_items ?? []).map(li => `
           <tr>
-            <th>Room</th>
-            <th>Dimensions</th>
-            <th>Surface</th>
-            <th class="r">m²</th>
-            <th class="r">$/m²</th>
-            <th class="r">Total</th>
+            <td>${esc(li.description)}</td>
+            <td class="r">${li.qty}</td>
+            <td class="r">${esc(li.unit)}</td>
+            <td class="r">${fmtMoney(li.rate)}</td>
+            <td class="r">${fmtMoney(li.total)}</td>
           </tr>
-        </thead>
-        <tbody>
-          ${areaPricingBody}
-        </tbody>
-      </table>
-    `
+        `).join('')}</tbody>
+      </table>`
     : ''
-  const autoExcludedSurfaces = (c.auto_excluded_surfaces ?? []).filter(s => s.trim())
+
+  // Prefer kind-grouped outcome rows; fall back to legacy line items only if there are no outcome rows.
+  const section1Body = outcomeRows.length > 0
+    ? renderOutcomeSection(outcomeRows)
+    : (lineItemsTable || `<div class="body-text">— No fee items have been drafted for this quote.</div>`)
+
+  const section1 = showSection1
+    ? `<div class="label" style="margin-top:6px">1. Mobilisation, Fees &amp; Fixed-Rate Items</div>${section1Body}`
+    : ''
+  const section2 = showSection2 ? renderVolumeSection(volumeBlock, c.volume_pricing_terms) : ''
+  const section3 = showSection3 ? renderAreaPricingSection(areaPricing, c.area_pricing_terms) : ''
+
+  const anySection = section1 || section2 || section3
+  const noSectionsFallback = anySection ? '' : `<div class="body-text">— Pricing to be confirmed.</div>`
+
+  const autoExcludedSurfaces = showSection3
+    ? (c.auto_excluded_surfaces ?? []).filter(s => s.trim())
+    : []
   const autoExcludedBlock = autoExcludedSurfaces.length > 0
-    ? `
-      <div class="label" style="margin-top:14px">Excluded From This Quote</div>
-      <ul class="body-text">
-        ${autoExcludedSurfaces.map(s => `<li>${esc(s)}</li>`).join('')}
-      </ul>
-    `
+    ? `<div class="label" style="margin-top:14px">Excluded From This Quote</div>
+       <ul class="body-text">${autoExcludedSurfaces.map(s => `<li>${esc(s)}</li>`).join('')}</ul>`
     : ''
+
   const gstMode = c.gst_mode ?? (c.gst > 0 ? 'exclusive' : 'no_gst')
   const subtotalLabel = gstMode === 'inclusive' ? 'Subtotal (ex GST)' : gstMode === 'exclusive' ? 'Subtotal (ex GST)' : 'Subtotal'
   const gstLabel = gstMode === 'inclusive' ? 'Includes GST (10%)' : 'GST (10%)'
@@ -862,13 +963,10 @@ function buildQuoteMid(
     ` : ''}
     <div class="label">Overview</div><div class="body-text sow-rich">${richBodyHtmlForPrint(c.intro)}</div>
     <div class="label">Scope &amp; Pricing</div>
-    ${hasOutcomeRows ? outcomeLayout : (items.trim() ? `
-    <table>
-      <thead><tr><th>Description</th><th class="r">Qty</th><th class="r">Unit</th><th class="r">Rate</th><th class="r">Total</th></tr></thead>
-      <tbody>${items}</tbody>
-    </table>
-    ` : (hasAreaPricing ? '' : `<div class="body-text">— Pricing to be confirmed.</div>`))}
-    ${areaPricingTable}
+    ${section1}
+    ${section2}
+    ${section3}
+    ${noSectionsFallback}
     ${autoExcludedBlock}
     <div class="totals">
       <div class="tot-row"><span>${subtotalLabel}</span><span class="amt">${fmtMoney(c.subtotal)}</span></div>

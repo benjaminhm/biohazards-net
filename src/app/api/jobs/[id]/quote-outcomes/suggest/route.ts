@@ -5,19 +5,44 @@ import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import { getAnthropicApiKey } from '@/lib/loadAnthropicEnvFallback'
 import { mergedSowCapture } from '@/lib/sowCapture'
-import type { AssessmentData, JobType, OutcomeQuoteRow } from '@/lib/types'
+import { derivePricingLayoutFromCapture } from '@/lib/quoteSections'
+import type { AssessmentData, JobType, OutcomeKind, OutcomeQuoteRow } from '@/lib/types'
 
-const SYSTEM = `You draft outcome-based quote rows for Australian biohazard remediation jobs.
+const SYSTEM = `You draft Section 1 ("Mobilisation, Fees & Fixed-Rate Items") rows for an Australian biohazard remediation quote.
 
-You will receive three things:
-1. A structured "context" object with all known facts about the job (assessment data, scope of work, photos, documents). This is your ONLY data source — never invent rooms, hazards, or scope that do not appear in the context.
-2. An optional "instruction" string from the staff member telling you how to structure the quote (e.g. phasing, grouping, pricing approach). Follow it closely when provided; if empty, use your best professional judgment.
-3. Zero or more image attachments — these are job photos (assessment/before stage, including any client-supplied photos attached to a Fast Quote brief). Use them as primary visual evidence: confirm rooms/areas, surface contamination, materials, access constraints, and PPE/waste implications you can actually see. Do NOT invent details that are not visible in the photos or stated in the context. If a visible condition is uncertain, capture it as an assumption or exclusion rather than a confirmed scope item.
+Australian quotes are split into three independent sections:
+  Section 1 — Mobilisation, Fees & Fixed-Rate Items   (value-based; YOUR JOB)
+  Section 2 — Contents Removal                         (per-cubic-metre; staff-only)
+  Section 3 — Remediation, Cleaning & Sanitisation     (per-square-metre; staff-only)
+
+You ONLY draft Section 1 rows. Do NOT propose contents-removal items (skip hire,
+rubbish disposal volume, mattress removal, etc.) or per-room cleaning/decontamination
+labour — staff price those directly in Sections 2 and 3. If a Section 2/3 axis is
+disabled in context.pricing_layout, you may still skip those topics and concentrate
+on fees/mobilisation; never duplicate a Section 2/3 item as a Section 1 row.
+
+You will receive:
+1. A "context" object with all known facts (assessment data, scope, photos, documents,
+   pricing_layout flags). This is your ONLY data source — never invent rooms, hazards,
+   or scope that don't appear in the context.
+2. An optional "instruction" string from the staff member. Follow it closely when
+   provided; otherwise use professional judgment.
+3. Zero or more image attachments (assessment/before, including Fast Quote client
+   photos). Use them as primary visual evidence. Don't invent details not visible
+   or stated; capture uncertainty as assumption/exclusion.
+
+Each row must classify itself with a "kind" so the printed quote can group it:
+  - "mobilisation"  — Callout, dispatch, set-up, demobilisation, travel.
+  - "project_mgmt"  — Project / case management, coordination, scheduling, reporting.
+  - "surcharge"     — After-hours, weekend, public holiday, hazard surcharge, urgency premium.
+  - "fixed_scope"   — Whole-job fixed-fee scopes (e.g. "Trauma scene attendance, single room, fixed-fee").
+  - "other"         — Use sparingly when none of the above fit.
 
 Return ONLY valid JSON with this shape:
 {
   "rows": [
     {
+      "kind": "mobilisation",
       "areas": ["Kitchen", "Hallway"],
       "outcome_title": "",
       "outcome_description": "",
@@ -34,20 +59,23 @@ Return ONLY valid JSON with this shape:
 }
 
 Rules:
+- Output Section 1 rows only — fees, mobilisation, PM, surcharges, fixed scopes.
 - Outcome-first language (value/results), not labour breakdown.
-- Keep room/area context in each row.
+- "areas" is optional for Section 1 rows that aren't tied to a specific room
+  (most fees aren't); leave as [] when general.
+- "kind" is REQUIRED on every row. Choose the best fit from the enum above.
 - No graphic detail; professional scientific wording.
 - status must be "suggested" for every row.
-- price must be >= 0 and represented as number.
-- All facts (areas, hazards, contamination, PPE, waste, methodology) must come from the context object. Do not hallucinate data.
+- price must be >= 0 and a number.
+- All facts come from the context object — do not hallucinate.
 - The instruction steers structure and emphasis, not facts.
 - If context.fast_quote.enabled is true, FAST QUOTE MODE applies:
-  - Treat the quote as limited-information and possibly sight-unseen.
-  - Do not imply a full site inspection, site verification, or confirmed contamination unless explicitly stated in context.
-  - Expect sparse information and draft usable outcomes from the voice brief, but keep unknowns as assumptions or staff-pricing items.
-  - Use conservative, conditional wording with strong exclusions, concealed-condition caveats, access limitations, and variation rights.
-  - If pricing is not stated or clearly inferable from staff instruction, set price to 0 rather than inventing an amount.
-  - Add assumption/exclusion lines that make the limited-information basis clear.
+  - Treat as limited-information / possibly sight-unseen.
+  - Do not imply a full site inspection or confirmed contamination unless context says so.
+  - Conservative, conditional wording with strong exclusions, concealed-condition
+    caveats, access limitations, and variation rights.
+  - If pricing isn't stated or clearly inferable, set price to 0 rather than inventing.
+  - Add assumption/exclusion lines that make the limited-info basis clear.
 `
 
 function safeNumber(v: unknown, fallback: number): number {
@@ -121,6 +149,13 @@ function pickPhotosForVision(rows: SuggestPhotoRow[]): SuggestPhotoRow[] {
     .slice(0, MAX_SUGGEST_IMAGES)
 }
 
+const VALID_KINDS: OutcomeKind[] = ['mobilisation', 'project_mgmt', 'surcharge', 'fixed_scope', 'other']
+
+function parseKind(raw: unknown): OutcomeKind {
+  const v = String(raw ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_')
+  return (VALID_KINDS as readonly string[]).includes(v) ? (v as OutcomeKind) : 'other'
+}
+
 function parseRows(raw: unknown): OutcomeQuoteRow[] {
   const root = raw as { rows?: Array<Record<string, unknown>> }
   const rows = root.rows ?? []
@@ -133,6 +168,7 @@ function parseRows(raw: unknown): OutcomeQuoteRow[] {
       const metricsRaw = Array.isArray(row.metrics) ? row.metrics : []
       return {
         id: `suggested_${idx + 1}`,
+        kind: parseKind(row.kind),
         areas: areasRaw.map(a => String(a ?? '').trim()).filter(Boolean),
         outcome_title: String(row.outcome_title ?? '').trim(),
         outcome_description: String(row.outcome_description ?? '').trim(),
@@ -180,6 +216,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     const ad = (job.assessment_data ?? null) as AssessmentData | null
     const sow = mergedSowCapture(ad)
+    const pricingLayout = derivePricingLayoutFromCapture(ad?.outcome_quote_capture)
     const [photosRes, docsRes] = await Promise.all([
       supabase
         .from('photos')
@@ -212,6 +249,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             updated_at: ad.fast_quote.updated_at ?? null,
           }
         : { enabled: false },
+      pricing_layout: pricingLayout,
       assessment_data: ad,
       scope_of_work: {
         objective: sow.objective,

@@ -1,6 +1,24 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { AreaPricingRow, AssessmentData, DocType, OutcomeQuoteRow, QuoteAuthorisation, QuoteGstMode, QuoteLineItemRow } from '@/lib/types'
+import type {
+  AreaPricingRow,
+  AssessmentData,
+  DocType,
+  OutcomeQuoteRow,
+  QuoteAuthorisation,
+  QuoteGstMode,
+  QuoteLineItemRow,
+  QuotePricingLayout,
+  SectionTerms,
+  VolumePricingBlock,
+} from '@/lib/types'
 import { collectExcludedSurfaces } from '@/lib/areaSurfaces'
+import {
+  derivePricingLayoutFromCapture,
+  normalizeSectionTerms,
+  recomputeVolumePricingTotal,
+  volumePricingHasContent,
+  volumePricingSubtotal,
+} from '@/lib/quoteSections'
 
 export interface QuoteCaptureFields {
   notes?: string
@@ -28,14 +46,32 @@ function computeQuoteTotals(amount: number, gstMode: QuoteGstMode) {
   return { subtotal: lineSum, gst: 0, total: lineSum }
 }
 
+export interface QuoteContentPatchInputs {
+  outcomeRows?: OutcomeQuoteRow[]
+  outcomeMode?: 'outcomes' | 'line_items'
+  captureFields?: QuoteCaptureFields
+  areaPricing?: AreaPricingRow[]
+  areaPricingTerms?: SectionTerms
+  volumePricing?: VolumePricingBlock
+  volumePricingTerms?: SectionTerms
+  pricingLayout?: QuotePricingLayout
+}
+
 export function quoteLineItemsContentPatch(
   rows: QuoteLineItemRow[],
   gstModeOrAddGst: QuoteGstMode | boolean = false,
-  outcomeRows?: OutcomeQuoteRow[],
-  outcomeMode?: 'outcomes' | 'line_items',
-  captureFields?: QuoteCaptureFields,
-  areaPricing?: AreaPricingRow[],
+  inputs: QuoteContentPatchInputs = {},
 ): Record<string, unknown> {
+  const {
+    outcomeRows,
+    outcomeMode,
+    captureFields,
+    areaPricing,
+    areaPricingTerms,
+    volumePricing,
+    volumePricingTerms,
+    pricingLayout,
+  } = inputs
   const gstMode = typeof gstModeOrAddGst === 'string' ? gstModeOrAddGst : normalizeGstMode(null, gstModeOrAddGst)
   const lineItems = rows.map(row => ({
     description: row.description,
@@ -46,26 +82,59 @@ export function quoteLineItemsContentPatch(
   }))
   const pricedOutcomes = (outcomeRows ?? []).filter(row => Number(row.price || 0) > 0)
   const pricedAreaPricing = (areaPricing ?? []).filter(row => Number(row.total || 0) > 0)
-  const areaPricingSum = pricedAreaPricing.reduce((s, r) => s + Number(r.total || 0), 0)
-  const lineOrOutcomeBase = lineItems.length
-    ? lineItems.reduce((sum, row) => sum + Number(row.total || 0), 0)
-    : pricedOutcomes.reduce((sum, row) => sum + Number(row.price || 0), 0)
-  const subtotal = Math.round((lineOrOutcomeBase + areaPricingSum) * 100) / 100
-  if (!lineItems.length && !(outcomeRows?.length) && pricedAreaPricing.length === 0) return {}
+  const refreshedVolume = volumePricing ? recomputeVolumePricingTotal(volumePricing) : undefined
+  const volumeIncluded = refreshedVolume && volumePricingHasContent(refreshedVolume)
+    ? refreshedVolume
+    : undefined
+
+  // Layout defaults: enable any section that has data unless an explicit layout disables it.
+  const effectiveLayout: QuotePricingLayout = pricingLayout ?? {
+    outcomes_enabled: lineItems.length > 0 || pricedOutcomes.length > 0,
+    per_sqm_enabled: pricedAreaPricing.length > 0,
+    per_m3_enabled: !!volumeIncluded,
+  }
+
+  // Section sums — disabled sections contribute 0 even if data is present.
+  const outcomesSum = effectiveLayout.outcomes_enabled
+    ? (lineItems.length
+        ? lineItems.reduce((sum, row) => sum + Number(row.total || 0), 0)
+        : pricedOutcomes.reduce((sum, row) => sum + Number(row.price || 0), 0))
+    : 0
+  const areaPricingSum = effectiveLayout.per_sqm_enabled
+    ? pricedAreaPricing.reduce((s, r) => s + Number(r.total || 0), 0)
+    : 0
+  const volumeSum = effectiveLayout.per_m3_enabled ? volumePricingSubtotal(volumeIncluded) : 0
+
+  const subtotal = Math.round((outcomesSum + areaPricingSum + volumeSum) * 100) / 100
+  const noData = !lineItems.length
+    && !(outcomeRows?.length)
+    && pricedAreaPricing.length === 0
+    && !volumeIncluded
+  if (noData) return {}
+
   const totals = computeQuoteTotals(subtotal, gstMode)
-  const autoExcludedSurfaces = collectExcludedSurfaces(pricedAreaPricing)
+  const autoExcludedSurfaces = effectiveLayout.per_sqm_enabled
+    ? collectExcludedSurfaces(pricedAreaPricing)
+    : []
+  const cleanAreaTerms = effectiveLayout.per_sqm_enabled ? normalizeSectionTerms(areaPricingTerms) : undefined
+  const cleanVolumeTerms = effectiveLayout.per_m3_enabled ? normalizeSectionTerms(volumePricingTerms) : undefined
+
   const patch: Record<string, unknown> = {
-    line_items: lineItems,
-    outcome_rows: outcomeRows ?? [],
+    line_items: effectiveLayout.outcomes_enabled ? lineItems : [],
+    outcome_rows: effectiveLayout.outcomes_enabled ? (outcomeRows ?? []) : [],
     outcome_mode: outcomeMode,
-    area_pricing: pricedAreaPricing,
+    area_pricing: effectiveLayout.per_sqm_enabled ? pricedAreaPricing : [],
     auto_excluded_surfaces: autoExcludedSurfaces,
+    pricing_layout: effectiveLayout,
     gst_mode: gstMode,
     subtotal: totals.subtotal,
     gst: totals.gst,
     total: totals.total,
     intro: '',
   }
+  if (cleanAreaTerms) patch.area_pricing_terms = cleanAreaTerms
+  if (volumeIncluded && effectiveLayout.per_m3_enabled) patch.volume_pricing = volumeIncluded
+  if (cleanVolumeTerms) patch.volume_pricing_terms = cleanVolumeTerms
   if (captureFields?.notes) patch.notes = captureFields.notes
   if (captureFields?.payment_terms) patch.payment_terms = captureFields.payment_terms
   if (captureFields?.validity) patch.validity = captureFields.validity
@@ -80,6 +149,10 @@ export interface MergeQuoteLineItemsOptions {
   outcome_mode?: 'outcomes' | 'line_items'
   capture_fields?: QuoteCaptureFields
   area_pricing?: AreaPricingRow[]
+  area_pricing_terms?: SectionTerms
+  volume_pricing?: VolumePricingBlock
+  volume_pricing_terms?: SectionTerms
+  pricing_layout?: QuotePricingLayout
 }
 
 /** Overlay active Quote Capture line items onto standalone quote or iaq_multi bundle quote part. */
@@ -92,10 +165,16 @@ export function mergeQuoteLineItemsIntoDocContent(
   const patch = quoteLineItemsContentPatch(
     rows,
     normalizeGstMode(options?.gst_mode, options?.add_gst_to_total === true),
-    options?.outcome_rows,
-    options?.outcome_mode,
-    options?.capture_fields,
-    options?.area_pricing,
+    {
+      outcomeRows: options?.outcome_rows,
+      outcomeMode: options?.outcome_mode,
+      captureFields: options?.capture_fields,
+      areaPricing: options?.area_pricing,
+      areaPricingTerms: options?.area_pricing_terms,
+      volumePricing: options?.volume_pricing,
+      volumePricingTerms: options?.volume_pricing_terms,
+      pricingLayout: options?.pricing_layout,
+    },
   )
   if (Object.keys(patch).length === 0) return content
   if (docType === 'quote') {
@@ -129,6 +208,10 @@ export interface QuoteLineItemsMergeContext {
   outcome_mode: 'outcomes' | 'line_items'
   capture_fields: QuoteCaptureFields
   area_pricing: AreaPricingRow[]
+  area_pricing_terms?: SectionTerms
+  volume_pricing?: VolumePricingBlock
+  volume_pricing_terms?: SectionTerms
+  pricing_layout?: QuotePricingLayout
 }
 
 /** Active run + line items for merging into quote documents and print. */
@@ -136,13 +219,23 @@ export async function fetchQuoteLineItemsMergeContext(
   supabase: SupabaseClient,
   jobId: string,
 ): Promise<QuoteLineItemsMergeContext> {
+  const empty: QuoteLineItemsMergeContext = {
+    rows: [],
+    gst_mode: 'no_gst',
+    add_gst_to_total: false,
+    outcome_rows: [],
+    outcome_mode: 'line_items',
+    capture_fields: {},
+    area_pricing: [],
+  }
+
   const { data: run, error: runErr } = await supabase
     .from('quote_line_item_runs')
     .select('*')
     .eq('job_id', jobId)
     .eq('is_active', true)
     .maybeSingle()
-  if (runErr || !run) return { rows: [], gst_mode: 'no_gst', add_gst_to_total: false, outcome_rows: [], outcome_mode: 'line_items', capture_fields: {}, area_pricing: [] }
+  if (runErr || !run) return empty
 
   const { data: items, error } = await supabase
     .from('quote_line_items')
@@ -169,6 +262,12 @@ export async function fetchQuoteLineItemsMergeContext(
   const capture = ad?.outcome_quote_capture
   const outcomeRows = (capture?.rows ?? []) as OutcomeQuoteRow[]
   const area_pricing = (capture?.area_pricing ?? []).filter(r => Number(r.total ?? 0) > 0) as AreaPricingRow[]
+  const area_pricing_terms = capture?.area_pricing_terms
+  const volume_pricing = capture?.volume_pricing && volumePricingHasContent(capture.volume_pricing)
+    ? capture.volume_pricing
+    : undefined
+  const volume_pricing_terms = capture?.volume_pricing_terms
+  const pricing_layout = derivePricingLayoutFromCapture(capture)
 
   const capture_fields: QuoteCaptureFields = {
     notes: capture?.notes ?? '',
@@ -183,6 +282,8 @@ export async function fetchQuoteLineItemsMergeContext(
       row.price > 0 &&
       row.outcome_title.trim()
   )
+
+  const baseExtras = { area_pricing_terms, volume_pricing, volume_pricing_terms, pricing_layout }
 
   if (capture?.mode === 'outcomes' && approvedOutcomes.length > 0) {
     const syntheticRows: QuoteLineItemRow[] = approvedOutcomes.map((row, idx) => ({
@@ -204,14 +305,14 @@ export async function fetchQuoteLineItemsMergeContext(
       updated_by_user_id: '',
       deleted_at: null,
     }))
-    return { rows: syntheticRows, gst_mode, add_gst_to_total, outcome_rows: outcomeRows, outcome_mode: 'outcomes', capture_fields, area_pricing }
+    return { rows: syntheticRows, gst_mode, add_gst_to_total, outcome_rows: outcomeRows, outcome_mode: 'outcomes', capture_fields, area_pricing, ...baseExtras }
   }
 
   if (capture?.mode === 'outcomes') {
-    return { rows: dbRows, gst_mode, add_gst_to_total, outcome_rows: outcomeRows, outcome_mode: 'outcomes', capture_fields, area_pricing }
+    return { rows: dbRows, gst_mode, add_gst_to_total, outcome_rows: outcomeRows, outcome_mode: 'outcomes', capture_fields, area_pricing, ...baseExtras }
   }
 
-  return { rows: dbRows, gst_mode, add_gst_to_total, outcome_rows: [], outcome_mode: 'line_items', capture_fields, area_pricing }
+  return { rows: dbRows, gst_mode, add_gst_to_total, outcome_rows: [], outcome_mode: 'line_items', capture_fields, area_pricing, ...baseExtras }
 }
 
 /** Active run line items for a job (service client; used by print and server merge). */
