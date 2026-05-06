@@ -114,7 +114,16 @@ function jobContext(job: Job, photos: Photo[], company: CompanyProfile | null): 
   const a = job.assessment_data
   const ppeList = a ? Object.entries(a.ppe_required).filter(([,v])=>v).map(([k])=>k.replace(/_/g,' ')).join(', ') : 'standard PPE'
   const riskList = a ? Object.entries(a.special_risks).filter(([,v])=>v).map(([k])=>k.replace(/_/g,' ')).join(', ') : 'none identified'
-  const areaList = a?.areas?.map(ar=>`${ar.name} (${ar.sqm}m², hazard level ${ar.hazard_level}/5): ${ar.description}${ar.note ? ` | Room note: ${ar.note}` : ''}`).join('\n') ?? 'not specified'
+  const areaList = a?.areas?.map(ar => {
+    const l = Number(ar.length_m ?? 0)
+    const w = Number(ar.width_m ?? 0)
+    const h = Number(ar.height_m ?? 0)
+    const vol = l > 0 && w > 0 && h > 0 ? Math.round(l * w * h * 100) / 100 : 0
+    const dims = l > 0 && w > 0
+      ? `, ${l}×${w}${h > 0 ? `×${h}` : ''} m${vol > 0 ? `, ${vol} m³` : ''}`
+      : ''
+    return `${ar.name} (${ar.sqm}m²${dims}, hazard level ${ar.hazard_level}/5): ${ar.description}${ar.note ? ` | Room note: ${ar.note}` : ''}`
+  }).join('\n') ?? 'not specified'
   const photoGroups = groupPhotosByRoomAndStage(photos, a?.areas ?? [])
   const photoNotes = photoGroups.length
     ? photoGroups.map(group => {

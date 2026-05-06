@@ -160,7 +160,16 @@ export const DOC_TYPE_GROUPS: DocTypeGroup[] = [
 /* A single contaminated zone within a job site */
 export interface Area {
   name: string
+  /** Floor area in square metres. Auto-derived from length_m × width_m when both
+   *  are set, but stored explicitly so legacy areas (without dimensions) and
+   *  irregular rooms can keep a manual value. Foundation for per-sqm quoting. */
   sqm: number
+  /** Room length in metres. Optional — only present once dimensions are captured. */
+  length_m?: number
+  /** Room width in metres. */
+  width_m?: number
+  /** Room ceiling height in metres. Used for volume-based services (fogging, etc). */
+  height_m?: number
   hazard_level: number
   description: string
   note?: string

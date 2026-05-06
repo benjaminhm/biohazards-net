@@ -20,6 +20,12 @@ import { photosForComposedReports } from '@/lib/photosForComposedReports'
 function buildJobDataBlock(job: Job): string {
   const a = job.assessment_data!
   const totalSqm = a.areas.reduce((s, x) => s + x.sqm, 0)
+  const totalVolume = a.areas.reduce((s, x) => {
+    const l = Number(x.length_m ?? 0)
+    const w = Number(x.width_m ?? 0)
+    const h = Number(x.height_m ?? 0)
+    return s + (l > 0 && w > 0 && h > 0 ? l * w * h : 0)
+  }, 0)
   const risks = Object.entries(a.special_risks)
     .filter(([, v]) => v)
     .map(([k]) => k.replace(/_/g, ' '))
@@ -38,10 +44,18 @@ Urgency: ${job.urgency}
 ASSESSMENT FINDINGS
 Contamination Level: ${a.contamination_level}/5
 Biohazard Type: ${a.biohazard_type}
-Total Area: ${totalSqm}sqm across ${a.areas.length} areas
+Total Area: ${totalSqm}sqm across ${a.areas.length} areas${totalVolume > 0 ? ` (≈${Math.round(totalVolume * 100) / 100} m³)` : ''}
 
 Areas:
-${a.areas.map(x => `- ${x.name}: ${x.sqm}sqm, hazard level ${x.hazard_level}/5\n  ${x.description}${x.note ? `\n  Room note: ${x.note}` : ''}`).join('\n')}
+${a.areas.map(x => {
+  const l = Number(x.length_m ?? 0)
+  const w = Number(x.width_m ?? 0)
+  const h = Number(x.height_m ?? 0)
+  const dims = l > 0 && w > 0
+    ? ` (${l}×${w}${h > 0 ? `×${h}` : ''} m${l > 0 && w > 0 && h > 0 ? `, ${Math.round(l * w * h * 100) / 100} m³` : ''})`
+    : ''
+  return `- ${x.name}: ${x.sqm}sqm${dims}, hazard level ${x.hazard_level}/5\n  ${x.description}${x.note ? `\n  Room note: ${x.note}` : ''}`
+}).join('\n')}
 
 PPE Required: ${ppe || 'standard PPE'}
 Special Risks: ${risks || 'none identified'}

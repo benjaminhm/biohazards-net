@@ -109,7 +109,19 @@ export default function AssessmentTab({ job, onJobUpdate, photos, onPhotosUpdate
   function addArea() {
     setData(d => ({
       ...d,
-      areas: [...d.areas, { name: '', sqm: 0, hazard_level: 1, description: '', note: '' }],
+      areas: [
+        ...d.areas,
+        {
+          name: '',
+          sqm: 0,
+          length_m: 0,
+          width_m: 0,
+          height_m: 0,
+          hazard_level: 1,
+          description: '',
+          note: '',
+        },
+      ],
     }))
     setSaved(false)
     setSaveError('')
@@ -119,6 +131,26 @@ export default function AssessmentTab({ job, onJobUpdate, photos, onPhotosUpdate
     setData(d => {
       const areas = [...d.areas]
       areas[index] = { ...areas[index], [field]: value }
+      return { ...d, areas }
+    })
+    setSaved(false)
+    setSaveError('')
+  }
+
+  /** Update a dimension and auto-derive sqm from length × width when both are set.
+   *  Keeps the manual sqm value untouched if the user hasn't entered both L and W. */
+  function updateAreaDimension(index: number, field: 'length_m' | 'width_m' | 'height_m', value: number) {
+    const safe = Number.isFinite(value) && value >= 0 ? value : 0
+    setData(d => {
+      const areas = [...d.areas]
+      const cur = areas[index]
+      const next: Area = { ...cur, [field]: safe }
+      const l = field === 'length_m' ? safe : Number(next.length_m ?? 0)
+      const w = field === 'width_m' ? safe : Number(next.width_m ?? 0)
+      if (l > 0 && w > 0) {
+        next.sqm = Math.round(l * w * 100) / 100
+      }
+      areas[index] = next
       return { ...d, areas }
     })
     setSaved(false)
@@ -557,6 +589,76 @@ export default function AssessmentTab({ job, onJobUpdate, photos, onPhotosUpdate
               Remove
             </button>
           </div>
+
+          {(() => {
+            const lengthM = Number(area.length_m ?? 0)
+            const widthM = Number(area.width_m ?? 0)
+            const heightM = Number(area.height_m ?? 0)
+            const derivedSqm = lengthM > 0 && widthM > 0 ? Math.round(lengthM * widthM * 100) / 100 : 0
+            const volume = derivedSqm > 0 && heightM > 0 ? Math.round(derivedSqm * heightM * 100) / 100 : 0
+            const displaySqm = derivedSqm > 0 ? derivedSqm : Number(area.sqm ?? 0)
+            const sqmIsLegacy = derivedSqm === 0 && Number(area.sqm ?? 0) > 0
+            return (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+                  <label style={{ margin: 0 }}>Dimensions</label>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                    Foundation for per-m² quoting
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                  {([
+                    { key: 'length_m' as const, label: 'Length (m)' },
+                    { key: 'width_m' as const, label: 'Width (m)' },
+                    { key: 'height_m' as const, label: 'Height (m)' },
+                  ]).map(f => (
+                    <div key={f.key}>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>{f.label}</div>
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        min="0"
+                        step="0.1"
+                        value={Number(area[f.key] ?? 0) > 0 ? Number(area[f.key] ?? 0) : ''}
+                        onChange={e => {
+                          const n = parseFloat(e.target.value)
+                          updateAreaDimension(i, f.key, isNaN(n) ? 0 : n)
+                        }}
+                        placeholder="0"
+                        autoComplete="off"
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                  {displaySqm > 0 ? (
+                    <>
+                      Floor area:{' '}
+                      <strong style={{ color: 'var(--text)' }}>
+                        {displaySqm.toLocaleString('en-AU', { maximumFractionDigits: 2 })} m²
+                      </strong>
+                      {volume > 0 && (
+                        <>
+                          {' · '}Volume:{' '}
+                          <strong style={{ color: 'var(--text)' }}>
+                            {volume.toLocaleString('en-AU', { maximumFractionDigits: 2 })} m³
+                          </strong>
+                        </>
+                      )}
+                      {sqmIsLegacy && (
+                        <span style={{ marginLeft: 6, fontStyle: 'italic' }}>
+                          (legacy area — add length × width to enable per-m² pricing)
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <>Enter length × width to auto-derive floor area; height enables volume-based pricing (e.g. fogging).</>
+                  )}
+                </div>
+              </div>
+            )
+          })()}
 
           <PhotoUploadPanel
             jobId={job.id}

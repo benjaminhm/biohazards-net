@@ -407,7 +407,15 @@ function composeSow(
 
   if (ad) {
     const areaLines = ad.areas?.length
-      ? ad.areas.map(a => `${a.name}: ${a.sqm} sqm — ${a.description || '—'}`.trim()).join('\n')
+      ? ad.areas.map(a => {
+          const l = Number(a.length_m ?? 0)
+          const w = Number(a.width_m ?? 0)
+          const h = Number(a.height_m ?? 0)
+          const dims = l > 0 && w > 0
+            ? ` (${l}×${w}${h > 0 ? `×${h}` : ''} m)`
+            : ''
+          return `${a.name}: ${a.sqm} sqm${dims} — ${a.description || '—'}`.trim()
+        }).join('\n')
       : ''
     const exec = [ad.observations?.trim(), ad.access_restrictions?.trim()]
       .filter(Boolean)
