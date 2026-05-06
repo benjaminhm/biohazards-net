@@ -314,6 +314,13 @@ export default function AssessmentTab({ job, onJobUpdate, photos, onPhotosUpdate
     [data.areas]
   )
   const fastQuote = data.fast_quote
+  /** Photos attached to the Fast Quote brief (no on-site area). Anchored on a fixed
+   *  area_ref so they're easy to find, render under their own group in the printed
+   *  quote, and get fed to the Quote AI suggester as visual evidence. */
+  const FAST_QUOTE_AREA_REF = 'Fast Quote'
+  const fastQuotePhotos = photos.filter(
+    p => (p.area_ref || '').trim() === FAST_QUOTE_AREA_REF,
+  )
 
   return (
     <div style={{ paddingBottom: 40 }}>
@@ -400,6 +407,53 @@ export default function AssessmentTab({ job, onJobUpdate, photos, onPhotosUpdate
               rows={5}
               style={{ resize: 'vertical', marginBottom: 10 }}
             />
+
+            <div
+              style={{
+                marginTop: 4,
+                marginBottom: 10,
+                paddingTop: 10,
+                borderTop: '1px dashed rgba(255,107,53,0.25)',
+              }}
+            >
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.45, marginBottom: 8 }}>
+                Optional — attach client-supplied photos (text, email, etc). They&apos;ll be visible
+                to the Quote AI suggester and printed under their own group on the quote.
+              </div>
+              <PhotoUploadPanel
+                jobId={job.id}
+                fixedAreaRef={FAST_QUOTE_AREA_REF}
+                photos={photos}
+                onPhotosUpdate={onPhotosUpdate}
+                defaultPendingCategory="assessment"
+                fixedCapturePhase="assessment"
+                compact
+              />
+              {fastQuotePhotos.length > 0 && (
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+                    gap: 8,
+                    marginTop: 4,
+                  }}
+                >
+                  {fastQuotePhotos.map(photo => (
+                    <PhotoCard
+                      key={photo.id}
+                      photo={photo}
+                      areaNames={areaNames}
+                      showAreaChip={false}
+                      onDelete={id => onPhotosUpdate(photos.filter(p => p.id !== id))}
+                      onUpdate={updated =>
+                        onPhotosUpdate(photos.map(p => (p.id === updated.id ? updated : p)))
+                      }
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+
             <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.45 }}>
               <input
                 type="checkbox"
