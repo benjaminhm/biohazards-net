@@ -29,6 +29,7 @@ import type {
 import { DOC_TYPE_LABELS } from './types'
 import { filterGroupedStages, groupPhotosByRoomAndStage, type RoomPhotoGroup } from './photoGroups'
 import { photosForComposedReports } from '@/lib/photosForComposedReports'
+import { SURFACE_LABELS } from '@/lib/areaSurfaces'
 
 /** Matches the navy header when `company` is missing (meta grid used to show "—" while header showed this name). */
 const DEFAULT_PRINT_ORG_NAME = 'Brisbane Biohazard Cleaning'
@@ -785,6 +786,39 @@ function buildQuoteMid(
     `
   }).join('')
   const outcomeLayout = outcomeBlocks || `<div class="body-text">Outcome-based quote is enabled for this job. No outcomes have been drafted yet.</div>`
+  const areaPricingBody = areaPricing.map(row => {
+    const dims = row.length_m > 0 && row.width_m > 0
+      ? `${row.length_m}×${row.width_m}${row.height_m > 0 ? `×${row.height_m}` : ''} m`
+      : '—'
+    const surfaces = (row.surfaces ?? []).filter(s => s.included)
+    if (surfaces.length === 0) {
+      // Legacy / pre-surfaces row — fall back to the original flat-rate single line.
+      return `
+        <tr>
+          <td>${esc(row.area_name)}</td>
+          <td>${esc(dims)}</td>
+          <td>—</td>
+          <td class="r">${Number(row.sqm || 0).toLocaleString('en-AU', { maximumFractionDigits: 2 })}</td>
+          <td class="r">${fmtMoney(Number(row.unit_price_per_sqm || 0))}</td>
+          <td class="r">${fmtMoney(Number(row.total || 0))}</td>
+        </tr>`
+    }
+    return surfaces.map((s, idx) => {
+      const isFirst = idx === 0
+      const roomCell = isFirst
+        ? `<td rowspan="${surfaces.length}" style="vertical-align:top">${esc(row.area_name)}</td>
+           <td rowspan="${surfaces.length}" style="vertical-align:top">${esc(dims)}</td>`
+        : ''
+      return `
+        <tr>
+          ${roomCell}
+          <td>${esc(SURFACE_LABELS[s.kind])}</td>
+          <td class="r">${Number(s.area_m2 || 0).toLocaleString('en-AU', { maximumFractionDigits: 2 })}</td>
+          <td class="r">${fmtMoney(Number(s.unit_price_per_sqm || 0))}</td>
+          <td class="r">${fmtMoney(Number(s.total || 0))}</td>
+        </tr>`
+    }).join('')
+  }).join('')
   const areaPricingTable = hasAreaPricing
     ? `
       <div class="label" style="margin-top:14px">Per-Room Pricing</div>
@@ -793,27 +827,25 @@ function buildQuoteMid(
           <tr>
             <th>Room</th>
             <th>Dimensions</th>
+            <th>Surface</th>
             <th class="r">m²</th>
             <th class="r">$/m²</th>
             <th class="r">Total</th>
           </tr>
         </thead>
         <tbody>
-          ${areaPricing.map(row => {
-            const dims = row.length_m > 0 && row.width_m > 0
-              ? `${row.length_m}×${row.width_m}${row.height_m > 0 ? `×${row.height_m}` : ''} m`
-              : '—'
-            return `
-            <tr>
-              <td>${esc(row.area_name)}</td>
-              <td>${esc(dims)}</td>
-              <td class="r">${Number(row.sqm || 0).toLocaleString('en-AU', { maximumFractionDigits: 2 })}</td>
-              <td class="r">${fmtMoney(Number(row.unit_price_per_sqm || 0))}</td>
-              <td class="r">${fmtMoney(Number(row.total || 0))}</td>
-            </tr>`
-          }).join('')}
+          ${areaPricingBody}
         </tbody>
       </table>
+    `
+    : ''
+  const autoExcludedSurfaces = (c.auto_excluded_surfaces ?? []).filter(s => s.trim())
+  const autoExcludedBlock = autoExcludedSurfaces.length > 0
+    ? `
+      <div class="label" style="margin-top:14px">Excluded From This Quote</div>
+      <ul class="body-text">
+        ${autoExcludedSurfaces.map(s => `<li>${esc(s)}</li>`).join('')}
+      </ul>
     `
     : ''
   const gstMode = c.gst_mode ?? (c.gst > 0 ? 'exclusive' : 'no_gst')
@@ -837,6 +869,7 @@ function buildQuoteMid(
     </table>
     ` : (hasAreaPricing ? '' : `<div class="body-text">— Pricing to be confirmed.</div>`))}
     ${areaPricingTable}
+    ${autoExcludedBlock}
     <div class="totals">
       <div class="tot-row"><span>${subtotalLabel}</span><span class="amt">${fmtMoney(c.subtotal)}</span></div>
       ${c.gst > 0 ? `<div class="tot-row"><span>${gstLabel}</span><span class="amt">${fmtMoney(c.gst)}</span></div>` : ''}

@@ -36,6 +36,7 @@ import {
   type CompletionReportComposeContext,
 } from '@/lib/perCompletionAssembly'
 import { assessmentDocumentHasContent, mergedAssessmentDocumentCapture } from '@/lib/assessmentDocumentCapture'
+import { collectExcludedSurfaces } from '@/lib/areaSurfaces'
 import { buildPrintHTML, type ClientInfo } from '@/lib/printDocument'
 import type { CompanyProfile } from '@/lib/types'
 import {
@@ -470,6 +471,7 @@ function composeQuote(job: Job): ComposeDocumentResult {
   const cap = ad?.outcome_quote_capture
   const auth = cap?.authorisation
   const areaPricing = (cap?.area_pricing ?? []).filter(r => Number(r.total ?? 0) > 0)
+  const autoExcludedSurfaces = collectExcludedSurfaces(areaPricing)
   const hasOutcomes = cap && cap.rows?.length > 0
   const hasCapture = hasOutcomes || areaPricing.length > 0
   const c: QuoteContent = {
@@ -482,6 +484,7 @@ function composeQuote(job: Job): ComposeDocumentResult {
     outcome_rows: hasOutcomes ? cap!.rows : undefined,
     outcome_mode: hasOutcomes ? 'outcomes' : undefined,
     area_pricing: areaPricing.length > 0 ? areaPricing : undefined,
+    auto_excluded_surfaces: autoExcludedSurfaces.length > 0 ? autoExcludedSurfaces : undefined,
     gst_mode: cap?.gst_mode ?? 'no_gst',
     subtotal: cap?.totals?.subtotal ?? 0,
     gst: cap?.totals?.gst ?? 0,

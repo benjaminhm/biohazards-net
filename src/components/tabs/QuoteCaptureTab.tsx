@@ -6,7 +6,13 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import type { Area, AreaPricingRow, Job, Document, OutcomeQuoteCapture, OutcomeQuoteRow, QuoteAuthorisation, QuoteGstMode } from '@/lib/types'
+import type { Area, AreaPricingRow, Job, Document, OutcomeQuoteCapture, OutcomeQuoteRow, QuoteAuthorisation, QuoteGstMode, SurfaceKind, SurfacePricingLine } from '@/lib/types'
+import {
+  SURFACE_KINDS,
+  SURFACE_LABELS,
+  sumIncludedSurfaceTotals,
+  upgradeLegacyAreaRow,
+} from '@/lib/areaSurfaces'
 
 interface Props {
   job: Job
@@ -46,8 +52,10 @@ function computeTotals(rows: OutcomeQuoteRow[], areaPricing: AreaPricingRow[], g
   return { subtotal: lineSum, gst: 0, total: lineSum }
 }
 
-/** Build a fresh per-room pricing snapshot from the live assessment areas, while
- *  preserving any unit price the user has already entered for the same area. */
+/** Build a fresh per-room pricing snapshot from the live assessment areas,
+ *  preserving the surface include-flags and unit prices the user has already
+ *  entered. Surface m² values always re-derive from the current dimensions
+ *  so the Assessment stays the source of truth. */
 function syncAreaPricing(
   areas: Area[] | undefined,
   saved: AreaPricingRow[] | undefined,
@@ -64,16 +72,19 @@ function syncAreaPricing(
       const heightM = Number(a.height_m ?? 0)
       const sqm = Number(a.sqm ?? 0)
       const prior = savedByName.get(name.toLowerCase())
-      const unit = Math.max(0, Number(prior?.unit_price_per_sqm ?? 0))
-      return {
+      const seed: AreaPricingRow = {
         area_name: name,
         length_m: lengthM,
         width_m: widthM,
         height_m: heightM,
         sqm,
-        unit_price_per_sqm: unit,
-        total: toMoney(sqm * unit),
-      } satisfies AreaPricingRow
+        unit_price_per_sqm: Math.max(0, Number(prior?.unit_price_per_sqm ?? 0)),
+        total: 0,
+        surfaces: prior?.surfaces,
+      }
+      // upgradeLegacyAreaRow handles both modern (refresh quantities) and
+      // legacy (synthesise floor/walls/ceiling) cases.
+      return upgradeLegacyAreaRow(seed)
     })
     .filter((r): r is AreaPricingRow => r !== null)
 }
@@ -286,14 +297,21 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
     setSaveError('')
   }
 
-  function patchAreaUnitPrice(areaName: string, unit: number) {
-    const safeUnit = Number.isFinite(unit) && unit >= 0 ? unit : 0
+  /** Update one surface row inside one area, then recompute the parent total. */
+  function patchSurface(areaName: string, kind: SurfaceKind, patch: Partial<SurfacePricingLine>) {
     setAreaPricing(prev =>
-      prev.map(r =>
-        r.area_name === areaName
-          ? { ...r, unit_price_per_sqm: safeUnit, total: toMoney(Number(r.sqm || 0) * safeUnit) }
-          : r,
-      ),
+      prev.map(r => {
+        if (r.area_name !== areaName) return r
+        const surfaces = (r.surfaces ?? []).map(s => {
+          if (s.kind !== kind) return s
+          const next: SurfacePricingLine = { ...s, ...patch }
+          const safeRate = Math.max(0, Number(next.unit_price_per_sqm) || 0)
+          next.unit_price_per_sqm = safeRate
+          next.total = next.included ? toMoney(Number(next.area_m2 || 0) * safeRate) : 0
+          return next
+        })
+        return { ...r, surfaces, total: sumIncludedSurfaceTotals(surfaces) }
+      }),
     )
     setSaved(false)
     setSaveError('')
@@ -582,74 +600,136 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
           Add areas with length × width on the Assessment tab to enable per-m² quoting here.
         </div>
       ) : (
-        <div
-          style={{
-            border: '1px solid var(--border)',
-            borderRadius: 10,
-            background: 'var(--surface)',
-            marginBottom: 20,
-            overflow: 'hidden',
-          }}
-        >
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '2fr 1.4fr 0.7fr 1fr 1fr',
-              gap: 8,
-              padding: '8px 12px',
-              fontSize: 11,
-              fontWeight: 700,
-              letterSpacing: '0.06em',
-              textTransform: 'uppercase',
-              color: 'var(--text-muted)',
-              borderBottom: '1px solid var(--border)',
-              background: 'var(--surface-2)',
-            }}
-          >
-            <span>Room</span>
-            <span>Dimensions</span>
-            <span style={{ textAlign: 'right' }}>m²</span>
-            <span style={{ textAlign: 'right' }}>$/m²</span>
-            <span style={{ textAlign: 'right' }}>Total</span>
+        <div style={{ display: 'grid', gap: 12, marginBottom: 20 }}>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            Each room is broken into Floor / Walls / Ceiling. Tick the surfaces you&apos;re
+            quoting for and enter $/m². m² values come from the Assessment dimensions —
+            edit dimensions there if a room isn&apos;t a clean rectangle. Excluded surfaces
+            are added to the printed quote&apos;s &quot;Excluded from this quote&quot; list automatically.
           </div>
+
           {areaPricing.map(row => {
+            const surfaces = row.surfaces ?? []
             const dims = row.length_m > 0 && row.width_m > 0
               ? `${row.length_m}×${row.width_m}${row.height_m > 0 ? `×${row.height_m}` : ''} m`
-              : '— add L × W'
-            const sqmDisplay = Number(row.sqm || 0).toLocaleString('en-AU', { maximumFractionDigits: 2 })
+              : '— set L × W in Assessment'
+            const dimsMissing = !(row.length_m > 0 && row.width_m > 0)
+            const wallsNeedsHeight = !(row.height_m > 0)
             return (
               <div
                 key={row.area_name}
                 style={{
-                  display: 'grid',
-                  gridTemplateColumns: '2fr 1.4fr 0.7fr 1fr 1fr',
-                  gap: 8,
-                  alignItems: 'center',
-                  padding: '8px 12px',
-                  borderTop: '1px solid var(--border)',
-                  fontSize: 13,
+                  border: '1px solid var(--border)',
+                  borderRadius: 10,
+                  background: 'var(--surface)',
+                  overflow: 'hidden',
                 }}
               >
-                <span style={{ fontWeight: 600 }}>{row.area_name}</span>
-                <span style={{ color: 'var(--text-muted)' }}>{dims}</span>
-                <span style={{ textAlign: 'right' }}>{sqmDisplay}</span>
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  min="0"
-                  step="1"
-                  value={row.unit_price_per_sqm > 0 ? row.unit_price_per_sqm : ''}
-                  onChange={e => {
-                    const n = parseFloat(e.target.value)
-                    patchAreaUnitPrice(row.area_name, isNaN(n) ? 0 : n)
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'baseline',
+                    padding: '10px 12px',
+                    background: 'var(--surface-2)',
+                    borderBottom: '1px solid var(--border)',
                   }}
-                  placeholder="0.00"
-                  aria-label={`${row.area_name} dollars per square metre`}
-                  style={{ width: '100%', textAlign: 'right' }}
-                />
-                <span style={{ textAlign: 'right', fontWeight: 600 }}>
-                  {row.total > 0 ? `$${row.total.toFixed(2)}` : '—'}
-                </span>
+                >
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <strong style={{ fontSize: 13 }}>{row.area_name}</strong>
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{dims}</span>
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 700 }}>
+                    {row.total > 0 ? `$${row.total.toFixed(2)}` : <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>$0.00</span>}
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'auto 1fr 0.7fr 1fr 1fr',
+                    gap: 8,
+                    padding: '6px 12px',
+                    fontSize: 10.5,
+                    fontWeight: 700,
+                    letterSpacing: '0.06em',
+                    textTransform: 'uppercase',
+                    color: 'var(--text-muted)',
+                    borderBottom: '1px solid var(--border)',
+                  }}
+                >
+                  <span aria-hidden="true" />
+                  <span>Surface</span>
+                  <span style={{ textAlign: 'right' }}>m²</span>
+                  <span style={{ textAlign: 'right' }}>$/m²</span>
+                  <span style={{ textAlign: 'right' }}>Total</span>
+                </div>
+
+                {SURFACE_KINDS.map(kind => {
+                  const surface = surfaces.find(s => s.kind === kind)
+                  if (!surface) return null
+                  const isWalls = kind === 'walls'
+                  const wallsBlocked = isWalls && wallsNeedsHeight
+                  const needsDims = dimsMissing || wallsBlocked
+                  const checkboxId = `surface_${row.area_name}_${kind}`
+                  return (
+                    <div
+                      key={kind}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'auto 1fr 0.7fr 1fr 1fr',
+                        gap: 8,
+                        alignItems: 'center',
+                        padding: '8px 12px',
+                        borderTop: '1px solid var(--border)',
+                        fontSize: 13,
+                        opacity: surface.included ? 1 : 0.6,
+                      }}
+                    >
+                      <input
+                        id={checkboxId}
+                        type="checkbox"
+                        checked={surface.included}
+                        onChange={e => patchSurface(row.area_name, kind, { included: e.target.checked })}
+                        aria-label={`Include ${SURFACE_LABELS[kind]} for ${row.area_name}`}
+                        style={{ cursor: 'pointer' }}
+                      />
+                      <label htmlFor={checkboxId} style={{ fontWeight: 600, cursor: 'pointer' }}>
+                        {SURFACE_LABELS[kind]}
+                        {wallsBlocked && (
+                          <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--text-muted)', fontStyle: 'italic', fontWeight: 400 }}>
+                            (set height)
+                          </span>
+                        )}
+                      </label>
+                      <span style={{ textAlign: 'right', color: needsDims ? 'var(--text-muted)' : undefined }}>
+                        {surface.area_m2 > 0
+                          ? surface.area_m2.toLocaleString('en-AU', { maximumFractionDigits: 2 })
+                          : '—'}
+                      </span>
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        min="0"
+                        step="1"
+                        value={surface.unit_price_per_sqm > 0 ? surface.unit_price_per_sqm : ''}
+                        onChange={e => {
+                          const n = parseFloat(e.target.value)
+                          patchSurface(row.area_name, kind, {
+                            unit_price_per_sqm: isNaN(n) ? 0 : Math.max(0, n),
+                          })
+                        }}
+                        placeholder="0.00"
+                        aria-label={`${SURFACE_LABELS[kind]} dollars per square metre for ${row.area_name}`}
+                        disabled={!surface.included}
+                        style={{ width: '100%', textAlign: 'right' }}
+                      />
+                      <span style={{ textAlign: 'right', fontWeight: 600 }}>
+                        {surface.included && surface.total > 0 ? `$${surface.total.toFixed(2)}` : '—'}
+                      </span>
+                    </div>
+                  )
+                })}
               </div>
             )
           })}

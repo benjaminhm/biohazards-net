@@ -687,10 +687,31 @@ export interface QuoteAuthorisation {
 
 export type QuoteGstMode = 'no_gst' | 'inclusive' | 'exclusive'
 
+/** Logical surfaces that share a single set of room dimensions. Walls is one
+ *  combined surface (perimeter × height) so the UI stays a 3-line decision. */
+export type SurfaceKind = 'floor' | 'walls' | 'ceiling'
+
+/** One surface within a room: include/exclude flag + per-m² rate. Quantities
+ *  (`area_m2`) auto-derive from the parent room's L/W/H via `deriveSurfaceAreas`
+ *  but are persisted so the printed quote stays stable if the Assessment is
+ *  later edited. `total = included ? area_m2 × unit_price_per_sqm : 0`. */
+export interface SurfacePricingLine {
+  kind: SurfaceKind
+  included: boolean
+  area_m2: number
+  unit_price_per_sqm: number
+  total: number
+}
+
 /** Per-room pricing row driven by assessment dimensions. Foundation for per-m²
  *  quoting: dimensions and sqm are snapshotted at quote time so the printed
- *  quote stays stable even if the assessment is later edited. The user only
- *  edits `unit_price_per_sqm`; `total` is auto-derived (`sqm × unit_price_per_sqm`). */
+ *  quote stays stable even if the assessment is later edited.
+ *
+ *  Modern rows carry a `surfaces` array (Floor / Walls / Ceiling) and the
+ *  row `total` is the sum of included surface totals.
+ *
+ *  Legacy rows omit `surfaces` and use the flat `unit_price_per_sqm × sqm`
+ *  pricing — they are auto-upgraded on first read by `upgradeLegacyAreaRow`. */
 export interface AreaPricingRow {
   /** Area name from assessment_data.areas; also the row identity. */
   area_name: string
@@ -698,8 +719,13 @@ export interface AreaPricingRow {
   width_m: number
   height_m: number
   sqm: number
+  /** Legacy flat rate. Retained for backward compatibility; modern rows price
+   *  via `surfaces[]` and use this only as a default for the floor surface. */
   unit_price_per_sqm: number
   total: number
+  /** Per-surface breakdown (Floor / Walls / Ceiling). Present on rows that have
+   *  been touched on the Quote tab post-surfaces-launch. */
+  surfaces?: SurfacePricingLine[]
 }
 
 export interface OutcomeQuoteCapture {
@@ -1083,6 +1109,11 @@ export interface QuoteContent {
   outcome_rows?: OutcomeQuoteRow[]
   /** Per-room pricing rows (dimensions × $/m²). Rendered as a dedicated table. */
   area_pricing?: AreaPricingRow[]
+  /** Auto-derived from `area_pricing[].surfaces` where `included = false`.
+   *  Each entry is a "Surface — Room" string ready to render under
+   *  "Excluded from this quote". Computed by `collectExcludedSurfaces`; not
+   *  user-edited directly. */
+  auto_excluded_surfaces?: string[]
   /** Controls quote output layout preference when merging live quote capture content. */
   outcome_mode?: 'outcomes' | 'line_items'
   /** Controls whether GST is not applied, included in prices, or added on top. */

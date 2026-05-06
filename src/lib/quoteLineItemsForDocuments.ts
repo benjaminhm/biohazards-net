@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { AreaPricingRow, AssessmentData, DocType, OutcomeQuoteRow, QuoteAuthorisation, QuoteGstMode, QuoteLineItemRow } from '@/lib/types'
+import { collectExcludedSurfaces } from '@/lib/areaSurfaces'
 
 export interface QuoteCaptureFields {
   notes?: string
@@ -52,11 +53,13 @@ export function quoteLineItemsContentPatch(
   const subtotal = Math.round((lineOrOutcomeBase + areaPricingSum) * 100) / 100
   if (!lineItems.length && !(outcomeRows?.length) && pricedAreaPricing.length === 0) return {}
   const totals = computeQuoteTotals(subtotal, gstMode)
+  const autoExcludedSurfaces = collectExcludedSurfaces(pricedAreaPricing)
   const patch: Record<string, unknown> = {
     line_items: lineItems,
     outcome_rows: outcomeRows ?? [],
     outcome_mode: outcomeMode,
     area_pricing: pricedAreaPricing,
+    auto_excluded_surfaces: autoExcludedSurfaces,
     gst_mode: gstMode,
     subtotal: totals.subtotal,
     gst: totals.gst,
