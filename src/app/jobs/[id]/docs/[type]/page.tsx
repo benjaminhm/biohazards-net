@@ -13,7 +13,7 @@
 
 import { useEffect, useState, useRef, Suspense } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
-import type { CompanyProfile, DocType, Job, OutcomeQuoteRow, Photo, ProgressNote, ProgressRoomNote, QuoteLineItemRow } from '@/lib/types'
+import type { AreaPricingRow, CompanyProfile, DocType, Job, OutcomeQuoteRow, Photo, ProgressNote, ProgressRoomNote, QuoteLineItemRow } from '@/lib/types'
 import { DOC_TYPE_LABELS } from '@/lib/types'
 import { composeDocumentContent, buildComposedPreviewHtml, type ComposeDocumentOptions } from '@/lib/composeDocument'
 import { mergeQuoteLineItemsIntoDocContent } from '@/lib/quoteLineItemsForDocuments'
@@ -109,7 +109,8 @@ function DocViewerInner() {
             const add_gst_to_total = quoteRes.run?.add_gst_to_total === true
             const outcome_rows = (quoteRes.outcome_rows ?? []) as OutcomeQuoteRow[]
             const outcome_mode = quoteRes.source_mode === 'outcomes' ? 'outcomes' : 'line_items'
-            next = mergeQuoteLineItemsIntoDocContent(docType, next, rows, { gst_mode, add_gst_to_total, outcome_rows, outcome_mode })
+            const area_pricing = (quoteRes.area_pricing ?? []) as AreaPricingRow[]
+            next = mergeQuoteLineItemsIntoDocContent(docType, next, rows, { gst_mode, add_gst_to_total, outcome_rows, outcome_mode, area_pricing })
           }
           setContent(next)
         }
@@ -151,7 +152,8 @@ function DocViewerInner() {
           const add_gst_to_total = quoteRes.run?.add_gst_to_total === true
           const outcome_rows = (quoteRes.outcome_rows ?? []) as OutcomeQuoteRow[]
           const outcome_mode = quoteRes.source_mode === 'outcomes' ? 'outcomes' : 'line_items'
-          finalComposed = mergeQuoteLineItemsIntoDocContent(docType, composed, rows, { gst_mode, add_gst_to_total, outcome_rows, outcome_mode })
+          const area_pricing = (quoteRes.area_pricing ?? []) as AreaPricingRow[]
+          finalComposed = mergeQuoteLineItemsIntoDocContent(docType, composed, rows, { gst_mode, add_gst_to_total, outcome_rows, outcome_mode, area_pricing })
         }
         setContent(finalComposed)
         router.replace(`/jobs/${jobId}/docs/${docType}`, { scroll: false })

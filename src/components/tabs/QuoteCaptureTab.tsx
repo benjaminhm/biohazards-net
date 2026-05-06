@@ -6,7 +6,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import type { Job, Document, OutcomeQuoteCapture, OutcomeQuoteRow, QuoteAuthorisation, QuoteGstMode } from '@/lib/types'
+import type { Area, AreaPricingRow, Job, Document, OutcomeQuoteCapture, OutcomeQuoteRow, QuoteAuthorisation, QuoteGstMode } from '@/lib/types'
 
 interface Props {
   job: Job
@@ -28,8 +28,13 @@ function gstModeFromRun(run: { gst_mode?: unknown; add_gst_to_total?: boolean } 
   return run?.add_gst_to_total === true ? 'exclusive' : 'no_gst'
 }
 
-function computeTotals(rows: OutcomeQuoteRow[], gstMode: QuoteGstMode) {
-  const lineSum = toMoney(rows.reduce((s, r) => s + Math.max(0, Number(r.price || 0)), 0))
+function areaPricingSum(areas: AreaPricingRow[]): number {
+  return toMoney(areas.reduce((s, r) => s + Math.max(0, Number(r.total || 0)), 0))
+}
+
+function computeTotals(rows: OutcomeQuoteRow[], areaPricing: AreaPricingRow[], gstMode: QuoteGstMode) {
+  const outcomeSum = rows.reduce((s, r) => s + Math.max(0, Number(r.price || 0)), 0)
+  const lineSum = toMoney(outcomeSum + areaPricingSum(areaPricing))
   if (gstMode === 'exclusive') {
     const gst = toMoney(lineSum * 0.1)
     return { subtotal: lineSum, gst, total: toMoney(lineSum + gst) }
@@ -39,6 +44,38 @@ function computeTotals(rows: OutcomeQuoteRow[], gstMode: QuoteGstMode) {
     return { subtotal: toMoney(lineSum - gst), gst, total: lineSum }
   }
   return { subtotal: lineSum, gst: 0, total: lineSum }
+}
+
+/** Build a fresh per-room pricing snapshot from the live assessment areas, while
+ *  preserving any unit price the user has already entered for the same area. */
+function syncAreaPricing(
+  areas: Area[] | undefined,
+  saved: AreaPricingRow[] | undefined,
+): AreaPricingRow[] {
+  const savedByName = new Map<string, AreaPricingRow>(
+    (saved ?? []).map(r => [r.area_name.trim().toLowerCase(), r]),
+  )
+  return (areas ?? [])
+    .map(a => {
+      const name = (a.name || '').trim()
+      if (!name) return null
+      const lengthM = Number(a.length_m ?? 0)
+      const widthM = Number(a.width_m ?? 0)
+      const heightM = Number(a.height_m ?? 0)
+      const sqm = Number(a.sqm ?? 0)
+      const prior = savedByName.get(name.toLowerCase())
+      const unit = Math.max(0, Number(prior?.unit_price_per_sqm ?? 0))
+      return {
+        area_name: name,
+        length_m: lengthM,
+        width_m: widthM,
+        height_m: heightM,
+        sqm,
+        unit_price_per_sqm: unit,
+        total: toMoney(sqm * unit),
+      } satisfies AreaPricingRow
+    })
+    .filter((r): r is AreaPricingRow => r !== null)
 }
 
 function blankRow(seed: number): OutcomeQuoteRow {
@@ -141,6 +178,9 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
   const DEFAULT_ACCEPTANCE = 'By signing below, the client authorises the above works to commence under the terms and conditions stated in this document.'
 
   const [rows, setRows] = useState<OutcomeQuoteRow[]>(existing?.rows ?? [])
+  const [areaPricing, setAreaPricing] = useState<AreaPricingRow[]>(() =>
+    syncAreaPricing(ad?.areas, existing?.area_pricing),
+  )
   const [paymentTerms, setPaymentTerms] = useState(ad?.payment_terms ?? '')
   const [validity, setValidity] = useState(existing?.validity ?? '')
   const [notes, setNotes] = useState(existing?.notes ?? '')
@@ -186,6 +226,7 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
   useEffect(() => {
     const cap = job.assessment_data?.outcome_quote_capture
     setRows(cap?.rows ?? [])
+    setAreaPricing(syncAreaPricing(job.assessment_data?.areas, cap?.area_pricing))
     setGstMode(cap?.gst_mode ?? 'no_gst')
     setPaymentTerms(job.assessment_data?.payment_terms ?? '')
     setValidity(cap?.validity ?? '')
@@ -199,9 +240,10 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
     })
     setSaved(false)
     setSaveError('')
-  }, [job.assessment_data?.outcome_quote_capture, job.assessment_data?.payment_terms, job.id, job.updated_at])
+  }, [job.assessment_data?.outcome_quote_capture, job.assessment_data?.areas, job.assessment_data?.payment_terms, job.id, job.updated_at])
 
-  const totals = useMemo(() => computeTotals(rows, gstMode), [rows, gstMode])
+  const totals = useMemo(() => computeTotals(rows, areaPricing, gstMode), [rows, areaPricing, gstMode])
+  const areaPricingSubtotal = useMemo(() => areaPricingSum(areaPricing), [areaPricing])
 
   async function persistGstMode(next: QuoteGstMode) {
     setGstToggleSaving(true)
@@ -244,6 +286,19 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
     setSaveError('')
   }
 
+  function patchAreaUnitPrice(areaName: string, unit: number) {
+    const safeUnit = Number.isFinite(unit) && unit >= 0 ? unit : 0
+    setAreaPricing(prev =>
+      prev.map(r =>
+        r.area_name === areaName
+          ? { ...r, unit_price_per_sqm: safeUnit, total: toMoney(Number(r.sqm || 0) * safeUnit) }
+          : r,
+      ),
+    )
+    setSaved(false)
+    setSaveError('')
+  }
+
   async function suggest() {
     setSuggesting(true)
     setSuggestError('')
@@ -278,8 +333,9 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
       merged.outcome_quote_capture = {
         mode: 'outcomes',
         rows,
+        area_pricing: areaPricing,
         gst_mode: gstMode,
-        totals: computeTotals(rows, gstMode),
+        totals: computeTotals(rows, areaPricing, gstMode),
         target_pricing: {},
         validity,
         notes,
@@ -510,6 +566,95 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
       >
         + Add outcome
       </button>
+
+      {/* ── Per-room pricing (driven by Assessment dimensions; rolls into subtotal) ── */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+        <div style={SECTION}>Per-room pricing</div>
+        {areaPricing.length > 0 && (
+          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+            Subtotal: <strong style={{ color: 'var(--text)' }}>${areaPricingSubtotal.toFixed(2)}</strong>
+          </div>
+        )}
+      </div>
+
+      {areaPricing.length === 0 ? (
+        <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20, lineHeight: 1.5 }}>
+          Add areas with length × width on the Assessment tab to enable per-m² quoting here.
+        </div>
+      ) : (
+        <div
+          style={{
+            border: '1px solid var(--border)',
+            borderRadius: 10,
+            background: 'var(--surface)',
+            marginBottom: 20,
+            overflow: 'hidden',
+          }}
+        >
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '2fr 1.4fr 0.7fr 1fr 1fr',
+              gap: 8,
+              padding: '8px 12px',
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: '0.06em',
+              textTransform: 'uppercase',
+              color: 'var(--text-muted)',
+              borderBottom: '1px solid var(--border)',
+              background: 'var(--surface-2)',
+            }}
+          >
+            <span>Room</span>
+            <span>Dimensions</span>
+            <span style={{ textAlign: 'right' }}>m²</span>
+            <span style={{ textAlign: 'right' }}>$/m²</span>
+            <span style={{ textAlign: 'right' }}>Total</span>
+          </div>
+          {areaPricing.map(row => {
+            const dims = row.length_m > 0 && row.width_m > 0
+              ? `${row.length_m}×${row.width_m}${row.height_m > 0 ? `×${row.height_m}` : ''} m`
+              : '— add L × W'
+            const sqmDisplay = Number(row.sqm || 0).toLocaleString('en-AU', { maximumFractionDigits: 2 })
+            return (
+              <div
+                key={row.area_name}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '2fr 1.4fr 0.7fr 1fr 1fr',
+                  gap: 8,
+                  alignItems: 'center',
+                  padding: '8px 12px',
+                  borderTop: '1px solid var(--border)',
+                  fontSize: 13,
+                }}
+              >
+                <span style={{ fontWeight: 600 }}>{row.area_name}</span>
+                <span style={{ color: 'var(--text-muted)' }}>{dims}</span>
+                <span style={{ textAlign: 'right' }}>{sqmDisplay}</span>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="1"
+                  value={row.unit_price_per_sqm > 0 ? row.unit_price_per_sqm : ''}
+                  onChange={e => {
+                    const n = parseFloat(e.target.value)
+                    patchAreaUnitPrice(row.area_name, isNaN(n) ? 0 : n)
+                  }}
+                  placeholder="0.00"
+                  aria-label={`${row.area_name} dollars per square metre`}
+                  style={{ width: '100%', textAlign: 'right' }}
+                />
+                <span style={{ textAlign: 'right', fontWeight: 600 }}>
+                  {row.total > 0 ? `$${row.total.toFixed(2)}` : '—'}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      )}
 
       {/* ── Totals + GST treatment (syncs quote_line_item_runs for print/composer) ── */}
       <div

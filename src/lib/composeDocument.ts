@@ -469,7 +469,9 @@ function composeQuote(job: Job): ComposeDocumentResult {
   const ad = job.assessment_data
   const cap = ad?.outcome_quote_capture
   const auth = cap?.authorisation
-  const hasCapture = cap && cap.rows?.length > 0
+  const areaPricing = (cap?.area_pricing ?? []).filter(r => Number(r.total ?? 0) > 0)
+  const hasOutcomes = cap && cap.rows?.length > 0
+  const hasCapture = hasOutcomes || areaPricing.length > 0
   const c: QuoteContent = {
     title: 'Quote',
     reference: refPrefix('quote', job.id),
@@ -477,8 +479,9 @@ function composeQuote(job: Job): ComposeDocumentResult {
       ? ''
       : '— Add line items and pricing in Quote capture, or complete the quote in Edit fields after assessment.',
     line_items: [],
-    outcome_rows: hasCapture ? cap.rows : undefined,
-    outcome_mode: hasCapture ? 'outcomes' : undefined,
+    outcome_rows: hasOutcomes ? cap!.rows : undefined,
+    outcome_mode: hasOutcomes ? 'outcomes' : undefined,
+    area_pricing: areaPricing.length > 0 ? areaPricing : undefined,
     gst_mode: cap?.gst_mode ?? 'no_gst',
     subtotal: cap?.totals?.subtotal ?? 0,
     gst: cap?.totals?.gst ?? 0,

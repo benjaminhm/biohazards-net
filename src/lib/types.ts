@@ -687,9 +687,26 @@ export interface QuoteAuthorisation {
 
 export type QuoteGstMode = 'no_gst' | 'inclusive' | 'exclusive'
 
+/** Per-room pricing row driven by assessment dimensions. Foundation for per-m²
+ *  quoting: dimensions and sqm are snapshotted at quote time so the printed
+ *  quote stays stable even if the assessment is later edited. The user only
+ *  edits `unit_price_per_sqm`; `total` is auto-derived (`sqm × unit_price_per_sqm`). */
+export interface AreaPricingRow {
+  /** Area name from assessment_data.areas; also the row identity. */
+  area_name: string
+  length_m: number
+  width_m: number
+  height_m: number
+  sqm: number
+  unit_price_per_sqm: number
+  total: number
+}
+
 export interface OutcomeQuoteCapture {
   mode: 'line_items' | 'outcomes'
   rows: OutcomeQuoteRow[]
+  /** Optional per-room pricing block. Rolls into `totals.subtotal` alongside `rows`. */
+  area_pricing?: AreaPricingRow[]
   gst_mode?: QuoteGstMode
   totals: {
     subtotal: number
@@ -1064,6 +1081,8 @@ export interface QuoteContent {
   line_items: LineItem[]
   /** Outcome-based quote rows (preferred render path when present). */
   outcome_rows?: OutcomeQuoteRow[]
+  /** Per-room pricing rows (dimensions × $/m²). Rendered as a dedicated table. */
+  area_pricing?: AreaPricingRow[]
   /** Controls quote output layout preference when merging live quote capture content. */
   outcome_mode?: 'outcomes' | 'line_items'
   /** Controls whether GST is not applied, included in prices, or added on top. */

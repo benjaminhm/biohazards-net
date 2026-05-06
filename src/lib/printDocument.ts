@@ -755,6 +755,8 @@ function buildQuoteMid(
   const siteLine = (client?.site_address ?? '').trim()
   const outcomeRows = (c.outcome_rows ?? []).filter(Boolean)
   const hasOutcomeRows = c.outcome_mode === 'outcomes' || outcomeRows.length > 0
+  const areaPricing = (c.area_pricing ?? []).filter(r => Number(r.total ?? 0) > 0)
+  const hasAreaPricing = areaPricing.length > 0
   const items = (c.line_items || []).map(li => `
     <tr>
       <td>${esc(li.description)}</td>
@@ -783,6 +785,37 @@ function buildQuoteMid(
     `
   }).join('')
   const outcomeLayout = outcomeBlocks || `<div class="body-text">Outcome-based quote is enabled for this job. No outcomes have been drafted yet.</div>`
+  const areaPricingTable = hasAreaPricing
+    ? `
+      <div class="label" style="margin-top:14px">Per-Room Pricing</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Room</th>
+            <th>Dimensions</th>
+            <th class="r">m²</th>
+            <th class="r">$/m²</th>
+            <th class="r">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${areaPricing.map(row => {
+            const dims = row.length_m > 0 && row.width_m > 0
+              ? `${row.length_m}×${row.width_m}${row.height_m > 0 ? `×${row.height_m}` : ''} m`
+              : '—'
+            return `
+            <tr>
+              <td>${esc(row.area_name)}</td>
+              <td>${esc(dims)}</td>
+              <td class="r">${Number(row.sqm || 0).toLocaleString('en-AU', { maximumFractionDigits: 2 })}</td>
+              <td class="r">${fmtMoney(Number(row.unit_price_per_sqm || 0))}</td>
+              <td class="r">${fmtMoney(Number(row.total || 0))}</td>
+            </tr>`
+          }).join('')}
+        </tbody>
+      </table>
+    `
+    : ''
   const gstMode = c.gst_mode ?? (c.gst > 0 ? 'exclusive' : 'no_gst')
   const subtotalLabel = gstMode === 'inclusive' ? 'Subtotal (ex GST)' : gstMode === 'exclusive' ? 'Subtotal (ex GST)' : 'Subtotal'
   const gstLabel = gstMode === 'inclusive' ? 'Includes GST (10%)' : 'GST (10%)'
@@ -797,12 +830,13 @@ function buildQuoteMid(
     ` : ''}
     <div class="label">Overview</div><div class="body-text sow-rich">${richBodyHtmlForPrint(c.intro)}</div>
     <div class="label">Scope &amp; Pricing</div>
-    ${hasOutcomeRows ? outcomeLayout : `
+    ${hasOutcomeRows ? outcomeLayout : (items.trim() ? `
     <table>
       <thead><tr><th>Description</th><th class="r">Qty</th><th class="r">Unit</th><th class="r">Rate</th><th class="r">Total</th></tr></thead>
       <tbody>${items}</tbody>
     </table>
-    `}
+    ` : (hasAreaPricing ? '' : `<div class="body-text">— Pricing to be confirmed.</div>`))}
+    ${areaPricingTable}
     <div class="totals">
       <div class="tot-row"><span>${subtotalLabel}</span><span class="amt">${fmtMoney(c.subtotal)}</span></div>
       ${c.gst > 0 ? `<div class="tot-row"><span>${gstLabel}</span><span class="amt">${fmtMoney(c.gst)}</span></div>` : ''}

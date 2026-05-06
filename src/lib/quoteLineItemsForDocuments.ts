@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { AssessmentData, DocType, OutcomeQuoteRow, QuoteAuthorisation, QuoteGstMode, QuoteLineItemRow } from '@/lib/types'
+import type { AreaPricingRow, AssessmentData, DocType, OutcomeQuoteRow, QuoteAuthorisation, QuoteGstMode, QuoteLineItemRow } from '@/lib/types'
 
 export interface QuoteCaptureFields {
   notes?: string
@@ -33,6 +33,7 @@ export function quoteLineItemsContentPatch(
   outcomeRows?: OutcomeQuoteRow[],
   outcomeMode?: 'outcomes' | 'line_items',
   captureFields?: QuoteCaptureFields,
+  areaPricing?: AreaPricingRow[],
 ): Record<string, unknown> {
   const gstMode = typeof gstModeOrAddGst === 'string' ? gstModeOrAddGst : normalizeGstMode(null, gstModeOrAddGst)
   const lineItems = rows.map(row => ({
@@ -43,16 +44,19 @@ export function quoteLineItemsContentPatch(
     total: Number(row.total || 0),
   }))
   const pricedOutcomes = (outcomeRows ?? []).filter(row => Number(row.price || 0) > 0)
-  const subtotalBase = lineItems.length
+  const pricedAreaPricing = (areaPricing ?? []).filter(row => Number(row.total || 0) > 0)
+  const areaPricingSum = pricedAreaPricing.reduce((s, r) => s + Number(r.total || 0), 0)
+  const lineOrOutcomeBase = lineItems.length
     ? lineItems.reduce((sum, row) => sum + Number(row.total || 0), 0)
     : pricedOutcomes.reduce((sum, row) => sum + Number(row.price || 0), 0)
-  const subtotal = Math.round(subtotalBase * 100) / 100
-  if (!lineItems.length && !(outcomeRows?.length)) return {}
+  const subtotal = Math.round((lineOrOutcomeBase + areaPricingSum) * 100) / 100
+  if (!lineItems.length && !(outcomeRows?.length) && pricedAreaPricing.length === 0) return {}
   const totals = computeQuoteTotals(subtotal, gstMode)
   const patch: Record<string, unknown> = {
     line_items: lineItems,
     outcome_rows: outcomeRows ?? [],
     outcome_mode: outcomeMode,
+    area_pricing: pricedAreaPricing,
     gst_mode: gstMode,
     subtotal: totals.subtotal,
     gst: totals.gst,
@@ -72,6 +76,7 @@ export interface MergeQuoteLineItemsOptions {
   outcome_rows?: OutcomeQuoteRow[]
   outcome_mode?: 'outcomes' | 'line_items'
   capture_fields?: QuoteCaptureFields
+  area_pricing?: AreaPricingRow[]
 }
 
 /** Overlay active Quote Capture line items onto standalone quote or iaq_multi bundle quote part. */
@@ -87,6 +92,7 @@ export function mergeQuoteLineItemsIntoDocContent(
     options?.outcome_rows,
     options?.outcome_mode,
     options?.capture_fields,
+    options?.area_pricing,
   )
   if (Object.keys(patch).length === 0) return content
   if (docType === 'quote') {
@@ -119,6 +125,7 @@ export interface QuoteLineItemsMergeContext {
   outcome_rows: OutcomeQuoteRow[]
   outcome_mode: 'outcomes' | 'line_items'
   capture_fields: QuoteCaptureFields
+  area_pricing: AreaPricingRow[]
 }
 
 /** Active run + line items for merging into quote documents and print. */
@@ -132,7 +139,7 @@ export async function fetchQuoteLineItemsMergeContext(
     .eq('job_id', jobId)
     .eq('is_active', true)
     .maybeSingle()
-  if (runErr || !run) return { rows: [], gst_mode: 'no_gst', add_gst_to_total: false, outcome_rows: [], outcome_mode: 'line_items', capture_fields: {} }
+  if (runErr || !run) return { rows: [], gst_mode: 'no_gst', add_gst_to_total: false, outcome_rows: [], outcome_mode: 'line_items', capture_fields: {}, area_pricing: [] }
 
   const { data: items, error } = await supabase
     .from('quote_line_items')
@@ -158,6 +165,7 @@ export async function fetchQuoteLineItemsMergeContext(
   const ad = (job?.assessment_data ?? null) as AssessmentData | null
   const capture = ad?.outcome_quote_capture
   const outcomeRows = (capture?.rows ?? []) as OutcomeQuoteRow[]
+  const area_pricing = (capture?.area_pricing ?? []).filter(r => Number(r.total ?? 0) > 0) as AreaPricingRow[]
 
   const capture_fields: QuoteCaptureFields = {
     notes: capture?.notes ?? '',
@@ -193,14 +201,14 @@ export async function fetchQuoteLineItemsMergeContext(
       updated_by_user_id: '',
       deleted_at: null,
     }))
-    return { rows: syntheticRows, gst_mode, add_gst_to_total, outcome_rows: outcomeRows, outcome_mode: 'outcomes', capture_fields }
+    return { rows: syntheticRows, gst_mode, add_gst_to_total, outcome_rows: outcomeRows, outcome_mode: 'outcomes', capture_fields, area_pricing }
   }
 
   if (capture?.mode === 'outcomes') {
-    return { rows: dbRows, gst_mode, add_gst_to_total, outcome_rows: outcomeRows, outcome_mode: 'outcomes', capture_fields }
+    return { rows: dbRows, gst_mode, add_gst_to_total, outcome_rows: outcomeRows, outcome_mode: 'outcomes', capture_fields, area_pricing }
   }
 
-  return { rows: dbRows, gst_mode, add_gst_to_total, outcome_rows: [], outcome_mode: 'line_items', capture_fields }
+  return { rows: dbRows, gst_mode, add_gst_to_total, outcome_rows: [], outcome_mode: 'line_items', capture_fields, area_pricing }
 }
 
 /** Active run line items for a job (service client; used by print and server merge). */
