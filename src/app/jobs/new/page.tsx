@@ -19,6 +19,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import type { JobType, JobUrgency } from '@/lib/types'
 import SmartFill from '@/components/SmartFill'
+import AddressAutocomplete from '@/components/AddressAutocomplete'
 
 const JOB_TYPES: { value: JobType; label: string }[] = [
   { value: 'crime_scene', label: 'Crime Scene' },
@@ -44,6 +45,9 @@ export default function NewJobPage() {
     client_phone: '',
     client_email: '',
     site_address: '',
+    site_place_id: '',
+    site_lat: null as number | null,
+    site_lng: null as number | null,
     job_type: 'trauma' as JobType,
     urgency: 'standard' as JobUrgency,
   })
@@ -112,6 +116,13 @@ export default function NewJobPage() {
             }
             if (fields.company_name && !updates.client_organization_name) {
               updates.client_organization_name = fields.company_name
+            }
+            // Smart Fill addresses come from text extraction, not Places — clear the geo sidecars
+            // so stale place_id/lat/lng don't leak from a previous autocomplete pick.
+            if (updates.site_address) {
+              updates.site_place_id = ''
+              updates.site_lat = null
+              updates.site_lng = null
             }
             setForm(f => ({ ...f, ...updates }))
           }}
@@ -196,12 +207,21 @@ export default function NewJobPage() {
 
           <div className="field">
             <label>Site Address *</label>
-            <input
-              data-devid="P5-E3"
-              type="text"
+            <AddressAutocomplete
               value={form.site_address}
-              onChange={e => set('site_address', e.target.value)}
+              placeId={form.site_place_id}
+              lat={form.site_lat}
+              lng={form.site_lng}
               placeholder="Full street address"
+              onChange={next =>
+                setForm(f => ({
+                  ...f,
+                  site_address: next.address,
+                  site_place_id: next.placeId,
+                  site_lat: next.lat,
+                  site_lng: next.lng,
+                }))
+              }
             />
           </div>
 

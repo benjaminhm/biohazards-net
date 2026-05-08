@@ -7,9 +7,14 @@ export interface RoomPhotoGroup {
   stages: Record<PhotoCategory, Photo[]>
 }
 
-const STAGES: PhotoCategory[] = ['assessment', 'before', 'during', 'after']
+/** Coerce photo.category to a known stage (null/legacy values → before) so bucketing never indexes undefined. */
+export function normalizePhotoCategory(raw: unknown): PhotoCategory {
+  if (raw === 'assessment' || raw === 'before' || raw === 'during' || raw === 'after') return raw
+  return 'before'
+}
 
 export function groupPhotosByRoomAndStage(photos: Photo[], areas: Area[] = []): RoomPhotoGroup[] {
+  const normalizedPhotos = photos.map(p => ({ ...p, category: normalizePhotoCategory(p.category) }))
   const roomMap = new Map<string, RoomPhotoGroup>()
 
   for (const area of areas) {
@@ -27,7 +32,7 @@ export function groupPhotosByRoomAndStage(photos: Photo[], areas: Area[] = []): 
     }
   }
 
-  for (const photo of photos) {
+  for (const photo of normalizedPhotos) {
     const room = (photo.area_ref || '').trim() || 'Unassigned Area'
     if (!roomMap.has(room)) {
       roomMap.set(room, {

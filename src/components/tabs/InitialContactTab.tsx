@@ -30,6 +30,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Job, JobType, JobUrgency, PhoneEntry } from '@/lib/types'
 import SmartFill from '@/components/SmartFill'
+import AddressAutocomplete from '@/components/AddressAutocomplete'
 
 const JOB_TYPES: { value: JobType; label: string }[] = [
   { value: 'crime_scene', label: 'Crime scene' },
@@ -280,6 +281,13 @@ export default function InitialContactTab({ job, onJobUpdate, readOnly = false }
           if (fields.company_name && !updates.client_organization_name) {
             updates.client_organization_name = fields.company_name
           }
+          // Smart Fill addresses come from text, not Places — wipe stale geo sidecars.
+          const patchExtras: Record<string, unknown> = {}
+          if (updates.site_address) {
+            patchExtras.site_place_id = ''
+            patchExtras.site_lat = null
+            patchExtras.site_lng = null
+          }
           if (fields.job_type) {
             const match = JOB_TYPES.find(
               t => t.value === fields.job_type || t.label.toLowerCase() === fields.job_type.toLowerCase(),
@@ -292,8 +300,8 @@ export default function InitialContactTab({ job, onJobUpdate, readOnly = false }
             )
             if (match) updates.urgency = match.value
           }
-          if (Object.keys(updates).length === 0) return
-          await patchField(updates)
+          if (Object.keys(updates).length === 0 && Object.keys(patchExtras).length === 0) return
+          await patchField({ ...updates, ...patchExtras })
         }}
         onSourceText={async (text) => {
           await fetch(`/api/jobs/${job.id}/notes`, {
@@ -433,11 +441,23 @@ export default function InitialContactTab({ job, onJobUpdate, readOnly = false }
 
         <div style={fieldBlock}>
           <label style={sectionLabel}>Site address</label>
-          <FieldInput
+          <AddressAutocomplete
             value={job.site_address ?? ''}
-            onCommit={v => patchField({ site_address: v })}
+            placeId={job.site_place_id ?? ''}
+            lat={job.site_lat ?? null}
+            lng={job.site_lng ?? null}
+            disabled={readOnly}
             placeholder="Street, suburb, state, postcode"
+            onChange={next =>
+              patchField({
+                site_address: next.address,
+                site_place_id: next.placeId,
+                site_lat: next.lat,
+                site_lng: next.lng,
+              })
+            }
           />
+          <div style={hint}>Start typing for Google suggestions — or type the full address freehand for rural/unusual sites.</div>
         </div>
 
         <div style={fieldBlock}>

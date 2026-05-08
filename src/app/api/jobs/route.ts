@@ -146,6 +146,7 @@ export async function POST(req: Request) {
     }
 
     const str = (k: string) => (typeof body[k] === 'string' ? (body[k] as string) : '')
+    const num = (k: string) => (typeof body[k] === 'number' ? (body[k] as number) : null)
 
     const supabase = createServiceClient()
     const { data, error } = await supabase
@@ -159,6 +160,9 @@ export async function POST(req: Request) {
         client_phone: clientPhoneOut,
         client_email: client_email ?? '',
         site_address,
+        site_place_id: str('site_place_id'),
+        site_lat: num('site_lat'),
+        site_lng: num('site_lng'),
         job_type,
         urgency: urgency ?? 'standard',
         status: 'lead',

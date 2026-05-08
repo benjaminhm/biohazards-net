@@ -16,6 +16,7 @@
 
 import { useEffect, useState } from 'react'
 import type { Job, PhoneEntry } from '@/lib/types'
+import AddressAutocomplete from '@/components/AddressAutocomplete'
 
 interface Props {
   job: Job
@@ -658,10 +659,20 @@ export default function ClientDetailsTab({ job, onJobUpdate, readOnly = false }:
           <>
             <div style={{ marginBottom: 14 }}>
               <label style={labelStyle}>Address</label>
-              <EditableField
+              <AddressAutocomplete
                 value={job.site_address ?? ''}
-                onCommit={v => patchField({ site_address: v })}
+                placeId={job.site_place_id ?? ''}
+                lat={job.site_lat ?? null}
+                lng={job.site_lng ?? null}
                 placeholder="Street, suburb, state, postcode"
+                onChange={next =>
+                  patchField({
+                    site_address: next.address,
+                    site_place_id: next.placeId,
+                    site_lat: next.lat,
+                    site_lng: next.lng,
+                  })
+                }
               />
             </div>
             <div style={{ marginBottom: 14 }}>
