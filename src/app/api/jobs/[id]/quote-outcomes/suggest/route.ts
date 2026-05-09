@@ -15,11 +15,10 @@ Australian quotes are split into three independent sections:
   Section 2 — Contents Removal                         (per-cubic-metre; staff-only)
   Section 3 — Remediation, Cleaning & Sanitisation     (per-square-metre; staff-only)
 
-You ONLY draft Section 1 rows. Do NOT propose contents-removal items (skip hire,
-rubbish disposal volume, mattress removal, etc.) or per-room cleaning/decontamination
-labour — staff price those directly in Sections 2 and 3. If a Section 2/3 axis is
-disabled in context.pricing_layout, you may still skip those topics and concentrate
-on fees/mobilisation; never duplicate a Section 2/3 item as a Section 1 row.
+You ONLY draft Section 1 rows. Do NOT estimate contents volume, weight, m3, disposal
+quantity, or per-m3 pricing. Contents are visual/reported items only. You may draft
+fixed-fee proposed actions tied to a nominated room/zone, but never duplicate a
+separate Section 2/3 pricing table row or imply a measured quantity you do not have.
 
 You will receive:
 1. A "context" object with all known facts (assessment data, scope, photos, documents,
@@ -49,6 +48,7 @@ Return ONLY valid JSON with this shape:
       "acceptance_criteria": "",
       "price": 0,
       "status": "suggested",
+      "contents": [""],
       "included": [""],
       "excluded": [""],
       "assumptions": [""],
@@ -60,7 +60,13 @@ Return ONLY valid JSON with this shape:
 
 Rules:
 - Output Section 1 rows only — fees, mobilisation, PM, surcharges, fixed scopes.
-- Outcome-first language (value/results), not labour breakdown.
+- Use proposed-action language only. Do not state achieved outcomes, standards,
+  completion, clearance, safety, certification, or remediation results.
+- Treat legacy JSON names this way:
+  - "outcome_title" = short proposed action heading.
+  - "outcome_description" = action details / proposed activities.
+  - "contents" = observed or reported contents/items in the nominated room/zone;
+    never an estimated volume, weight, or quantity.
 - "areas" is optional for Section 1 rows that aren't tied to a specific room
   (most fees aren't); leave as [] when general.
 - "kind" is REQUIRED on every row. Choose the best fit from the enum above.
@@ -69,6 +75,20 @@ Rules:
 - price must be >= 0 and a number.
 - All facts come from the context object — do not hallucinate.
 - The instruction steers structure and emphasis, not facts.
+- Avoid absolute/finality/outcome words and phrases, including:
+  "total", "complete", "completely", "entire", "all", "fully", "full",
+  "guaranteed", "guarantee", "eliminate", "eliminated", "clear", "cleared",
+  "safe", "make safe", "restore", "restored", "decontaminate",
+  "decontaminated", "disinfected", "sanitised", "remediated", "certified",
+  "certify", "odour elimination", "odour removal", "remove odour",
+  "death odour removal", "odour-free", and similar certainty/finality wording.
+- Prefer bounded action verbs and target wording: "attend", "establish",
+  "relocate", "remove visibly affected", "bag", "apply", "transport",
+  "document", "reported", "visible", "accessible", "nominated",
+  "target odour/source", "primary contamination zone".
+- Odour wording must be action + target only. Acceptable: "Apply odour-control
+  treatment products to the nominated target odour/source." Do not explain or
+  broaden odour caveats unless staff specifically instructs it.
 - If context.fast_quote.enabled is true, FAST QUOTE MODE applies:
   - Treat as limited-information / possibly sight-unseen.
   - Do not imply a full site inspection or confirmed contamination unless context says so.
@@ -162,6 +182,7 @@ function parseRows(raw: unknown): OutcomeQuoteRow[] {
   return rows
     .map((row, idx) => {
       const areasRaw = Array.isArray(row.areas) ? row.areas : []
+      const contentsRaw = Array.isArray(row.contents) ? row.contents : []
       const includedRaw = Array.isArray(row.included) ? row.included : []
       const excludedRaw = Array.isArray(row.excluded) ? row.excluded : []
       const assumptionsRaw = Array.isArray(row.assumptions) ? row.assumptions : []
@@ -175,6 +196,7 @@ function parseRows(raw: unknown): OutcomeQuoteRow[] {
         acceptance_criteria: String(row.acceptance_criteria ?? '').trim(),
         price: Math.max(0, Math.round(safeNumber(row.price, 0) * 100) / 100),
         status: 'suggested',
+        contents: contentsRaw.map(v => String(v ?? '').trim()).filter(Boolean),
         included: includedRaw.map(v => String(v ?? '').trim()).filter(Boolean),
         excluded: excludedRaw.map(v => String(v ?? '').trim()).filter(Boolean),
         assumptions: assumptionsRaw.map(v => String(v ?? '').trim()).filter(Boolean),
