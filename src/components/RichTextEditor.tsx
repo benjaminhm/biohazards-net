@@ -1,8 +1,12 @@
 'use client'
 
 import { useEffect, useReducer } from 'react'
+import { Extension } from '@tiptap/core'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
+import TextAlign from '@tiptap/extension-text-align'
+import { TextStyle } from '@tiptap/extension-text-style'
+import Underline from '@tiptap/extension-underline'
 import { proseToTipTapHtml } from '@/lib/richTextPrint'
 
 interface Props {
@@ -10,6 +14,41 @@ interface Props {
   onChange: (html: string) => void
   /** Approximate minimum height in px */
   minHeight?: number
+}
+
+const FONT_SIZES = [10, 11, 12, 13, 14, 16, 18, 20]
+
+const FontSize = Extension.create({
+  name: 'fontSize',
+  addGlobalAttributes() {
+    return [
+      {
+        types: ['textStyle'],
+        attributes: {
+          fontSize: {
+            default: null,
+            parseHTML: element => {
+              const raw = element.style.fontSize || ''
+              const match = raw.match(/^\s*(\d+(?:\.\d+)?)\s*px\s*$/i)
+              return match ? match[1] : null
+            },
+            renderHTML: attributes => {
+              const size = Number(attributes.fontSize)
+              if (!Number.isFinite(size) || size <= 0) return {}
+              return { style: `font-size: ${size}px` }
+            },
+          },
+        },
+      },
+    ]
+  },
+})
+
+function normalizeFontSize(raw: unknown): string {
+  if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) return String(raw)
+  if (typeof raw !== 'string') return ''
+  const match = raw.match(/^\s*(\d+(?:\.\d+)?)\s*(px)?\s*$/i)
+  return match ? match[1] : ''
 }
 
 function ToolbarButton({
@@ -33,9 +72,9 @@ function ToolbarButton({
         borderRadius: 6,
         fontSize: 13,
         fontWeight: 600,
-        border: active ? '1px solid var(--accent)' : '1px solid var(--border)',
-        background: active ? 'rgba(255,107,53,0.12)' : 'var(--surface)',
-        color: 'var(--text)',
+        border: active ? '1px solid #2563a8' : '1px solid #c8d9ee',
+        background: active ? 'rgba(37,99,168,0.12)' : '#fff',
+        color: '#1f2e45',
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.45 : 1,
       }}
@@ -46,12 +85,18 @@ function ToolbarButton({
 }
 
 /**
- * Rich text for document body fields (bold, italic, lists). Stores HTML in JSON.
+ * Rich text for document body fields (formatting + alignment + font size). Stores HTML in JSON.
  */
 export default function RichTextEditor({ value, onChange, minHeight = 140 }: Props) {
   const [, rerender] = useReducer((n: number) => n + 1, 0)
   const editor = useEditor({
-    extensions: [StarterKit.configure({ heading: false })],
+    extensions: [
+      StarterKit.configure({ heading: false }),
+      TextStyle,
+      FontSize,
+      Underline,
+      TextAlign.configure({ types: ['paragraph'] }),
+    ],
     content: proseToTipTapHtml(value),
     immediatelyRender: false,
     editorProps: {
@@ -97,13 +142,24 @@ export default function RichTextEditor({ value, onChange, minHeight = 140 }: Pro
     )
   }
 
+  const activeFontSize = normalizeFontSize(editor.getAttributes('textStyle').fontSize)
+
+  const setFontSize = (next: string) => {
+    const parsed = Number(next)
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      editor.chain().focus().setMark('textStyle', { fontSize: null }).removeEmptyTextStyle().run()
+      return
+    }
+    editor.chain().focus().setMark('textStyle', { fontSize: String(parsed) }).run()
+  }
+
   return (
     <div
       className="doc-rich-editor"
       style={{
         borderRadius: 8,
-        border: '1px solid var(--border)',
-        background: 'rgba(0,0,0,0.02)',
+        border: '1px solid #c8d9ee',
+        background: '#fff',
         overflow: 'hidden',
       }}
     >
@@ -113,8 +169,8 @@ export default function RichTextEditor({ value, onChange, minHeight = 140 }: Pro
           flexWrap: 'wrap',
           gap: 6,
           padding: '8px 10px',
-          borderBottom: '1px solid var(--border)',
-          background: 'var(--surface-2)',
+          borderBottom: '1px solid #dbe8f7',
+          background: '#f5f9ff',
         }}
       >
         <ToolbarButton
@@ -129,6 +185,57 @@ export default function RichTextEditor({ value, onChange, minHeight = 140 }: Pro
         >
           I
         </ToolbarButton>
+        <ToolbarButton
+          active={editor.isActive('underline')}
+          onClick={() => editor.chain().focus().toggleUnderline().run()}
+        >
+          U
+        </ToolbarButton>
+        <div style={{ width: 1, height: 26, background: 'var(--border)', margin: '0 2px' }} />
+        <ToolbarButton
+          active={editor.isActive({ textAlign: 'left' })}
+          onClick={() => editor.chain().focus().setTextAlign('left').run()}
+        >
+          Left
+        </ToolbarButton>
+        <ToolbarButton
+          active={editor.isActive({ textAlign: 'center' })}
+          onClick={() => editor.chain().focus().setTextAlign('center').run()}
+        >
+          Center
+        </ToolbarButton>
+        <ToolbarButton
+          active={editor.isActive({ textAlign: 'right' })}
+          onClick={() => editor.chain().focus().setTextAlign('right').run()}
+        >
+          Right
+        </ToolbarButton>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 2 }}>
+          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Size</span>
+          <select
+            value={activeFontSize}
+            onChange={e => setFontSize(e.target.value)}
+            style={{
+              height: 30,
+              padding: '0 8px',
+              borderRadius: 6,
+              border: '1px solid var(--border)',
+              background: '#fff',
+              color: '#1f2e45',
+              fontSize: 12,
+              fontWeight: 600,
+              outline: 'none',
+            }}
+          >
+            <option value="">Default</option>
+            {FONT_SIZES.map(size => (
+              <option key={size} value={String(size)}>
+                {size}px
+              </option>
+            ))}
+          </select>
+        </label>
+        <div style={{ width: 1, height: 26, background: 'var(--border)', margin: '0 2px' }} />
         <ToolbarButton
           active={editor.isActive('bulletList')}
           onClick={() => editor.chain().focus().toggleBulletList().run()}

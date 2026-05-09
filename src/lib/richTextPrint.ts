@@ -4,7 +4,35 @@
  */
 import DOMPurify from 'isomorphic-dompurify'
 
-const ALLOWED_TAGS = ['p', 'br', 'strong', 'b', 'em', 'i', 'u', 'ul', 'ol', 'li', 'blockquote']
+const ALLOWED_TAGS = ['p', 'span', 'br', 'strong', 'b', 'em', 'i', 'u', 'ul', 'ol', 'li', 'blockquote']
+const ALLOWED_ATTR = ['style']
+const ALLOWED_ALIGN = new Set(['left', 'center', 'right'])
+
+/** Keep only print-safe style declarations that we intentionally support in the editor. */
+function sanitizeProseStyle(raw: string): string {
+  const out: string[] = []
+  for (const part of raw.split(';')) {
+    const [propRaw, valueRaw] = part.split(':')
+    if (!propRaw || !valueRaw) continue
+    const prop = propRaw.trim().toLowerCase()
+    const value = valueRaw.trim().toLowerCase()
+    if (prop === 'text-align' && ALLOWED_ALIGN.has(value)) {
+      out.push(`text-align:${value}`)
+      continue
+    }
+    if (prop === 'font-size' && /^\d+(?:\.\d+)?(px|pt)$/.test(value)) {
+      out.push(`font-size:${value}`)
+    }
+  }
+  return out.join(';')
+}
+
+function sanitizeAllowedStyles(html: string): string {
+  return html.replace(/\sstyle="([^"]*)"/gi, (_m, styleRaw: string) => {
+    const cleaned = sanitizeProseStyle(styleRaw)
+    return cleaned ? ` style="${escPlain(cleaned)}"` : ''
+  })
+}
 
 function escPlain(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -23,7 +51,8 @@ export function richBodyHtmlForPrint(raw: string | undefined | null): string {
   const t = raw ?? ''
   if (!t.trim()) return ''
   if (looksLikeHtml(t)) {
-    return DOMPurify.sanitize(t, { ALLOWED_TAGS, ALLOWED_ATTR: [] })
+    const cleaned = DOMPurify.sanitize(t, { ALLOWED_TAGS, ALLOWED_ATTR })
+    return sanitizeAllowedStyles(cleaned)
   }
   return escPlain(t).replace(/\r\n/g, '\n').replace(/\n/g, '<br>')
 }
