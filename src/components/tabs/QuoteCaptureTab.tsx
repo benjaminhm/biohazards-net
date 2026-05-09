@@ -184,6 +184,14 @@ function blankSectionTerms(): SectionTerms {
   return { included: [], excluded: [], assumptions: [] }
 }
 
+/** Parse comma-separated room list without eating the trailing comma/space while typing. */
+function parseAreasInput(v: string): string[] {
+  const parts = v.split(',')
+  return parts
+    .map((p, i) => (i === parts.length - 1 ? p.trimLeft() : p.trim()))
+    .filter((p, i, arr) => p.length > 0 || i === arr.length - 1)
+}
+
 function AutoGrow({
   value,
   onChange,
@@ -214,6 +222,7 @@ function AutoGrow({
         el.style.height = 'auto'
         el.style.height = `${el.scrollHeight}px`
       }}
+      onKeyDown={e => e.stopPropagation()}
       placeholder={placeholder}
       rows={rows}
       style={{ resize: 'none', overflow: 'hidden', minHeight: `${rows * 1.6}em`, ...style }}
@@ -670,23 +679,6 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
             />
           </div>
           <div className="field" style={{ marginBottom: 0 }}>
-            <label>Global $/m² rate</label>
-            <input
-              type="number"
-              inputMode="decimal"
-              min="0"
-              step="1"
-              value={globalSurfaceRatePerM2 > 0 ? globalSurfaceRatePerM2 : ''}
-              onChange={e => {
-                const n = parseFloat(e.target.value)
-                setGlobalSurfaceRatePerM2(isNaN(n) ? 0 : Math.max(0, n))
-                setSaved(false)
-                setSaveError('')
-              }}
-              placeholder="0.00"
-            />
-          </div>
-          <div className="field" style={{ marginBottom: 0 }}>
             <label>Global $/m³ rate</label>
             <input
               type="number"
@@ -703,8 +695,25 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
               placeholder="0.00"
             />
           </div>
+          <div className="field" style={{ marginBottom: 0 }}>
+            <label>Global $/m² rate</label>
+            <input
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="1"
+              value={globalSurfaceRatePerM2 > 0 ? globalSurfaceRatePerM2 : ''}
+              onChange={e => {
+                const n = parseFloat(e.target.value)
+                setGlobalSurfaceRatePerM2(isNaN(n) ? 0 : Math.max(0, n))
+                setSaved(false)
+                setSaveError('')
+              }}
+              placeholder="0.00"
+            />
+          </div>
           <div style={{ gridColumn: '1 / -1', fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-            Mobilisation is the Section 1 base fee and source of truth for attendance/setup. $/m² displays calculated surface pricing inside each item. $/m³ is a reference rate for the next contents/disposal step and is not used to estimate volume.
+            Mobilisation is the Section 1 base fee and source of truth for attendance/setup. $/m³ is a reference rate for contents/disposal and is not used to estimate volume. $/m² displays calculated surface pricing inside each item.
           </div>
         </div>
       </div>
@@ -888,7 +897,7 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
                 <label>Room / area / zone</label>
                 <AutoGrow
                   value={row.areas.join(', ')}
-                  onChange={v => patchRow(row.id, { areas: v.split(',').map(s => s.trim()).filter(Boolean) })}
+                  onChange={v => patchRow(row.id, { areas: parseAreasInput(v) })}
                   placeholder="Bedroom, hallway, primary contamination zone"
                   rows={1}
                 />
@@ -910,7 +919,7 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
                 <label>Observed / reported contents</label>
                 <AutoGrow
                   value={(row.contents ?? []).join('\n')}
-                  onChange={v => patchRow(row.id, { contents: v.split('\n').map(l => l.trim()).filter(Boolean) })}
+                  onChange={v => patchRow(row.id, { contents: v.split('\n') })}
                   placeholder={'One per line — e.g.\nReported affected carpet\nFurniture requiring relocation\nLoose household contents'}
                   rows={4}
                 />
@@ -990,7 +999,7 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
                 <label>Included actions</label>
                 <AutoGrow
                   value={(row.included ?? []).join('\n')}
-                  onChange={v => patchRow(row.id, { included: v.split('\n').filter(l => l.trim()) })}
+                  onChange={v => patchRow(row.id, { included: v.split('\n') })}
                   placeholder="One per line — actions included in this item"
                   rows={2}
                 />
@@ -999,7 +1008,7 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
                 <label>Excluded / outside scope</label>
                 <AutoGrow
                   value={(row.excluded ?? []).join('\n')}
-                  onChange={v => patchRow(row.id, { excluded: v.split('\n').filter(l => l.trim()) })}
+                  onChange={v => patchRow(row.id, { excluded: v.split('\n') })}
                   placeholder="One per line — excluded works, other zones, unrelated odours, concealed conditions"
                   rows={2}
                 />
@@ -1008,7 +1017,7 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
                 <label>Assumptions / unknowns</label>
                 <AutoGrow
                   value={(row.assumptions ?? []).join('\n')}
-                  onChange={v => patchRow(row.id, { assumptions: v.split('\n').filter(l => l.trim()) })}
+                  onChange={v => patchRow(row.id, { assumptions: v.split('\n') })}
                   placeholder="One per line — assumptions and unknowns this price relies on"
                   rows={2}
                 />
