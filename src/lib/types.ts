@@ -678,6 +678,8 @@ export interface OutcomeQuoteRow {
   included: string[]
   excluded: string[]
   assumptions: string[]
+  /** HITL-edited visual list of contents/items observed in the linked room(s); not a volume estimate. */
+  contents?: string[]
   verification_method: string
   metrics?: OutcomeQuoteMetric[]
   /** Sub-category for Section 1 grouping. Optional for backwards compatibility. */
@@ -795,6 +797,10 @@ export interface OutcomeQuoteCapture {
   /** Per-job toggle state for the three pricing axes. Optional: when absent,
    *  callers infer defaults from which section data exists. */
   pricing_layout?: QuotePricingLayout
+  /** Optional single rate used to show calculated per-item surface pricing from selected room m². */
+  global_surface_rate_per_m2?: number
+  /** Optional reference rate for future contents/disposal m³ handling; not used for estimated volume. */
+  global_contents_rate_per_m3?: number
   gst_mode?: QuoteGstMode
   totals: {
     subtotal: number
@@ -1186,6 +1192,10 @@ export interface QuoteContent {
   /** Toggle state echoed onto the rendered content so the print path knows
    *  which sections to suppress even if their data is non-empty. */
   pricing_layout?: QuotePricingLayout
+  /** Optional single rate used to show calculated per-item surface pricing from selected room m². */
+  global_surface_rate_per_m2?: number
+  /** Optional reference rate for future contents/disposal m³ handling; not used for estimated volume. */
+  global_contents_rate_per_m3?: number
   /** Auto-derived from `area_pricing[].surfaces` where `included = false`.
    *  Each entry is a "Surface — Room" string ready to render under
    *  "Excluded from this quote". Computed by `collectExcludedSurfaces`; not

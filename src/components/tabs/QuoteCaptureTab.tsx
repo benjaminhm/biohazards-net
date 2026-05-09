@@ -65,6 +65,39 @@ function areaPricingSum(areas: AreaPricingRow[]): number {
   return toMoney(areas.reduce((s, r) => s + Math.max(0, Number(r.total || 0)), 0))
 }
 
+function fmtM2(n: number): string {
+  return `${Number(n || 0).toLocaleString('en-AU', { maximumFractionDigits: 2 })} m²`
+}
+
+function areaSurfaceMeasurements(area: Area) {
+  const length = Math.max(0, Number(area.length_m || 0))
+  const width = Math.max(0, Number(area.width_m || 0))
+  const height = Math.max(0, Number(area.height_m || 0))
+  const floor = length > 0 && width > 0 ? toMoney(length * width) : Math.max(0, Number(area.sqm || 0))
+  const ceiling = floor
+  const walls = length > 0 && width > 0 && height > 0 ? toMoney(2 * (length + width) * height) : 0
+  return {
+    length,
+    width,
+    height,
+    floor,
+    ceiling,
+    walls,
+    total: toMoney(floor + ceiling + walls),
+  }
+}
+
+function selectedAreasForRow(row: OutcomeQuoteRow, areas: Area[] | undefined): Area[] {
+  const byName = new Map((areas ?? []).map(a => [(a.name || '').trim().toLowerCase(), a]))
+  return (row.areas ?? [])
+    .map(name => byName.get(name.trim().toLowerCase()))
+    .filter((a): a is Area => Boolean(a))
+}
+
+function totalSurfaceM2ForAreas(areas: Area[]): number {
+  return toMoney(areas.reduce((sum, area) => sum + areaSurfaceMeasurements(area).total, 0))
+}
+
 /** Compute totals across all enabled sections. Sections that the layout
  *  marks disabled don't contribute even if their data is non-empty — so
  *  toggling a section off is non-destructive but immediately accurate. */
@@ -141,6 +174,7 @@ function blankRow(seed: number, kind: OutcomeKind = 'mobilisation'): OutcomeQuot
     included: [],
     excluded: [],
     assumptions: [],
+    contents: [],
     verification_method: '',
     kind,
   }
@@ -249,6 +283,12 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
   const [pricingLayout, setPricingLayout] = useState<QuotePricingLayout>(() =>
     derivePricingLayoutFromCapture(existing),
   )
+  const [globalSurfaceRatePerM2, setGlobalSurfaceRatePerM2] = useState<number>(
+    Math.max(0, Number(existing?.global_surface_rate_per_m2 ?? 0)),
+  )
+  const [globalContentsRatePerM3, setGlobalContentsRatePerM3] = useState<number>(
+    Math.max(0, Number(existing?.global_contents_rate_per_m3 ?? 0)),
+  )
   const [paymentTerms, setPaymentTerms] = useState(ad?.payment_terms ?? '')
   const [validity, setValidity] = useState(existing?.validity ?? '')
   const [notes, setNotes] = useState(existing?.notes ?? '')
@@ -299,6 +339,8 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
     setAreaPricingTerms(cap?.area_pricing_terms ?? blankSectionTerms())
     setVolumePricingTerms(cap?.volume_pricing_terms ?? blankSectionTerms())
     setPricingLayout(derivePricingLayoutFromCapture(cap))
+    setGlobalSurfaceRatePerM2(Math.max(0, Number(cap?.global_surface_rate_per_m2 ?? 0)))
+    setGlobalContentsRatePerM3(Math.max(0, Number(cap?.global_contents_rate_per_m3 ?? 0)))
     setGstMode(cap?.gst_mode ?? 'no_gst')
     setPaymentTerms(job.assessment_data?.payment_terms ?? '')
     setValidity(cap?.validity ?? '')
@@ -492,6 +534,8 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
         ...(persistedVolume ? { volume_pricing: persistedVolume } : {}),
         ...(cleanVolumeTerms ? { volume_pricing_terms: cleanVolumeTerms } : {}),
         pricing_layout: pricingLayout,
+        global_surface_rate_per_m2: globalSurfaceRatePerM2,
+        global_contents_rate_per_m3: globalContentsRatePerM3,
         gst_mode: gstMode,
         totals: computeTotals(rows, areaPricing, persistedVolume ?? null, pricingLayout, gstMode),
         target_pricing: {},
@@ -594,6 +638,53 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
             )
           })}
         </div>
+        <div
+          style={{
+            marginTop: 10,
+            display: 'grid',
+            gridTemplateColumns: 'repeat(2, minmax(150px, 220px)) 1fr',
+            gap: 10,
+            alignItems: 'end',
+          }}
+        >
+          <div className="field" style={{ marginBottom: 0 }}>
+            <label>Global $/m² rate</label>
+            <input
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="1"
+              value={globalSurfaceRatePerM2 > 0 ? globalSurfaceRatePerM2 : ''}
+              onChange={e => {
+                const n = parseFloat(e.target.value)
+                setGlobalSurfaceRatePerM2(isNaN(n) ? 0 : Math.max(0, n))
+                setSaved(false)
+                setSaveError('')
+              }}
+              placeholder="0.00"
+            />
+          </div>
+          <div className="field" style={{ marginBottom: 0 }}>
+            <label>Global $/m³ rate</label>
+            <input
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="1"
+              value={globalContentsRatePerM3 > 0 ? globalContentsRatePerM3 : ''}
+              onChange={e => {
+                const n = parseFloat(e.target.value)
+                setGlobalContentsRatePerM3(isNaN(n) ? 0 : Math.max(0, n))
+                setSaved(false)
+                setSaveError('')
+              }}
+              placeholder="0.00"
+            />
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5, paddingBottom: 4 }}>
+            $/m² displays calculated surface pricing inside each item. $/m³ is a reference rate for the next contents/disposal step and is not used to estimate volume.
+          </div>
+        </div>
       </div>
 
       {pricingLayout.outcomes_enabled && (
@@ -675,7 +766,14 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
       )}
 
       <div style={{ display: 'grid', gap: 14, marginBottom: 14 }}>
-        {rows.map((row, idx) => (
+        {rows.map((row, idx) => {
+          const matchedAreas = selectedAreasForRow(row, ad?.areas)
+          const totalSurfaceM2 = totalSurfaceM2ForAreas(matchedAreas)
+          const calculatedSurfacePrice = toMoney(totalSurfaceM2 * globalSurfaceRatePerM2)
+          const missingAreaNames = (row.areas ?? []).filter(name =>
+            !matchedAreas.some(area => area.name.trim().toLowerCase() === name.trim().toLowerCase()),
+          )
+          return (
           <div
             key={row.id}
             style={{
@@ -763,6 +861,74 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
               />
             </div>
 
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+              <div className="field" style={{ marginBottom: 0 }}>
+                <label>List of contents</label>
+                <AutoGrow
+                  value={(row.contents ?? []).join('\n')}
+                  onChange={v => patchRow(row.id, { contents: v.split('\n').map(l => l.trim()).filter(Boolean) })}
+                  placeholder={'One per line — e.g.\nBlood-contaminated carpet\nFurniture requiring relocation\nLoose household contents'}
+                  rows={4}
+                />
+              </div>
+              <div className="field" style={{ marginBottom: 0 }}>
+                <label>Room dimensions / surface area</label>
+                <div style={{
+                  minHeight: 104,
+                  padding: '10px 12px',
+                  borderRadius: 8,
+                  border: '1px solid var(--border)',
+                  background: 'var(--surface-2)',
+                  fontSize: 12,
+                  color: 'var(--text-muted)',
+                  lineHeight: 1.55,
+                }}>
+                  {matchedAreas.length === 0 ? (
+                    <div>
+                      {(row.areas ?? []).length > 0
+                        ? 'No matching assessment room dimensions found for this item.'
+                        : 'Add a room name in Areas to show dimensions from Assessment.'}
+                    </div>
+                  ) : (
+                    <div style={{ display: 'grid', gap: 8 }}>
+                      {matchedAreas.map(area => {
+                        const m = areaSurfaceMeasurements(area)
+                        const dims = m.length > 0 && m.width > 0
+                          ? `${m.length}m L × ${m.width}m W${m.height > 0 ? ` × ${m.height}m H` : ''}`
+                          : 'Dimensions not captured'
+                        return (
+                          <div key={area.name}>
+                            <div style={{ color: 'var(--text)', fontWeight: 700 }}>{area.name}</div>
+                            <div>Room dimensions: {dims}</div>
+                            <div>Surface area: Ceiling {fmtM2(m.ceiling)} · Walls {fmtM2(m.walls)} · Floor {fmtM2(m.floor)}</div>
+                            <div style={{ color: 'var(--text)', fontWeight: 600 }}>Total: {fmtM2(m.total)}</div>
+                          </div>
+                        )
+                      })}
+                      {missingAreaNames.length > 0 && (
+                        <div style={{ color: '#FBBF24' }}>
+                          No assessment dimensions for: {missingAreaNames.join(', ')}
+                        </div>
+                      )}
+                      {globalSurfaceRatePerM2 > 0 && totalSurfaceM2 > 0 && (
+                        <div
+                          style={{
+                            marginTop: 2,
+                            paddingTop: 8,
+                            borderTop: '1px solid var(--border)',
+                            color: 'var(--text)',
+                            fontWeight: 700,
+                          }}
+                        >
+                          Calculated surface price: {fmtM2(totalSurfaceM2)} × ${globalSurfaceRatePerM2.toFixed(2)} = ${calculatedSurfacePrice.toFixed(2)}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
             <div className="field" style={{ marginBottom: 8 }}>
               <label>Price ($)</label>
               <input
@@ -805,7 +971,8 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
               </div>
             </div>
           </div>
-        ))}
+          )
+        })}
       </div>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 20 }}>
@@ -1385,12 +1552,23 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
 
       <div className="field">
         <label>Authorisation to Proceed</label>
-        <div style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 8px', lineHeight: 1.5 }}>
-          <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>If you wish to proceed, please:</div>
+        <div style={{
+          fontSize: 12,
+          color: 'var(--text-muted)',
+          margin: '6px 0 10px',
+          lineHeight: 1.5,
+          padding: '12px 14px',
+          borderRadius: 8,
+          border: '1px solid rgba(249,115,22,0.35)',
+          borderLeft: '4px solid #F97316',
+          background: 'rgba(249,115,22,0.1)',
+        }}>
+          <div style={{ fontWeight: 700, color: '#FDBA74', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Authorisation to Proceed</div>
+          <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>To accept this quote and proceed with booking, please complete the following steps:</div>
           <ol style={{ margin: 0, paddingLeft: 18 }}>
             <li>With pen and paper, write out the authorisation text exactly as shown below.</li>
             <li>Sign and date the handwritten authorisation.</li>
-            <li>Take a clear photo and send it to admin@brisbanebiohazardcleaning.com.au.</li>
+            <li>Take a clear photo and email it to <strong style={{ color: 'var(--text)' }}>admin@brisbanebiohazardcleaning.com.au</strong>.</li>
           </ol>
         </div>
         <RichTextEditor

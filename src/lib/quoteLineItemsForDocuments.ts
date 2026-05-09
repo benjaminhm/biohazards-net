@@ -55,6 +55,8 @@ export interface QuoteContentPatchInputs {
   volumePricing?: VolumePricingBlock
   volumePricingTerms?: SectionTerms
   pricingLayout?: QuotePricingLayout
+  globalSurfaceRatePerM2?: number
+  globalContentsRatePerM3?: number
 }
 
 export function quoteLineItemsContentPatch(
@@ -71,6 +73,8 @@ export function quoteLineItemsContentPatch(
     volumePricing,
     volumePricingTerms,
     pricingLayout,
+    globalSurfaceRatePerM2,
+    globalContentsRatePerM3,
   } = inputs
   const gstMode = typeof gstModeOrAddGst === 'string' ? gstModeOrAddGst : normalizeGstMode(null, gstModeOrAddGst)
   const lineItems = rows.map(row => ({
@@ -126,6 +130,8 @@ export function quoteLineItemsContentPatch(
     area_pricing: effectiveLayout.per_sqm_enabled ? pricedAreaPricing : [],
     auto_excluded_surfaces: autoExcludedSurfaces,
     pricing_layout: effectiveLayout,
+    global_surface_rate_per_m2: Math.max(0, Number(globalSurfaceRatePerM2 || 0)),
+    global_contents_rate_per_m3: Math.max(0, Number(globalContentsRatePerM3 || 0)),
     gst_mode: gstMode,
     subtotal: totals.subtotal,
     gst: totals.gst,
@@ -153,6 +159,8 @@ export interface MergeQuoteLineItemsOptions {
   volume_pricing?: VolumePricingBlock
   volume_pricing_terms?: SectionTerms
   pricing_layout?: QuotePricingLayout
+  global_surface_rate_per_m2?: number
+  global_contents_rate_per_m3?: number
 }
 
 /** Overlay active Quote Capture line items onto standalone quote or iaq_multi bundle quote part. */
@@ -174,6 +182,8 @@ export function mergeQuoteLineItemsIntoDocContent(
       volumePricing: options?.volume_pricing,
       volumePricingTerms: options?.volume_pricing_terms,
       pricingLayout: options?.pricing_layout,
+      globalSurfaceRatePerM2: options?.global_surface_rate_per_m2,
+      globalContentsRatePerM3: options?.global_contents_rate_per_m3,
     },
   )
   if (Object.keys(patch).length === 0) return content
@@ -212,6 +222,8 @@ export interface QuoteLineItemsMergeContext {
   volume_pricing?: VolumePricingBlock
   volume_pricing_terms?: SectionTerms
   pricing_layout?: QuotePricingLayout
+  global_surface_rate_per_m2?: number
+  global_contents_rate_per_m3?: number
 }
 
 /** Active run + line items for merging into quote documents and print. */
@@ -268,6 +280,8 @@ export async function fetchQuoteLineItemsMergeContext(
     : undefined
   const volume_pricing_terms = capture?.volume_pricing_terms
   const pricing_layout = derivePricingLayoutFromCapture(capture)
+  const global_surface_rate_per_m2 = Math.max(0, Number(capture?.global_surface_rate_per_m2 || 0))
+  const global_contents_rate_per_m3 = Math.max(0, Number(capture?.global_contents_rate_per_m3 || 0))
 
   const capture_fields: QuoteCaptureFields = {
     notes: capture?.notes ?? '',
@@ -283,7 +297,7 @@ export async function fetchQuoteLineItemsMergeContext(
       row.outcome_title.trim()
   )
 
-  const baseExtras = { area_pricing_terms, volume_pricing, volume_pricing_terms, pricing_layout }
+  const baseExtras = { area_pricing_terms, volume_pricing, volume_pricing_terms, pricing_layout, global_surface_rate_per_m2, global_contents_rate_per_m3 }
 
   if (capture?.mode === 'outcomes' && approvedOutcomes.length > 0) {
     const syntheticRows: QuoteLineItemRow[] = approvedOutcomes.map((row, idx) => ({

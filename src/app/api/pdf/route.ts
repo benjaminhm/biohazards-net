@@ -59,6 +59,8 @@ export async function POST(req: Request) {
           volume_pricing: ctx.volume_pricing,
           volume_pricing_terms: ctx.volume_pricing_terms,
           pricing_layout: ctx.pricing_layout,
+          global_surface_rate_per_m2: ctx.global_surface_rate_per_m2,
+          global_contents_rate_per_m3: ctx.global_contents_rate_per_m3,
         })
       } catch {
         /* use client content */

@@ -49,11 +49,15 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       : undefined
     const volumePricingTerms = outcomeCapture?.volume_pricing_terms
     const pricingLayout = derivePricingLayoutFromCapture(outcomeCapture)
+    const globalSurfaceRatePerM2 = Math.max(0, Number(outcomeCapture?.global_surface_rate_per_m2 || 0))
+    const globalContentsRatePerM3 = Math.max(0, Number(outcomeCapture?.global_contents_rate_per_m3 || 0))
     const sectionExtras = {
       area_pricing_terms: areaPricingTerms,
       volume_pricing: volumePricing,
       volume_pricing_terms: volumePricingTerms,
       pricing_layout: pricingLayout,
+      global_surface_rate_per_m2: globalSurfaceRatePerM2,
+      global_contents_rate_per_m3: globalContentsRatePerM3,
     }
     const validOutcomes = allOutcomes.filter(
       row =>

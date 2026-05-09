@@ -24,7 +24,7 @@ import type {
   QuoteContent, SOWContent, AssessmentDocumentContent, SWMSContent, AuthorityToProceedContent,
   EngagementAgreementContent, ReportContent, CertificateOfDecontaminationContent,
   WasteDisposalManifestContent, JSAContent, NDAContent, RiskAssessmentContent,
-  WorkStep, RiskRow, WasteItem,
+  WorkStep, RiskRow, WasteItem, OutcomeQuoteRow,
 } from './types'
 import { DOC_TYPE_LABELS } from './types'
 import { filterGroupedStages, groupPhotosByRoomAndStage, type RoomPhotoGroup } from './photoGroups'
@@ -267,6 +267,39 @@ function cssSowPrint(): string {
       font-weight: 600;
       line-height: 1.5;
     }
+    .sow-root .quote-auth-callout {
+      margin: 16px 0 12px;
+      padding: 14px 16px;
+      background: #fff7ed;
+      border: 1px solid #fed7aa;
+      border-left: 4px solid #f97316;
+      border-radius: 8px;
+      color: var(--sow-navy);
+    }
+    .sow-root .quote-auth-callout-title {
+      font-size: 8pt;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: #9a3412;
+      margin-bottom: 6px;
+    }
+    .sow-root .quote-auth-callout-intro {
+      font-size: 9.5pt;
+      font-weight: 600;
+      line-height: 1.55;
+      margin-bottom: 6px;
+    }
+    .sow-root .quote-auth-callout ol {
+      margin: 0;
+      padding-left: 1.2em;
+      font-size: 9pt;
+      line-height: 1.55;
+      color: var(--sow-mid);
+    }
+    .sow-root .quote-auth-callout li { margin-bottom: 3px; }
+    .sow-root .quote-auth-callout li:last-child { margin-bottom: 0; }
+    .sow-root .quote-auth-callout strong { color: var(--sow-navy); font-weight: 700; }
     .sow-root .sow-muted-box {
       margin-top: 22px;
       padding: 14px 16px;
@@ -863,8 +896,53 @@ function renderAreaPricingSection(
   `
 }
 
+function fmtM2(n: number): string {
+  return `${Number(n || 0).toLocaleString('en-AU', { maximumFractionDigits: 2 })} m²`
+}
+
+function quoteRoomMeasurements(row: OutcomeQuoteRow, areas: Area[], globalSurfaceRatePerM2 = 0): string {
+  const names = (row.areas ?? []).map(name => name.trim()).filter(Boolean)
+  if (names.length === 0) return ''
+  const byName = new Map(areas.map(area => [(area.name || '').trim().toLowerCase(), area]))
+  let totalSurfaceM2 = 0
+  const blocks = names.map(name => {
+    const area = byName.get(name.toLowerCase())
+    if (!area) return ''
+    const length = Math.max(0, Number(area.length_m || 0))
+    const width = Math.max(0, Number(area.width_m || 0))
+    const height = Math.max(0, Number(area.height_m || 0))
+    const floor = length > 0 && width > 0 ? Math.round(length * width * 100) / 100 : Math.max(0, Number(area.sqm || 0))
+    const ceiling = floor
+    const walls = length > 0 && width > 0 && height > 0 ? Math.round(2 * (length + width) * height * 100) / 100 : 0
+    const total = Math.round((floor + ceiling + walls) * 100) / 100
+    totalSurfaceM2 += total
+    const dims = length > 0 && width > 0
+      ? `${length}m L × ${width}m W${height > 0 ? ` × ${height}m H` : ''}`
+      : 'Dimensions not captured'
+    return `
+      <div style="margin-top:6px">
+        <strong>${esc(name)}</strong><br>
+        Room dimensions: ${esc(dims)}<br>
+        Surface area: Ceiling ${esc(fmtM2(ceiling))} · Walls ${esc(fmtM2(walls))} · Floor ${esc(fmtM2(floor))}<br>
+        <strong>Total surface area: ${esc(fmtM2(total))}</strong>
+      </div>
+    `
+  }).filter(Boolean)
+  if (!blocks.length) return ''
+  const rate = Math.max(0, Number(globalSurfaceRatePerM2 || 0))
+  const calculatedPrice = Math.round(totalSurfaceM2 * rate * 100) / 100
+  const priceLine = rate > 0 && totalSurfaceM2 > 0
+    ? `<div style="margin-top:6px"><strong>Calculated surface price: ${esc(fmtM2(totalSurfaceM2))} × ${fmtMoney(rate)} = ${fmtMoney(calculatedPrice)}</strong></div>`
+    : ''
+  return `<div class="label" style="font-size:7pt;margin-top:8px">Room Measurements</div><div class="body-text">${blocks.join('')}${priceLine}</div>`
+}
+
 /** Section 1 — Mobilisation, Fees & Fixed-Rate Items: kind-grouped row blocks. */
-function renderOutcomeSection(rows: NonNullable<QuoteContent['outcome_rows']>): string {
+function renderOutcomeSection(
+  rows: NonNullable<QuoteContent['outcome_rows']>,
+  assessmentAreas: Area[],
+  globalSurfaceRatePerM2 = 0,
+): string {
   if (rows.length === 0) {
     return `<div class="body-text">— No fee items have been drafted for this quote.</div>`
   }
@@ -872,15 +950,19 @@ function renderOutcomeSection(rows: NonNullable<QuoteContent['outcome_rows']>): 
   return groups.map(group => {
     const subHeader = `<div class="label" style="margin-top:12px;font-size:8pt">— ${esc(OUTCOME_KIND_LABELS[group.kind])} —</div>`
     const blocks = group.rows.map(row => {
-      const areas = row.areas?.length ? row.areas.join(', ') : ''
+      const areasLabel = row.areas?.length ? row.areas.join(', ') : ''
+      const contents = (row.contents ?? []).filter(Boolean).map(t => `<li>${esc(t)}</li>`).join('')
       const included = (row.included ?? []).filter(Boolean).map(t => `<li>${esc(t)}</li>`).join('')
       const excluded = (row.excluded ?? []).filter(Boolean).map(t => `<li>${esc(t)}</li>`).join('')
       const assumptions = (row.assumptions ?? []).filter(Boolean).map(t => `<li>${esc(t)}</li>`).join('')
+      const measurements = quoteRoomMeasurements(row, assessmentAreas, globalSurfaceRatePerM2)
       return `
         <div class="sow-muted-box">
           <div class="body-text"><strong>${esc(row.outcome_title || 'Item')}</strong></div>
           ${row.outcome_description?.trim() ? `<div class="body-text">${esc(row.outcome_description)}</div>` : ''}
-          ${areas ? `<div class="label" style="font-size:7pt;margin-top:8px">Areas</div><div class="body-text">${esc(areas)}</div>` : ''}
+          ${areasLabel ? `<div class="label" style="font-size:7pt;margin-top:8px">Areas</div><div class="body-text">${esc(areasLabel)}</div>` : ''}
+          ${contents ? `<div class="label" style="font-size:7pt;margin-top:8px">Observed Contents</div><ul class="body-text">${contents}</ul>` : ''}
+          ${measurements}
           ${included ? `<div class="label" style="font-size:7pt;margin-top:8px">Included</div><ul class="body-text">${included}</ul>` : ''}
           ${excluded ? `<div class="label" style="font-size:7pt;margin-top:8px">Excluded</div><ul class="body-text">${excluded}</ul>` : ''}
           ${assumptions ? `<div class="label" style="font-size:7pt;margin-top:8px">Assumptions</div><ul class="body-text">${assumptions}</ul>` : ''}
@@ -897,6 +979,7 @@ function buildQuoteMid(
   c: QuoteContent,
   photos: Photo[],
   groups: RoomPhotoGroup[],
+  areas: Area[],
   _company: CompanyProfile | null,
   _jobId: string,
   _appUrl: string,
@@ -929,7 +1012,7 @@ function buildQuoteMid(
 
   // Prefer kind-grouped outcome rows; fall back to legacy line items only if there are no outcome rows.
   const section1Body = outcomeRows.length > 0
-    ? renderOutcomeSection(outcomeRows)
+    ? renderOutcomeSection(outcomeRows, areas, Number(c.global_surface_rate_per_m2 || 0))
     : (lineItemsTable || `<div class="body-text">— No fee items have been drafted for this quote.</div>`)
 
   const section1 = showSection1
@@ -989,6 +1072,15 @@ function buildQuoteMid(
         ${a.special_conditions?.trim() ? `<div class="label" style="font-size:7pt;margin-top:10px">Special Conditions</div><div class="body-text">${esc(a.special_conditions)}</div>` : ''}
         ${a.liability_statement?.trim() ? `<div class="label" style="font-size:7pt;margin-top:10px">Liability</div><div class="body-text">${esc(a.liability_statement)}</div>` : ''}
         ${acceptanceInner ? `
+          <div class="quote-auth-callout">
+            <div class="quote-auth-callout-title">Authorisation to Proceed</div>
+            <div class="quote-auth-callout-intro">To accept this quote and proceed with booking, please complete the following steps:</div>
+            <ol>
+              <li>With pen and paper, write out the authorisation text exactly as shown below.</li>
+              <li>Sign and date the handwritten authorisation.</li>
+              <li>Take a clear photo and email it to <strong>admin@brisbanebiohazardcleaning.com.au</strong>.</li>
+            </ol>
+          </div>
           <div style="margin-top:18px;padding:16px;border:1px solid var(--sow-rule);border-radius:8px;background:var(--sow-blue-xs);">
             <div class="body-text sow-rich">${acceptanceInner}</div>
           </div>
@@ -999,8 +1091,8 @@ function buildQuoteMid(
   `
 }
 
-function buildQuoteHTML(c: QuoteContent, photos: Photo[], groups: RoomPhotoGroup[], company: CompanyProfile | null, _jobId: string, _appUrl: string, client: ClientInfo | undefined, screenActionBar: boolean): string {
-  const mid = buildQuoteMid(c, photos, groups, company, _jobId, _appUrl, client)
+function buildQuoteHTML(c: QuoteContent, photos: Photo[], groups: RoomPhotoGroup[], areas: Area[], company: CompanyProfile | null, _jobId: string, _appUrl: string, client: ClientInfo | undefined, screenActionBar: boolean): string {
+  const mid = buildQuoteMid(c, photos, groups, areas, company, _jobId, _appUrl, client)
   return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
@@ -1292,7 +1384,7 @@ export function buildPrintMidHTML(
   const groups = groupPhotosByRoomAndStage(photos, areas)
   switch (type) {
     case 'quote':
-      return buildQuoteMid(c as unknown as QuoteContent, photos, groups, company, jobId, appUrl, client)
+      return buildQuoteMid(c as unknown as QuoteContent, photos, groups, areas, company, jobId, appUrl, client)
     case 'sow':
       return buildSOWMid(c as unknown as SOWContent, photos, groups)
     case 'swms':
@@ -1388,7 +1480,7 @@ export function buildPrintHTML(
   const groups = groupPhotosByRoomAndStage(photos, areas)
   const screenActionBar = options?.screenActionBar !== false
   switch (type) {
-    case 'quote':                      return buildQuoteHTML(c as unknown as QuoteContent, photos, groups, company, jobId, appUrl, client, screenActionBar)
+    case 'quote':                      return buildQuoteHTML(c as unknown as QuoteContent, photos, groups, areas, company, jobId, appUrl, client, screenActionBar)
     case 'sow':                        return buildSOWHTML(c as unknown as SOWContent, photos, groups, company, client, areas, screenActionBar)
     case 'swms':                       return buildSWMSHTML(c as unknown as SWMSContent, company, client, screenActionBar)
     case 'authority_to_proceed':       return buildATPHTML(c as unknown as AuthorityToProceedContent, company, client, screenActionBar)
