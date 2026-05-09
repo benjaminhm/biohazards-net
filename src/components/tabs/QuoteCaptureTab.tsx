@@ -1384,10 +1384,15 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
       </div>
 
       <div className="field">
-        <label>Acceptance statement</label>
-        <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 8px', lineHeight: 1.45 }}>
-          Rich text — use bold or lists so placeholders and headings stand out in the printed quote.
-        </p>
+        <label>Authorisation to Proceed</label>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 8px', lineHeight: 1.5 }}>
+          <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>If you wish to proceed, please:</div>
+          <ol style={{ margin: 0, paddingLeft: 18 }}>
+            <li>With pen and paper, write out the authorisation text exactly as shown below.</li>
+            <li>Sign and date the handwritten authorisation.</li>
+            <li>Take a clear photo and send it to admin@brisbanebiohazardcleaning.com.au.</li>
+          </ol>
+        </div>
         <RichTextEditor
           value={auth.acceptance_statement}
           onChange={html => patchAuth({ acceptance_statement: html })}
