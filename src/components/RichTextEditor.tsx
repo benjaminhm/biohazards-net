@@ -72,9 +72,9 @@ function ToolbarButton({
         borderRadius: 6,
         fontSize: 13,
         fontWeight: 600,
-        border: active ? '1px solid #2563a8' : '1px solid #c8d9ee',
-        background: active ? 'rgba(37,99,168,0.12)' : '#fff',
-        color: '#1f2e45',
+        border: active ? '1px solid #60a5fa' : '1px solid #3a3a3a',
+        background: active ? 'rgba(96,165,250,0.22)' : '#181818',
+        color: '#f5f5f5',
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.45 : 1,
       }}
@@ -158,8 +158,8 @@ export default function RichTextEditor({ value, onChange, minHeight = 140 }: Pro
       className="doc-rich-editor"
       style={{
         borderRadius: 8,
-        border: '1px solid #c8d9ee',
-        background: '#fff',
+        border: '1px solid #2a2a2a',
+        background: '#050505',
         overflow: 'hidden',
       }}
     >
@@ -169,8 +169,8 @@ export default function RichTextEditor({ value, onChange, minHeight = 140 }: Pro
           flexWrap: 'wrap',
           gap: 6,
           padding: '8px 10px',
-          borderBottom: '1px solid #dbe8f7',
-          background: '#f5f9ff',
+          borderBottom: '1px solid #2a2a2a',
+          background: '#0f0f0f',
         }}
       >
         <ToolbarButton
@@ -191,7 +191,7 @@ export default function RichTextEditor({ value, onChange, minHeight = 140 }: Pro
         >
           U
         </ToolbarButton>
-        <div style={{ width: 1, height: 26, background: 'var(--border)', margin: '0 2px' }} />
+        <div style={{ width: 1, height: 26, background: '#2a2a2a', margin: '0 2px' }} />
         <ToolbarButton
           active={editor.isActive({ textAlign: 'left' })}
           onClick={() => editor.chain().focus().setTextAlign('left').run()}
@@ -211,7 +211,7 @@ export default function RichTextEditor({ value, onChange, minHeight = 140 }: Pro
           Right
         </ToolbarButton>
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 2 }}>
-          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Size</span>
+          <span style={{ fontSize: 12, color: '#a3a3a3' }}>Size</span>
           <select
             value={activeFontSize}
             onChange={e => setFontSize(e.target.value)}
@@ -219,9 +219,9 @@ export default function RichTextEditor({ value, onChange, minHeight = 140 }: Pro
               height: 30,
               padding: '0 8px',
               borderRadius: 6,
-              border: '1px solid var(--border)',
-              background: '#fff',
-              color: '#1f2e45',
+              border: '1px solid #3a3a3a',
+              background: '#181818',
+              color: '#f5f5f5',
               fontSize: 12,
               fontWeight: 600,
               outline: 'none',
@@ -235,7 +235,7 @@ export default function RichTextEditor({ value, onChange, minHeight = 140 }: Pro
             ))}
           </select>
         </label>
-        <div style={{ width: 1, height: 26, background: 'var(--border)', margin: '0 2px' }} />
+        <div style={{ width: 1, height: 26, background: '#2a2a2a', margin: '0 2px' }} />
         <ToolbarButton
           active={editor.isActive('bulletList')}
           onClick={() => editor.chain().focus().toggleBulletList().run()}
