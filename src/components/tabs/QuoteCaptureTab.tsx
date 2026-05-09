@@ -33,7 +33,6 @@ import {
   OUTCOME_KIND_LABELS,
   OUTCOME_KIND_ORDER,
   derivePricingLayoutFromCapture,
-  emptyVolumeBlock,
   normalizeSectionTerms,
   recomputeVolumePricingTotal,
   syncVolumePricing,
@@ -107,9 +106,10 @@ function computeTotals(
   volumePricing: VolumePricingBlock | null,
   layout: QuotePricingLayout,
   gstMode: QuoteGstMode,
+  globalMobilisationFee = 0,
 ) {
   const outcomeSum = layout.outcomes_enabled
-    ? rows.reduce((s, r) => s + Math.max(0, Number(r.price || 0)), 0)
+    ? Math.max(0, Number(globalMobilisationFee || 0)) + rows.reduce((s, r) => s + Math.max(0, Number(r.price || 0)), 0)
     : 0
   const surfaceSum = layout.per_sqm_enabled ? areaPricingSum(areaPricing) : 0
   const volSum = layout.per_m3_enabled ? volumePricingSubtotal(volumePricing ?? undefined) : 0
@@ -283,6 +283,9 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
   const [pricingLayout, setPricingLayout] = useState<QuotePricingLayout>(() =>
     derivePricingLayoutFromCapture(existing),
   )
+  const [globalMobilisationFee, setGlobalMobilisationFee] = useState<number>(
+    Math.max(0, Number(existing?.global_mobilisation_fee ?? 0)),
+  )
   const [globalSurfaceRatePerM2, setGlobalSurfaceRatePerM2] = useState<number>(
     Math.max(0, Number(existing?.global_surface_rate_per_m2 ?? 0)),
   )
@@ -339,6 +342,7 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
     setAreaPricingTerms(cap?.area_pricing_terms ?? blankSectionTerms())
     setVolumePricingTerms(cap?.volume_pricing_terms ?? blankSectionTerms())
     setPricingLayout(derivePricingLayoutFromCapture(cap))
+    setGlobalMobilisationFee(Math.max(0, Number(cap?.global_mobilisation_fee ?? 0)))
     setGlobalSurfaceRatePerM2(Math.max(0, Number(cap?.global_surface_rate_per_m2 ?? 0)))
     setGlobalContentsRatePerM3(Math.max(0, Number(cap?.global_contents_rate_per_m3 ?? 0)))
     setGstMode(cap?.gst_mode ?? 'no_gst')
@@ -357,14 +361,14 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
   }, [job.assessment_data?.outcome_quote_capture, job.assessment_data?.areas, job.assessment_data?.payment_terms, job.id, job.updated_at])
 
   const totals = useMemo(
-    () => computeTotals(rows, areaPricing, volumePricing, pricingLayout, gstMode),
-    [rows, areaPricing, volumePricing, pricingLayout, gstMode],
+    () => computeTotals(rows, areaPricing, volumePricing, pricingLayout, gstMode, globalMobilisationFee),
+    [rows, areaPricing, volumePricing, pricingLayout, gstMode, globalMobilisationFee],
   )
   const areaPricingSubtotal = useMemo(() => areaPricingSum(areaPricing), [areaPricing])
   const volumeSubtotal = useMemo(() => volumePricingSubtotal(volumePricing), [volumePricing])
   const outcomesSubtotal = useMemo(
-    () => toMoney(rows.reduce((s, r) => s + Math.max(0, Number(r.price || 0)), 0)),
-    [rows],
+    () => toMoney(Math.max(0, Number(globalMobilisationFee || 0)) + rows.reduce((s, r) => s + Math.max(0, Number(r.price || 0)), 0)),
+    [rows, globalMobilisationFee],
   )
 
   async function persistGstMode(next: QuoteGstMode) {
@@ -534,10 +538,11 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
         ...(persistedVolume ? { volume_pricing: persistedVolume } : {}),
         ...(cleanVolumeTerms ? { volume_pricing_terms: cleanVolumeTerms } : {}),
         pricing_layout: pricingLayout,
+        global_mobilisation_fee: globalMobilisationFee,
         global_surface_rate_per_m2: globalSurfaceRatePerM2,
         global_contents_rate_per_m3: globalContentsRatePerM3,
         gst_mode: gstMode,
-        totals: computeTotals(rows, areaPricing, persistedVolume ?? null, pricingLayout, gstMode),
+        totals: computeTotals(rows, areaPricing, persistedVolume ?? null, pricingLayout, gstMode, globalMobilisationFee),
         target_pricing: {},
         validity,
         notes,
@@ -642,11 +647,28 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
           style={{
             marginTop: 10,
             display: 'grid',
-            gridTemplateColumns: 'repeat(2, minmax(150px, 220px)) 1fr',
+            gridTemplateColumns: 'repeat(3, minmax(140px, 1fr))',
             gap: 10,
             alignItems: 'end',
           }}
         >
+          <div className="field" style={{ marginBottom: 0 }}>
+            <label>Global mobilisation fee</label>
+            <input
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="1"
+              value={globalMobilisationFee > 0 ? globalMobilisationFee : ''}
+              onChange={e => {
+                const n = parseFloat(e.target.value)
+                setGlobalMobilisationFee(isNaN(n) ? 0 : Math.max(0, n))
+                setSaved(false)
+                setSaveError('')
+              }}
+              placeholder="0.00"
+            />
+          </div>
           <div className="field" style={{ marginBottom: 0 }}>
             <label>Global $/m² rate</label>
             <input
@@ -681,8 +703,8 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
               placeholder="0.00"
             />
           </div>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5, paddingBottom: 4 }}>
-            $/m² displays calculated surface pricing inside each item. $/m³ is a reference rate for the next contents/disposal step and is not used to estimate volume.
+          <div style={{ gridColumn: '1 / -1', fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            Mobilisation is the Section 1 base fee and source of truth for attendance/setup. $/m² displays calculated surface pricing inside each item. $/m³ is a reference rate for the next contents/disposal step and is not used to estimate volume.
           </div>
         </div>
       </div>
@@ -693,7 +715,7 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
       <div style={{ marginBottom: 8 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
           <div style={SECTION}>1. Mobilisation, Fees &amp; Fixed-Rate Items</div>
-          {rows.length > 0 && (
+          {(rows.length > 0 || globalMobilisationFee > 0) && (
             <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
               Subtotal: <strong style={{ color: 'var(--text)' }}>${outcomesSubtotal.toFixed(2)}</strong>
             </div>
@@ -704,14 +726,36 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
         </div>
       </div>
 
+      {globalMobilisationFee > 0 && (
+        <div
+          style={{
+            border: '1px solid rgba(255,107,53,0.35)',
+            borderRadius: 10,
+            padding: '10px 12px',
+            background: 'rgba(255,107,53,0.06)',
+            marginBottom: 14,
+          }}
+        >
+          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--accent)', marginBottom: 4 }}>
+            Base pricing determinant
+          </div>
+          <div style={{ fontSize: 13, color: 'var(--text)', fontWeight: 700 }}>
+            Mobilisation fee: ${globalMobilisationFee.toFixed(2)}
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.45, marginTop: 4 }}>
+            Downstream mobilisation rows should add surcharges or modifiers, not redefine this base fee.
+          </div>
+        </div>
+      )}
+
       {/* ── AI instruction ── */}
-      <div style={{ ...SECTION, fontSize: 11 }}>AI Instruct</div>
+      <div style={{ ...SECTION, fontSize: 11 }}>AI Instructions</div>
 
       <div className="field" style={{ marginBottom: 6 }}>
         <AutoGrow
           value={instruction}
           onChange={setInstruction}
-          placeholder="Tell the AI how to structure Section 1 — e.g. &quot;Emergency callout + project management + after-hours surcharge. Standard biohazard mobilisation.&quot;"
+          placeholder="Tell the AI what proposed actions to draft — e.g. client-reported bedroom carpet contamination; nominate visible/source materials; avoid outcome promises."
           rows={2}
         />
       </div>
@@ -724,7 +768,7 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
           disabled={suggesting}
           style={{ fontSize: 13, padding: '8px 18px', touchAction: 'manipulation' }}
         >
-          {suggesting ? 'Thinking…' : 'Suggest fee rows'}
+          {suggesting ? 'Thinking…' : 'Suggest proposed actions'}
         </button>
         {suggesting && (
           <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
@@ -761,7 +805,7 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
 
       {rows.length === 0 && (
         <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
-          No items yet — use Suggest, or add a Mobilisation / Project Management / Surcharge / Fixed-fee item below.
+          No items yet — use Suggest, or add a Mobilisation / Project Management / Surcharge / Fixed-fee action below.
         </div>
       )}
 
@@ -832,47 +876,47 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
               <div className="field" style={{ marginBottom: 0 }}>
-                <label>Title</label>
+                <label>Proposed action</label>
                 <AutoGrow
                   value={row.outcome_title}
                   onChange={v => patchRow(row.id, { outcome_title: v })}
-                  placeholder="e.g. Emergency callout & site setup"
+                  placeholder="e.g. Remove visibly affected carpet from the nominated primary contamination zone"
                   rows={1}
                 />
               </div>
               <div className="field" style={{ marginBottom: 0 }}>
-                <label>Areas</label>
+                <label>Room / area / zone</label>
                 <AutoGrow
                   value={row.areas.join(', ')}
                   onChange={v => patchRow(row.id, { areas: v.split(',').map(s => s.trim()).filter(Boolean) })}
-                  placeholder="Rooms (comma separated, optional)"
+                  placeholder="Bedroom, hallway, primary contamination zone"
                   rows={1}
                 />
               </div>
             </div>
 
             <div className="field" style={{ marginBottom: 8 }}>
-              <label>Description</label>
+              <label>Action details</label>
               <AutoGrow
                 value={row.outcome_description}
                 onChange={v => patchRow(row.id, { outcome_description: v })}
-                placeholder="What work is included in this outcome?"
+                placeholder="Proposed activities only — e.g. establish work area, relocate movable furniture, remove visibly affected material, bag and transport materials."
                 rows={2}
               />
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
               <div className="field" style={{ marginBottom: 0 }}>
-                <label>List of contents</label>
+                <label>Observed / reported contents</label>
                 <AutoGrow
                   value={(row.contents ?? []).join('\n')}
                   onChange={v => patchRow(row.id, { contents: v.split('\n').map(l => l.trim()).filter(Boolean) })}
-                  placeholder={'One per line — e.g.\nBlood-contaminated carpet\nFurniture requiring relocation\nLoose household contents'}
+                  placeholder={'One per line — e.g.\nReported affected carpet\nFurniture requiring relocation\nLoose household contents'}
                   rows={4}
                 />
               </div>
               <div className="field" style={{ marginBottom: 0 }}>
-                <label>Room dimensions / surface area</label>
+                <label>Room measurements / surface area</label>
                 <div style={{
                   minHeight: 104,
                   padding: '10px 12px',
@@ -887,7 +931,7 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
                     <div>
                       {(row.areas ?? []).length > 0
                         ? 'No matching assessment room dimensions found for this item.'
-                        : 'Add a room name in Areas to show dimensions from Assessment.'}
+                        : 'Add a room name in Room / Area / Zone to show dimensions from Assessment.'}
                     </div>
                   ) : (
                     <div style={{ display: 'grid', gap: 8 }}>
@@ -943,29 +987,29 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
               <div className="field" style={{ marginBottom: 0 }}>
-                <label>Included</label>
+                <label>Included actions</label>
                 <AutoGrow
                   value={(row.included ?? []).join('\n')}
                   onChange={v => patchRow(row.id, { included: v.split('\n').filter(l => l.trim()) })}
-                  placeholder="One per line"
+                  placeholder="One per line — actions included in this item"
                   rows={2}
                 />
               </div>
               <div className="field" style={{ marginBottom: 0 }}>
-                <label>Excluded</label>
+                <label>Excluded / outside scope</label>
                 <AutoGrow
                   value={(row.excluded ?? []).join('\n')}
                   onChange={v => patchRow(row.id, { excluded: v.split('\n').filter(l => l.trim()) })}
-                  placeholder="One per line"
+                  placeholder="One per line — excluded works, other zones, unrelated odours, concealed conditions"
                   rows={2}
                 />
               </div>
               <div className="field" style={{ marginBottom: 0 }}>
-                <label>Assumptions</label>
+                <label>Assumptions / unknowns</label>
                 <AutoGrow
                   value={(row.assumptions ?? []).join('\n')}
                   onChange={v => patchRow(row.id, { assumptions: v.split('\n').filter(l => l.trim()) })}
-                  placeholder="One per line"
+                  placeholder="One per line — assumptions and unknowns this price relies on"
                   rows={2}
                 />
               </div>

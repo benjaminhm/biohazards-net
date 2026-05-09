@@ -500,6 +500,7 @@ function composeQuote(job: Job): ComposeDocumentResult {
     volume_pricing: volumePricing,
     volume_pricing_terms: volumeTerms,
     pricing_layout: layout,
+    global_mobilisation_fee: Math.max(0, Number(cap?.global_mobilisation_fee || 0)),
     global_surface_rate_per_m2: Math.max(0, Number(cap?.global_surface_rate_per_m2 || 0)),
     global_contents_rate_per_m3: Math.max(0, Number(cap?.global_contents_rate_per_m3 || 0)),
     auto_excluded_surfaces: autoExcludedSurfaces.length > 0 ? autoExcludedSurfaces : undefined,

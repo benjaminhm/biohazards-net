@@ -192,7 +192,7 @@ export function derivePricingLayoutFromCapture(
   cap: OutcomeQuoteCapture | undefined | null,
 ): QuotePricingLayout {
   if (cap?.pricing_layout) return cap.pricing_layout
-  const outcomes = outcomesHaveContent(cap?.rows)
+  const outcomes = outcomesHaveContent(cap?.rows) || Number(cap?.global_mobilisation_fee || 0) > 0
   const perSqm = areaPricingHasContent(cap?.area_pricing)
   const perM3 = volumePricingHasContent(cap?.volume_pricing)
   // Brand-new captures default to outcomes-only (matches the most common case).
@@ -234,7 +234,8 @@ export function applyPricingLayoutToContent(
   }
 
   // Recompute totals from what's actually being rendered.
-  const outcomesSum = (next.outcome_rows ?? []).reduce(
+  const mobilisationFee = layout.outcomes_enabled ? Math.max(0, Number(next.global_mobilisation_fee || 0)) : 0
+  const outcomeRowsSum = (next.outcome_rows ?? []).reduce(
     (s, r) => s + Math.max(0, Number(r.price || 0)),
     0,
   )
@@ -244,7 +245,8 @@ export function applyPricingLayoutToContent(
 
   // Outcomes-vs-line_items: line_items only contributes when outcomes weren't
   // the chosen mode (matches the existing behaviour in quoteLineItemsContentPatch).
-  const baseSum = outcomesSum > 0 ? outcomesSum : lineItemsSum
+  const hasOutcomeRows = (next.outcome_rows ?? []).length > 0
+  const baseSum = mobilisationFee + (hasOutcomeRows ? outcomeRowsSum : lineItemsSum)
   const lineSum = round2(baseSum + areaSum + volSum)
 
   const gstMode = next.gst_mode ?? 'no_gst'

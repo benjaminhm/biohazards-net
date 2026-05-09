@@ -429,9 +429,8 @@ export interface ClientInfo {
  * "Assessment / Scope / Quote — Test Client — Test Client" when `docTitle`
  * already ends with the job client name.
  */
-function actionBarTitleLine(docTitle: string, clientName: string): string {
+function actionBarTitleLine(docTitle: string): string {
   const t = docTitle.trim()
-  const _n = clientName.trim()
   return t
 }
 
@@ -440,7 +439,7 @@ function actionBar(docTitle: string, client: ClientInfo | undefined): string {
   const email = client?.client_email ?? ''
   const phone = (client?.client_phone ?? '').replace(/\s/g,'')
   const name  = client?.client_name ?? ''
-  const line  = actionBarTitleLine(docTitle, name)
+  const line  = actionBarTitleLine(docTitle)
   const subject = encodeURIComponent(line)
   const body    = encodeURIComponent(`Hi ${name.split(' ')[0]},\n\nPlease find your document at the link below:\n\n${url}\n\nKind regards`)
 
@@ -934,7 +933,7 @@ function quoteRoomMeasurements(row: OutcomeQuoteRow, areas: Area[], globalSurfac
   const priceLine = rate > 0 && totalSurfaceM2 > 0
     ? `<div style="margin-top:6px"><strong>Calculated surface price: ${esc(fmtM2(totalSurfaceM2))} × ${fmtMoney(rate)} = ${fmtMoney(calculatedPrice)}</strong></div>`
     : ''
-  return `<div class="label" style="font-size:7pt;margin-top:8px">Room Measurements</div><div class="body-text">${blocks.join('')}${priceLine}</div>`
+  return `<div class="label" style="font-size:7pt;margin-top:8px">Room Measurements / Surface Area</div><div class="body-text">${blocks.join('')}${priceLine}</div>`
 }
 
 /** Section 1 — Mobilisation, Fees & Fixed-Rate Items: kind-grouped row blocks. */
@@ -942,12 +941,19 @@ function renderOutcomeSection(
   rows: NonNullable<QuoteContent['outcome_rows']>,
   assessmentAreas: Area[],
   globalSurfaceRatePerM2 = 0,
+  globalMobilisationFee = 0,
 ): string {
-  if (rows.length === 0) {
-    return `<div class="body-text">— No fee items have been drafted for this quote.</div>`
-  }
+  const mobilisationFee = Math.max(0, Number(globalMobilisationFee || 0))
+  const baseBlock = mobilisationFee > 0
+    ? `<div class="sow-muted-box">
+        <div class="label" style="font-size:7pt;margin-top:8px">Base Pricing Determinant</div>
+        <div class="body-text"><strong>Mobilisation fee: ${fmtMoney(mobilisationFee)}</strong></div>
+        <div class="body-text">Base attendance/setup fee. Item rows below are for proposed actions, surcharges, or modifiers.</div>
+      </div>`
+    : ''
+  if (rows.length === 0) return baseBlock || `<div class="body-text">— No fee items have been drafted for this quote.</div>`
   const groups = groupRowsByKind(rows)
-  return groups.map(group => {
+  const groupedBlocks = groups.map(group => {
     const subHeader = `<div class="label" style="margin-top:12px;font-size:8pt">— ${esc(OUTCOME_KIND_LABELS[group.kind])} —</div>`
     const blocks = group.rows.map(row => {
       const areasLabel = row.areas?.length ? row.areas.join(', ') : ''
@@ -958,14 +964,15 @@ function renderOutcomeSection(
       const measurements = quoteRoomMeasurements(row, assessmentAreas, globalSurfaceRatePerM2)
       return `
         <div class="sow-muted-box">
+          <div class="label" style="font-size:7pt;margin-top:8px">Proposed Action</div>
           <div class="body-text"><strong>${esc(row.outcome_title || 'Item')}</strong></div>
-          ${row.outcome_description?.trim() ? `<div class="body-text">${esc(row.outcome_description)}</div>` : ''}
-          ${areasLabel ? `<div class="label" style="font-size:7pt;margin-top:8px">Areas</div><div class="body-text">${esc(areasLabel)}</div>` : ''}
-          ${contents ? `<div class="label" style="font-size:7pt;margin-top:8px">Observed Contents</div><ul class="body-text">${contents}</ul>` : ''}
+          ${row.outcome_description?.trim() ? `<div class="label" style="font-size:7pt;margin-top:8px">Action Details</div><div class="body-text">${esc(row.outcome_description)}</div>` : ''}
+          ${areasLabel ? `<div class="label" style="font-size:7pt;margin-top:8px">Room / Area / Zone</div><div class="body-text">${esc(areasLabel)}</div>` : ''}
+          ${contents ? `<div class="label" style="font-size:7pt;margin-top:8px">Observed / Reported Contents</div><ul class="body-text">${contents}</ul>` : ''}
           ${measurements}
-          ${included ? `<div class="label" style="font-size:7pt;margin-top:8px">Included</div><ul class="body-text">${included}</ul>` : ''}
-          ${excluded ? `<div class="label" style="font-size:7pt;margin-top:8px">Excluded</div><ul class="body-text">${excluded}</ul>` : ''}
-          ${assumptions ? `<div class="label" style="font-size:7pt;margin-top:8px">Assumptions</div><ul class="body-text">${assumptions}</ul>` : ''}
+          ${included ? `<div class="label" style="font-size:7pt;margin-top:8px">Included Actions</div><ul class="body-text">${included}</ul>` : ''}
+          ${excluded ? `<div class="label" style="font-size:7pt;margin-top:8px">Excluded / Outside Scope</div><ul class="body-text">${excluded}</ul>` : ''}
+          ${assumptions ? `<div class="label" style="font-size:7pt;margin-top:8px">Assumptions / Unknowns</div><ul class="body-text">${assumptions}</ul>` : ''}
           <div class="label" style="font-size:7pt;margin-top:8px">Price</div>
           <div class="body-text"><strong>${Number(row.price || 0) > 0 ? fmtMoney(Number(row.price || 0)) : 'TBC'}</strong></div>
         </div>
@@ -973,6 +980,7 @@ function renderOutcomeSection(
     }).join('')
     return `${subHeader}${blocks}`
   }).join('')
+  return `${baseBlock}${groupedBlocks}`
 }
 
 function buildQuoteMid(
@@ -989,7 +997,8 @@ function buildQuoteMid(
   const siteLine = (client?.site_address ?? '').trim()
   const layout = c.pricing_layout
   const outcomeRows = (c.outcome_rows ?? []).filter(Boolean)
-  const showSection1 = (layout?.outcomes_enabled ?? true) && (outcomeRows.length > 0 || (c.line_items ?? []).length > 0)
+  const globalMobilisationFee = Math.max(0, Number(c.global_mobilisation_fee || 0))
+  const showSection1 = (layout?.outcomes_enabled ?? true) && (outcomeRows.length > 0 || (c.line_items ?? []).length > 0 || globalMobilisationFee > 0)
   const areaPricing = (c.area_pricing ?? []).filter(r => Number(r.total ?? 0) > 0)
   const showSection3 = (layout?.per_sqm_enabled ?? true) && areaPricing.length > 0
   const volumeBlock = c.volume_pricing
@@ -1009,11 +1018,20 @@ function buildQuoteMid(
         `).join('')}</tbody>
       </table>`
     : ''
+  const baseMobilisationBlock = globalMobilisationFee > 0
+    ? `<div class="sow-muted-box">
+        <div class="label" style="font-size:7pt;margin-top:8px">Base Pricing Determinant</div>
+        <div class="body-text"><strong>Mobilisation fee: ${fmtMoney(globalMobilisationFee)}</strong></div>
+        <div class="body-text">Base attendance/setup fee. Additional mobilisation rows apply as surcharges or modifiers.</div>
+      </div>`
+    : ''
 
   // Prefer kind-grouped outcome rows; fall back to legacy line items only if there are no outcome rows.
   const section1Body = outcomeRows.length > 0
-    ? renderOutcomeSection(outcomeRows, areas, Number(c.global_surface_rate_per_m2 || 0))
-    : (lineItemsTable || `<div class="body-text">— No fee items have been drafted for this quote.</div>`)
+    ? renderOutcomeSection(outcomeRows, areas, Number(c.global_surface_rate_per_m2 || 0), globalMobilisationFee)
+    : (baseMobilisationBlock || lineItemsTable
+        ? `${baseMobilisationBlock}${lineItemsTable}`
+        : `<div class="body-text">— No fee items have been drafted for this quote.</div>`)
 
   const section1 = showSection1
     ? `<div class="label" style="margin-top:6px">1. Mobilisation, Fees &amp; Fixed-Rate Items</div>${section1Body}`

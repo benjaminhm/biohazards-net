@@ -59,6 +59,7 @@ export async function POST(req: Request) {
           volume_pricing: ctx.volume_pricing,
           volume_pricing_terms: ctx.volume_pricing_terms,
           pricing_layout: ctx.pricing_layout,
+          global_mobilisation_fee: ctx.global_mobilisation_fee,
           global_surface_rate_per_m2: ctx.global_surface_rate_per_m2,
           global_contents_rate_per_m3: ctx.global_contents_rate_per_m3,
         })
@@ -77,8 +78,7 @@ export async function POST(req: Request) {
         : Promise.resolve({ data: null }),
     ])
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const buffer: Buffer = await renderToBuffer(createElement(JobPDFDocument as any, {
+    const buffer: Buffer = await renderToBuffer(createElement(JobPDFDocument, {
       type,
       content: mergedContent,
       photos: photosRes.data ?? [],
@@ -86,7 +86,7 @@ export async function POST(req: Request) {
       jobId,
       areas: jobRes.data?.assessment_data?.areas ?? [],
       siteAddress: jobRes.data?.site_address ?? undefined,
-    } as any))
+    }))
 
     return new Response(buffer as unknown as BodyInit, {
       headers: {

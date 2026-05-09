@@ -55,6 +55,7 @@ export interface QuoteContentPatchInputs {
   volumePricing?: VolumePricingBlock
   volumePricingTerms?: SectionTerms
   pricingLayout?: QuotePricingLayout
+  globalMobilisationFee?: number
   globalSurfaceRatePerM2?: number
   globalContentsRatePerM3?: number
 }
@@ -73,6 +74,7 @@ export function quoteLineItemsContentPatch(
     volumePricing,
     volumePricingTerms,
     pricingLayout,
+    globalMobilisationFee,
     globalSurfaceRatePerM2,
     globalContentsRatePerM3,
   } = inputs
@@ -90,17 +92,18 @@ export function quoteLineItemsContentPatch(
   const volumeIncluded = refreshedVolume && volumePricingHasContent(refreshedVolume)
     ? refreshedVolume
     : undefined
+  const baseMobilisationFee = Math.max(0, Number(globalMobilisationFee || 0))
 
   // Layout defaults: enable any section that has data unless an explicit layout disables it.
   const effectiveLayout: QuotePricingLayout = pricingLayout ?? {
-    outcomes_enabled: lineItems.length > 0 || pricedOutcomes.length > 0,
+    outcomes_enabled: baseMobilisationFee > 0 || lineItems.length > 0 || pricedOutcomes.length > 0,
     per_sqm_enabled: pricedAreaPricing.length > 0,
     per_m3_enabled: !!volumeIncluded,
   }
 
   // Section sums — disabled sections contribute 0 even if data is present.
   const outcomesSum = effectiveLayout.outcomes_enabled
-    ? (lineItems.length
+    ? baseMobilisationFee + (lineItems.length
         ? lineItems.reduce((sum, row) => sum + Number(row.total || 0), 0)
         : pricedOutcomes.reduce((sum, row) => sum + Number(row.price || 0), 0))
     : 0
@@ -114,6 +117,7 @@ export function quoteLineItemsContentPatch(
     && !(outcomeRows?.length)
     && pricedAreaPricing.length === 0
     && !volumeIncluded
+    && baseMobilisationFee <= 0
   if (noData) return {}
 
   const totals = computeQuoteTotals(subtotal, gstMode)
@@ -130,6 +134,7 @@ export function quoteLineItemsContentPatch(
     area_pricing: effectiveLayout.per_sqm_enabled ? pricedAreaPricing : [],
     auto_excluded_surfaces: autoExcludedSurfaces,
     pricing_layout: effectiveLayout,
+    global_mobilisation_fee: baseMobilisationFee,
     global_surface_rate_per_m2: Math.max(0, Number(globalSurfaceRatePerM2 || 0)),
     global_contents_rate_per_m3: Math.max(0, Number(globalContentsRatePerM3 || 0)),
     gst_mode: gstMode,
@@ -159,6 +164,7 @@ export interface MergeQuoteLineItemsOptions {
   volume_pricing?: VolumePricingBlock
   volume_pricing_terms?: SectionTerms
   pricing_layout?: QuotePricingLayout
+  global_mobilisation_fee?: number
   global_surface_rate_per_m2?: number
   global_contents_rate_per_m3?: number
 }
@@ -182,6 +188,7 @@ export function mergeQuoteLineItemsIntoDocContent(
       volumePricing: options?.volume_pricing,
       volumePricingTerms: options?.volume_pricing_terms,
       pricingLayout: options?.pricing_layout,
+      globalMobilisationFee: options?.global_mobilisation_fee,
       globalSurfaceRatePerM2: options?.global_surface_rate_per_m2,
       globalContentsRatePerM3: options?.global_contents_rate_per_m3,
     },
@@ -222,6 +229,7 @@ export interface QuoteLineItemsMergeContext {
   volume_pricing?: VolumePricingBlock
   volume_pricing_terms?: SectionTerms
   pricing_layout?: QuotePricingLayout
+  global_mobilisation_fee?: number
   global_surface_rate_per_m2?: number
   global_contents_rate_per_m3?: number
 }
@@ -280,6 +288,7 @@ export async function fetchQuoteLineItemsMergeContext(
     : undefined
   const volume_pricing_terms = capture?.volume_pricing_terms
   const pricing_layout = derivePricingLayoutFromCapture(capture)
+  const global_mobilisation_fee = Math.max(0, Number(capture?.global_mobilisation_fee || 0))
   const global_surface_rate_per_m2 = Math.max(0, Number(capture?.global_surface_rate_per_m2 || 0))
   const global_contents_rate_per_m3 = Math.max(0, Number(capture?.global_contents_rate_per_m3 || 0))
 
@@ -297,7 +306,15 @@ export async function fetchQuoteLineItemsMergeContext(
       row.outcome_title.trim()
   )
 
-  const baseExtras = { area_pricing_terms, volume_pricing, volume_pricing_terms, pricing_layout, global_surface_rate_per_m2, global_contents_rate_per_m3 }
+  const baseExtras = {
+    area_pricing_terms,
+    volume_pricing,
+    volume_pricing_terms,
+    pricing_layout,
+    global_mobilisation_fee,
+    global_surface_rate_per_m2,
+    global_contents_rate_per_m3,
+  }
 
   if (capture?.mode === 'outcomes' && approvedOutcomes.length > 0) {
     const syntheticRows: QuoteLineItemRow[] = approvedOutcomes.map((row, idx) => ({

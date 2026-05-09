@@ -114,6 +114,7 @@ function DocViewerInner() {
             const volume_pricing = quoteRes.volume_pricing as VolumePricingBlock | undefined
             const volume_pricing_terms = quoteRes.volume_pricing_terms as SectionTerms | undefined
             const pricing_layout = quoteRes.pricing_layout as QuotePricingLayout | undefined
+            const global_mobilisation_fee = Number(quoteRes.global_mobilisation_fee ?? 0)
             const global_surface_rate_per_m2 = Number(quoteRes.global_surface_rate_per_m2 ?? 0)
             const global_contents_rate_per_m3 = Number(quoteRes.global_contents_rate_per_m3 ?? 0)
             next = mergeQuoteLineItemsIntoDocContent(docType, next, rows, {
@@ -121,6 +122,7 @@ function DocViewerInner() {
               area_pricing, area_pricing_terms,
               volume_pricing, volume_pricing_terms,
               pricing_layout,
+              global_mobilisation_fee,
               global_surface_rate_per_m2,
               global_contents_rate_per_m3,
             })
@@ -170,6 +172,7 @@ function DocViewerInner() {
           const volume_pricing = quoteRes.volume_pricing as VolumePricingBlock | undefined
           const volume_pricing_terms = quoteRes.volume_pricing_terms as SectionTerms | undefined
           const pricing_layout = quoteRes.pricing_layout as QuotePricingLayout | undefined
+          const global_mobilisation_fee = Number(quoteRes.global_mobilisation_fee ?? 0)
           const global_surface_rate_per_m2 = Number(quoteRes.global_surface_rate_per_m2 ?? 0)
           const global_contents_rate_per_m3 = Number(quoteRes.global_contents_rate_per_m3 ?? 0)
           finalComposed = mergeQuoteLineItemsIntoDocContent(docType, composed, rows, {
@@ -177,6 +180,7 @@ function DocViewerInner() {
             area_pricing, area_pricing_terms,
             volume_pricing, volume_pricing_terms,
             pricing_layout,
+            global_mobilisation_fee,
             global_surface_rate_per_m2,
             global_contents_rate_per_m3,
           })
