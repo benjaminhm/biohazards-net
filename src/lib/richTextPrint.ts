@@ -37,3 +37,10 @@ export function proseToTipTapHtml(value: string): string {
   const escaped = escPlain(value)
   return `<p>${escaped.replace(/\n\n+/g, '</p><p>').replace(/\n/g, '<br>')}</p>`
 }
+
+/** True when stored value has visible body text after print sanitization (excludes empty TipTap `<p></p>`). */
+export function proseHasPrintableContent(raw: string | undefined | null): boolean {
+  const html = richBodyHtmlForPrint(raw)
+  const text = html.replace(/<[^>]+>/g, '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim()
+  return text.length > 0
+}

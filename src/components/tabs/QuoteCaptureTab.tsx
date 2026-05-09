@@ -39,6 +39,7 @@ import {
   syncVolumePricing,
   volumePricingSubtotal,
 } from '@/lib/quoteSections'
+import RichTextEditor from '@/components/RichTextEditor'
 
 interface Props {
   job: Job
@@ -1384,11 +1385,13 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
 
       <div className="field">
         <label>Acceptance statement</label>
-        <AutoGrow
+        <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 8px', lineHeight: 1.45 }}>
+          Rich text — use bold or lists so placeholders and headings stand out in the printed quote.
+        </p>
+        <RichTextEditor
           value={auth.acceptance_statement}
-          onChange={v => patchAuth({ acceptance_statement: v })}
-          placeholder="Client authorisation wording for signature"
-          rows={2}
+          onChange={html => patchAuth({ acceptance_statement: html })}
+          minHeight={240}
         />
       </div>
 

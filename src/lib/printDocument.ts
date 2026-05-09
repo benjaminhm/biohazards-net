@@ -35,7 +35,7 @@ import type { SectionTerms, VolumePricingBlock } from '@/lib/types'
 
 /** Matches the navy header when `company` is missing (meta grid used to show "—" while header showed this name). */
 const DEFAULT_PRINT_ORG_NAME = 'Brisbane Biohazard Cleaning'
-import { richBodyHtmlForPrint } from '@/lib/richTextPrint'
+import { proseHasPrintableContent, richBodyHtmlForPrint } from '@/lib/richTextPrint'
 
 // en-AU locale produces comma separators and dollar sign (e.g. $4,500.00)
 const fmtMoney = (n: number) =>
@@ -979,16 +979,18 @@ function buildQuoteMid(
     ${(() => {
       const a = c.authorisation
       if (!a) return ''
-      const hasContent = [a.access_details, a.special_conditions, a.liability_statement, a.acceptance_statement].some(v => v?.trim())
-      if (!hasContent) return ''
+      const hasPlain = [a.access_details, a.special_conditions, a.liability_statement].some(v => v?.trim())
+      const hasAcceptance = proseHasPrintableContent(a.acceptance_statement ?? '')
+      if (!hasPlain && !hasAcceptance) return ''
+      const acceptanceInner = richBodyHtmlForPrint(a.acceptance_statement ?? '')
       return `
         <div class="label">Authorisation</div>
         ${a.access_details?.trim() ? `<div class="label" style="font-size:7pt;margin-top:10px">Access Details</div><div class="body-text">${esc(a.access_details)}</div>` : ''}
         ${a.special_conditions?.trim() ? `<div class="label" style="font-size:7pt;margin-top:10px">Special Conditions</div><div class="body-text">${esc(a.special_conditions)}</div>` : ''}
         ${a.liability_statement?.trim() ? `<div class="label" style="font-size:7pt;margin-top:10px">Liability</div><div class="body-text">${esc(a.liability_statement)}</div>` : ''}
-        ${a.acceptance_statement?.trim() ? `
+        ${acceptanceInner ? `
           <div style="margin-top:18px;padding:16px;border:1px solid var(--sow-rule);border-radius:8px;background:var(--sow-blue-xs);">
-            <div class="body-text">${esc(a.acceptance_statement)}</div>
+            <div class="body-text sow-rich">${acceptanceInner}</div>
           </div>
         ` : ''}
       `
