@@ -99,6 +99,12 @@ export async function GET(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const supabase = createServiceClient()
   const body = (await req.json()) as Record<string, unknown>
+  for (const key of ['subdomain', 'custom_domain']) {
+    const value = body[key]
+    if (typeof value === 'string') {
+      body[key] = value.trim() || null
+    }
+  }
   if ('phone' in body) {
     const r = normalizeOptionalPhoneField(body.phone)
     if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 })
@@ -133,6 +139,16 @@ export async function PATCH(req: NextRequest) {
       .single())
   }
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) {
+    if (error.code === '23505') {
+      const message = error.message.includes('company_profile_custom_domain_key')
+        ? 'That custom domain is already in use.'
+        : error.message.includes('company_profile_subdomain_key')
+          ? 'That subdomain is already in use.'
+          : 'That company profile value is already in use.'
+      return NextResponse.json({ error: message }, { status: 409 })
+    }
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
   return NextResponse.json({ company: data })
 }
