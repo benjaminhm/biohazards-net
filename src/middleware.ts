@@ -52,6 +52,8 @@ const isPublicRoute = createRouteMatcher([
 
 // Reserved subdomains that are not company slugs
 const RESERVED_SUBDOMAINS = new Set(['www', 'app', 'platform', 'admin'])
+const PRIMARY_SIGN_IN_URL = 'https://app.biohazards.net/login'
+const PRIMARY_SIGN_UP_URL = 'https://app.biohazards.net/sign-up'
 
 export default clerkMiddleware(async (auth, request: NextRequest) => {
   const host = request.headers.get('host') ?? ''
@@ -98,9 +100,7 @@ export default clerkMiddleware(async (auth, request: NextRequest) => {
     const { userId } = await auth()
 
     if (!userId) {
-      return NextResponse.redirect(
-        `https://app.biohazards.net/login?redirect_url=https://platform.biohazards.net`
-      )
+      return NextResponse.redirect(`${PRIMARY_SIGN_IN_URL}?redirect_url=https://platform.biohazards.net`)
     }
 
     const adminIds = (process.env.PLATFORM_ADMIN_CLERK_IDS ?? '')
@@ -166,6 +166,23 @@ export default clerkMiddleware(async (auth, request: NextRequest) => {
   }
 
   return NextResponse.next({ request: { headers: requestHeaders } })
+}, (request: NextRequest) => {
+  const host = request.headers.get('host') ?? ''
+  const hostNoPort = host.split(':')[0].toLowerCase()
+  const subdomainMatch = host.match(/^([^.]+)\.biohazards\.net$/)
+  const slug = subdomainMatch ? subdomainMatch[1] : null
+  const isLocalDev =
+    hostNoPort === 'localhost' || hostNoPort === '127.0.0.1' || hostNoPort === '0.0.0.0'
+  const isCustomDomain =
+    !isLocalDev && !host.endsWith('.biohazards.net') && host !== 'biohazards.net'
+  const isSatellite = !isLocalDev && (slug === 'platform' || isCustomDomain)
+
+  return {
+    isSatellite,
+    domain: isSatellite ? hostNoPort : undefined,
+    signInUrl: isSatellite ? PRIMARY_SIGN_IN_URL : undefined,
+    signUpUrl: isSatellite ? PRIMARY_SIGN_UP_URL : undefined,
+  }
 })
 
 export const config = {
