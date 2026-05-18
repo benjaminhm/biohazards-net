@@ -5,9 +5,11 @@
  *
  * Three-tier subdomain architecture:
  *
- *   platform.biohazards.net  — platform admin dashboard (you only)
- *                              Gated by PLATFORM_ADMIN_CLERK_IDS env var.
- *                              Routes to /platform/* pages.
+ *   app.biohazards.net/platform — platform admin dashboard (you only)
+ *                                 Gated by PLATFORM_ADMIN_CLERK_IDS env var.
+ *
+ *   platform.biohazards.net  — legacy host; redirects to app.biohazards.net/platform
+ *                              so Clerk does not need satellite-domain DNS.
  *
  *   app.biohazards.net       — company + team app (all org users)
  *                              Full auth enforced. This is the primary
@@ -52,8 +54,6 @@ const isPublicRoute = createRouteMatcher([
 
 // Reserved subdomains that are not company slugs
 const RESERVED_SUBDOMAINS = new Set(['www', 'app', 'platform', 'admin'])
-const PRIMARY_SIGN_IN_URL = 'https://app.biohazards.net/login'
-const PRIMARY_SIGN_UP_URL = 'https://app.biohazards.net/sign-up'
 
 export default clerkMiddleware(async (auth, request: NextRequest) => {
   const host = request.headers.get('host') ?? ''
@@ -89,30 +89,13 @@ export default clerkMiddleware(async (auth, request: NextRequest) => {
     requestHeaders.set('x-org-host', host)
   }
 
-  // ── platform.biohazards.net — platform admin only ──
+  // ── platform.biohazards.net — legacy host; keep auth on app.biohazards.net ──
   else if (slug === 'platform') {
-    requestHeaders.set('x-subdomain', 'platform')
-    // Clerk session is minted on app.biohazards.net; without satellite mode the
-    // platform host does not see __session cookies → redirect loop to /login.
-    if (!isLocalDev) {
-      requestHeaders.set('x-clerk-satellite-host', hostNoPort)
-    }
-    const { userId } = await auth()
-
-    if (!userId) {
-      return NextResponse.redirect(`${PRIMARY_SIGN_IN_URL}?redirect_url=https://platform.biohazards.net`)
-    }
-
-    const adminIds = (process.env.PLATFORM_ADMIN_CLERK_IDS ?? '')
-      .split(',').map(s => s.trim()).filter(Boolean)
-
-    if (!adminIds.includes(userId)) {
-      return new NextResponse('Forbidden — not a platform admin', { status: 403 })
-    }
-
-    if (pathname === '/') {
-      return NextResponse.redirect(new URL('/platform', request.url))
-    }
+    const redirectUrl = new URL(request.url)
+    redirectUrl.protocol = 'https:'
+    redirectUrl.host = 'app.biohazards.net'
+    if (pathname === '/') redirectUrl.pathname = '/platform'
+    return NextResponse.redirect(redirectUrl)
   }
 
   // ── app.biohazards.net — company + team app ──
@@ -143,6 +126,15 @@ export default clerkMiddleware(async (auth, request: NextRequest) => {
       loginUrl.searchParams.set('redirect_url', request.url)
       return NextResponse.redirect(loginUrl)
     }
+
+    if ((pathname === '/platform' || pathname.startsWith('/platform/') || pathname === '/admin' || pathname.startsWith('/admin/'))) {
+      const adminIds = (process.env.PLATFORM_ADMIN_CLERK_IDS ?? '')
+        .split(',').map(s => s.trim()).filter(Boolean)
+
+      if (!adminIds.includes(userId)) {
+        return new NextResponse('Forbidden — not a platform admin', { status: 403 })
+      }
+    }
   }
 
   // ── Read-only impersonation: block mutating /api/* (session endpoints exempt) ──
@@ -166,23 +158,6 @@ export default clerkMiddleware(async (auth, request: NextRequest) => {
   }
 
   return NextResponse.next({ request: { headers: requestHeaders } })
-}, (request: NextRequest) => {
-  const host = request.headers.get('host') ?? ''
-  const hostNoPort = host.split(':')[0].toLowerCase()
-  const subdomainMatch = host.match(/^([^.]+)\.biohazards\.net$/)
-  const slug = subdomainMatch ? subdomainMatch[1] : null
-  const isLocalDev =
-    hostNoPort === 'localhost' || hostNoPort === '127.0.0.1' || hostNoPort === '0.0.0.0'
-  const isCustomDomain =
-    !isLocalDev && !host.endsWith('.biohazards.net') && host !== 'biohazards.net'
-  const isSatellite = !isLocalDev && (slug === 'platform' || isCustomDomain)
-
-  return {
-    isSatellite,
-    domain: isSatellite ? hostNoPort : undefined,
-    signInUrl: isSatellite ? PRIMARY_SIGN_IN_URL : undefined,
-    signUpUrl: isSatellite ? PRIMARY_SIGN_UP_URL : undefined,
-  }
 })
 
 export const config = {
