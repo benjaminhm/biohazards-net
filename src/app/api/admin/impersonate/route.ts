@@ -106,13 +106,17 @@ export async function POST(req: Request) {
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Failed'
     if (msg.includes('IMPERSONATION_SECRET')) {
-      return NextResponse.json(
-        {
-          error:
-            'Server misconfigured: add IMPERSONATION_SECRET to .env.local next to package.json (32+ characters, e.g. openssl rand -hex 32), then restart npm run dev.',
-        },
-        { status: 500 }
-      )
+      const secretLength = process.env.IMPERSONATION_SECRET?.length ?? 0
+      console.error('[impersonate] IMPERSONATION_SECRET missing or short', {
+        secretLength,
+        nodeEnv: process.env.NODE_ENV,
+        vercelEnv: process.env.VERCEL_ENV ?? null,
+      })
+      const isProd = process.env.NODE_ENV === 'production'
+      const error = isProd
+        ? `Server misconfigured: IMPERSONATION_SECRET missing or too short on this deployment (length=${secretLength}). Add it under Vercel → Project Settings → Environment Variables (Production), then redeploy from main.`
+        : 'Server misconfigured: add IMPERSONATION_SECRET to .env.local next to package.json (32+ characters, e.g. openssl rand -hex 32), then restart npm run dev.'
+      return NextResponse.json({ error }, { status: 500 })
     }
     return NextResponse.json({ error: msg }, { status: 500 })
   }
