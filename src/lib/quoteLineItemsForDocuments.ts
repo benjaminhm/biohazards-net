@@ -102,10 +102,18 @@ export function quoteLineItemsContentPatch(
   }
 
   // Section sums — disabled sections contribute 0 even if data is present.
+  // The doc renderer (renderOutcomeSection) shows EVERY outcome row with its
+  // price regardless of status, so in 'outcomes' mode the subtotal must sum
+  // every priced outcome too. Otherwise approved=1/suggested=N quotes display
+  // all the prices but the subtotal only counts the approved ones, and the
+  // numbers don't add up. In 'line_items' mode the rendered list is the
+  // line_items table, so we sum that.
   const outcomesSum = effectiveLayout.outcomes_enabled
-    ? baseMobilisationFee + (lineItems.length
-        ? lineItems.reduce((sum, row) => sum + Number(row.total || 0), 0)
-        : pricedOutcomes.reduce((sum, row) => sum + Number(row.price || 0), 0))
+    ? baseMobilisationFee + (outcomeMode === 'outcomes'
+        ? pricedOutcomes.reduce((sum, row) => sum + Number(row.price || 0), 0)
+        : (lineItems.length
+            ? lineItems.reduce((sum, row) => sum + Number(row.total || 0), 0)
+            : pricedOutcomes.reduce((sum, row) => sum + Number(row.price || 0), 0)))
     : 0
   const areaPricingSum = effectiveLayout.per_sqm_enabled
     ? pricedAreaPricing.reduce((s, r) => s + Number(r.total || 0), 0)

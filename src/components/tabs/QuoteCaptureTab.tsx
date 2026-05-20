@@ -539,9 +539,20 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
       const persistedVolume = pricingLayout.per_m3_enabled || (volumePricing.rows.length > 0)
         ? recomputeVolumePricingTotal(volumePricing)
         : undefined
+      // Saving the capture is treated as the user approving the rows that
+      // have a price. The downstream quote-line-items API only counts rows
+      // with status 'approved' or 'edited' towards the generated subtotal,
+      // so suggested-but-priced rows (straight from AI Suggest) would render
+      // in the doc but be excluded from totals. Promoting them on save keeps
+      // the builder UI, the generated doc body, and the doc totals in sync.
+      const promotedRows: OutcomeQuoteRow[] = rows.map(r =>
+        r.status === 'suggested' && Number(r.price || 0) > 0
+          ? { ...r, status: 'approved' }
+          : r,
+      )
       merged.outcome_quote_capture = {
         mode: 'outcomes',
-        rows,
+        rows: promotedRows,
         area_pricing: areaPricing,
         ...(cleanAreaTerms ? { area_pricing_terms: cleanAreaTerms } : {}),
         ...(persistedVolume ? { volume_pricing: persistedVolume } : {}),
@@ -551,7 +562,7 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
         global_surface_rate_per_m2: globalSurfaceRatePerM2,
         global_contents_rate_per_m3: globalContentsRatePerM3,
         gst_mode: gstMode,
-        totals: computeTotals(rows, areaPricing, persistedVolume ?? null, pricingLayout, gstMode, globalMobilisationFee),
+        totals: computeTotals(promotedRows, areaPricing, persistedVolume ?? null, pricingLayout, gstMode, globalMobilisationFee),
         target_pricing: {},
         validity,
         notes,
@@ -568,6 +579,7 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
         setSaveError(data.error ?? `Save failed (${res.status})`)
         return
       }
+      setRows(promotedRows)
       onJobUpdate(data.job)
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
