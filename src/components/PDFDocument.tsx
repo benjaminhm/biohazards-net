@@ -38,6 +38,7 @@ import type {
 } from '@/lib/types'
 import { filterGroupedStages, groupPhotosByRoomAndStage } from '@/lib/photoGroups'
 import { photosForComposedReports } from '@/lib/photosForComposedReports'
+import { deriveSurfaceAreas } from '@/lib/areaSurfaces'
 
 const ORANGE = '#FF6B35'
 const BLACK = '#111111'
@@ -119,6 +120,17 @@ const styles = StyleSheet.create({
   },
   footerText: { fontSize: 7, color: MUTED },
   footerBrand: { fontSize: 7, color: ORANGE },
+  // Areas & Dimensions table (shared between Assessment Document + SOW)
+  dimsTable: { marginTop: 4, marginBottom: 16 },
+  dimsHeaderRow: { flexDirection: 'row', backgroundColor: BLACK, paddingVertical: 5, paddingHorizontal: 6, borderRadius: 3 },
+  dimsRow: { flexDirection: 'row', paddingVertical: 5, paddingHorizontal: 6, borderBottomWidth: 1, borderBottomColor: BORDER },
+  dimsTotalRow: { flexDirection: 'row', paddingVertical: 6, paddingHorizontal: 6, borderTopWidth: 1.5, borderTopColor: BLACK },
+  dimsTh: { fontSize: 7, fontFamily: 'Helvetica-Bold', color: '#FFFFFF' },
+  dimsTd: { fontSize: 8, color: BLACK },
+  dimsTdBold: { fontSize: 8, fontFamily: 'Helvetica-Bold', color: BLACK },
+  dimsColRoom: { flex: 1.4 },
+  dimsColDims: { flex: 1.3 },
+  dimsColNum: { flex: 0.9, textAlign: 'right' },
 })
 
 /** TipTap / rich HTML → plain text for PDF (`Text` has no HTML). */
@@ -192,6 +204,86 @@ function Section({ label, text }: { label: string; text: string }) {
     <View style={styles.section}>
       <Text style={styles.sectionLabel}>{label}</Text>
       <Text style={styles.body}>{plain}</Text>
+    </View>
+  )
+}
+
+/**
+ * Areas & Dimensions table for the PDF. Mirrors the HTML helper
+ * `buildAreasDimensionsHTML` in `src/lib/printDocument.ts` — same formula
+ * (deriveSurfaceAreas), same column set. Suppressed entirely when no area
+ * has dimensions captured. Used in both IaqMulti Part 1 (Assessment) and
+ * Part 2 (SOW), and in the standalone SOW PDF.
+ */
+function AreasDimensionsPDFSection({ areas, label = 'Areas & Dimensions' }: { areas: Area[]; label?: string }) {
+  const round2 = (n: number) => Math.round(n * 100) / 100
+  const rows = (areas ?? [])
+    .filter(a => (a.name || '').trim().length > 0)
+    .map(area => {
+      const L = Math.max(0, Number(area.length_m || 0))
+      const W = Math.max(0, Number(area.width_m || 0))
+      const H = Math.max(0, Number(area.height_m || 0))
+      const surfaces = deriveSurfaceAreas(L, W, H)
+      const floor = surfaces.floor > 0 ? surfaces.floor : Math.max(0, Number(area.sqm || 0))
+      const ceiling = surfaces.ceiling > 0 ? surfaces.ceiling : floor
+      const walls = surfaces.walls
+      const totalSurface = round2(floor + ceiling + walls)
+      const volume = floor > 0 && H > 0 ? round2(floor * H) : 0
+      const hasDims = floor > 0 || walls > 0 || volume > 0
+      const dimsLabel = L > 0 && W > 0 ? `${L}×${W}${H > 0 ? `×${H}` : ''} m` : '—'
+      return { name: area.name, hasDims, dimsLabel, floor, ceiling, walls, totalSurface, volume }
+    })
+  const printable = rows.filter(r => r.hasDims)
+  if (printable.length === 0) return null
+
+  const fmt = (n: number) => Number(n || 0).toLocaleString('en-AU', { maximumFractionDigits: 2 })
+  const totals = printable.reduce(
+    (acc, r) => ({
+      floor: acc.floor + r.floor,
+      ceiling: acc.ceiling + r.ceiling,
+      walls: acc.walls + r.walls,
+      totalSurface: acc.totalSurface + r.totalSurface,
+      volume: acc.volume + r.volume,
+    }),
+    { floor: 0, ceiling: 0, walls: 0, totalSurface: 0, volume: 0 },
+  )
+
+  return (
+    <View style={styles.section} wrap={false}>
+      <Text style={styles.sectionLabel}>{label}</Text>
+      <View style={styles.dimsTable}>
+        <View style={styles.dimsHeaderRow}>
+          <Text style={[styles.dimsTh, styles.dimsColRoom]}>Room</Text>
+          <Text style={[styles.dimsTh, styles.dimsColDims]}>Dims (L×W×H)</Text>
+          <Text style={[styles.dimsTh, styles.dimsColNum]}>Floor</Text>
+          <Text style={[styles.dimsTh, styles.dimsColNum]}>Ceiling</Text>
+          <Text style={[styles.dimsTh, styles.dimsColNum]}>Walls</Text>
+          <Text style={[styles.dimsTh, styles.dimsColNum]}>Total m²</Text>
+          <Text style={[styles.dimsTh, styles.dimsColNum]}>Volume</Text>
+        </View>
+        {rows.map((r, i) => (
+          <View key={`${r.name}-${i}`} style={styles.dimsRow}>
+            <Text style={[styles.dimsTd, styles.dimsColRoom]}>{r.name}</Text>
+            <Text style={[styles.dimsTd, styles.dimsColDims]}>{r.dimsLabel}</Text>
+            <Text style={[styles.dimsTd, styles.dimsColNum]}>{r.hasDims ? `${fmt(r.floor)} m²` : '—'}</Text>
+            <Text style={[styles.dimsTd, styles.dimsColNum]}>{r.ceiling > 0 ? `${fmt(r.ceiling)} m²` : '—'}</Text>
+            <Text style={[styles.dimsTd, styles.dimsColNum]}>{r.walls > 0 ? `${fmt(r.walls)} m²` : '—'}</Text>
+            <Text style={[styles.dimsTdBold, styles.dimsColNum]}>{r.hasDims ? `${fmt(r.totalSurface)} m²` : '—'}</Text>
+            <Text style={[styles.dimsTd, styles.dimsColNum]}>{r.volume > 0 ? `${fmt(r.volume)} m³` : '—'}</Text>
+          </View>
+        ))}
+        {printable.length > 1 && (
+          <View style={styles.dimsTotalRow}>
+            <Text style={[styles.dimsTdBold, styles.dimsColRoom]}>Total</Text>
+            <Text style={[styles.dimsTd, styles.dimsColDims]}> </Text>
+            <Text style={[styles.dimsTdBold, styles.dimsColNum]}>{`${fmt(totals.floor)} m²`}</Text>
+            <Text style={[styles.dimsTdBold, styles.dimsColNum]}>{totals.ceiling > 0 ? `${fmt(totals.ceiling)} m²` : '—'}</Text>
+            <Text style={[styles.dimsTdBold, styles.dimsColNum]}>{totals.walls > 0 ? `${fmt(totals.walls)} m²` : '—'}</Text>
+            <Text style={[styles.dimsTdBold, styles.dimsColNum]}>{`${fmt(totals.totalSurface)} m²`}</Text>
+            <Text style={[styles.dimsTdBold, styles.dimsColNum]}>{totals.volume > 0 ? `${fmt(totals.volume)} m³` : '—'}</Text>
+          </View>
+        )}
+      </View>
     </View>
   )
 }
@@ -411,7 +503,10 @@ function IaqMultiPDF({
         <Text style={styles.docTitle}>{bundleTitle}</Text>
         <Text style={styles.partSubtitle}>Part 1 of 3 — Assessment</Text>
         {ASSESSMENT_PDF_SECTIONS.map(({ key, label }) => (
-          <Section key={String(key)} label={label} text={(ad as unknown as Record<string, string>)[key] ?? ''} />
+          <React.Fragment key={String(key)}>
+            <Section label={label} text={(ad as unknown as Record<string, string>)[key] ?? ''} />
+            {key === 'site_summary' && <AreasDimensionsPDFSection areas={areas} />}
+          </React.Fragment>
         ))}
         <Footer company={company} />
       </Page>
@@ -422,6 +517,17 @@ function IaqMultiPDF({
         <Text style={styles.partSubtitle}>Part 2 of 3 — Scope of Work</Text>
         {sowPdfSections.map(({ key, label }) => {
           const text = (sow as unknown as Record<string, string>)[key]
+          // Render the dimensions table at the executive_summary slot regardless
+          // of whether the summary itself has text, so the table still appears
+          // when staff skip writing an executive summary.
+          if (key === 'executive_summary') {
+            return (
+              <React.Fragment key={String(key)}>
+                {text ? <Section label={label} text={text} /> : null}
+                <AreasDimensionsPDFSection areas={areas} />
+              </React.Fragment>
+            )
+          }
           if (!text) return null
           return <Section key={String(key)} label={label} text={text} />
         })}
@@ -536,6 +642,14 @@ function SOWOrReportPDF({
 
       {sections.map(({ key, label }) => {
         const text = (content as unknown as Record<string, string>)[key]
+        if (type === 'sow' && key === 'executive_summary') {
+          return (
+            <React.Fragment key={String(key)}>
+              {text ? <Section label={label} text={text} /> : null}
+              <AreasDimensionsPDFSection areas={areas} />
+            </React.Fragment>
+          )
+        }
         if (!text) return null
         return <Section key={key} label={label} text={text} />
       })}

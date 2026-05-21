@@ -29,7 +29,7 @@ import type {
 import { DOC_TYPE_LABELS } from './types'
 import { filterGroupedStages, groupPhotosByRoomAndStage, type RoomPhotoGroup } from './photoGroups'
 import { photosForComposedReports } from '@/lib/photosForComposedReports'
-import { SURFACE_LABELS } from '@/lib/areaSurfaces'
+import { SURFACE_LABELS, deriveSurfaceAreas } from '@/lib/areaSurfaces'
 import { OUTCOME_KIND_LABELS, groupRowsByKind } from '@/lib/quoteSections'
 import type { SectionTerms, VolumePricingBlock } from '@/lib/types'
 
@@ -594,6 +594,133 @@ function section(lbl: string, text: string): string {
   return `<div class="label">${lbl}</div><div class="body-text sow-rich">${inner}</div>`
 }
 
+/**
+ * Per-area surface-area maths shared by the printed Assessment Document and
+ * Scope of Work. Mirrors the formula used by `quoteRoomMeasurements` so all
+ * three document types agree on the numbers.
+ */
+function areaSurfaceBreakdown(area: Area): {
+  hasDims: boolean
+  length: number
+  width: number
+  height: number
+  floor: number
+  ceiling: number
+  walls: number
+  totalSurface: number
+  volume: number
+} {
+  const length = Math.max(0, Number(area.length_m || 0))
+  const width = Math.max(0, Number(area.width_m || 0))
+  const height = Math.max(0, Number(area.height_m || 0))
+  const round2 = (n: number) => Math.round(n * 100) / 100
+  const surfaces = deriveSurfaceAreas(length, width, height)
+  // Fall back to the manually-entered `sqm` only if we couldn't derive a floor
+  // from L × W — keeps legacy areas (no dimensions captured) on the table.
+  const floor = surfaces.floor > 0 ? surfaces.floor : Math.max(0, Number(area.sqm || 0))
+  const ceiling = surfaces.ceiling > 0 ? surfaces.ceiling : floor
+  const walls = surfaces.walls
+  const totalSurface = round2(floor + ceiling + walls)
+  const volume = floor > 0 && height > 0 ? round2(floor * height) : 0
+  return {
+    hasDims: floor > 0 || walls > 0 || volume > 0,
+    length, width, height,
+    floor, ceiling, walls, totalSurface, volume,
+  }
+}
+
+/**
+ * Areas & Dimensions table for the printed Assessment Document and SOW.
+ * Each captured area gets a row with floor / ceiling / walls / total surface
+ * and volume. A totals row at the bottom aggregates each column.
+ *
+ * Returns an empty string when no area has dimensions captured so the section
+ * is suppressed rather than rendered empty.
+ */
+function buildAreasDimensionsHTML(areas: Area[], heading = 'Areas & Dimensions'): string {
+  const rows = (areas ?? []).filter(a => (a.name || '').trim().length > 0)
+  if (rows.length === 0) return ''
+  const breakdowns = rows.map(area => ({ area, ...areaSurfaceBreakdown(area) }))
+  const withDims = breakdowns.filter(b => b.hasDims)
+  if (withDims.length === 0) return ''
+
+  const fmt = (n: number) =>
+    Number(n || 0).toLocaleString('en-AU', { maximumFractionDigits: 2 })
+  const dimsCell = (b: { length: number; width: number; height: number }) =>
+    b.length > 0 && b.width > 0
+      ? `${b.length}×${b.width}${b.height > 0 ? `×${b.height}` : ''} m`
+      : '—'
+
+  const totals = withDims.reduce(
+    (acc, b) => ({
+      floor: acc.floor + b.floor,
+      ceiling: acc.ceiling + b.ceiling,
+      walls: acc.walls + b.walls,
+      totalSurface: acc.totalSurface + b.totalSurface,
+      volume: acc.volume + b.volume,
+    }),
+    { floor: 0, ceiling: 0, walls: 0, totalSurface: 0, volume: 0 },
+  )
+
+  const bodyRows = breakdowns
+    .map(b => {
+      const name = esc(b.area.name)
+      if (!b.hasDims) {
+        return `<tr>
+          <td>${name}</td>
+          <td>—</td>
+          <td class="r">—</td>
+          <td class="r">—</td>
+          <td class="r">—</td>
+          <td class="r">—</td>
+          <td class="r">—</td>
+        </tr>`
+      }
+      return `<tr>
+        <td>${name}</td>
+        <td>${esc(dimsCell(b))}</td>
+        <td class="r">${fmt(b.floor)} m²</td>
+        <td class="r">${b.ceiling > 0 ? `${fmt(b.ceiling)} m²` : '—'}</td>
+        <td class="r">${b.walls > 0 ? `${fmt(b.walls)} m²` : '—'}</td>
+        <td class="r"><strong>${fmt(b.totalSurface)} m²</strong></td>
+        <td class="r">${b.volume > 0 ? `${fmt(b.volume)} m³` : '—'}</td>
+      </tr>`
+    })
+    .join('')
+
+  const totalsRow = withDims.length > 1
+    ? `<tr style="border-top:1.5px solid #1a1a1a">
+        <td colspan="2"><strong>Total</strong></td>
+        <td class="r"><strong>${fmt(totals.floor)} m²</strong></td>
+        <td class="r"><strong>${totals.ceiling > 0 ? `${fmt(totals.ceiling)} m²` : '—'}</strong></td>
+        <td class="r"><strong>${totals.walls > 0 ? `${fmt(totals.walls)} m²` : '—'}</strong></td>
+        <td class="r"><strong>${fmt(totals.totalSurface)} m²</strong></td>
+        <td class="r"><strong>${totals.volume > 0 ? `${fmt(totals.volume)} m³` : '—'}</strong></td>
+      </tr>`
+    : ''
+
+  return `
+    <div class="label">${esc(heading)}</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Room</th>
+          <th>Dimensions (L×W×H)</th>
+          <th class="r">Floor</th>
+          <th class="r">Ceiling</th>
+          <th class="r">Walls</th>
+          <th class="r">Total surface</th>
+          <th class="r">Volume</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${bodyRows}
+        ${totalsRow}
+      </tbody>
+    </table>
+  `
+}
+
 function photoGrid(photos: Photo[], heading: string): string {
   if (!photos.length) return ''
   return `
@@ -1134,6 +1261,7 @@ function buildSOWMid(
   c: SOWContent,
   photos: Photo[],
   groups: RoomPhotoGroup[],
+  areas: Area[] = [],
 ): string {
   const before = photos.filter(p => ['before', 'assessment'].includes(p.category))
 
@@ -1142,9 +1270,11 @@ function buildSOWMid(
       ? roomPhotoSections(groups, 'Site Condition Photos', ['assessment', 'before'])
       : photoGrid(before, 'Site Condition Photos')
   const photosHtml = photosInner ? `<div class="sow-photo-block">${photosInner}</div>` : ''
+  const dimensionsHtml = buildAreasDimensionsHTML(areas)
 
   return `
     ${c.executive_summary?.trim() ? `<div class="sow-summary sow-rich">${richBodyHtmlForPrint(c.executive_summary)}</div>` : ''}
+    ${dimensionsHtml}
     ${sowBodySection('Scope of Work', c.scope)}
     ${sowBodySection('Methodology', c.methodology)}
     ${sowBodySection('Safety Protocols', c.safety_protocols)}
@@ -1165,7 +1295,7 @@ function buildSOWHTML(
   areas: Area[],
   screenActionBar: boolean,
 ): string {
-  const mid = buildSOWMid(c, photos, groups)
+  const mid = buildSOWMid(c, photos, groups, areas)
   return wrapBranded(
     mid,
     c.title,
@@ -1371,9 +1501,10 @@ function buildRAHTML(c: RiskAssessmentContent, company: CompanyProfile | null, c
 
 // ── 12. Assessment document (narrative — same capture shape as Assessment → Document) ─
 
-function buildAssessmentDocumentMid(c: AssessmentDocumentContent): string {
+function buildAssessmentDocumentMid(c: AssessmentDocumentContent, areas: Area[] = []): string {
   return `
     ${section('Site summary', c.site_summary)}
+    ${buildAreasDimensionsHTML(areas)}
     ${section('Hazards overview', c.hazards_overview)}
     ${section('Risks overview', c.risks_overview)}
     ${section('Control measures', c.control_measures)}
@@ -1382,8 +1513,8 @@ function buildAssessmentDocumentMid(c: AssessmentDocumentContent): string {
   `
 }
 
-function buildAssessmentDocumentHTML(c: AssessmentDocumentContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
-  const mid = buildAssessmentDocumentMid(c)
+function buildAssessmentDocumentHTML(c: AssessmentDocumentContent, company: CompanyProfile | null, client: ClientInfo | undefined, areas: Area[], screenActionBar: boolean): string {
+  const mid = buildAssessmentDocumentMid(c, areas)
   return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
@@ -1404,7 +1535,7 @@ export function buildPrintMidHTML(
     case 'quote':
       return buildQuoteMid(c as unknown as QuoteContent, photos, groups, areas, company, jobId, appUrl, client)
     case 'sow':
-      return buildSOWMid(c as unknown as SOWContent, photos, groups)
+      return buildSOWMid(c as unknown as SOWContent, photos, groups, areas)
     case 'swms':
       return buildSWMSMid(c as unknown as SWMSContent)
     case 'authority_to_proceed':
@@ -1424,7 +1555,7 @@ export function buildPrintMidHTML(
     case 'risk_assessment':
       return buildRAMid(c as unknown as RiskAssessmentContent)
     case 'assessment_document':
-      return buildAssessmentDocumentMid(c as unknown as AssessmentDocumentContent)
+      return buildAssessmentDocumentMid(c as unknown as AssessmentDocumentContent, areas)
     default:
       return `<p class="body-text">${esc('Unknown document type')}</p>`
   }
@@ -1509,7 +1640,7 @@ export function buildPrintHTML(
     case 'jsa':                        return buildJSAHTML(c as unknown as JSAContent, company, client, screenActionBar)
     case 'nda':                        return buildNDAHTML(c as unknown as NDAContent, company, client, screenActionBar)
     case 'risk_assessment':            return buildRAHTML(c as unknown as RiskAssessmentContent, company, client, screenActionBar)
-    case 'assessment_document':        return buildAssessmentDocumentHTML(c as unknown as AssessmentDocumentContent, company, client, screenActionBar)
+    case 'assessment_document':        return buildAssessmentDocumentHTML(c as unknown as AssessmentDocumentContent, company, client, areas, screenActionBar)
     case 'iaq_multi': {
       const partsRaw = c.parts
       const bundleTitle =
