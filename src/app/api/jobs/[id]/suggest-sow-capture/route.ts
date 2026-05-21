@@ -19,7 +19,8 @@ const SYSTEM = `You draft Scope of Work capture fields for Australian biohazard 
 You receive PRESENTATION_CONTEXT (job + assessment + photo metadata) and HITL_BLOCK (presenting and candidate hazards and risks).
 
 RULES:
-- Ground every statement in the provided data. Do NOT invent site incidents, measurements, legal commitments, or client quotes not supported by the JSON.
+- Ground every statement in the provided data. Do NOT invent site incidents, legal commitments, or client quotes not supported by the JSON.
+- Do NOT invent measurements. You MAY, however, cite the captured measurements that appear in PRESENTATION_CONTEXT.areas[].dimensions (length_m, width_m, height_m, floor_m2, ceiling_m2, walls_m2, total_surface_m2, volume_m3). These are tape-measure values from the on-site assessment and can justify cleaning quantum, fogging volume, PPE volumes, etc. The printed SOW already includes an "Areas & Dimensions" table, so use the numbers narratively rather than restating the table verbatim.
 - You MAY use standard industry-typical remediation language when it clearly follows from the hazards, risks, and job type described.
 - Write clear, professional prose suitable for later editing into a Scope of Work document.
 - Australian English.
