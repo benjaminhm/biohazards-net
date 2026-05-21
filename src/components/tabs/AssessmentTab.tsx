@@ -686,10 +686,21 @@ export default function AssessmentTab({ job, onJobUpdate, photos, onPhotosUpdate
             const lengthM = Number(area.length_m ?? 0)
             const widthM = Number(area.width_m ?? 0)
             const heightM = Number(area.height_m ?? 0)
-            const derivedSqm = lengthM > 0 && widthM > 0 ? Math.round(lengthM * widthM * 100) / 100 : 0
-            const volume = derivedSqm > 0 && heightM > 0 ? Math.round(derivedSqm * heightM * 100) / 100 : 0
+            const round2 = (n: number) => Math.round(n * 100) / 100
+            const derivedSqm = lengthM > 0 && widthM > 0 ? round2(lengthM * widthM) : 0
+            const volume = derivedSqm > 0 && heightM > 0 ? round2(derivedSqm * heightM) : 0
+            // Ceiling assumed flat & co-extensive with the floor; walls are the four
+            // vertical perimeter surfaces. Matches the formula used by the quote tab
+            // when pricing surfaces per-m² so totals stay consistent across screens.
+            const ceilingM2 = derivedSqm
+            const wallsM2 = lengthM > 0 && widthM > 0 && heightM > 0
+              ? round2(2 * (lengthM + widthM) * heightM)
+              : 0
+            const totalSurfaceM2 = round2(derivedSqm + ceilingM2 + wallsM2)
             const displaySqm = derivedSqm > 0 ? derivedSqm : Number(area.sqm ?? 0)
             const sqmIsLegacy = derivedSqm === 0 && Number(area.sqm ?? 0) > 0
+            const fmt = (n: number) =>
+              n.toLocaleString('en-AU', { maximumFractionDigits: 2 })
             return (
               <div style={{ marginBottom: 12 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
@@ -710,7 +721,9 @@ export default function AssessmentTab({ job, onJobUpdate, photos, onPhotosUpdate
                         type="number"
                         inputMode="decimal"
                         min="0"
-                        step="0.1"
+                        // `any` so precise tape-measure entries (e.g. 2.951) aren't
+                        // rejected by the browser's native step validation on submit.
+                        step="any"
                         value={Number(area[f.key] ?? 0) > 0 ? Number(area[f.key] ?? 0) : ''}
                         onChange={e => {
                           const n = parseFloat(e.target.value)
@@ -723,31 +736,56 @@ export default function AssessmentTab({ job, onJobUpdate, photos, onPhotosUpdate
                     </div>
                   ))}
                 </div>
-                <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                  {displaySqm > 0 ? (
-                    <>
-                      Floor area:{' '}
-                      <strong style={{ color: 'var(--text)' }}>
-                        {displaySqm.toLocaleString('en-AU', { maximumFractionDigits: 2 })} m²
-                      </strong>
-                      {volume > 0 && (
-                        <>
-                          {' · '}Volume:{' '}
-                          <strong style={{ color: 'var(--text)' }}>
-                            {volume.toLocaleString('en-AU', { maximumFractionDigits: 2 })} m³
-                          </strong>
-                        </>
-                      )}
-                      {sqmIsLegacy && (
-                        <span style={{ marginLeft: 6, fontStyle: 'italic' }}>
-                          (legacy area — add length × width to enable per-m² pricing)
+                {displaySqm > 0 ? (
+                  <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.55 }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', columnGap: 12, rowGap: 2 }}>
+                      <span>
+                        Floor:{' '}
+                        <strong style={{ color: 'var(--text)' }}>{fmt(displaySqm)} m²</strong>
+                      </span>
+                      {derivedSqm > 0 && (
+                        <span>
+                          Ceiling:{' '}
+                          <strong style={{ color: 'var(--text)' }}>{fmt(ceilingM2)} m²</strong>
                         </span>
                       )}
-                    </>
-                  ) : (
-                    <>Enter length × width to auto-derive floor area; height enables volume-based pricing (e.g. fogging).</>
-                  )}
-                </div>
+                      {wallsM2 > 0 && (
+                        <span>
+                          Walls:{' '}
+                          <strong style={{ color: 'var(--text)' }}>{fmt(wallsM2)} m²</strong>
+                        </span>
+                      )}
+                    </div>
+                    {(derivedSqm > 0 || volume > 0) && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', columnGap: 12, rowGap: 2, marginTop: 4 }}>
+                        {derivedSqm > 0 && (
+                          <span>
+                            Total surface:{' '}
+                            <strong style={{ color: 'var(--text)' }}>{fmt(totalSurfaceM2)} m²</strong>
+                            {wallsM2 === 0 && (
+                              <span style={{ marginLeft: 4, fontStyle: 'italic' }}>(add height for walls)</span>
+                            )}
+                          </span>
+                        )}
+                        {volume > 0 && (
+                          <span>
+                            Volume:{' '}
+                            <strong style={{ color: 'var(--text)' }}>{fmt(volume)} m³</strong>
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {sqmIsLegacy && (
+                      <div style={{ marginTop: 4, fontStyle: 'italic' }}>
+                        (legacy area — add length × width to enable per-m² pricing)
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.55 }}>
+                    Enter length × width to auto-derive floor and ceiling area; add height for wall surface, total surface, and volume.
+                  </div>
+                )}
               </div>
             )
           })()}
