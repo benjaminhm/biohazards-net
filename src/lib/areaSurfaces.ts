@@ -64,12 +64,18 @@ export function deriveSurfaceAreas(
  * Build (or refresh) the 3-surface array for a room. Quantities always
  * re-derive from the current dimensions so the Assessment stays the source
  * of truth; include flags and unit prices the user has entered are preserved.
+ *
+ * `surfaceOverrides` lets multi-zone areas (parent areas whose dims are sums
+ * across `Area.subzones`) supply pre-computed surface areas directly, since
+ * the aggregate `L × W` rectangle isn't well-defined for those — the wall
+ * area is the SUM of each subzone's `2 × (L + W) × H`, not the parent's.
  */
 export function buildSurfaceLines(
   lengthM: number,
   widthM: number,
   heightM: number,
   prior?: SurfacePricingLine[],
+  surfaceOverrides?: Partial<Record<SurfaceKind, number>>,
 ): SurfacePricingLine[] {
   const areas = deriveSurfaceAreas(lengthM, widthM, heightM)
   const priorByKind = new Map<SurfaceKind, SurfacePricingLine>(
@@ -79,7 +85,10 @@ export function buildSurfaceLines(
     const p = priorByKind.get(kind)
     const included = p?.included ?? SURFACE_DEFAULT_INCLUDED[kind]
     const rate = Math.max(0, Number(p?.unit_price_per_sqm ?? 0))
-    const area = areas[kind]
+    const override = surfaceOverrides?.[kind]
+    const area = round2(
+      typeof override === 'number' && override >= 0 ? override : areas[kind],
+    )
     return {
       kind,
       included,
@@ -107,9 +116,12 @@ export function sumIncludedSurfaceTotals(surfaces: SurfacePricingLine[]): number
  * identical to the pre-upgrade value. Already-upgraded rows just get their
  * surface quantities refreshed against the current dimensions.
  */
-export function upgradeLegacyAreaRow(row: AreaPricingRow): AreaPricingRow {
+export function upgradeLegacyAreaRow(
+  row: AreaPricingRow,
+  surfaceOverrides?: Partial<Record<SurfaceKind, number>>,
+): AreaPricingRow {
   if (row.surfaces && row.surfaces.length > 0) {
-    const surfaces = buildSurfaceLines(row.length_m, row.width_m, row.height_m, row.surfaces)
+    const surfaces = buildSurfaceLines(row.length_m, row.width_m, row.height_m, row.surfaces, surfaceOverrides)
     return { ...row, surfaces, total: sumIncludedSurfaceTotals(surfaces) }
   }
   const legacyRate = Math.max(0, Number(row.unit_price_per_sqm) || 0)
@@ -118,7 +130,7 @@ export function upgradeLegacyAreaRow(row: AreaPricingRow): AreaPricingRow {
     { kind: 'walls',   included: false, area_m2: 0, unit_price_per_sqm: 0,          total: 0 },
     { kind: 'ceiling', included: false, area_m2: 0, unit_price_per_sqm: 0,          total: 0 },
   ]
-  const surfaces = buildSurfaceLines(row.length_m, row.width_m, row.height_m, seed)
+  const surfaces = buildSurfaceLines(row.length_m, row.width_m, row.height_m, seed, surfaceOverrides)
   return { ...row, surfaces, total: sumIncludedSurfaceTotals(surfaces) }
 }
 

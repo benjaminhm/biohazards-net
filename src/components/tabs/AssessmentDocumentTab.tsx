@@ -5,11 +5,19 @@
 'use client'
 
 import { useEffect, useState, type CSSProperties } from 'react'
-import type { Job, AssessmentData, AssessmentDocumentCapture } from '@/lib/types'
+import type { Job, AssessmentData, AssessmentDocumentCapture, PathophysiologyRow } from '@/lib/types'
 import { mergeAssessmentData } from '@/lib/riskDerivation'
 import { mergedAssessmentDocumentCapture } from '@/lib/assessmentDocumentCapture'
 import { assessmentSaveContentBlocksPayload } from '@/lib/contentBlocks'
 import { useRegisterUnsavedChanges } from '@/lib/unsavedChangesContext'
+
+type TextFieldKey =
+  | 'site_summary'
+  | 'hazards_overview'
+  | 'risks_overview'
+  | 'control_measures'
+  | 'recommendations'
+  | 'limitations'
 
 interface Props {
   job: Job
@@ -30,7 +38,7 @@ const BUBBLE: CSSProperties = {
   fontFamily: 'inherit',
 }
 
-const FIELDS: { key: keyof AssessmentDocumentCapture; label: string; placeholder: string }[] = [
+const FIELDS: { key: TextFieldKey; label: string; placeholder: string }[] = [
   { key: 'site_summary', label: 'Site summary', placeholder: 'Site context, access, and relevant conditions from Presentation…' },
   { key: 'hazards_overview', label: 'Hazards overview', placeholder: 'Summarise presenting and candidate hazards…' },
   { key: 'risks_overview', label: 'Risks overview', placeholder: 'Summarise risk picture and ratings where known…' },
@@ -39,8 +47,35 @@ const FIELDS: { key: keyof AssessmentDocumentCapture; label: string; placeholder
   { key: 'limitations', label: 'Limitations', placeholder: 'What was not assessed, assumptions, caveats…' },
 ]
 
+const PATHO_COLS: { key: keyof PathophysiologyRow; label: string; placeholder: string; flex: number; rows: number }[] = [
+  { key: 'disease', label: 'Disease', placeholder: 'e.g. Hepatitis B', flex: 1.2, rows: 2 },
+  { key: 'pathogen', label: 'Pathogen', placeholder: 'e.g. HBV', flex: 1.2, rows: 2 },
+  { key: 'transmission', label: 'Transmission', placeholder: 'Bloodborne; sexual…', flex: 1.4, rows: 3 },
+  { key: 'effects', label: 'Effects on humans', placeholder: 'Acute hepatitis; chronic infection…', flex: 2.2, rows: 4 },
+  { key: 'incubation', label: 'Incubation', placeholder: '30–180 days', flex: 0.9, rows: 2 },
+  { key: 'ppe', label: 'PPE', placeholder: 'Bloodborne PPE level…', flex: 1.5, rows: 3 },
+]
+
+function pathoTableEqual(a: PathophysiologyRow[] | undefined, b: PathophysiologyRow[] | undefined): boolean {
+  const aa = a ?? []
+  const bb = b ?? []
+  if (aa.length !== bb.length) return false
+  for (let i = 0; i < aa.length; i++) {
+    const x = aa[i], y = bb[i]
+    if ((x.disease ?? '') !== (y.disease ?? '')) return false
+    if ((x.pathogen ?? '') !== (y.pathogen ?? '')) return false
+    if ((x.transmission ?? '') !== (y.transmission ?? '')) return false
+    if ((x.effects ?? '') !== (y.effects ?? '')) return false
+    if ((x.incubation ?? '') !== (y.incubation ?? '')) return false
+    if ((x.ppe ?? '') !== (y.ppe ?? '')) return false
+  }
+  return true
+}
+
 function captureEqual(a: AssessmentDocumentCapture, b: AssessmentDocumentCapture): boolean {
-  return FIELDS.every(({ key }) => (a[key] ?? '') === (b[key] ?? ''))
+  const textsEqual = FIELDS.every(({ key }) => (a[key] ?? '') === (b[key] ?? ''))
+  if (!textsEqual) return false
+  return pathoTableEqual(a.pathophysiology_table, b.pathophysiology_table)
 }
 
 export default function AssessmentDocumentTab({ job, onJobUpdate }: Props) {
@@ -50,8 +85,8 @@ export default function AssessmentDocumentTab({ job, onJobUpdate }: Props) {
   const [savedFlash, setSavedFlash] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [polishError, setPolishError] = useState<string | null>(null)
-  const [polishingKey, setPolishingKey] = useState<keyof AssessmentDocumentCapture | null>(null)
-  const [speakingKey, setSpeakingKey] = useState<keyof AssessmentDocumentCapture | null>(null)
+  const [polishingKey, setPolishingKey] = useState<TextFieldKey | null>(null)
+  const [speakingKey, setSpeakingKey] = useState<TextFieldKey | null>(null)
   const [suggesting, setSuggesting] = useState(false)
   const [suggestError, setSuggestError] = useState<string | null>(null)
   const [suggestMergeMode, setSuggestMergeMode] = useState<'fill_empty' | 'replace_all'>('fill_empty')
@@ -71,12 +106,42 @@ export default function AssessmentDocumentTab({ job, onJobUpdate }: Props) {
     }
   }, [])
 
-  function setField(key: keyof AssessmentDocumentCapture, value: string) {
+  function setField(key: TextFieldKey, value: string) {
     setCapture(c => ({ ...c, [key]: value }))
     setSavedFlash(false)
     setSaveError(null)
     setPolishError(null)
     setSuggestError(null)
+  }
+
+  function setPathoRow(index: number, key: keyof PathophysiologyRow, value: string) {
+    setCapture(c => {
+      const rows = [...(c.pathophysiology_table ?? [])]
+      const current = rows[index] ?? { disease: '' }
+      rows[index] = { ...current, [key]: value }
+      return { ...c, pathophysiology_table: rows }
+    })
+    setSavedFlash(false)
+    setSaveError(null)
+  }
+
+  function removePathoRow(index: number) {
+    setCapture(c => {
+      const rows = [...(c.pathophysiology_table ?? [])]
+      rows.splice(index, 1)
+      return { ...c, pathophysiology_table: rows }
+    })
+    setSavedFlash(false)
+    setSaveError(null)
+  }
+
+  function addPathoRow() {
+    setCapture(c => {
+      const rows = [...(c.pathophysiology_table ?? []), { disease: '' }]
+      return { ...c, pathophysiology_table: rows }
+    })
+    setSavedFlash(false)
+    setSaveError(null)
   }
 
   async function handleSuggestFromAssessment() {
@@ -90,13 +155,18 @@ export default function AssessmentDocumentTab({ job, onJobUpdate }: Props) {
       if (!s) throw new Error('No suggestions returned')
       setCapture(prev => {
         if (suggestMergeMode === 'replace_all') {
-          return { ...prev, ...s }
+          return { ...prev, ...s, pathophysiology_table: s.pathophysiology_table ?? [] }
         }
-        const next = { ...prev }
+        const next: AssessmentDocumentCapture = { ...prev }
         for (const { key } of FIELDS) {
           if (!(prev[key] ?? '').trim()) {
             next[key] = s[key] ?? ''
           }
+        }
+        // For the pathophysiology table, only populate when the current table
+        // is empty — preserves any manual edits the staff have made.
+        if (!(prev.pathophysiology_table ?? []).some(r => (r.disease || '').trim())) {
+          next.pathophysiology_table = s.pathophysiology_table ?? []
         }
         return next
       })
@@ -135,7 +205,7 @@ export default function AssessmentDocumentTab({ job, onJobUpdate }: Props) {
     }
   }
 
-  function handleListen(key: keyof AssessmentDocumentCapture) {
+  function handleListen(key: TextFieldKey) {
     if (typeof window === 'undefined') return
     if (speakingKey === key) {
       window.speechSynthesis.cancel()
@@ -153,7 +223,7 @@ export default function AssessmentDocumentTab({ job, onJobUpdate }: Props) {
     window.speechSynthesis.speak(u)
   }
 
-  async function handlePolish(key: keyof AssessmentDocumentCapture) {
+  async function handlePolish(key: TextFieldKey) {
     const text = (capture[key] ?? '').trim()
     if (!text) return
     setPolishError(null)
@@ -283,6 +353,107 @@ export default function AssessmentDocumentTab({ job, onJobUpdate }: Props) {
           </div>
         </div>
       ))}
+
+      <div style={sectionLabelStyle}>Pathophysiology table</div>
+      <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: -4, marginBottom: 10 }}>
+        Disease reference rows for the printed Assessment Document. Populate by uploading PDFs on
+        Assessment → Pathogens, then running Suggest above. Rows are grounded only in your uploaded
+        references — the AI will not invent diseases. Edit cells inline or remove rows you don&apos;t
+        want in the printed table.
+      </p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {(capture.pathophysiology_table ?? []).length === 0 ? (
+          <div
+            style={{
+              padding: '16px 14px',
+              border: '1px dashed var(--border)',
+              borderRadius: 10,
+              fontSize: 13,
+              color: 'var(--text-muted)',
+            }}
+          >
+            No pathophysiology rows yet. Upload reference PDFs on Assessment → Pathogens, then run
+            Suggest — or add a row manually.
+          </div>
+        ) : (
+          (capture.pathophysiology_table ?? []).map((row, idx) => (
+            <div
+              key={idx}
+              style={{
+                padding: 12,
+                borderRadius: 10,
+                border: '1px solid var(--border)',
+                background: 'var(--surface-1)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 10,
+              }}
+            >
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                {PATHO_COLS.map(col => (
+                  <label
+                    key={col.key}
+                    style={{
+                      flex: `${col.flex} 1 180px`,
+                      minWidth: 160,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 4,
+                    }}
+                  >
+                    <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>
+                      {col.label}
+                    </span>
+                    <textarea
+                      value={row[col.key] ?? ''}
+                      onChange={e => setPathoRow(idx, col.key, e.target.value)}
+                      placeholder={col.placeholder}
+                      rows={col.rows}
+                      style={{
+                        padding: '8px 10px',
+                        borderRadius: 6,
+                        border: '1px solid var(--border)',
+                        background: 'var(--surface-0)',
+                        color: 'var(--text)',
+                        fontSize: 13,
+                        lineHeight: 1.4,
+                        resize: 'vertical',
+                        fontFamily: 'inherit',
+                      }}
+                    />
+                  </label>
+                ))}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  onClick={() => removePathoRow(idx)}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: 6,
+                    border: '1px solid rgba(248, 113, 113, 0.45)',
+                    background: 'transparent',
+                    color: '#FCA5A5',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Remove row
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+        <button
+          type="button"
+          className="btn btn-secondary"
+          onClick={addPathoRow}
+          style={{ alignSelf: 'flex-start' }}
+        >
+          + Add row
+        </button>
+      </div>
 
       <button
         type="button"

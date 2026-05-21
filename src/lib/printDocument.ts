@@ -25,11 +25,13 @@ import type {
   EngagementAgreementContent, ReportContent, CertificateOfDecontaminationContent,
   WasteDisposalManifestContent, JSAContent, NDAContent, RiskAssessmentContent,
   WorkStep, RiskRow, WasteItem, OutcomeQuoteRow,
+  PathophysiologyRow,
 } from './types'
 import { DOC_TYPE_LABELS } from './types'
 import { filterGroupedStages, groupPhotosByRoomAndStage, type RoomPhotoGroup } from './photoGroups'
 import { photosForComposedReports } from '@/lib/photosForComposedReports'
-import { SURFACE_LABELS, deriveSurfaceAreas } from '@/lib/areaSurfaces'
+import { SURFACE_LABELS } from '@/lib/areaSurfaces'
+import { effectiveAreaDimensions } from '@/lib/areaSubzones'
 import { OUTCOME_KIND_LABELS, groupRowsByKind } from '@/lib/quoteSections'
 import type { SectionTerms, VolumePricingBlock } from '@/lib/types'
 
@@ -599,65 +601,39 @@ function section(lbl: string, text: string): string {
  * Scope of Work. Mirrors the formula used by `quoteRoomMeasurements` so all
  * three document types agree on the numbers.
  */
-function areaSurfaceBreakdown(area: Area): {
-  hasDims: boolean
-  length: number
-  width: number
-  height: number
-  floor: number
-  ceiling: number
-  walls: number
-  totalSurface: number
-  volume: number
-} {
-  const length = Math.max(0, Number(area.length_m || 0))
-  const width = Math.max(0, Number(area.width_m || 0))
-  const height = Math.max(0, Number(area.height_m || 0))
-  const round2 = (n: number) => Math.round(n * 100) / 100
-  const surfaces = deriveSurfaceAreas(length, width, height)
-  // Fall back to the manually-entered `sqm` only if we couldn't derive a floor
-  // from L × W — keeps legacy areas (no dimensions captured) on the table.
-  const floor = surfaces.floor > 0 ? surfaces.floor : Math.max(0, Number(area.sqm || 0))
-  const ceiling = surfaces.ceiling > 0 ? surfaces.ceiling : floor
-  const walls = surfaces.walls
-  const totalSurface = round2(floor + ceiling + walls)
-  const volume = floor > 0 && height > 0 ? round2(floor * height) : 0
-  return {
-    hasDims: floor > 0 || walls > 0 || volume > 0,
-    length, width, height,
-    floor, ceiling, walls, totalSurface, volume,
-  }
-}
-
 /**
  * Areas & Dimensions table for the printed Assessment Document and SOW.
- * Each captured area gets a row with floor / ceiling / walls / total surface
- * and volume. A totals row at the bottom aggregates each column.
+ *
+ * Each captured area gets a parent row showing its aggregated floor / ceiling /
+ * walls / total surface / volume. Multi-zone areas (per-room subzones) additionally
+ * emit one indented sub-row per subzone with that room's own L × W × H and its
+ * individual breakdown — so the reader sees both "Hallway 1 = 3 m²" and
+ * "All hallways = 12 m²" at a glance.
  *
  * Returns an empty string when no area has dimensions captured so the section
  * is suppressed rather than rendered empty.
  */
 function buildAreasDimensionsHTML(areas: Area[], heading = 'Areas & Dimensions'): string {
-  const rows = (areas ?? []).filter(a => (a.name || '').trim().length > 0)
-  if (rows.length === 0) return ''
-  const breakdowns = rows.map(area => ({ area, ...areaSurfaceBreakdown(area) }))
-  const withDims = breakdowns.filter(b => b.hasDims)
+  const filtered = (areas ?? []).filter(a => (a.name || '').trim().length > 0)
+  if (filtered.length === 0) return ''
+  const breakdowns = filtered.map(area => ({ area, dims: effectiveAreaDimensions(area) }))
+  const withDims = breakdowns.filter(b => b.dims.hasDims)
   if (withDims.length === 0) return ''
 
   const fmt = (n: number) =>
     Number(n || 0).toLocaleString('en-AU', { maximumFractionDigits: 2 })
-  const dimsCell = (b: { length: number; width: number; height: number }) =>
-    b.length > 0 && b.width > 0
-      ? `${b.length}×${b.width}${b.height > 0 ? `×${b.height}` : ''} m`
+  const dimsCell = (L: number | null, W: number | null, H: number | null) =>
+    L && W && L > 0 && W > 0
+      ? `${L}×${W}${H && H > 0 ? `×${H}` : ''} m`
       : '—'
 
   const totals = withDims.reduce(
     (acc, b) => ({
-      floor: acc.floor + b.floor,
-      ceiling: acc.ceiling + b.ceiling,
-      walls: acc.walls + b.walls,
-      totalSurface: acc.totalSurface + b.totalSurface,
-      volume: acc.volume + b.volume,
+      floor: acc.floor + b.dims.floor,
+      ceiling: acc.ceiling + b.dims.ceiling,
+      walls: acc.walls + b.dims.walls,
+      totalSurface: acc.totalSurface + b.dims.totalSurface,
+      volume: acc.volume + b.dims.volume,
     }),
     { floor: 0, ceiling: 0, walls: 0, totalSurface: 0, volume: 0 },
   )
@@ -665,7 +641,8 @@ function buildAreasDimensionsHTML(areas: Area[], heading = 'Areas & Dimensions')
   const bodyRows = breakdowns
     .map(b => {
       const name = esc(b.area.name)
-      if (!b.hasDims) {
+      const dims = b.dims
+      if (!dims.hasDims) {
         return `<tr>
           <td>${name}</td>
           <td>—</td>
@@ -676,15 +653,38 @@ function buildAreasDimensionsHTML(areas: Area[], heading = 'Areas & Dimensions')
           <td class="r">—</td>
         </tr>`
       }
-      return `<tr>
-        <td>${name}</td>
-        <td>${esc(dimsCell(b))}</td>
-        <td class="r">${fmt(b.floor)} m²</td>
-        <td class="r">${b.ceiling > 0 ? `${fmt(b.ceiling)} m²` : '—'}</td>
-        <td class="r">${b.walls > 0 ? `${fmt(b.walls)} m²` : '—'}</td>
-        <td class="r"><strong>${fmt(b.totalSurface)} m²</strong></td>
-        <td class="r">${b.volume > 0 ? `${fmt(b.volume)} m³` : '—'}</td>
+      const parentDimsCell = dims.isMultiZone
+        ? `<span style="color:#555">${dims.subzones.length} rooms</span>`
+        : esc(dimsCell(dims.length, dims.width, dims.height))
+      const parentRow = `<tr>
+        <td><strong>${name}</strong></td>
+        <td>${parentDimsCell}</td>
+        <td class="r">${fmt(dims.floor)} m²</td>
+        <td class="r">${dims.ceiling > 0 ? `${fmt(dims.ceiling)} m²` : '—'}</td>
+        <td class="r">${dims.walls > 0 ? `${fmt(dims.walls)} m²` : '—'}</td>
+        <td class="r"><strong>${fmt(dims.totalSurface)} m²</strong></td>
+        <td class="r">${dims.volume > 0 ? `${fmt(dims.volume)} m³` : '—'}</td>
       </tr>`
+      if (!dims.isMultiZone) return parentRow
+      const subRows = dims.subzones
+        .map(sz => {
+          const szDims = dimsCell(
+            sz.length_m > 0 ? sz.length_m : null,
+            sz.width_m > 0 ? sz.width_m : null,
+            sz.height_m > 0 ? sz.height_m : null,
+          )
+          return `<tr style="color:#555">
+            <td style="padding-left:24px">↳ ${esc(sz.name)}</td>
+            <td>${esc(szDims)}</td>
+            <td class="r">${sz.floor > 0 ? `${fmt(sz.floor)} m²` : '—'}</td>
+            <td class="r">${sz.ceiling > 0 ? `${fmt(sz.ceiling)} m²` : '—'}</td>
+            <td class="r">${sz.walls > 0 ? `${fmt(sz.walls)} m²` : '—'}</td>
+            <td class="r">${sz.totalSurface > 0 ? `${fmt(sz.totalSurface)} m²` : '—'}</td>
+            <td class="r">${sz.volume > 0 ? `${fmt(sz.volume)} m³` : '—'}</td>
+          </tr>`
+        })
+        .join('')
+      return parentRow + subRows
     })
     .join('')
 
@@ -1034,23 +1034,32 @@ function quoteRoomMeasurements(row: OutcomeQuoteRow, areas: Area[], globalSurfac
   const blocks = names.map(name => {
     const area = byName.get(name.toLowerCase())
     if (!area) return ''
-    const length = Math.max(0, Number(area.length_m || 0))
-    const width = Math.max(0, Number(area.width_m || 0))
-    const height = Math.max(0, Number(area.height_m || 0))
-    const floor = length > 0 && width > 0 ? Math.round(length * width * 100) / 100 : Math.max(0, Number(area.sqm || 0))
-    const ceiling = floor
-    const walls = length > 0 && width > 0 && height > 0 ? Math.round(2 * (length + width) * height * 100) / 100 : 0
-    const total = Math.round((floor + ceiling + walls) * 100) / 100
-    totalSurfaceM2 += total
-    const dims = length > 0 && width > 0
-      ? `${length}m L × ${width}m W${height > 0 ? ` × ${height}m H` : ''}`
-      : 'Dimensions not captured'
+    // Effective dims: aggregates across subzones for multi-zone areas, falls
+    // back to top-level L/W/H for single-zone. Matches the Areas & Dimensions
+    // table elsewhere in the quote so the reader doesn't see two different
+    // numbers for the same room.
+    const dims = effectiveAreaDimensions(area)
+    totalSurfaceM2 += dims.totalSurface
+    const dimsLabel = dims.isMultiZone
+      ? `${dims.subzones.length} rooms (per-room dimensions below)`
+      : dims.length && dims.width
+        ? `${dims.length}m L × ${dims.width}m W${dims.height ? ` × ${dims.height}m H` : ''}`
+        : 'Dimensions not captured'
+    const subRows = dims.isMultiZone && dims.subzones.length
+      ? `<div style="margin-top:4px;color:#555">${dims.subzones.map(sz => {
+          const szDims = sz.length_m > 0 && sz.width_m > 0
+            ? `${sz.length_m}×${sz.width_m}${sz.height_m > 0 ? `×${sz.height_m}` : ''} m`
+            : '—'
+          return `<div>↳ ${esc(sz.name)}: ${esc(szDims)} · Floor ${esc(fmtM2(sz.floor))} · Walls ${esc(fmtM2(sz.walls))}${sz.volume > 0 ? ` · ${esc(`${sz.volume.toLocaleString('en-AU', { maximumFractionDigits: 2 })} m³`)}` : ''}</div>`
+        }).join('')}</div>`
+      : ''
     return `
       <div style="margin-top:6px">
         <strong>${esc(name)}</strong><br>
-        Room dimensions: ${esc(dims)}<br>
-        Surface area: Ceiling ${esc(fmtM2(ceiling))} · Walls ${esc(fmtM2(walls))} · Floor ${esc(fmtM2(floor))}<br>
-        <strong>Total surface area: ${esc(fmtM2(total))}</strong>
+        Room dimensions: ${esc(dimsLabel)}<br>
+        Surface area: Ceiling ${esc(fmtM2(dims.ceiling))} · Walls ${esc(fmtM2(dims.walls))} · Floor ${esc(fmtM2(dims.floor))}<br>
+        <strong>Total surface area: ${esc(fmtM2(dims.totalSurface))}</strong>
+        ${subRows}
       </div>
     `
   }).filter(Boolean)
@@ -1501,10 +1510,48 @@ function buildRAHTML(c: RiskAssessmentContent, company: CompanyProfile | null, c
 
 // ── 12. Assessment document (narrative — same capture shape as Assessment → Document) ─
 
+/**
+ * Pathophysiology table — disease reference rows sourced from per-job
+ * pathogen PDFs by the Assessment Document AI suggester. Suppressed entirely
+ * when no row has a disease name so the section never renders empty.
+ */
+function buildPathophysiologyTableHTML(rows: PathophysiologyRow[] | undefined, heading = 'Pathophysiology'): string {
+  const filtered = (rows ?? []).filter(r => (r.disease || '').trim().length > 0)
+  if (filtered.length === 0) return ''
+  const cell = (s: string | undefined) => (s && s.trim() ? esc(s.trim()) : '<span style="color:#9ca3af">—</span>')
+  const body = filtered
+    .map(
+      r => `<tr>
+        <td><strong>${esc(r.disease)}</strong>${r.pathogen ? `<div style="font-size:8.5pt;color:#555;margin-top:2px">${esc(r.pathogen)}</div>` : ''}</td>
+        <td>${cell(r.transmission)}</td>
+        <td>${cell(r.effects)}</td>
+        <td>${cell(r.incubation)}</td>
+        <td>${cell(r.ppe)}</td>
+      </tr>`,
+    )
+    .join('')
+  return `
+    <div class="label">${esc(heading)}</div>
+    <table>
+      <thead>
+        <tr>
+          <th style="width:18%">Disease / pathogen</th>
+          <th style="width:18%">Transmission</th>
+          <th style="width:30%">Effects on humans</th>
+          <th style="width:12%">Incubation</th>
+          <th style="width:22%">PPE</th>
+        </tr>
+      </thead>
+      <tbody>${body}</tbody>
+    </table>
+  `
+}
+
 function buildAssessmentDocumentMid(c: AssessmentDocumentContent, areas: Area[] = []): string {
   return `
     ${section('Site summary', c.site_summary)}
     ${buildAreasDimensionsHTML(areas)}
+    ${buildPathophysiologyTableHTML(c.pathophysiology_table)}
     ${section('Hazards overview', c.hazards_overview)}
     ${section('Risks overview', c.risks_overview)}
     ${section('Control measures', c.control_measures)}

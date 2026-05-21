@@ -12,6 +12,7 @@
 import type { Job, Photo } from './types'
 import { filterGroupedStages, groupPhotosByRoomAndStage } from './photoGroups'
 import { photosForComposedReports } from '@/lib/photosForComposedReports'
+import { effectiveAreaDimensions } from '@/lib/areaSubzones'
 
 /**
  * Formats job and assessment data into a text block injected into every prompt.
@@ -19,13 +20,11 @@ import { photosForComposedReports } from '@/lib/photosForComposedReports'
  */
 function buildJobDataBlock(job: Job): string {
   const a = job.assessment_data!
-  const totalSqm = a.areas.reduce((s, x) => s + x.sqm, 0)
-  const totalVolume = a.areas.reduce((s, x) => {
-    const l = Number(x.length_m ?? 0)
-    const w = Number(x.width_m ?? 0)
-    const h = Number(x.height_m ?? 0)
-    return s + (l > 0 && w > 0 && h > 0 ? l * w * h : 0)
-  }, 0)
+  // Effective dims handle multi-zone areas (per-room subzones) so the totals
+  // here match the printed Areas & Dimensions table the customer will read.
+  const areaDims = a.areas.map(x => effectiveAreaDimensions(x))
+  const totalSqm = areaDims.reduce((s, d) => s + d.floor, 0)
+  const totalVolume = areaDims.reduce((s, d) => s + d.volume, 0)
   const risks = Object.entries(a.special_risks)
     .filter(([, v]) => v)
     .map(([k]) => k.replace(/_/g, ' '))
@@ -47,14 +46,22 @@ Biohazard Type: ${a.biohazard_type}
 Total Area: ${totalSqm}sqm across ${a.areas.length} areas${totalVolume > 0 ? ` (≈${Math.round(totalVolume * 100) / 100} m³)` : ''}
 
 Areas:
-${a.areas.map(x => {
-  const l = Number(x.length_m ?? 0)
-  const w = Number(x.width_m ?? 0)
-  const h = Number(x.height_m ?? 0)
-  const dims = l > 0 && w > 0
-    ? ` (${l}×${w}${h > 0 ? `×${h}` : ''} m${l > 0 && w > 0 && h > 0 ? `, ${Math.round(l * w * h * 100) / 100} m³` : ''})`
-    : ''
-  return `- ${x.name}: ${x.sqm}sqm${dims}, hazard level ${x.hazard_level}/5\n  ${x.description}${x.note ? `\n  Room note: ${x.note}` : ''}`
+${a.areas.map((x, i) => {
+  const d = areaDims[i]
+  let dimsLabel = ''
+  if (d.isMultiZone) {
+    const subList = d.subzones.map(sz => {
+      const szDims = sz.length_m > 0 && sz.width_m > 0
+        ? `${sz.length_m}×${sz.width_m}${sz.height_m > 0 ? `×${sz.height_m}` : ''} m`
+        : 'no dims'
+      return `    · ${sz.name}: ${szDims}${sz.floor > 0 ? `, ${sz.floor} m²` : ''}${sz.volume > 0 ? `, ${sz.volume} m³` : ''}`
+    }).join('\n')
+    dimsLabel = ` (${d.subzones.length} rooms — total ${d.floor} m²${d.volume > 0 ? `, ${d.volume} m³` : ''})\n${subList}`
+  } else if (d.length && d.width) {
+    dimsLabel = ` (${d.length}×${d.width}${d.height ? `×${d.height}` : ''} m${d.volume > 0 ? `, ${d.volume} m³` : ''})`
+  }
+  const floorLabel = d.floor > 0 ? `${d.floor}sqm` : `${x.sqm}sqm`
+  return `- ${x.name}: ${floorLabel}${dimsLabel}, hazard level ${x.hazard_level}/5\n  ${x.description}${x.note ? `\n  Room note: ${x.note}` : ''}`
 }).join('\n')}
 
 PPE Required: ${ppe || 'standard PPE'}

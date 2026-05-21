@@ -27,6 +27,13 @@ import type { Job, AssessmentData, Area, FastQuoteCapture, Photo } from '@/lib/t
 import PhotoUploadPanel from '@/components/PhotoUploadPanel'
 import PhotoCard from '@/components/PhotoCard'
 import { AREA_ROOM_TYPES, joinAreaName, splitAreaName } from '@/lib/areaRoomTypes'
+import {
+  effectiveAreaDimensions,
+  getEffectiveSubzones,
+  isMultiZoneArea,
+  syncAreaSubzonesWithName,
+  updateAreaSubzoneDim,
+} from '@/lib/areaSubzones'
 
 const DEFAULT_ASSESSMENT: AssessmentData = {
   areas: [],
@@ -278,7 +285,28 @@ export default function AssessmentTab({ job, onJobUpdate, photos, onPhotosUpdate
   function updateArea(index: number, field: keyof Area, value: string | number) {
     setData(d => {
       const areas = [...d.areas]
-      areas[index] = { ...areas[index], [field]: value }
+      const updated = { ...areas[index], [field]: value }
+      // When the area's chip-based name changes, keep subzones[] aligned so
+      // each remaining chip has a matching dim row and removed chips drop
+      // their subzone. See areaSubzones.ts for the migration rules.
+      areas[index] = field === 'name' ? syncAreaSubzonesWithName(updated as Area) : updated
+      return { ...d, areas }
+    })
+    setSaved(false)
+    setSaveError('')
+  }
+
+  /** Per-subzone dimension edit for multi-name areas. Materialises subzones[]
+   *  on the area if it was previously implicit (derived from name parts). */
+  function updateSubzoneDim(
+    areaIndex: number,
+    subzoneId: string,
+    field: 'length_m' | 'width_m' | 'height_m',
+    value: number,
+  ) {
+    setData(d => {
+      const areas = [...d.areas]
+      areas[areaIndex] = updateAreaSubzoneDim(areas[areaIndex], subzoneId, field, value)
       return { ...d, areas }
     })
     setSaved(false)
@@ -683,94 +711,141 @@ export default function AssessmentTab({ job, onJobUpdate, photos, onPhotosUpdate
           </div>
 
           {(() => {
-            const lengthM = Number(area.length_m ?? 0)
-            const widthM = Number(area.width_m ?? 0)
-            const heightM = Number(area.height_m ?? 0)
-            const round2 = (n: number) => Math.round(n * 100) / 100
-            const derivedSqm = lengthM > 0 && widthM > 0 ? round2(lengthM * widthM) : 0
-            const volume = derivedSqm > 0 && heightM > 0 ? round2(derivedSqm * heightM) : 0
-            // Ceiling assumed flat & co-extensive with the floor; walls are the four
-            // vertical perimeter surfaces. Matches the formula used by the quote tab
-            // when pricing surfaces per-m² so totals stay consistent across screens.
-            const ceilingM2 = derivedSqm
-            const wallsM2 = lengthM > 0 && widthM > 0 && heightM > 0
-              ? round2(2 * (lengthM + widthM) * heightM)
-              : 0
-            const totalSurfaceM2 = round2(derivedSqm + ceilingM2 + wallsM2)
-            const displaySqm = derivedSqm > 0 ? derivedSqm : Number(area.sqm ?? 0)
-            const sqmIsLegacy = derivedSqm === 0 && Number(area.sqm ?? 0) > 0
+            const dims = effectiveAreaDimensions(area)
             const fmt = (n: number) =>
               n.toLocaleString('en-AU', { maximumFractionDigits: 2 })
+            const multiZone = isMultiZoneArea(area)
+            const subzones = multiZone ? getEffectiveSubzones(area) : []
+            const sqmIsLegacy =
+              !multiZone &&
+              (dims.length ?? 0) === 0 &&
+              Number(area.sqm ?? 0) > 0
+
             return (
               <div style={{ marginBottom: 12 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
                   <label style={{ margin: 0 }}>Dimensions</label>
                   <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.4 }}>
-                    Foundation for per-m² quoting
+                    {multiZone
+                      ? `Per-room dimensions (${subzones.length} rooms in this area)`
+                      : 'Foundation for per-m² quoting'}
                   </div>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-                  {([
-                    { key: 'length_m' as const, label: 'Length (m)' },
-                    { key: 'width_m' as const, label: 'Width (m)' },
-                    { key: 'height_m' as const, label: 'Height (m)' },
-                  ]).map(f => (
-                    <div key={f.key}>
-                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>{f.label}</div>
-                      <input
-                        type="number"
-                        inputMode="decimal"
-                        min="0"
-                        // `any` so precise tape-measure entries (e.g. 2.951) aren't
-                        // rejected by the browser's native step validation on submit.
-                        step="any"
-                        value={Number(area[f.key] ?? 0) > 0 ? Number(area[f.key] ?? 0) : ''}
-                        onChange={e => {
-                          const n = parseFloat(e.target.value)
-                          updateAreaDimension(i, f.key, isNaN(n) ? 0 : n)
+
+                {multiZone ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {subzones.map(sz => (
+                      <div
+                        key={sz.id}
+                        style={{
+                          padding: 10,
+                          borderRadius: 8,
+                          border: '1px solid var(--border)',
+                          background: 'var(--surface-1)',
                         }}
-                        placeholder="0"
-                        autoComplete="off"
-                        style={{ width: '100%' }}
-                      />
-                    </div>
-                  ))}
-                </div>
-                {displaySqm > 0 ? (
-                  <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.55 }}>
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{sz.name}</div>
+                          {(sz.length_m > 0 || sz.width_m > 0 || sz.height_m > 0) && (
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                              {sz.length_m > 0 && sz.width_m > 0 ? `${fmt(sz.length_m * sz.width_m)} m² floor` : 'Enter L × W'}
+                              {sz.length_m > 0 && sz.width_m > 0 && sz.height_m > 0
+                                ? ` · ${fmt(2 * (sz.length_m + sz.width_m) * sz.height_m)} m² walls · ${fmt(sz.length_m * sz.width_m * sz.height_m)} m³ vol`
+                                : ''}
+                            </div>
+                          )}
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                          {([
+                            { key: 'length_m' as const, label: 'Length (m)' },
+                            { key: 'width_m' as const, label: 'Width (m)' },
+                            { key: 'height_m' as const, label: 'Height (m)' },
+                          ]).map(f => (
+                            <div key={f.key}>
+                              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>{f.label}</div>
+                              <input
+                                type="number"
+                                inputMode="decimal"
+                                min="0"
+                                step="any"
+                                value={Number(sz[f.key] ?? 0) > 0 ? Number(sz[f.key] ?? 0) : ''}
+                                onChange={e => {
+                                  const n = parseFloat(e.target.value)
+                                  updateSubzoneDim(i, sz.id, f.key, isNaN(n) ? 0 : n)
+                                }}
+                                placeholder="0"
+                                autoComplete="off"
+                                style={{ width: '100%' }}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                    {([
+                      { key: 'length_m' as const, label: 'Length (m)' },
+                      { key: 'width_m' as const, label: 'Width (m)' },
+                      { key: 'height_m' as const, label: 'Height (m)' },
+                    ]).map(f => (
+                      <div key={f.key}>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>{f.label}</div>
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          min="0"
+                          step="any"
+                          value={Number(area[f.key] ?? 0) > 0 ? Number(area[f.key] ?? 0) : ''}
+                          onChange={e => {
+                            const n = parseFloat(e.target.value)
+                            updateAreaDimension(i, f.key, isNaN(n) ? 0 : n)
+                          }}
+                          placeholder="0"
+                          autoComplete="off"
+                          style={{ width: '100%' }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {dims.hasDims ? (
+                  <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.55 }}>
                     <div style={{ display: 'flex', flexWrap: 'wrap', columnGap: 12, rowGap: 2 }}>
                       <span>
-                        Floor:{' '}
-                        <strong style={{ color: 'var(--text)' }}>{fmt(displaySqm)} m²</strong>
+                        {multiZone ? 'Total floor' : 'Floor'}:{' '}
+                        <strong style={{ color: 'var(--text)' }}>{fmt(dims.floor)} m²</strong>
                       </span>
-                      {derivedSqm > 0 && (
+                      {dims.ceiling > 0 && (
                         <span>
-                          Ceiling:{' '}
-                          <strong style={{ color: 'var(--text)' }}>{fmt(ceilingM2)} m²</strong>
+                          {multiZone ? 'Total ceiling' : 'Ceiling'}:{' '}
+                          <strong style={{ color: 'var(--text)' }}>{fmt(dims.ceiling)} m²</strong>
                         </span>
                       )}
-                      {wallsM2 > 0 && (
+                      {dims.walls > 0 && (
                         <span>
-                          Walls:{' '}
-                          <strong style={{ color: 'var(--text)' }}>{fmt(wallsM2)} m²</strong>
+                          {multiZone ? 'Total walls' : 'Walls'}:{' '}
+                          <strong style={{ color: 'var(--text)' }}>{fmt(dims.walls)} m²</strong>
                         </span>
                       )}
                     </div>
-                    {(derivedSqm > 0 || volume > 0) && (
+                    {(dims.totalSurface > 0 || dims.volume > 0) && (
                       <div style={{ display: 'flex', flexWrap: 'wrap', columnGap: 12, rowGap: 2, marginTop: 4 }}>
-                        {derivedSqm > 0 && (
+                        {dims.totalSurface > 0 && (
                           <span>
-                            Total surface:{' '}
-                            <strong style={{ color: 'var(--text)' }}>{fmt(totalSurfaceM2)} m²</strong>
-                            {wallsM2 === 0 && (
+                            {multiZone ? 'Total surface (all rooms)' : 'Total surface'}:{' '}
+                            <strong style={{ color: 'var(--text)' }}>{fmt(dims.totalSurface)} m²</strong>
+                            {!multiZone && dims.walls === 0 && (
                               <span style={{ marginLeft: 4, fontStyle: 'italic' }}>(add height for walls)</span>
                             )}
                           </span>
                         )}
-                        {volume > 0 && (
+                        {dims.volume > 0 && (
                           <span>
-                            Volume:{' '}
-                            <strong style={{ color: 'var(--text)' }}>{fmt(volume)} m³</strong>
+                            {multiZone ? 'Total volume' : 'Volume'}:{' '}
+                            <strong style={{ color: 'var(--text)' }}>{fmt(dims.volume)} m³</strong>
                           </span>
                         )}
                       </div>
@@ -782,8 +857,10 @@ export default function AssessmentTab({ job, onJobUpdate, photos, onPhotosUpdate
                     )}
                   </div>
                 ) : (
-                  <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.55 }}>
-                    Enter length × width to auto-derive floor and ceiling area; add height for wall surface, total surface, and volume.
+                  <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.55 }}>
+                    {multiZone
+                      ? 'Enter length × width for each room above to auto-derive floor and ceiling; add height for walls and volume.'
+                      : 'Enter length × width to auto-derive floor and ceiling area; add height for wall surface, total surface, and volume.'}
                   </div>
                 )}
               </div>

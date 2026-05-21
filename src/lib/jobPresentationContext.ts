@@ -2,7 +2,7 @@
  * Shared presentation snapshot for suggest-risks, suggest-sow-capture, etc.
  */
 import type { AssessmentData, JobType } from '@/lib/types'
-import { deriveSurfaceAreas } from '@/lib/areaSurfaces'
+import { effectiveAreaDimensions } from '@/lib/areaSubzones'
 
 export type PresentationContextPhoto = {
   area_ref: string | null
@@ -15,6 +15,10 @@ export type PresentationContextPhoto = {
  * for the AI suggesters to cite directly. Mirrors the formula used by the
  * printed Assessment Document / SOW / Quote so the AI never disagrees with
  * the deterministic table rendered in the documents.
+ *
+ * For multi-zone areas (per-room subzones), `length_m / width_m / height_m`
+ * are null (the aggregate is no longer a rectangle) and `subzones` carries
+ * the per-room breakdown that produced the floor / walls / ceiling sums.
  */
 export type PresentationContextAreaDimensions = {
   length_m: number | null
@@ -25,6 +29,17 @@ export type PresentationContextAreaDimensions = {
   walls_m2: number | null
   total_surface_m2: number | null
   volume_m3: number | null
+  /** Present only for multi-zone areas. Each entry is one of the rooms
+   *  inside this area with its own measurements. */
+  subzones?: {
+    name: string
+    length_m: number | null
+    width_m: number | null
+    height_m: number | null
+    floor_m2: number | null
+    walls_m2: number | null
+    volume_m3: number | null
+  }[]
 }
 
 export type PresentationContext = {
@@ -74,27 +89,28 @@ export function hasPresentationGrounding(payload: {
 }
 
 function areaDimensionsFor(a: AssessmentData['areas'][number]): PresentationContextAreaDimensions | null {
-  const L = Math.max(0, Number(a.length_m ?? 0))
-  const W = Math.max(0, Number(a.width_m ?? 0))
-  const H = Math.max(0, Number(a.height_m ?? 0))
-  const manualSqm = Math.max(0, Number(a.sqm ?? 0))
-  if (L === 0 && W === 0 && H === 0 && manualSqm === 0) return null
-  const round2 = (n: number) => Math.round(n * 100) / 100
-  const surfaces = deriveSurfaceAreas(L, W, H)
-  const floor = surfaces.floor > 0 ? surfaces.floor : manualSqm
-  const ceiling = surfaces.ceiling > 0 ? surfaces.ceiling : floor
-  const walls = surfaces.walls
-  const totalSurface = round2(floor + ceiling + walls)
-  const volume = floor > 0 && H > 0 ? round2(floor * H) : 0
+  const dims = effectiveAreaDimensions(a)
+  if (!dims.hasDims) return null
   return {
-    length_m: L > 0 ? L : null,
-    width_m: W > 0 ? W : null,
-    height_m: H > 0 ? H : null,
-    floor_m2: floor > 0 ? floor : null,
-    ceiling_m2: ceiling > 0 ? ceiling : null,
-    walls_m2: walls > 0 ? walls : null,
-    total_surface_m2: totalSurface > 0 ? totalSurface : null,
-    volume_m3: volume > 0 ? volume : null,
+    length_m: dims.length,
+    width_m: dims.width,
+    height_m: dims.height,
+    floor_m2: dims.floor > 0 ? dims.floor : null,
+    ceiling_m2: dims.ceiling > 0 ? dims.ceiling : null,
+    walls_m2: dims.walls > 0 ? dims.walls : null,
+    total_surface_m2: dims.totalSurface > 0 ? dims.totalSurface : null,
+    volume_m3: dims.volume > 0 ? dims.volume : null,
+    subzones: dims.isMultiZone
+      ? dims.subzones.map(sz => ({
+          name: sz.name,
+          length_m: sz.length_m > 0 ? sz.length_m : null,
+          width_m: sz.width_m > 0 ? sz.width_m : null,
+          height_m: sz.height_m > 0 ? sz.height_m : null,
+          floor_m2: sz.floor > 0 ? sz.floor : null,
+          walls_m2: sz.walls > 0 ? sz.walls : null,
+          volume_m3: sz.volume > 0 ? sz.volume : null,
+        }))
+      : undefined,
   }
 }
 

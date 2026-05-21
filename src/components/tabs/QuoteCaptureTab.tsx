@@ -29,6 +29,7 @@ import {
   sumIncludedSurfaceTotals,
   upgradeLegacyAreaRow,
 } from '@/lib/areaSurfaces'
+import { effectiveAreaDimensions } from '@/lib/areaSubzones'
 import {
   OUTCOME_KIND_LABELS,
   OUTCOME_KIND_ORDER,
@@ -69,20 +70,17 @@ function fmtM2(n: number): string {
 }
 
 function areaSurfaceMeasurements(area: Area) {
-  const length = Math.max(0, Number(area.length_m || 0))
-  const width = Math.max(0, Number(area.width_m || 0))
-  const height = Math.max(0, Number(area.height_m || 0))
-  const floor = length > 0 && width > 0 ? toMoney(length * width) : Math.max(0, Number(area.sqm || 0))
-  const ceiling = floor
-  const walls = length > 0 && width > 0 && height > 0 ? toMoney(2 * (length + width) * height) : 0
+  // Single source of truth for area dims — handles multi-zone areas (with
+  // per-room subzones) by summing across subzones. See areaSubzones.ts.
+  const dims = effectiveAreaDimensions(area)
   return {
-    length,
-    width,
-    height,
-    floor,
-    ceiling,
-    walls,
-    total: toMoney(floor + ceiling + walls),
+    length: dims.length ?? 0,
+    width: dims.width ?? 0,
+    height: dims.height ?? 0,
+    floor: toMoney(dims.floor),
+    ceiling: toMoney(dims.ceiling),
+    walls: toMoney(dims.walls),
+    total: toMoney(dims.totalSurface),
   }
 }
 
@@ -140,10 +138,13 @@ function syncAreaPricing(
     .map(a => {
       const name = (a.name || '').trim()
       if (!name) return null
-      const lengthM = Number(a.length_m ?? 0)
-      const widthM = Number(a.width_m ?? 0)
-      const heightM = Number(a.height_m ?? 0)
-      const sqm = Number(a.sqm ?? 0)
+      // Effective dims handle multi-zone areas (per-room subzones) by summing
+      // across subzones. For single-zone areas it matches a.length_m etc.
+      const dims = effectiveAreaDimensions(a)
+      const lengthM = dims.length ?? Number(a.length_m ?? 0)
+      const widthM = dims.width ?? Number(a.width_m ?? 0)
+      const heightM = dims.height ?? Number(a.height_m ?? 0)
+      const sqm = dims.floor > 0 ? dims.floor : Number(a.sqm ?? 0)
       const prior = savedByName.get(name.toLowerCase())
       const seed: AreaPricingRow = {
         area_name: name,
@@ -155,9 +156,13 @@ function syncAreaPricing(
         total: 0,
         surfaces: prior?.surfaces,
       }
-      // upgradeLegacyAreaRow handles both modern (refresh quantities) and
-      // legacy (synthesise floor/walls/ceiling) cases.
-      return upgradeLegacyAreaRow(seed)
+      // For multi-zone areas the aggregate L × W rectangle isn't well-defined
+      // (walls especially), so we pass surface overrides computed by summing
+      // across subzones. buildSurfaceLines picks the override when provided.
+      const overrides = dims.isMultiZone
+        ? { floor: dims.floor, walls: dims.walls, ceiling: dims.ceiling }
+        : undefined
+      return upgradeLegacyAreaRow(seed, overrides)
     })
     .filter((r): r is AreaPricingRow => r !== null)
 }

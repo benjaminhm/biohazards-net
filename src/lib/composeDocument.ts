@@ -37,6 +37,7 @@ import {
 } from '@/lib/perCompletionAssembly'
 import { assessmentDocumentHasContent, mergedAssessmentDocumentCapture } from '@/lib/assessmentDocumentCapture'
 import { collectExcludedSurfaces } from '@/lib/areaSurfaces'
+import { effectiveAreaDimensions } from '@/lib/areaSubzones'
 import {
   applyPricingLayoutToContent,
   derivePricingLayoutFromCapture,
@@ -377,6 +378,7 @@ function composeAssessmentDocument(
     recommendations: m.recommendations.trim() || recsSeed,
     limitations: m.limitations.trim() || limitationsSeed,
     completed_by: '',
+    pathophysiology_table: (m.pathophysiology_table ?? []).filter(r => (r.disease || '').trim()),
   }
   if (hasStaff) return { content: { ...c }, source: 'assessment_capture' }
   // If we were able to seed from HITL, this is better than a blank skeleton.
@@ -415,13 +417,15 @@ function composeSow(
   if (ad) {
     const areaLines = ad.areas?.length
       ? ad.areas.map(a => {
-          const l = Number(a.length_m ?? 0)
-          const w = Number(a.width_m ?? 0)
-          const h = Number(a.height_m ?? 0)
-          const dims = l > 0 && w > 0
-            ? ` (${l}×${w}${h > 0 ? `×${h}` : ''} m)`
-            : ''
-          return `${a.name}: ${a.sqm} sqm${dims} — ${a.description || '—'}`.trim()
+          const d = effectiveAreaDimensions(a)
+          let dims = ''
+          if (d.isMultiZone) {
+            dims = ` (${d.subzones.length} rooms)`
+          } else if (d.length && d.width) {
+            dims = ` (${d.length}×${d.width}${d.height ? `×${d.height}` : ''} m)`
+          }
+          const floor = d.floor > 0 ? d.floor : a.sqm
+          return `${a.name}: ${floor} sqm${dims} — ${a.description || '—'}`.trim()
         }).join('\n')
       : ''
     const exec = [ad.observations?.trim(), ad.access_restrictions?.trim()]

@@ -35,7 +35,17 @@ const BUBBLE: CSSProperties = {
   fontFamily: 'inherit',
 }
 
-const AD_FIELDS: { key: keyof AssessmentDocumentCapture; label: string; placeholder: string }[] = [
+/** Text-only AssessmentDocumentCapture keys (excludes the structured
+ *  pathophysiology_table — that's edited on Assessment → Document). */
+type AdTextFieldKey =
+  | 'site_summary'
+  | 'hazards_overview'
+  | 'risks_overview'
+  | 'control_measures'
+  | 'recommendations'
+  | 'limitations'
+
+const AD_FIELDS: { key: AdTextFieldKey; label: string; placeholder: string }[] = [
   { key: 'site_summary', label: 'Site summary', placeholder: 'Site context, access, and relevant conditions from Presentation…' },
   { key: 'hazards_overview', label: 'Hazards overview', placeholder: 'Summarise presenting and candidate hazards…' },
   { key: 'risks_overview', label: 'Risks overview', placeholder: 'Summarise risk picture and ratings where known…' },
@@ -147,7 +157,7 @@ export default function IaqBundleCaptureTab({ job, documents, onJobUpdate }: Pro
   const isDirty = !bundleEqual(job, adCapture, sowCapture, quoteFields)
   useRegisterUnsavedChanges('iaq-bundle-capture', isDirty)
 
-  function setAdField(key: keyof AssessmentDocumentCapture, value: string) {
+  function setAdField(key: AdTextFieldKey, value: string) {
     setAdCapture(c => ({ ...c, [key]: value }))
     setSavedFlash(false)
     setSaveError(null)
@@ -254,7 +264,7 @@ export default function IaqBundleCaptureTab({ job, documents, onJobUpdate }: Pro
     }
     const text =
       prefix === 'ad'
-        ? (adCapture[key as keyof AssessmentDocumentCapture] ?? '').trim()
+        ? ((adCapture[key as AdTextFieldKey] ?? '') as string).trim()
         : (sowCapture[key as keyof SowCapture] ?? '').trim()
     if (!text) return
     window.speechSynthesis.cancel()
@@ -266,10 +276,10 @@ export default function IaqBundleCaptureTab({ job, documents, onJobUpdate }: Pro
     window.speechSynthesis.speak(u)
   }
 
-  async function handlePolish(prefix: 'ad' | 'sow', key: keyof AssessmentDocumentCapture | keyof SowCapture) {
+  async function handlePolish(prefix: 'ad' | 'sow', key: AdTextFieldKey | keyof SowCapture) {
     const text =
       prefix === 'ad'
-        ? (adCapture[key as keyof AssessmentDocumentCapture] ?? '').trim()
+        ? ((adCapture[key as AdTextFieldKey] ?? '') as string).trim()
         : (sowCapture[key as keyof SowCapture] ?? '').trim()
     if (!text) return
     setPolishError(null)
@@ -284,7 +294,7 @@ export default function IaqBundleCaptureTab({ job, documents, onJobUpdate }: Pro
       if (!res.ok) throw new Error(data.error || 'Polish failed')
       const next = typeof data.text === 'string' ? data.text : text
       if (prefix === 'ad') {
-        setAdField(key as keyof AssessmentDocumentCapture, next)
+        setAdField(key as AdTextFieldKey, next)
       } else {
         setSowField(key as keyof SowCapture, next)
       }

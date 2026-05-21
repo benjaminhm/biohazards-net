@@ -16,6 +16,7 @@ import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import type { AssessmentData } from '@/lib/types'
+import { effectiveAreaDimensions } from '@/lib/areaSubzones'
 import Anthropic from '@anthropic-ai/sdk'
 
 const MAX_DOC_CONTEXT_CHARS = 7500
@@ -105,13 +106,16 @@ function areasLines(areas: AssessmentData['areas']): string[] {
   if (!areas?.length) return []
   return areas.map((a) => {
     const bits = [a.name]
-    if (typeof a.sqm === 'number' && a.sqm > 0) bits.push(`${a.sqm} m²`)
-    const l = Number(a.length_m ?? 0)
-    const w = Number(a.width_m ?? 0)
-    const h = Number(a.height_m ?? 0)
-    if (l > 0 && w > 0) {
-      bits.push(`${l}×${w}${h > 0 ? `×${h}` : ''} m`)
-      if (h > 0) bits.push(`${Math.round(l * w * h * 100) / 100} m³`)
+    // Effective dims aggregate per-room subzones into a single summary the
+    // pre-start briefing can quote alongside the room's existing label.
+    const dims = effectiveAreaDimensions(a)
+    if (dims.floor > 0) bits.push(`${dims.floor} m²`)
+    if (dims.isMultiZone) {
+      bits.push(`${dims.subzones.length} rooms`)
+      if (dims.volume > 0) bits.push(`${dims.volume} m³`)
+    } else if (dims.length && dims.width) {
+      bits.push(`${dims.length}×${dims.width}${dims.height ? `×${dims.height}` : ''} m`)
+      if (dims.volume > 0) bits.push(`${dims.volume} m³`)
     }
     if (typeof a.hazard_level === 'number') bits.push(`hazard level ${a.hazard_level}`)
     const head = bits.filter(Boolean).join(' · ')

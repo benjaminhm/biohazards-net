@@ -44,6 +44,7 @@ import AssessmentEquipmentTab from '@/components/tabs/AssessmentEquipmentTab'
 import AssessmentContentsTab from '@/components/tabs/AssessmentContentsTab'
 import AssessmentStructureTab from '@/components/tabs/AssessmentStructureTab'
 import AssessmentChemicalsTab from '@/components/tabs/AssessmentChemicalsTab'
+import AssessmentPathogensTab from '@/components/tabs/AssessmentPathogensTab'
 import QuoteTab from '@/components/tabs/QuoteTab'
 import PhotosTab from '@/components/tabs/PhotosTab'
 import DocumentsTab from '@/components/tabs/DocumentsTab'
@@ -673,7 +674,7 @@ export default function JobPage() {
   const [verifySection,  setVerifySection]  = useState<VerifySection>('quality_checks')
   const [reviewSection,  setReviewSection]  = useState<ReviewSection>('client_feedback')
   /** Secondary tabs when viewing Assessment (Presentation → Health Hazards → Risks → Recommendations → Equipment → Document) */
-  const [assessmentSection, setAssessmentSection] = useState<'presentation' | 'hazards' | 'risks' | 'contents' | 'structure' | 'recommendations' | 'chemicals' | 'equipment' | 'document'>('presentation')
+  const [assessmentSection, setAssessmentSection] = useState<'presentation' | 'hazards' | 'risks' | 'pathogens' | 'contents' | 'structure' | 'recommendations' | 'chemicals' | 'equipment' | 'document'>('presentation')
   const [caseStudiesSection, setCaseStudiesSection] = useState<'written' | 'video_script'>('written')
   const [writtenCaseStatus, setWrittenCaseStatus] = useState<CaseStudyWorkflowStatus>('draft')
   const [writtenCaseReviewer, setWrittenCaseReviewer] = useState('')
@@ -726,6 +727,19 @@ export default function JobPage() {
     fontWeight: 600,
     color: assessmentSection === 'risks' ? 'var(--accent)' : 'var(--text-muted)',
     borderBottom: assessmentSection === 'risks' ? '2px solid var(--accent)' : '2px solid transparent',
+    transition: 'color 0.15s, border-color 0.15s',
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    marginBottom: -1,
+  } as const
+
+  const assessmentPathogensBtnStyle = {
+    padding: '8px 16px',
+    fontSize: 13,
+    fontWeight: 600,
+    color: assessmentSection === 'pathogens' ? 'var(--accent)' : 'var(--text-muted)',
+    borderBottom: assessmentSection === 'pathogens' ? '2px solid var(--accent)' : '2px solid transparent',
     transition: 'color 0.15s, border-color 0.15s',
     background: 'none',
     border: 'none',
@@ -1327,6 +1341,15 @@ export default function JobPage() {
             <button
               type="button"
               role="tab"
+              aria-selected={assessmentSection === 'pathogens'}
+              onClick={() => setAssessmentSection('pathogens')}
+              style={assessmentPathogensBtnStyle}
+            >
+              Pathogens
+            </button>
+            <button
+              type="button"
+              role="tab"
               aria-selected={assessmentSection === 'contents'}
               onClick={() => setAssessmentSection('contents')}
               style={assessmentContentsBtnStyle}
@@ -1446,6 +1469,9 @@ export default function JobPage() {
         )}
         {showAssessmentUI && assessmentSection === 'risks' && (
           <AssessmentRisksTab job={job} onJobUpdate={setJob} />
+        )}
+        {showAssessmentUI && assessmentSection === 'pathogens' && (
+          <AssessmentPathogensTab job={job} onJobUpdate={setJob} />
         )}
         {showAssessmentUI && assessmentSection === 'contents' && (
           <AssessmentContentsTab job={job} onJobUpdate={setJob} />

@@ -164,7 +164,9 @@ export interface Area {
    *  are set, but stored explicitly so legacy areas (without dimensions) and
    *  irregular rooms can keep a manual value. Foundation for per-sqm quoting. */
   sqm: number
-  /** Room length in metres. Optional — only present once dimensions are captured. */
+  /** Room length in metres. Optional — only present once dimensions are captured.
+   *  For multi-name areas with `subzones` set, these top-level dims are ignored
+   *  by all downstream surface / volume calculations. */
   length_m?: number
   /** Room width in metres. */
   width_m?: number
@@ -173,6 +175,26 @@ export interface Area {
   hazard_level: number
   description: string
   note?: string
+  /** Per-room dimensions for multi-name areas (e.g. "Master bedroom + Ensuite +
+   *  Walk-in robe"). When non-empty, each subzone has its own L × W × H and the
+   *  area's effective floor / walls / ceiling / volume are sums across all
+   *  subzones. The subzone `name` corresponds to one of the area's name parts
+   *  (see splitAreaName / joinAreaName); helpers in src/lib/areaSubzones.ts
+   *  keep this array in lockstep with the area's chip-based name. */
+  subzones?: AreaSubzone[]
+}
+
+/** A single sub-room within a multi-name Area. The {L,W,H} apply to this sub-
+ *  room only; the parent Area aggregates surfaces by summing across subzones. */
+export interface AreaSubzone {
+  /** Stable client-generated id (used as a React key and as a stable handle
+   *  across name renames). */
+  id: string
+  /** Sub-room name; mirrors one of the area's name chips. */
+  name: string
+  length_m: number
+  width_m: number
+  height_m: number
 }
 
 /* Freeform key-value pairs captured on the assessment — insurance details,
@@ -644,6 +666,25 @@ export interface SowCapture {
   caveats: string
 }
 
+/** One row in the printed Pathophysiology table. Sourced from the per-job
+ *  pathogen reference library (assessment_data.pathogens_capture) — the AI
+ *  must NEVER invent rows when no PATHOGEN_REFERENCE is provided. */
+export interface PathophysiologyRow {
+  /** Common disease name, e.g. "Hepatitis B". */
+  disease: string
+  /** Causative pathogen, e.g. "Hepatitis B virus (HBV)". Leave blank if
+   *  identical to `disease` and no extra info adds value. */
+  pathogen?: string
+  /** Transmission routes, e.g. "Bloodborne; sexual; perinatal". */
+  transmission?: string
+  /** Effects on humans — signs, symptoms, complications, mortality where stated. */
+  effects?: string
+  /** Incubation period, e.g. "30–180 days". */
+  incubation?: string
+  /** PPE / decontamination notes specific to this pathogen, if the reference states it. */
+  ppe?: string
+}
+
 /** Assessment → Document tab — internal staff capture (not a separate DocType). */
 export interface AssessmentDocumentCapture {
   site_summary: string
@@ -652,6 +693,10 @@ export interface AssessmentDocumentCapture {
   control_measures: string
   recommendations: string
   limitations: string
+  /** Optional disease-reference table populated by the suggester from
+   *  uploaded pathogen PDFs. Renders as a table in the printed Assessment
+   *  Document; suppressed entirely when empty. */
+  pathophysiology_table?: PathophysiologyRow[]
 }
 
 export type OutcomeQuoteStatus = 'suggested' | 'approved' | 'rejected' | 'edited'
@@ -942,6 +987,44 @@ export interface AssessmentData {
   per_execute_capture?: PerExecuteCapture
   /** Outcome-first quote capture for HITL value-based pricing; line items remain internal engine. */
   outcome_quote_capture?: OutcomeQuoteCapture
+  /** Job-scoped pathogen / pathophysiology PDF reference library. Used as
+   *  grounded biology source by the Assessment Document AI suggester. */
+  pathogens_capture?: PathogensCapture
+}
+
+/** A single pathogen / pathophysiology reference PDF attached to a job, plus the
+ *  AI-extracted plain text used to ground the Assessment Document suggester.
+ *  Storage is in the `company-assets` bucket under `pathogens/<jobId>/<id>.pdf`. */
+export interface PathogenReferenceFile {
+  /** Stable client-side id (Date.now + random). */
+  id: string
+  /** Original filename uploaded by staff (display only). */
+  file_name: string
+  file_size: number
+  /** Public URL to the PDF in Supabase storage. */
+  file_url: string
+  /** Supabase storage path (used to delete the underlying object). */
+  storage_path: string
+  /** Optional staff-supplied label, e.g. "Bloodborne pathogens reference" or "Hep B & C overview". */
+  label?: string
+  /** AI-extracted plain text — disease/pathogen reference content from the PDF. */
+  extracted_text?: string
+  /** Status of the extraction step. `pending` means the PDF is uploaded but
+   *  extraction hasn't completed; `error` means Claude failed (extracted_text
+   *  may still be present from a prior pass). */
+  extraction_status: 'pending' | 'ready' | 'error'
+  /** Human-readable error message from the last failed extraction, if any. */
+  extraction_error?: string
+  uploaded_at: string
+  extracted_at?: string
+}
+
+export interface PathogensCapture {
+  files: PathogenReferenceFile[]
+  /** Optional free-text note staff can add alongside the references (e.g.
+   *  "Treat as primary source for transmission routes"). Also fed to the AI. */
+  notes?: string
+  updated_at: string
 }
 
 /* Secondary phone numbers on a job (beyond the primary client_phone).
@@ -1238,6 +1321,8 @@ export interface AssessmentDocumentContent {
   recommendations: string
   limitations: string
   completed_by?: string
+  /** Optional disease-reference table; carried through from capture. */
+  pathophysiology_table?: PathophysiologyRow[]
 }
 
 export interface SOWContent {

@@ -35,10 +35,11 @@ import type {
   CompanyProfile,
   PhotoWithData,
   Area,
+  PathophysiologyRow,
 } from '@/lib/types'
 import { filterGroupedStages, groupPhotosByRoomAndStage } from '@/lib/photoGroups'
 import { photosForComposedReports } from '@/lib/photosForComposedReports'
-import { deriveSurfaceAreas } from '@/lib/areaSurfaces'
+import { effectiveAreaDimensions } from '@/lib/areaSubzones'
 
 const ORANGE = '#FF6B35'
 const BLACK = '#111111'
@@ -131,6 +132,20 @@ const styles = StyleSheet.create({
   dimsColRoom: { flex: 1.4 },
   dimsColDims: { flex: 1.3 },
   dimsColNum: { flex: 0.9, textAlign: 'right' },
+  // Pathophysiology table (Assessment Document only)
+  pathoTable: { marginTop: 4, marginBottom: 16 },
+  pathoHeaderRow: { flexDirection: 'row', backgroundColor: BLACK, paddingVertical: 5, paddingHorizontal: 6, borderRadius: 3 },
+  pathoRow: { flexDirection: 'row', paddingVertical: 5, paddingHorizontal: 6, borderBottomWidth: 1, borderBottomColor: BORDER },
+  pathoTh: { fontSize: 7, fontFamily: 'Helvetica-Bold', color: '#FFFFFF' },
+  pathoTd: { fontSize: 8, color: BLACK },
+  pathoTdBold: { fontSize: 8, fontFamily: 'Helvetica-Bold', color: BLACK },
+  pathoColDisease: { flex: 1.4, paddingRight: 4 },
+  pathoColTrans: { flex: 1.4, paddingRight: 4 },
+  pathoColEffects: { flex: 2.3, paddingRight: 4 },
+  pathoColIncub: { flex: 0.9, paddingRight: 4 },
+  pathoColPpe: { flex: 1.6 },
+  pathoMuted: { fontSize: 8, color: '#9ca3af' },
+  pathoPathogen: { fontSize: 7, color: MUTED, marginTop: 1 },
 })
 
 /** TipTap / rich HTML → plain text for PDF (`Text` has no HTML). */
@@ -210,40 +225,29 @@ function Section({ label, text }: { label: string; text: string }) {
 
 /**
  * Areas & Dimensions table for the PDF. Mirrors the HTML helper
- * `buildAreasDimensionsHTML` in `src/lib/printDocument.ts` — same formula
- * (deriveSurfaceAreas), same column set. Suppressed entirely when no area
- * has dimensions captured. Used in both IaqMulti Part 1 (Assessment) and
- * Part 2 (SOW), and in the standalone SOW PDF.
+ * `buildAreasDimensionsHTML` in `src/lib/printDocument.ts` — same source of
+ * truth (effectiveAreaDimensions), same column set, same multi-zone nesting.
+ * Suppressed entirely when no area has dimensions captured. Used in both
+ * IaqMulti Part 1 (Assessment) and Part 2 (SOW), and in the standalone SOW PDF.
  */
 function AreasDimensionsPDFSection({ areas, label = 'Areas & Dimensions' }: { areas: Area[]; label?: string }) {
-  const round2 = (n: number) => Math.round(n * 100) / 100
-  const rows = (areas ?? [])
+  const all = (areas ?? [])
     .filter(a => (a.name || '').trim().length > 0)
-    .map(area => {
-      const L = Math.max(0, Number(area.length_m || 0))
-      const W = Math.max(0, Number(area.width_m || 0))
-      const H = Math.max(0, Number(area.height_m || 0))
-      const surfaces = deriveSurfaceAreas(L, W, H)
-      const floor = surfaces.floor > 0 ? surfaces.floor : Math.max(0, Number(area.sqm || 0))
-      const ceiling = surfaces.ceiling > 0 ? surfaces.ceiling : floor
-      const walls = surfaces.walls
-      const totalSurface = round2(floor + ceiling + walls)
-      const volume = floor > 0 && H > 0 ? round2(floor * H) : 0
-      const hasDims = floor > 0 || walls > 0 || volume > 0
-      const dimsLabel = L > 0 && W > 0 ? `${L}×${W}${H > 0 ? `×${H}` : ''} m` : '—'
-      return { name: area.name, hasDims, dimsLabel, floor, ceiling, walls, totalSurface, volume }
-    })
-  const printable = rows.filter(r => r.hasDims)
+    .map(area => ({ area, dims: effectiveAreaDimensions(area) }))
+  const printable = all.filter(b => b.dims.hasDims)
   if (printable.length === 0) return null
 
   const fmt = (n: number) => Number(n || 0).toLocaleString('en-AU', { maximumFractionDigits: 2 })
+  const dimsLabel = (L: number | null, W: number | null, H: number | null) =>
+    L && W && L > 0 && W > 0 ? `${L}×${W}${H && H > 0 ? `×${H}` : ''} m` : '—'
+
   const totals = printable.reduce(
-    (acc, r) => ({
-      floor: acc.floor + r.floor,
-      ceiling: acc.ceiling + r.ceiling,
-      walls: acc.walls + r.walls,
-      totalSurface: acc.totalSurface + r.totalSurface,
-      volume: acc.volume + r.volume,
+    (acc, b) => ({
+      floor: acc.floor + b.dims.floor,
+      ceiling: acc.ceiling + b.dims.ceiling,
+      walls: acc.walls + b.dims.walls,
+      totalSurface: acc.totalSurface + b.dims.totalSurface,
+      volume: acc.volume + b.dims.volume,
     }),
     { floor: 0, ceiling: 0, walls: 0, totalSurface: 0, volume: 0 },
   )
@@ -261,17 +265,62 @@ function AreasDimensionsPDFSection({ areas, label = 'Areas & Dimensions' }: { ar
           <Text style={[styles.dimsTh, styles.dimsColNum]}>Total m²</Text>
           <Text style={[styles.dimsTh, styles.dimsColNum]}>Volume</Text>
         </View>
-        {rows.map((r, i) => (
-          <View key={`${r.name}-${i}`} style={styles.dimsRow}>
-            <Text style={[styles.dimsTd, styles.dimsColRoom]}>{r.name}</Text>
-            <Text style={[styles.dimsTd, styles.dimsColDims]}>{r.dimsLabel}</Text>
-            <Text style={[styles.dimsTd, styles.dimsColNum]}>{r.hasDims ? `${fmt(r.floor)} m²` : '—'}</Text>
-            <Text style={[styles.dimsTd, styles.dimsColNum]}>{r.ceiling > 0 ? `${fmt(r.ceiling)} m²` : '—'}</Text>
-            <Text style={[styles.dimsTd, styles.dimsColNum]}>{r.walls > 0 ? `${fmt(r.walls)} m²` : '—'}</Text>
-            <Text style={[styles.dimsTdBold, styles.dimsColNum]}>{r.hasDims ? `${fmt(r.totalSurface)} m²` : '—'}</Text>
-            <Text style={[styles.dimsTd, styles.dimsColNum]}>{r.volume > 0 ? `${fmt(r.volume)} m³` : '—'}</Text>
-          </View>
-        ))}
+        {(() => {
+          const rendered: React.ReactElement[] = []
+          all.forEach((b, i) => {
+            const dims = b.dims
+            if (!dims.hasDims) {
+              rendered.push(
+                <View key={`area-${i}`} style={styles.dimsRow}>
+                  <Text style={[styles.dimsTd, styles.dimsColRoom]}>{b.area.name}</Text>
+                  <Text style={[styles.dimsTd, styles.dimsColDims]}>—</Text>
+                  <Text style={[styles.dimsTd, styles.dimsColNum]}>—</Text>
+                  <Text style={[styles.dimsTd, styles.dimsColNum]}>—</Text>
+                  <Text style={[styles.dimsTd, styles.dimsColNum]}>—</Text>
+                  <Text style={[styles.dimsTd, styles.dimsColNum]}>—</Text>
+                  <Text style={[styles.dimsTd, styles.dimsColNum]}>—</Text>
+                </View>,
+              )
+              return
+            }
+            const parentDims = dims.isMultiZone
+              ? `${dims.subzones.length} rooms`
+              : dimsLabel(dims.length, dims.width, dims.height)
+            rendered.push(
+              <View key={`area-${i}`} style={styles.dimsRow}>
+                <Text style={[styles.dimsTdBold, styles.dimsColRoom]}>{b.area.name}</Text>
+                <Text style={[styles.dimsTd, styles.dimsColDims]}>{parentDims}</Text>
+                <Text style={[styles.dimsTd, styles.dimsColNum]}>{`${fmt(dims.floor)} m²`}</Text>
+                <Text style={[styles.dimsTd, styles.dimsColNum]}>{dims.ceiling > 0 ? `${fmt(dims.ceiling)} m²` : '—'}</Text>
+                <Text style={[styles.dimsTd, styles.dimsColNum]}>{dims.walls > 0 ? `${fmt(dims.walls)} m²` : '—'}</Text>
+                <Text style={[styles.dimsTdBold, styles.dimsColNum]}>{`${fmt(dims.totalSurface)} m²`}</Text>
+                <Text style={[styles.dimsTd, styles.dimsColNum]}>{dims.volume > 0 ? `${fmt(dims.volume)} m³` : '—'}</Text>
+              </View>,
+            )
+            if (dims.isMultiZone) {
+              dims.subzones.forEach((sz, j) => {
+                const szDims = dimsLabel(
+                  sz.length_m > 0 ? sz.length_m : null,
+                  sz.width_m > 0 ? sz.width_m : null,
+                  sz.height_m > 0 ? sz.height_m : null,
+                )
+                const muted = { color: '#666' }
+                rendered.push(
+                  <View key={`sub-${i}-${j}`} style={styles.dimsRow}>
+                    <Text style={[styles.dimsTd, styles.dimsColRoom, muted, { paddingLeft: 14 }]}>{`↳ ${sz.name}`}</Text>
+                    <Text style={[styles.dimsTd, styles.dimsColDims, muted]}>{szDims}</Text>
+                    <Text style={[styles.dimsTd, styles.dimsColNum, muted]}>{sz.floor > 0 ? `${fmt(sz.floor)} m²` : '—'}</Text>
+                    <Text style={[styles.dimsTd, styles.dimsColNum, muted]}>{sz.ceiling > 0 ? `${fmt(sz.ceiling)} m²` : '—'}</Text>
+                    <Text style={[styles.dimsTd, styles.dimsColNum, muted]}>{sz.walls > 0 ? `${fmt(sz.walls)} m²` : '—'}</Text>
+                    <Text style={[styles.dimsTd, styles.dimsColNum, muted]}>{sz.totalSurface > 0 ? `${fmt(sz.totalSurface)} m²` : '—'}</Text>
+                    <Text style={[styles.dimsTd, styles.dimsColNum, muted]}>{sz.volume > 0 ? `${fmt(sz.volume)} m³` : '—'}</Text>
+                  </View>,
+                )
+              })
+            }
+          })
+          return rendered
+        })()}
         {printable.length > 1 && (
           <View style={styles.dimsTotalRow}>
             <Text style={[styles.dimsTdBold, styles.dimsColRoom]}>Total</Text>
@@ -283,6 +332,55 @@ function AreasDimensionsPDFSection({ areas, label = 'Areas & Dimensions' }: { ar
             <Text style={[styles.dimsTdBold, styles.dimsColNum]}>{totals.volume > 0 ? `${fmt(totals.volume)} m³` : '—'}</Text>
           </View>
         )}
+      </View>
+    </View>
+  )
+}
+
+/**
+ * Pathophysiology table — disease reference rows from the per-job pathogen
+ * library. Mirrors `buildPathophysiologyTableHTML` in printDocument.ts so the
+ * HTML preview and PDF output stay in lockstep. Suppressed when empty.
+ */
+function PathophysiologyPDFSection({
+  rows,
+  label = 'Pathophysiology',
+}: {
+  rows: PathophysiologyRow[] | undefined
+  label?: string
+}) {
+  const printable = (rows ?? []).filter(r => (r.disease || '').trim().length > 0)
+  if (printable.length === 0) return null
+  const cell = (s: string | undefined) => (s && s.trim() ? s.trim() : null)
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionLabel}>{label}</Text>
+      <View style={styles.pathoTable}>
+        <View style={styles.pathoHeaderRow}>
+          <Text style={[styles.pathoTh, styles.pathoColDisease]}>Disease / pathogen</Text>
+          <Text style={[styles.pathoTh, styles.pathoColTrans]}>Transmission</Text>
+          <Text style={[styles.pathoTh, styles.pathoColEffects]}>Effects on humans</Text>
+          <Text style={[styles.pathoTh, styles.pathoColIncub]}>Incubation</Text>
+          <Text style={[styles.pathoTh, styles.pathoColPpe]}>PPE</Text>
+        </View>
+        {printable.map((r, i) => {
+          const trans = cell(r.transmission)
+          const effects = cell(r.effects)
+          const incub = cell(r.incubation)
+          const ppe = cell(r.ppe)
+          return (
+            <View key={i} style={styles.pathoRow} wrap={false}>
+              <View style={styles.pathoColDisease}>
+                <Text style={styles.pathoTdBold}>{r.disease}</Text>
+                {r.pathogen ? <Text style={styles.pathoPathogen}>{r.pathogen}</Text> : null}
+              </View>
+              <Text style={[styles.pathoTd, styles.pathoColTrans, !trans ? styles.pathoMuted : {}]}>{trans ?? '—'}</Text>
+              <Text style={[styles.pathoTd, styles.pathoColEffects, !effects ? styles.pathoMuted : {}]}>{effects ?? '—'}</Text>
+              <Text style={[styles.pathoTd, styles.pathoColIncub, !incub ? styles.pathoMuted : {}]}>{incub ?? '—'}</Text>
+              <Text style={[styles.pathoTd, styles.pathoColPpe, !ppe ? styles.pathoMuted : {}]}>{ppe ?? '—'}</Text>
+            </View>
+          )
+        })}
       </View>
     </View>
   )
@@ -505,7 +603,12 @@ function IaqMultiPDF({
         {ASSESSMENT_PDF_SECTIONS.map(({ key, label }) => (
           <React.Fragment key={String(key)}>
             <Section label={label} text={(ad as unknown as Record<string, string>)[key] ?? ''} />
-            {key === 'site_summary' && <AreasDimensionsPDFSection areas={areas} />}
+            {key === 'site_summary' && (
+              <>
+                <AreasDimensionsPDFSection areas={areas} />
+                <PathophysiologyPDFSection rows={ad.pathophysiology_table} />
+              </>
+            )}
           </React.Fragment>
         ))}
         <Footer company={company} />

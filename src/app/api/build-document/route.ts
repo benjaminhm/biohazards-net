@@ -30,6 +30,7 @@ import { auth } from '@clerk/nextjs/server'
 import type { DocType, Job, Photo, CompanyProfile } from '@/lib/types'
 import { getOrgId } from '@/lib/org'
 import { groupPhotosByRoomAndStage } from '@/lib/photoGroups'
+import { effectiveAreaDimensions } from '@/lib/areaSubzones'
 import { getDocumentRulesForBuild } from '@/lib/documentRules'
 import { fetchPlatformDocumentRules, type PlatformDocumentRulesMap } from '@/lib/platformDocumentRules'
 import {
@@ -115,14 +116,23 @@ function jobContext(job: Job, photos: Photo[], company: CompanyProfile | null): 
   const ppeList = a ? Object.entries(a.ppe_required).filter(([,v])=>v).map(([k])=>k.replace(/_/g,' ')).join(', ') : 'standard PPE'
   const riskList = a ? Object.entries(a.special_risks).filter(([,v])=>v).map(([k])=>k.replace(/_/g,' ')).join(', ') : 'none identified'
   const areaList = a?.areas?.map(ar => {
-    const l = Number(ar.length_m ?? 0)
-    const w = Number(ar.width_m ?? 0)
-    const h = Number(ar.height_m ?? 0)
-    const vol = l > 0 && w > 0 && h > 0 ? Math.round(l * w * h * 100) / 100 : 0
-    const dims = l > 0 && w > 0
-      ? `, ${l}×${w}${h > 0 ? `×${h}` : ''} m${vol > 0 ? `, ${vol} m³` : ''}`
-      : ''
-    return `${ar.name} (${ar.sqm}m²${dims}, hazard level ${ar.hazard_level}/5): ${ar.description}${ar.note ? ` | Room note: ${ar.note}` : ''}`
+    // Effective dims aggregate per-room subzones for multi-zone areas, so the
+    // AI sees the same totals the customer sees in the printed Areas table.
+    const d = effectiveAreaDimensions(ar)
+    let dimsLabel = ''
+    if (d.isMultiZone) {
+      const sub = d.subzones.map(sz => {
+        const szDims = sz.length_m > 0 && sz.width_m > 0
+          ? `${sz.length_m}×${sz.width_m}${sz.height_m > 0 ? `×${sz.height_m}` : ''} m`
+          : 'no dims'
+        return `  · ${sz.name}: ${szDims}${sz.floor > 0 ? `, ${sz.floor} m²` : ''}${sz.volume > 0 ? `, ${sz.volume} m³` : ''}`
+      }).join('\n')
+      dimsLabel = `, ${d.subzones.length} rooms — total ${d.floor} m²${d.volume > 0 ? `, ${d.volume} m³` : ''}\n${sub}`
+    } else if (d.length && d.width) {
+      dimsLabel = `, ${d.length}×${d.width}${d.height ? `×${d.height}` : ''} m${d.volume > 0 ? `, ${d.volume} m³` : ''}`
+    }
+    const floorLabel = d.floor > 0 ? d.floor : ar.sqm
+    return `${ar.name} (${floorLabel}m²${dimsLabel}, hazard level ${ar.hazard_level}/5): ${ar.description}${ar.note ? ` | Room note: ${ar.note}` : ''}`
   }).join('\n') ?? 'not specified'
   const photoGroups = groupPhotosByRoomAndStage(photos, a?.areas ?? [])
   const photoNotes = photoGroups.length
