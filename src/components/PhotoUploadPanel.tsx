@@ -115,7 +115,12 @@ export default function PhotoUploadPanel({
 
   useEffect(() => {
     if (!scoped) {
-      setPending([])
+      setPending(prev => {
+        prev.forEach(p => {
+          if (p.preview.startsWith('blob:')) URL.revokeObjectURL(p.preview)
+        })
+        return []
+      })
       setUploadProgress({})
       setUploadError('')
       return
@@ -123,31 +128,45 @@ export default function PhotoUploadPanel({
     setPending(prev => prev.map(p => ({ ...p, areaRef: areaTag })))
   }, [scoped, areaTag])
 
-  async function onFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files ?? [])
-    if (!files.length || !scoped) return
-
-    const newPending: PendingPhoto[] = await Promise.all(
-      files.map(async file => {
-        const preview = await new Promise<string>(resolve => {
-          const reader = new FileReader()
-          reader.onloadend = () => resolve(reader.result as string)
-          reader.readAsDataURL(file)
+  // Revoke any outstanding blob: URLs when the panel unmounts so memory
+  // is released even if pending photos were never uploaded or removed.
+  useEffect(() => {
+    return () => {
+      setPending(prev => {
+        prev.forEach(p => {
+          if (p.preview.startsWith('blob:')) URL.revokeObjectURL(p.preview)
         })
-        return {
-          id: `${Date.now()}-${Math.random()}`,
-          file,
-          preview,
-          originalSize: file.size,
-          category: effectiveDefaultCategory,
-          caption: '',
-          areaRef: areaTag,
-        }
+        return prev
       })
-    )
+    }
+  }, [])
+
+  // Use blob URLs (URL.createObjectURL) instead of FileReader/data: URLs for
+  // previews. Data URLs hold the full base64-encoded file bytes in component
+  // state, and when desktop users queue several larger photos at once some
+  // browsers refuse to decode them — producing a broken-image preview with
+  // the alt text showing. Blob URLs are tiny pointers to the in-memory File.
+  function onFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? [])
+    if (!files.length || !scoped) {
+      if (e.target) e.target.value = ''
+      return
+    }
+
+    const newPending: PendingPhoto[] = files.map((file, idx) => ({
+      id: `${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
+      file,
+      preview: URL.createObjectURL(file),
+      originalSize: file.size,
+      category: effectiveDefaultCategory,
+      caption: '',
+      areaRef: areaTag,
+    }))
 
     setPending(prev => [...prev, ...newPending])
+    // Clear both inputs so re-selecting the same files refires change.
     if (fileRef.current) fileRef.current.value = ''
+    if (cameraRef.current) cameraRef.current.value = ''
   }
 
   function updatePending(id: string, updates: Partial<PendingPhoto>) {
@@ -155,7 +174,11 @@ export default function PhotoUploadPanel({
   }
 
   function removePending(id: string) {
-    setPending(prev => prev.filter(p => p.id !== id))
+    setPending(prev => {
+      const removed = prev.find(p => p.id === id)
+      if (removed?.preview.startsWith('blob:')) URL.revokeObjectURL(removed.preview)
+      return prev.filter(p => p.id !== id)
+    })
   }
 
   function applyAllCategory(category: PhotoCategory) {
@@ -197,14 +220,30 @@ export default function PhotoUploadPanel({
     setUploadError('')
 
     const results: Photo[] = []
+    const uploaded: PendingPhoto[] = []
     for (const p of pending) {
       const photo = await uploadSingle(p)
-      if (photo) results.push(photo)
+      if (photo) {
+        results.push(photo)
+        uploaded.push(p)
+      }
     }
 
     onPhotosUpdate([...results, ...photos])
-    setPending([])
-    setUploadProgress({})
+    // Drop only the rows that successfully uploaded so any errors stay visible
+    // for retry; revoke their blob URLs to release the underlying File bytes.
+    const uploadedIds = new Set(uploaded.map(p => p.id))
+    setPending(prev => {
+      uploaded.forEach(p => {
+        if (p.preview.startsWith('blob:')) URL.revokeObjectURL(p.preview)
+      })
+      return prev.filter(p => !uploadedIds.has(p.id))
+    })
+    setUploadProgress(prev => {
+      const next = { ...prev }
+      uploadedIds.forEach(id => delete next[id])
+      return next
+    })
     setUploading(false)
   }
 
@@ -381,7 +420,11 @@ export default function PhotoUploadPanel({
               }}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={p.preview} alt="preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              <img
+                src={p.preview}
+                alt={p.file.name || 'queued photo'}
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              />
               {status === 'uploading' && (
                 <div
                   style={{
