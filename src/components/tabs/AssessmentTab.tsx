@@ -26,7 +26,7 @@ import { useState, useEffect, useRef, useMemo, type CSSProperties } from 'react'
 import type { Job, AssessmentData, Area, FastQuoteCapture, Photo } from '@/lib/types'
 import PhotoUploadPanel from '@/components/PhotoUploadPanel'
 import PhotoCard from '@/components/PhotoCard'
-import { AREA_ROOM_TYPES, areaRoomSelectValue } from '@/lib/areaRoomTypes'
+import { AREA_ROOM_TYPES, joinAreaName, splitAreaName } from '@/lib/areaRoomTypes'
 
 const DEFAULT_ASSESSMENT: AssessmentData = {
   areas: [],
@@ -83,6 +83,154 @@ function emptyFastQuote(): FastQuoteCapture {
     limitations_acknowledged: false,
     updated_at: new Date().toISOString(),
   }
+}
+
+/**
+ * Picker for an Area's `name` that supports combining multiple rooms into a
+ * single open-plan area (e.g. "Kitchen + Dining + Living"). The stored value
+ * stays a single string — downstream code (photo `area_ref`, pricing rows,
+ * AI suggesters) treats the combined name as one opaque identity.
+ */
+function AreaNameMultiSelect({
+  value,
+  onChange,
+}: {
+  value: string
+  onChange: (next: string) => void
+}) {
+  const parts = useMemo(() => splitAreaName(value), [value])
+  const takenLower = useMemo(() => new Set(parts.map(p => p.toLowerCase())), [parts])
+  const availablePresets = useMemo(
+    () => AREA_ROOM_TYPES.filter(r => !takenLower.has(r.toLowerCase())),
+    [takenLower],
+  )
+  const [customDraft, setCustomDraft] = useState('')
+
+  function addPart(p: string) {
+    const trimmed = p.trim()
+    if (!trimmed) return
+    onChange(joinAreaName([...parts, trimmed]))
+  }
+
+  function removePart(idx: number) {
+    onChange(joinAreaName(parts.filter((_, i) => i !== idx)))
+  }
+
+  function commitCustom() {
+    const v = customDraft.trim()
+    if (!v) return
+    addPart(v)
+    setCustomDraft('')
+  }
+
+  return (
+    <div>
+      <label>Area Name</label>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+        {parts.length === 0 ? (
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }}>
+            No rooms selected — pick a preset or type a custom name. Combine multiple for open-plan areas.
+          </div>
+        ) : (
+          parts.map((p, idx) => (
+            <span
+              key={`${p}-${idx}`}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '4px 10px',
+                borderRadius: 14,
+                background: 'rgba(255,107,53,0.12)',
+                border: '1px solid rgba(255,107,53,0.35)',
+                fontSize: 12,
+                fontWeight: 600,
+                color: 'var(--text)',
+              }}
+            >
+              {p}
+              <button
+                type="button"
+                onClick={() => removePart(idx)}
+                aria-label={`Remove ${p}`}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--text-muted)',
+                  cursor: 'pointer',
+                  fontSize: 15,
+                  padding: 0,
+                  lineHeight: 1,
+                }}
+              >
+                ×
+              </button>
+            </span>
+          ))
+        )}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr) auto', gap: 6 }}>
+        <select
+          value=""
+          onChange={e => {
+            const v = e.target.value
+            if (!v) return
+            addPart(v)
+          }}
+          disabled={availablePresets.length === 0}
+          aria-label="Add preset room"
+          style={{
+            width: '100%',
+            fontSize: 13,
+            padding: '8px 10px',
+            borderRadius: 8,
+            border: '1px solid var(--border)',
+            background: 'var(--surface)',
+            color: 'var(--text)',
+          }}
+        >
+          <option value="">
+            {availablePresets.length === 0 ? 'All presets added' : '+ Add preset room…'}
+          </option>
+          {availablePresets.map(r => (
+            <option key={r} value={r}>
+              {r}
+            </option>
+          ))}
+        </select>
+        <input
+          value={customDraft}
+          onChange={e => setCustomDraft(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              commitCustom()
+            }
+          }}
+          placeholder="Custom name…"
+          aria-label="Custom area name to add"
+          style={{ width: '100%' }}
+        />
+        <button
+          type="button"
+          className="btn btn-secondary"
+          onClick={commitCustom}
+          disabled={!customDraft.trim()}
+          style={{ fontSize: 12, padding: '0 12px', whiteSpace: 'nowrap' }}
+        >
+          Add
+        </button>
+      </div>
+
+      {parts.length > 1 && (
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6, lineHeight: 1.4 }}>
+          Stored as one area: <strong style={{ color: 'var(--text)' }}>{joinAreaName(parts)}</strong>
+          {' '}— photos, dimensions, and quoting all apply to this combined area.
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function AssessmentTab({ job, onJobUpdate, photos, onPhotosUpdate }: Props) {
@@ -521,70 +669,14 @@ export default function AssessmentTab({ job, onJobUpdate, photos, onPhotosUpdate
         const areaPhotos = areaKey ? photos.filter(p => (p.area_ref || '').trim() === areaKey) : []
         return (
         <div key={i} className="card" style={{ marginBottom: 12 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, marginBottom: 10, alignItems: 'end' }}>
-            <div>
-              <label>Area Name</label>
-              <select
-                value={areaRoomSelectValue(area.name)}
-                onChange={e => {
-                  const v = e.target.value
-                  const cur = (area.name ?? '').trim()
-                  const isPreset = AREA_ROOM_TYPES.some(
-                    r => r.toLowerCase() === cur.toLowerCase()
-                  )
-                  let nextName: string
-                  if (v === '') {
-                    nextName = ''
-                  } else if (v === '__other__') {
-                    if (isPreset) {
-                      nextName = 'Custom room'
-                    } else if (cur) {
-                      nextName = cur
-                    } else {
-                      // Empty row → non-empty area_ref so photo upload unlocks immediately
-                      nextName = 'Other'
-                    }
-                  } else {
-                    nextName = v
-                  }
-                  updateArea(i, 'name', nextName)
-                }}
-                style={{
-                  width: '100%',
-                  fontSize: 14,
-                  padding: '10px 12px',
-                  borderRadius: 8,
-                  border: '1px solid var(--border)',
-                  background: 'var(--surface)',
-                  color: 'var(--text)',
-                }}
-              >
-                <option value="">Select room type…</option>
-                {AREA_ROOM_TYPES.length === 0 ? (
-                  <option value="__other__">Other</option>
-                ) : (
-                  <>
-                    {AREA_ROOM_TYPES.map(r => (
-                      <option key={r} value={r}>
-                        {r}
-                      </option>
-                    ))}
-                    <option value="__other__">Other</option>
-                  </>
-                )}
-              </select>
-              {areaRoomSelectValue(area.name) === '__other__' && (
-                <input
-                  value={area.name}
-                  onChange={e => updateArea(i, 'name', e.target.value)}
-                  placeholder="Type room or area name…"
-                  style={{ marginTop: 8, width: '100%' }}
-                />
-              )}
-            </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, marginBottom: 10, alignItems: 'start' }}>
+            <AreaNameMultiSelect
+              value={area.name}
+              onChange={next => updateArea(i, 'name', next)}
+            />
             <button
               onClick={() => removeArea(i)}
-              style={{ padding: '10px 12px', color: '#F87171', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 6, background: 'rgba(239,68,68,0.08)', fontSize: 13 }}
+              style={{ padding: '10px 12px', color: '#F87171', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 6, background: 'rgba(239,68,68,0.08)', fontSize: 13, alignSelf: 'start', marginTop: 22 }}
             >
               Remove
             </button>
