@@ -28,12 +28,38 @@ const FIELD_LABELS: [keyof AssessmentDocumentCapture, string][] = [
   ['limitations', 'Limitations'],
 ]
 
+/** Fields whose stored value is TipTap HTML rather than plain text. The
+ *  printed Assessment Document already sanitises HTML via richBodyHtmlForPrint;
+ *  for AI JOB CONTEXT and emptiness checks we flatten the markup first. */
+const RICH_TEXT_KEYS = new Set<keyof AssessmentDocumentCapture>(['recommendations'])
+
+/** Strip TipTap/HTML markup so rich-text fields flow into the AI JOB CONTEXT
+ *  as plain prose rather than raw markup, and so "<p></p>" doesn't register
+ *  as content. */
+function flattenRichText(raw: string): string {
+  if (!raw) return ''
+  if (!/<[a-z]/i.test(raw)) return raw.trim()
+  return raw
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>\s*<p>/gi, '\n\n')
+    .replace(/<\/li>\s*/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
 /** True if any assessment document field has content. */
 export function assessmentDocumentHasContent(ad: AssessmentData | null | undefined): boolean {
   const m = mergedAssessmentDocumentCapture(ad)
   const textHas = FIELD_LABELS.some(([k]) => {
     const v = m[k]
-    return typeof v === 'string' && v.trim().length > 0
+    if (typeof v !== 'string') return false
+    const text = RICH_TEXT_KEYS.has(k) ? flattenRichText(v) : v.trim()
+    return text.length > 0
   })
   const tableHas = (m.pathophysiology_table ?? []).some(r => (r.disease || '').trim().length > 0)
   return textHas || tableHas
@@ -45,7 +71,9 @@ export function staffAssessmentDocumentBlock(ad: AssessmentData | null | undefin
   const rows: string[] = []
   for (const [k, label] of FIELD_LABELS) {
     const v = m[k]
-    if (typeof v === 'string' && v.trim()) rows.push(`- ${label}: ${v.trim()}`)
+    if (typeof v !== 'string') continue
+    const text = RICH_TEXT_KEYS.has(k) ? flattenRichText(v) : v.trim()
+    if (text) rows.push(`- ${label}: ${text}`)
   }
   const table = m.pathophysiology_table ?? []
   if (table.length > 0) {

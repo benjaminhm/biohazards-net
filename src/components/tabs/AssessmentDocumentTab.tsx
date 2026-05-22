@@ -10,13 +10,18 @@ import { mergeAssessmentData } from '@/lib/riskDerivation'
 import { mergedAssessmentDocumentCapture } from '@/lib/assessmentDocumentCapture'
 import { assessmentSaveContentBlocksPayload } from '@/lib/contentBlocks'
 import { useRegisterUnsavedChanges } from '@/lib/unsavedChangesContext'
+import { proseHasPrintableContent } from '@/lib/richTextPrint'
+import RichTextEditor from '@/components/RichTextEditor'
 
+/** Keys of AssessmentDocumentCapture that are plain-text textareas with the
+ *  AI polish + Listen buttons. Recommendations is rendered separately as a
+ *  WYSIWYG block below the pathophysiology table and is intentionally NOT
+ *  included here — it lives outside the standard FIELDS loop. */
 type TextFieldKey =
   | 'site_summary'
   | 'hazards_overview'
   | 'risks_overview'
   | 'control_measures'
-  | 'recommendations'
   | 'limitations'
 
 interface Props {
@@ -43,7 +48,6 @@ const FIELDS: { key: TextFieldKey; label: string; placeholder: string }[] = [
   { key: 'hazards_overview', label: 'Hazards overview', placeholder: 'Summarise presenting and candidate hazards…' },
   { key: 'risks_overview', label: 'Risks overview', placeholder: 'Summarise risk picture and ratings where known…' },
   { key: 'control_measures', label: 'Control measures', placeholder: 'Engineering, administrative, PPE, sequencing…' },
-  { key: 'recommendations', label: 'Recommendations', placeholder: 'Next steps, staging, or follow-up assessment needs…' },
   { key: 'limitations', label: 'Limitations', placeholder: 'What was not assessed, assumptions, caveats…' },
 ]
 
@@ -75,6 +79,7 @@ function pathoTableEqual(a: PathophysiologyRow[] | undefined, b: Pathophysiology
 function captureEqual(a: AssessmentDocumentCapture, b: AssessmentDocumentCapture): boolean {
   const textsEqual = FIELDS.every(({ key }) => (a[key] ?? '') === (b[key] ?? ''))
   if (!textsEqual) return false
+  if ((a.recommendations ?? '') !== (b.recommendations ?? '')) return false
   return pathoTableEqual(a.pathophysiology_table, b.pathophysiology_table)
 }
 
@@ -111,6 +116,14 @@ export default function AssessmentDocumentTab({ job, onJobUpdate }: Props) {
     setSavedFlash(false)
     setSaveError(null)
     setPolishError(null)
+    setSuggestError(null)
+  }
+
+  /** Recommendations stores TipTap HTML (rich text); set via the WYSIWYG editor. */
+  function setRecommendations(html: string) {
+    setCapture(c => ({ ...c, recommendations: html }))
+    setSavedFlash(false)
+    setSaveError(null)
     setSuggestError(null)
   }
 
@@ -162,6 +175,11 @@ export default function AssessmentDocumentTab({ job, onJobUpdate }: Props) {
           if (!(prev[key] ?? '').trim()) {
             next[key] = s[key] ?? ''
           }
+        }
+        // Recommendations is a rich-text field — treat the empty TipTap
+        // shell "<p></p>" as empty for fill purposes.
+        if (!proseHasPrintableContent(prev.recommendations ?? '')) {
+          next.recommendations = s.recommendations ?? ''
         }
         // For the pathophysiology table, only populate when the current table
         // is empty — preserves any manual edits the staff have made.
@@ -454,6 +472,17 @@ export default function AssessmentDocumentTab({ job, onJobUpdate }: Props) {
           + Add row
         </button>
       </div>
+
+      <div style={sectionLabelStyle}>Recommendations</div>
+      <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: -4, marginBottom: 10 }}>
+        Next steps, staging, or follow-up assessment needs. Formatting (bold, lists,
+        alignment, sizes) carries through to the printed Assessment Document.
+      </p>
+      <RichTextEditor
+        value={capture.recommendations ?? ''}
+        onChange={setRecommendations}
+        minHeight={180}
+      />
 
       <button
         type="button"

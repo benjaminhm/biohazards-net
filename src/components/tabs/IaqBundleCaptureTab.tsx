@@ -14,6 +14,8 @@ import { mergedSowCapture } from '@/lib/sowCapture'
 import { mergedAssessmentDocumentCapture } from '@/lib/assessmentDocumentCapture'
 import { assessmentSaveContentBlocksPayload } from '@/lib/contentBlocks'
 import { useRegisterUnsavedChanges } from '@/lib/unsavedChangesContext'
+import { proseHasPrintableContent } from '@/lib/richTextPrint'
+import RichTextEditor from '@/components/RichTextEditor'
 
 interface Props {
   job: Job
@@ -35,14 +37,16 @@ const BUBBLE: CSSProperties = {
   fontFamily: 'inherit',
 }
 
-/** Text-only AssessmentDocumentCapture keys (excludes the structured
- *  pathophysiology_table — that's edited on Assessment → Document). */
+/** Plain-text AssessmentDocumentCapture keys edited as `<textarea>` here.
+ *  Excludes the structured pathophysiology_table (edited on Assessment →
+ *  Document) and the rich-text `recommendations` field (rendered below the
+ *  loop with the WYSIWYG editor so formatting carries through to the
+ *  printed Assessment Document). */
 type AdTextFieldKey =
   | 'site_summary'
   | 'hazards_overview'
   | 'risks_overview'
   | 'control_measures'
-  | 'recommendations'
   | 'limitations'
 
 const AD_FIELDS: { key: AdTextFieldKey; label: string; placeholder: string }[] = [
@@ -50,7 +54,6 @@ const AD_FIELDS: { key: AdTextFieldKey; label: string; placeholder: string }[] =
   { key: 'hazards_overview', label: 'Hazards overview', placeholder: 'Summarise presenting and candidate hazards…' },
   { key: 'risks_overview', label: 'Risks overview', placeholder: 'Summarise risk picture and ratings where known…' },
   { key: 'control_measures', label: 'Control measures', placeholder: 'Engineering, administrative, PPE, sequencing…' },
-  { key: 'recommendations', label: 'Recommendations', placeholder: 'Next steps, staging, or follow-up assessment needs…' },
   { key: 'limitations', label: 'Limitations', placeholder: 'What was not assessed, assumptions, caveats…' },
 ]
 
@@ -89,6 +92,7 @@ function bundleEqual(
   const ps = mergedSowCapture(job.assessment_data)
   const pq = quoteMergeDefaults(job.assessment_data)
   const adOk = AD_FIELDS.every(({ key }) => (ad[key] ?? '') === (pa[key] ?? ''))
+    && (ad.recommendations ?? '') === (pa.recommendations ?? '')
   const sowOk = SOW_FIELDS.every(({ key }) => (sow[key] ?? '') === (ps[key] ?? ''))
   const qOk =
     q.target_price === pq.target_price &&
@@ -202,6 +206,11 @@ export default function IaqBundleCaptureTab({ job, documents, onJobUpdate }: Pro
         const next = { ...prev }
         for (const { key } of AD_FIELDS) {
           if (!(prev[key] ?? '').trim()) next[key] = adS[key] ?? ''
+        }
+        // Recommendations is rich-text — treat the empty TipTap shell as
+        // empty so a suggestion can fill it.
+        if (!proseHasPrintableContent(prev.recommendations ?? '')) {
+          next.recommendations = adS.recommendations ?? ''
         }
         return next
       })
@@ -421,6 +430,25 @@ export default function IaqBundleCaptureTab({ job, documents, onJobUpdate }: Pro
           </div>
         </div>
       ))}
+
+      {/* Recommendations — WYSIWYG so formatting carries through to the
+          printed Assessment Document. Sits between Control measures and
+          Limitations to mirror the per-section printed order. */}
+      <div style={sectionLabelStyle}>Recommendations</div>
+      <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: -4, marginBottom: 10 }}>
+        Next steps, staging, or follow-up assessment needs. Formatting (bold, lists,
+        alignment, sizes) carries through to the printed Assessment Document.
+      </p>
+      <RichTextEditor
+        value={adCapture.recommendations ?? ''}
+        onChange={(html: string) => {
+          setAdCapture(c => ({ ...c, recommendations: html }))
+          setSavedFlash(false)
+          setSaveError(null)
+          setGenerateError(null)
+        }}
+        minHeight={180}
+      />
 
       {/* ── Scope of work ── */}
       <div style={blockTitle}>2. Scope of work</div>
