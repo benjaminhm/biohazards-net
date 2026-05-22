@@ -60,7 +60,7 @@ export const DOC_TYPE_LABELS: Record<DocType, string> = {
   iaq_multi:                  'Assessment / Scope / Quote',
   quote:                      'Quote',
   sow:                        'Scope of Work',
-  assessment_document:        'Assessment',
+  assessment_document:        'Assessment & Recommendations',
   swms:                       'SWMS',
   authority_to_proceed:       'Authority to Proceed',
   engagement_agreement:       'Engagement Agreement',

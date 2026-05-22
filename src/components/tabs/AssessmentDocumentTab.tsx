@@ -276,7 +276,7 @@ export default function AssessmentDocumentTab({ job, onJobUpdate }: Props) {
   return (
     <div style={{ paddingBottom: 40, maxWidth: 720 }}>
       <h1 style={{ fontSize: 22, fontWeight: 700, margin: '0 0 8px', letterSpacing: '-0.02em' }}>
-        Assessment document
+        Assessment and Recommendations
       </h1>
       <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
         Internal staff capture from Presentation, Hazards, and Risks. Review and edit before saving.

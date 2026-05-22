@@ -1693,6 +1693,16 @@ function buildAssessmentDocumentMid(
   `
 }
 
+/** Older saved Assessment Documents have title="Assessment document"; remap to the
+ *  current product name so the print/preview heading is consistent without
+ *  requiring a DB migration or manual edit on every existing job. */
+function normaliseAssessmentDocumentTitle(t: string | undefined | null): string {
+  const raw = (t ?? '').trim()
+  if (!raw) return 'Assessment and Recommendations'
+  if (raw.toLowerCase() === 'assessment document') return 'Assessment and Recommendations'
+  return raw
+}
+
 function buildAssessmentDocumentHTML(
   c: AssessmentDocumentContent,
   company: CompanyProfile | null,
@@ -1703,7 +1713,8 @@ function buildAssessmentDocumentHTML(
   screenActionBar: boolean,
 ): string {
   const mid = buildAssessmentDocumentMid(c, areas, photos, groups)
-  return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
+  const title = normaliseAssessmentDocumentTitle(c.title)
+  return wrapBranded(mid, title, title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
 /** Mid-body HTML only (no shell). Used for composed bundles. */

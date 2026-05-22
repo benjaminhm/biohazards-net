@@ -369,7 +369,7 @@ function composeAssessmentDocument(
   const limitationsSeed = limitationsBits.join('\n')
 
   const c: AssessmentDocumentContent = {
-    title: 'Assessment document',
+    title: 'Assessment and Recommendations',
     reference: refPrefix('assessment_document', job.id),
     site_summary: m.site_summary.trim() || (job.site_address ? `Site: ${job.site_address}.` : ''),
     hazards_overview: m.hazards_overview.trim() || hazardsSeed,

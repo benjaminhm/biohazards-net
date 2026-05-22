@@ -242,7 +242,7 @@ PRICING: ${(() => {
 
     assessment_document: `Return ONLY valid JSON:
 {
-  "title": "Assessment document — [client name]",
+  "title": "Assessment and Recommendations — [client name]",
   "reference": "${r}",
   "site_summary": "concise site context and purpose of visit",
   "hazards_overview": "identified hazards and contamination characterisation",
