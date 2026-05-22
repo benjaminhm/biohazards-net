@@ -333,6 +333,50 @@ function AreasDimensionsPDFSection({ areas, label = 'Areas & Dimensions' }: { ar
           </View>
         )}
       </View>
+      <Text style={{ fontSize: 7, fontStyle: 'italic', color: '#666', marginTop: 4 }}>
+        Note: dimensions are nominal — captured by hand on site and typically accurate to within ±5%.
+        Openings, wall thickness, and irregular ceiling heights are not individually itemised.
+      </Text>
+    </View>
+  )
+}
+
+/**
+ * Highlighted Recommendations call-out for the PDF — mirrors the blue box in
+ * the HTML print so the section stands out as the most action-bearing part of
+ * the Assessment Document. Suppressed when the field flattens to nothing.
+ */
+function RecommendationsCalloutPDF({ text }: { text: string }) {
+  const plain = plainTextForPdf(text)
+  if (!plain.trim()) return null
+  return (
+    <View
+      style={{
+        marginTop: 12,
+        padding: 10,
+        borderLeftWidth: 3,
+        borderLeftColor: '#2563eb',
+        borderTopWidth: 0.5,
+        borderRightWidth: 0.5,
+        borderBottomWidth: 0.5,
+        borderColor: '#93c5fd',
+        backgroundColor: '#eff6ff',
+        borderRadius: 4,
+      }}
+      wrap={false}
+    >
+      <Text
+        style={{
+          fontFamily: 'Helvetica-Bold',
+          fontSize: 9,
+          color: '#1d4ed8',
+          letterSpacing: 0.4,
+          marginBottom: 4,
+        }}
+      >
+        RECOMMENDATIONS
+      </Text>
+      <Text style={{ ...styles.body, fontFamily: 'Helvetica-Bold', color: '#0f172a' }}>{plain}</Text>
     </View>
   )
 }
@@ -545,12 +589,13 @@ function QuotePDF({
   )
 }
 
+/** Recommendations is rendered separately at the end of Part 1 as a callout —
+ *  see RecommendationsCalloutPDF — so it's intentionally omitted from this loop. */
 const ASSESSMENT_PDF_SECTIONS: Array<{ key: keyof AssessmentDocumentContent; label: string }> = [
   { key: 'site_summary', label: 'Site summary' },
   { key: 'hazards_overview', label: 'Hazards overview' },
   { key: 'risks_overview', label: 'Risks overview' },
   { key: 'control_measures', label: 'Control measures' },
-  { key: 'recommendations', label: 'Recommendations' },
   { key: 'limitations', label: 'Limitations' },
 ]
 
@@ -611,6 +656,7 @@ function IaqMultiPDF({
             )}
           </React.Fragment>
         ))}
+        <RecommendationsCalloutPDF text={ad.recommendations ?? ''} />
         <Footer company={company} />
       </Page>
 

@@ -718,6 +718,12 @@ function buildAreasDimensionsHTML(areas: Area[], heading = 'Areas & Dimensions')
         ${totalsRow}
       </tbody>
     </table>
+    <p class="body-text" style="margin-top:6px;font-size:9pt;font-style:italic;color:var(--sow-mid)">
+      Note: dimensions are nominal — captured by hand on site and typically accurate to within ±5%.
+      Openings (doors, windows, recesses), wall thickness, and irregular ceiling heights are not
+      individually itemised. Surface areas above are derived from these dimensions for quoting and
+      should be re-verified against final site measurements if precision better than 5% is required.
+    </p>
   `
 }
 
@@ -1547,7 +1553,94 @@ function buildPathophysiologyTableHTML(rows: PathophysiologyRow[] | undefined, h
   `
 }
 
-function buildAssessmentDocumentMid(c: AssessmentDocumentContent, areas: Area[] = []): string {
+/**
+ * Highlighted call-out for the Recommendations section of the printed
+ * Assessment Document. The narrative is the most action-bearing part of the
+ * doc — the customer needs to see it stand out, and rendered last so the
+ * preceding sections (hazards / risks / limitations) frame it.
+ *
+ * Returns empty string when the field is empty (e.g. plain text or the TipTap
+ * empty-shell "<p></p>" both flatten to nothing via richBodyHtmlForPrint).
+ */
+function recommendationsCallout(html: string | undefined): string {
+  if (!html?.trim()) return ''
+  const inner = richBodyHtmlForPrint(html)
+  if (!inner) return ''
+  return `
+    <div style="margin-top:18px;padding:16px 18px;border:1px solid #93c5fd;border-left:4px solid #2563eb;background:#eff6ff;border-radius:8px">
+      <div style="font-weight:800;font-size:11pt;letter-spacing:0.04em;text-transform:uppercase;color:#1d4ed8;margin-bottom:8px">Recommendations</div>
+      <div class="body-text sow-rich" style="font-weight:600;color:#0f172a">${inner}</div>
+    </div>
+  `
+}
+
+/**
+ * Per-room photo + dimensions block for the Assessment Document. When the
+ * staff opt-in to "Include photos" in the composer, we group photos by room
+ * and prepend the room's captured dimensions so the reader sees both the
+ * measurement (e.g. "Bedroom 3.5×4×2.4 m — floor 14 m²") and the visual
+ * evidence side-by-side. Suppresses any room with neither dims nor photos.
+ */
+function buildAssessmentPhotoSections(groups: RoomPhotoGroup[], areas: Area[]): string {
+  const visible = filterGroupedStages(groups, ['assessment', 'before'])
+  if (!visible.length) return ''
+  const byName = new Map(
+    areas.map(a => [(a.name || '').trim().toLowerCase(), a]),
+  )
+  const blocks = visible.map(group => {
+    const area = byName.get(group.room.trim().toLowerCase())
+    const dims = area ? effectiveAreaDimensions(area) : null
+    const fmt = (n: number) =>
+      Number(n || 0).toLocaleString('en-AU', { maximumFractionDigits: 2 })
+    let dimsLine = ''
+    if (dims?.hasDims) {
+      const parts: string[] = []
+      if (dims.isMultiZone) {
+        parts.push(`${dims.subzones.length} rooms`)
+      } else if (dims.length && dims.width) {
+        parts.push(`${dims.length}×${dims.width}${dims.height ? `×${dims.height}` : ''} m`)
+      }
+      if (dims.floor > 0) parts.push(`floor ${fmt(dims.floor)} m²`)
+      if (dims.walls > 0) parts.push(`walls ${fmt(dims.walls)} m²`)
+      if (dims.volume > 0) parts.push(`vol ${fmt(dims.volume)} m³`)
+      if (parts.length) {
+        dimsLine = `<div class="body-text" style="margin-top:-2px;margin-bottom:8px;font-size:9pt;color:var(--sow-mid)">${esc(parts.join(' · '))}</div>`
+      }
+    }
+    const stageBlocks = (['assessment', 'before'] as const)
+      .map(stage => {
+        const pics = group.stages[stage]
+        return pics.length ? photoGrid(pics, `${stage.charAt(0).toUpperCase() + stage.slice(1)} Photos`) : ''
+      })
+      .join('')
+    if (!dimsLine && !stageBlocks.trim()) return ''
+    const note = (group.note || '').trim()
+    return `
+      <div class="label" style="margin-top:14px;color:#1a1a1a">${esc(group.room)}</div>
+      ${dimsLine}
+      ${note ? `<div class="body-text" style="margin-top:-2px;margin-bottom:8px"><strong>Room notes:</strong> ${esc(note)}</div>` : ''}
+      ${stageBlocks}
+    `
+  })
+  const inner = blocks.filter(Boolean).join('')
+  if (!inner.trim()) return ''
+  return `
+    <div class="label">Site Condition Photos</div>
+    ${inner}
+  `
+}
+
+function buildAssessmentDocumentMid(
+  c: AssessmentDocumentContent,
+  areas: Area[] = [],
+  photos: Photo[] = [],
+  groups: RoomPhotoGroup[] = [],
+): string {
+  // Opt-in: only render photos when staff explicitly enable it in the composer.
+  // (Existing assessment docs in storage have no include_photos flag → off.)
+  const photosHtml = c.include_photos === true ? buildAssessmentPhotoSections(groups, areas) : ''
+  // Silence unused-photos warning when staff skip the toggle.
+  void photos
   return `
     ${section('Site summary', c.site_summary)}
     ${buildAreasDimensionsHTML(areas)}
@@ -1555,13 +1648,22 @@ function buildAssessmentDocumentMid(c: AssessmentDocumentContent, areas: Area[] 
     ${section('Hazards overview', c.hazards_overview)}
     ${section('Risks overview', c.risks_overview)}
     ${section('Control measures', c.control_measures)}
-    ${section('Recommendations', c.recommendations)}
     ${section('Limitations', c.limitations)}
+    ${photosHtml}
+    ${recommendationsCallout(c.recommendations)}
   `
 }
 
-function buildAssessmentDocumentHTML(c: AssessmentDocumentContent, company: CompanyProfile | null, client: ClientInfo | undefined, areas: Area[], screenActionBar: boolean): string {
-  const mid = buildAssessmentDocumentMid(c, areas)
+function buildAssessmentDocumentHTML(
+  c: AssessmentDocumentContent,
+  company: CompanyProfile | null,
+  client: ClientInfo | undefined,
+  areas: Area[],
+  photos: Photo[],
+  groups: RoomPhotoGroup[],
+  screenActionBar: boolean,
+): string {
+  const mid = buildAssessmentDocumentMid(c, areas, photos, groups)
   return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
@@ -1602,7 +1704,7 @@ export function buildPrintMidHTML(
     case 'risk_assessment':
       return buildRAMid(c as unknown as RiskAssessmentContent)
     case 'assessment_document':
-      return buildAssessmentDocumentMid(c as unknown as AssessmentDocumentContent, areas)
+      return buildAssessmentDocumentMid(c as unknown as AssessmentDocumentContent, areas, photos, groups)
     default:
       return `<p class="body-text">${esc('Unknown document type')}</p>`
   }
@@ -1687,7 +1789,7 @@ export function buildPrintHTML(
     case 'jsa':                        return buildJSAHTML(c as unknown as JSAContent, company, client, screenActionBar)
     case 'nda':                        return buildNDAHTML(c as unknown as NDAContent, company, client, screenActionBar)
     case 'risk_assessment':            return buildRAHTML(c as unknown as RiskAssessmentContent, company, client, screenActionBar)
-    case 'assessment_document':        return buildAssessmentDocumentHTML(c as unknown as AssessmentDocumentContent, company, client, areas, screenActionBar)
+    case 'assessment_document':        return buildAssessmentDocumentHTML(c as unknown as AssessmentDocumentContent, company, client, areas, photos, groups, screenActionBar)
     case 'iaq_multi': {
       const partsRaw = c.parts
       const bundleTitle =

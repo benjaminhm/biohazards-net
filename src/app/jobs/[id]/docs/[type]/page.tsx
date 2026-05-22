@@ -44,11 +44,27 @@ function DocViewerInner() {
 
   const docLabel   = DOC_TYPE_LABELS[docType] ?? docType
   const hasContent = Object.keys(content).length > 0
-  const supportsPhotoToggle = docType === 'report'
-  const includePhotos = content.include_photos !== false
+  // Assessment Document treats photos as an opt-in extra (default off) since
+  // the doc historically had no photo block; flipping the default ON would
+  // retroactively grow every existing assessment doc print. Reports keep
+  // their default-on behaviour for backward compatibility.
+  const supportsPhotoToggle = docType === 'report' || docType === 'assessment_document'
+  const includePhotos =
+    docType === 'assessment_document'
+      ? content.include_photos === true
+      : content.include_photos !== false
 
   function toggleIncludePhotos() {
-    setContent(prev => ({ ...prev, include_photos: prev.include_photos === false ? true : false }))
+    setContent(prev => {
+      const next = docType === 'assessment_document'
+        ? prev.include_photos === true
+          ? false
+          : true
+        : prev.include_photos === false
+          ? true
+          : false
+      return { ...prev, include_photos: next }
+    })
   }
 
   useEffect(() => {

@@ -1323,6 +1323,11 @@ export interface AssessmentDocumentContent {
   completed_by?: string
   /** Optional disease-reference table; carried through from capture. */
   pathophysiology_table?: PathophysiologyRow[]
+  /** Composer toggle: when true the printed Assessment Document renders site
+   *  photos grouped by room, each prefixed with that room's effective
+   *  dimensions. Opt-in (defaults to false / off) so existing docs aren't
+   *  retroactively rewritten. */
+  include_photos?: boolean
 }
 
 export interface SOWContent {
