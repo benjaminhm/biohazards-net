@@ -1521,7 +1521,7 @@ function buildRAHTML(c: RiskAssessmentContent, company: CompanyProfile | null, c
  * pathogen PDFs by the Assessment Document AI suggester. Suppressed entirely
  * when no row has a disease name so the section never renders empty.
  */
-function buildPathophysiologyTableHTML(rows: PathophysiologyRow[] | undefined, heading = 'Pathophysiology'): string {
+function buildPathophysiologyTableHTML(rows: PathophysiologyRow[] | undefined, heading = 'Pathophysiology — health effects of identified pathogens'): string {
   const filtered = (rows ?? []).filter(r => (r.disease || '').trim().length > 0)
   if (filtered.length === 0) return ''
   const cell = (s: string | undefined) => (s && s.trim() ? esc(s.trim()) : '<span style="color:#9ca3af">—</span>')
@@ -1538,6 +1538,12 @@ function buildPathophysiologyTableHTML(rows: PathophysiologyRow[] | undefined, h
     .join('')
   return `
     <div class="label">${esc(heading)}</div>
+    <p class="body-text" style="margin-top:-2px;margin-bottom:10px">
+      This table catalogues the disease-causing organisms reasonably expected at this site — how they
+      transmit, the human health effects of exposure, typical incubation periods, and the personal
+      protective equipment required to work around them safely. The hazards, risks, control measures,
+      and PPE selections elsewhere in this assessment are grounded in the references below.
+    </p>
     <table>
       <thead>
         <tr>

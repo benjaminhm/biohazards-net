@@ -388,7 +388,7 @@ function RecommendationsCalloutPDF({ text }: { text: string }) {
  */
 function PathophysiologyPDFSection({
   rows,
-  label = 'Pathophysiology',
+  label = 'Pathophysiology — health effects of identified pathogens',
 }: {
   rows: PathophysiologyRow[] | undefined
   label?: string
@@ -399,6 +399,12 @@ function PathophysiologyPDFSection({
   return (
     <View style={styles.section}>
       <Text style={styles.sectionLabel}>{label}</Text>
+      <Text style={[styles.body, { marginBottom: 8 }]}>
+        This table catalogues the disease-causing organisms reasonably expected at this site — how they
+        transmit, the human health effects of exposure, typical incubation periods, and the personal
+        protective equipment required to work around them safely. The hazards, risks, control measures,
+        and PPE selections elsewhere in this assessment are grounded in the references below.
+      </Text>
       <View style={styles.pathoTable}>
         <View style={styles.pathoHeaderRow}>
           <Text style={[styles.pathoTh, styles.pathoColDisease]}>Disease / pathogen</Text>
