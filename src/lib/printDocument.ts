@@ -1639,7 +1639,7 @@ function buildAssessmentPhotoSections(groups: RoomPhotoGroup[], areas: Area[]): 
       ...(group.stages.before ?? []),
     ]
     const grid = pics.length
-      ? `<div class="photos-grid">${pics.map(renderPhoto).join('')}</div>`
+      ? `<div class="photos-grid photos-grid-single">${pics.map(renderPhoto).join('')}</div>`
       : ''
 
     if (!pills.length && !pics.length) return ''
