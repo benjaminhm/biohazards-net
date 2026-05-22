@@ -1575,11 +1575,19 @@ function recommendationsCallout(html: string | undefined): string {
 }
 
 /**
- * Per-room photo + dimensions block for the Assessment Document. When the
- * staff opt-in to "Include photos" in the composer, we group photos by room
- * and prepend the room's captured dimensions so the reader sees both the
- * measurement (e.g. "Bedroom 3.5×4×2.4 m — floor 14 m²") and the visual
- * evidence side-by-side. Suppresses any room with neither dims nor photos.
+ * Per-room photo + dimensions block for the printed Assessment Document.
+ *
+ * Visual hierarchy (top → bottom of each room card):
+ *   1. Large room title in a tinted header bar (highest-weight element).
+ *   2. Dimensions pill row — floor/walls/volume are blue accent pills so the
+ *      reader can scan the maths in one glance; the raw L×W×H gets a neutral
+ *      pill so it doesn't dominate.
+ *   3. Optional room note (italic, muted).
+ *   4. Photo grid — caption-only meta (no per-card area tag, since the room
+ *      title above already identifies the location). 2-up grid by default.
+ *
+ * Suppresses rooms with neither dims nor photos so empty areas don't print
+ * empty cards.
  */
 function buildAssessmentPhotoSections(groups: RoomPhotoGroup[], areas: Area[]): string {
   const visible = filterGroupedStages(groups, ['assessment', 'before'])
@@ -1587,45 +1595,70 @@ function buildAssessmentPhotoSections(groups: RoomPhotoGroup[], areas: Area[]): 
   const byName = new Map(
     areas.map(a => [(a.name || '').trim().toLowerCase(), a]),
   )
+  const fmt = (n: number) =>
+    Number(n || 0).toLocaleString('en-AU', { maximumFractionDigits: 2 })
+
+  const pillNeutral = 'font-size:8.5pt;background:#f1f5f9;padding:3px 9px;border-radius:999px;color:#334155;white-space:nowrap'
+  const pillAccent = 'font-size:8.5pt;background:#eff6ff;padding:3px 9px;border-radius:999px;color:#1d4ed8;white-space:nowrap'
+
   const blocks = visible.map(group => {
     const area = byName.get(group.room.trim().toLowerCase())
     const dims = area ? effectiveAreaDimensions(area) : null
-    const fmt = (n: number) =>
-      Number(n || 0).toLocaleString('en-AU', { maximumFractionDigits: 2 })
-    let dimsLine = ''
+
+    const pills: string[] = []
     if (dims?.hasDims) {
-      const parts: string[] = []
       if (dims.isMultiZone) {
-        parts.push(`${dims.subzones.length} rooms`)
+        pills.push(`<span style="${pillNeutral}">${dims.subzones.length} rooms</span>`)
       } else if (dims.length && dims.width) {
-        parts.push(`${dims.length}×${dims.width}${dims.height ? `×${dims.height}` : ''} m`)
+        pills.push(`<span style="${pillNeutral}">${dims.length} × ${dims.width}${dims.height ? ` × ${dims.height}` : ''} m</span>`)
       }
-      if (dims.floor > 0) parts.push(`floor ${fmt(dims.floor)} m²`)
-      if (dims.walls > 0) parts.push(`walls ${fmt(dims.walls)} m²`)
-      if (dims.volume > 0) parts.push(`vol ${fmt(dims.volume)} m³`)
-      if (parts.length) {
-        dimsLine = `<div class="body-text" style="margin-top:-2px;margin-bottom:8px;font-size:9pt;color:var(--sow-mid)">${esc(parts.join(' · '))}</div>`
-      }
+      if (dims.floor > 0) pills.push(`<span style="${pillAccent}"><strong>Floor</strong> ${fmt(dims.floor)} m²</span>`)
+      if (dims.walls > 0) pills.push(`<span style="${pillAccent}"><strong>Walls</strong> ${fmt(dims.walls)} m²</span>`)
+      if (dims.ceiling > 0) pills.push(`<span style="${pillAccent}"><strong>Ceiling</strong> ${fmt(dims.ceiling)} m²</span>`)
+      if (dims.volume > 0) pills.push(`<span style="${pillAccent}"><strong>Volume</strong> ${fmt(dims.volume)} m³</span>`)
     }
-    const stageBlocks = (['assessment', 'before'] as const)
-      .map(stage => {
-        const pics = group.stages[stage]
-        return pics.length ? photoGrid(pics, `${stage.charAt(0).toUpperCase() + stage.slice(1)} Photos`) : ''
-      })
-      .join('')
-    if (!dimsLine && !stageBlocks.trim()) return ''
+    const pillRow = pills.length
+      ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 12px">${pills.join('')}</div>`
+      : `<div style="font-size:9pt;font-style:italic;color:var(--sow-mid);margin:6px 0 10px">No dimensions captured for this area.</div>`
+
+    // Per-card photo render — caption-only meta (no redundant room tag).
+    const renderPhoto = (p: Photo) => `
+      <div class="photo-card">
+        <img src="${esc(p.file_url)}" alt="${esc(p.caption || group.room)}">
+        ${p.caption?.trim() ? `<div class="photo-meta"><div class="photo-cap">${esc(p.caption.trim())}</div></div>` : ''}
+      </div>
+    `
+    const pics = [
+      ...(group.stages.assessment ?? []),
+      ...(group.stages.before ?? []),
+    ]
+    const grid = pics.length
+      ? `<div class="photos-grid">${pics.map(renderPhoto).join('')}</div>`
+      : ''
+
+    if (!pills.length && !pics.length) return ''
     const note = (group.note || '').trim()
     return `
-      <div class="label" style="margin-top:14px;color:#1a1a1a">${esc(group.room)}</div>
-      ${dimsLine}
-      ${note ? `<div class="body-text" style="margin-top:-2px;margin-bottom:8px"><strong>Room notes:</strong> ${esc(note)}</div>` : ''}
-      ${stageBlocks}
+      <section style="margin-top:18px;page-break-inside:avoid">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:8px 12px;background:#0f172a;color:#fff;border-radius:6px 6px 0 0">
+          <div style="font-size:12pt;font-weight:700;letter-spacing:0.01em">${esc(group.room)}</div>
+          ${pics.length ? `<div style="font-size:9pt;opacity:0.75">${pics.length} photo${pics.length === 1 ? '' : 's'}</div>` : ''}
+        </div>
+        <div style="border:1px solid var(--sow-rule);border-top:none;border-radius:0 0 6px 6px;padding:10px 12px 14px">
+          ${pillRow}
+          ${note ? `<div class="body-text" style="margin:0 0 10px;font-size:9.5pt;color:var(--sow-mid)"><strong>Room note:</strong> ${esc(note)}</div>` : ''}
+          ${grid}
+        </div>
+      </section>
     `
   })
   const inner = blocks.filter(Boolean).join('')
   if (!inner.trim()) return ''
   return `
-    <div class="label">Site Condition Photos</div>
+    <div class="label" style="margin-top:22px">Site Condition Photos &amp; Measurements</div>
+    <p class="body-text" style="margin-top:-2px;margin-bottom:6px;font-size:9pt;color:var(--sow-mid)">
+      Each area below pairs its captured dimensions with the visual evidence collected on site.
+    </p>
     ${inner}
   `
 }
@@ -1649,8 +1682,8 @@ function buildAssessmentDocumentMid(
     ${section('Risks overview', c.risks_overview)}
     ${section('Control measures', c.control_measures)}
     ${section('Limitations', c.limitations)}
-    ${photosHtml}
     ${recommendationsCallout(c.recommendations)}
+    ${photosHtml}
   `
 }
 
