@@ -482,7 +482,9 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
     field: keyof SectionTerms,
     value: string,
   ) {
-    const lines = value.split('\n').map(s => s.trim())
+    // Store lines verbatim while typing so spaces and blank lines survive.
+    // normalizeSectionTerms() trims and drops empties on save.
+    const lines = value.split('\n')
     setter(prev => ({ ...prev, [field]: lines }))
     setSaved(false)
     setSaveError('')
