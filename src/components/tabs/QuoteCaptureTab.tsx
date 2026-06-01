@@ -1561,11 +1561,14 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
 
       <div className="field">
         <label>Payment terms</label>
-        <AutoGrow
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 8px', lineHeight: 1.5 }}>
+          Rendered as a highlighted callout in the printed quote — use bold and bullets
+          for deposit amounts, balance, and reconciliation rules so the client can scan it.
+        </div>
+        <RichTextEditor
           value={paymentTerms}
-          onChange={v => { setPaymentTerms(v); setSaved(false); setSaveError('') }}
-          placeholder="e.g. 50% deposit to confirm booking, balance on completion net 7 days"
-          rows={2}
+          onChange={html => { setPaymentTerms(html); setSaved(false); setSaveError('') }}
+          minHeight={200}
         />
       </div>
 

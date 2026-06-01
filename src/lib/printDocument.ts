@@ -302,6 +302,32 @@ function cssSowPrint(): string {
     .sow-root .quote-auth-callout li { margin-bottom: 3px; }
     .sow-root .quote-auth-callout li:last-child { margin-bottom: 0; }
     .sow-root .quote-auth-callout strong { color: var(--sow-navy); font-weight: 700; }
+    /* Payment Terms callout — financial/contractual emphasis. Emerald accent
+       so it reads as distinct from the blue Recommendations and Authorisation
+       blocks while still feeling on-brand. */
+    .sow-root .quote-payment-callout {
+      margin: 18px 0 12px;
+      padding: 16px 18px;
+      border: 1px solid #a7f3d0;
+      border-left: 4px solid #059669;
+      background: #ecfdf5;
+      border-radius: 8px;
+    }
+    .sow-root .quote-payment-callout .quote-payment-callout-title {
+      font-size: 11pt;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: #065f46;
+      margin-bottom: 8px;
+    }
+    .sow-root .quote-payment-callout .quote-payment-callout-body { color: #064e3b; }
+    .sow-root .quote-payment-callout .quote-payment-callout-body p { margin: 0 0 0.55em; }
+    .sow-root .quote-payment-callout .quote-payment-callout-body p:last-child { margin-bottom: 0; }
+    .sow-root .quote-payment-callout .quote-payment-callout-body ul,
+    .sow-root .quote-payment-callout .quote-payment-callout-body ol { margin: 0.35em 0 0.5em 1.2em; padding-left: 0.4em; }
+    .sow-root .quote-payment-callout .quote-payment-callout-body li { margin-bottom: 3px; }
+    .sow-root .quote-payment-callout .quote-payment-callout-body strong { color: #064e3b; font-weight: 700; }
     .sow-root .sow-muted-box {
       margin-top: 22px;
       padding: 14px 16px;
@@ -594,6 +620,24 @@ function section(lbl: string, text: string): string {
   const inner = richBodyHtmlForPrint(text)
   if (!inner) return ''
   return `<div class="label">${lbl}</div><div class="body-text sow-rich">${inner}</div>`
+}
+
+/**
+ * Payment Terms is the most commonly disputed contractual clause on a quote
+ * (deposit %, balance trigger, reconciliation). Render as a strong callout so
+ * the client can't miss it. Accepts either rich HTML (TipTap from the Quote
+ * capture editor) or legacy plain text — both flow through richBodyHtmlForPrint.
+ */
+function paymentTermsCallout(text: string | undefined | null): string {
+  if (!text?.trim()) return ''
+  const inner = richBodyHtmlForPrint(text)
+  if (!inner) return ''
+  return `
+    <div class="quote-payment-callout">
+      <div class="quote-payment-callout-title">Payment Terms</div>
+      <div class="quote-payment-callout-body sow-rich">${inner}</div>
+    </div>
+  `
 }
 
 /**
@@ -1217,7 +1261,7 @@ function buildQuoteMid(
       <div class="tot-row grand"><span>${totalLabel}</span><span class="amt">${fmtMoney(c.total)}</span></div>
     </div>
     ${section('Notes &amp; Conditions', c.notes)}
-    ${section('Payment Terms', c.payment_terms)}
+    ${paymentTermsCallout(c.payment_terms)}
     ${section('Quote Validity', c.validity)}
     ${(() => {
       const a = c.authorisation

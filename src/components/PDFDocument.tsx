@@ -342,6 +342,48 @@ function AreasDimensionsPDFSection({ areas, label = 'Areas & Dimensions' }: { ar
 }
 
 /**
+ * Highlighted Payment Terms call-out for the PDF quote. Mirrors the emerald
+ * box in the HTML print (`quote-payment-callout`) so the most commonly
+ * disputed contractual clause (deposit %, balance, reconciliation) stands out
+ * to the client in either render path.
+ */
+function PaymentTermsCalloutPDF({ text }: { text: string }) {
+  const plain = plainTextForPdf(text)
+  if (!plain.trim()) return null
+  return (
+    <View
+      style={{
+        marginTop: 14,
+        marginBottom: 8,
+        padding: 12,
+        borderLeftWidth: 3,
+        borderLeftColor: '#059669',
+        borderTopWidth: 0.5,
+        borderRightWidth: 0.5,
+        borderBottomWidth: 0.5,
+        borderColor: '#a7f3d0',
+        backgroundColor: '#ecfdf5',
+        borderRadius: 4,
+      }}
+      wrap={false}
+    >
+      <Text
+        style={{
+          fontFamily: 'Helvetica-Bold',
+          fontSize: 9,
+          color: '#065f46',
+          letterSpacing: 0.4,
+          marginBottom: 4,
+        }}
+      >
+        PAYMENT TERMS
+      </Text>
+      <Text style={{ ...styles.body, color: '#064e3b' }}>{plain}</Text>
+    </View>
+  )
+}
+
+/**
  * Highlighted Recommendations call-out for the PDF — mirrors the blue box in
  * the HTML print so the section stands out as the most action-bearing part of
  * the Assessment Document. Suppressed when the field flattens to nothing.
@@ -582,7 +624,7 @@ function QuotePDF({
       </View>
 
       {content.notes && <View style={{ marginTop: 20 }}><Section label="Notes & Conditions" text={content.notes} /></View>}
-      <Section label="Payment Terms" text={content.payment_terms} />
+      <PaymentTermsCalloutPDF text={content.payment_terms} />
       <Section label="Quote Validity" text={content.validity} />
 
       {/* Before photos as evidence */}
@@ -737,7 +779,7 @@ function IaqMultiPDF({
         </View>
 
         {quote.notes ? <View style={{ marginTop: 20 }}><Section label="Notes & Conditions" text={quote.notes} /></View> : null}
-        <Section label="Payment Terms" text={quote.payment_terms} />
+        <PaymentTermsCalloutPDF text={quote.payment_terms} />
         <Section label="Quote Validity" text={quote.validity} />
 
         {beforePhotos.length > 0 && quote.include_photos !== false && (

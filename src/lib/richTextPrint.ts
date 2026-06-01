@@ -73,3 +73,28 @@ export function proseHasPrintableContent(raw: string | undefined | null): boolea
   const text = html.replace(/<[^>]+>/g, '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim()
   return text.length > 0
 }
+
+/**
+ * HTML / TipTap prose → plain multi-line text. For surfaces that can't render
+ * HTML (react-pdf `<Text>`, plain-text accept page, email previews). Block-level
+ * tags become newlines; inline tags are dropped; common HTML entities are
+ * decoded. Plain-text input passes through unchanged.
+ */
+export function proseToPlainText(raw: string | undefined | null): string {
+  const s = String(raw ?? '')
+  if (!s.trim()) return ''
+  if (!looksLikeHtml(s)) return s
+  const withNewlines = s
+    .replace(/<\s*br\s*\/?>/gi, '\n')
+    .replace(/<\s*\/\s*(p|div|li|h[1-6]|blockquote)\s*>/gi, '\n')
+    .replace(/<\s*li\b[^>]*>/gi, '\n• ')
+  const stripped = withNewlines.replace(/<[^>]+>/g, '')
+  const decoded = stripped
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+  return decoded.replace(/\n{3,}/g, '\n\n').replace(/[ \t]+\n/g, '\n').trim()
+}

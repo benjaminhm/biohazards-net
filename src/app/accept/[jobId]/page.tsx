@@ -14,6 +14,7 @@
 
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
+import { proseToPlainText } from '@/lib/richTextPrint'
 
 interface QuoteData {
   job: {
@@ -242,12 +243,17 @@ export default function AcceptQuotePage() {
           </div>
         )}
 
-        {/* Terms */}
-        {quote?.payment_terms && (
-          <div style={{ fontSize: 13, color: '#888', marginBottom: 8, lineHeight: 1.5 }}>
-            💳 {quote.payment_terms}
-          </div>
-        )}
+        {/* Terms — payment_terms may be TipTap rich HTML from Quote capture;
+            this surface is plain text only, so flatten before rendering. */}
+        {quote?.payment_terms && (() => {
+          const plain = proseToPlainText(quote.payment_terms)
+          if (!plain) return null
+          return (
+            <div style={{ fontSize: 13, color: '#888', marginBottom: 8, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
+              💳 {plain}
+            </div>
+          )
+        })()}
         {quote?.validity && (
           <div style={{ fontSize: 13, color: '#888', marginBottom: 28, lineHeight: 1.5 }}>
             ⏱ {quote.validity}
