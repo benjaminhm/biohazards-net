@@ -132,9 +132,18 @@ export default function GenerateModal({ jobId, type, content, photos, clientName
     if (!result) return
     onSaved(result.doc)
 
-    const subject = encodeURIComponent(`${DOC_TYPE_LABELS[type]} — ${company?.name ?? 'Brisbane Biohazard Cleaning'}`)
+    // Mirror the composed doc identity in the email subject/body — when a
+    // quote was promoted to "Estimate" at compose time, the client shouldn't
+    // get an email subject calling it a fixed-price "Quote".
+    const composedTitle = (result.doc?.content as { title?: unknown } | undefined)?.title
+    const effectiveLabel =
+      type === 'quote' && typeof composedTitle === 'string' && composedTitle.trim()
+        ? composedTitle.trim()
+        : DOC_TYPE_LABELS[type]
+
+    const subject = encodeURIComponent(`${effectiveLabel} — ${company?.name ?? 'Brisbane Biohazard Cleaning'}`)
     const body = encodeURIComponent(
-      `Hi ${clientName.split(' ')[0]},\n\nPlease find your ${DOC_TYPE_LABELS[type].toLowerCase()} at the link below.\n\n${result.printUrl}\n\nDon't hesitate to reach out if you have any questions.\n\nKind regards,\n${company?.name ?? 'Brisbane Biohazard Cleaning'}`
+      `Hi ${clientName.split(' ')[0]},\n\nPlease find your ${effectiveLabel.toLowerCase()} at the link below.\n\n${result.printUrl}\n\nDon't hesitate to reach out if you have any questions.\n\nKind regards,\n${company?.name ?? 'Brisbane Biohazard Cleaning'}`
     )
     const mailto = `mailto:${clientEmail}?subject=${subject}&body=${body}`
     window.location.href = mailto

@@ -42,6 +42,7 @@ import {
   applyPricingLayoutToContent,
   derivePricingLayoutFromCapture,
   normalizeSectionTerms,
+  quoteContentIsEstimate,
   volumePricingHasContent,
 } from '@/lib/quoteSections'
 import { buildPrintHTML, type ClientInfo } from '@/lib/printDocument'
@@ -527,6 +528,15 @@ function composeQuote(job: Job): ComposeDocumentResult {
   // Apply layout flags last so disabled-section data doesn't leak into the
   // composed content even if the capture's totals were stale.
   const c = applyPricingLayoutToContent(raw, layout)
+  // Promote the doc identity to "Estimate" when the rendered pricing
+  // includes the user's estimate-flagged per-m³ section — title, reference
+  // prefix, and downstream renderers all flip off this single flag.
+  const isEstimate = quoteContentIsEstimate(c)
+  if (isEstimate) {
+    c.is_estimate = true
+    c.title = 'Estimate'
+    c.reference = c.reference.replace(/^QUO-/, 'EST-')
+  }
   return { content: { ...c }, source: hasCapture ? 'assessment_capture' : 'skeleton' }
 }
 
@@ -730,7 +740,12 @@ function composeIaqMulti(
   const s = composeSow(job, equipment, chems)
   const q = composeQuote(job)
   const ref = refPrefix('iaq_multi', job.id)
-  const title = 'Assessment, Scope and Quote'
+  // Mirror the embedded Quote part's identity so the bundle cover doesn't
+  // call itself a "Quote" while the pricing inside is actually an Estimate.
+  const quoteIsEstimate = (q.content as { is_estimate?: boolean }).is_estimate === true
+  const title = quoteIsEstimate
+    ? 'Assessment, Scope and Estimate'
+    : 'Assessment, Scope and Quote'
   const parts: Array<{ type: DocType; content: Record<string, unknown> }> = [
     { type: 'assessment_document', content: a.content },
     { type: 'sow', content: s.content },

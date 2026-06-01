@@ -342,6 +342,51 @@ function AreasDimensionsPDFSection({ areas, label = 'Areas & Dimensions' }: { ar
 }
 
 /**
+ * "This is an Estimate, not a fixed-price quote" banner for the PDF. Mirrors
+ * the amber banner in the HTML print (`quote-estimate-banner`) — appears at
+ * the top of the quote body whenever the rendered pricing includes the
+ * user's estimate-flagged per-m³ section.
+ */
+function EstimateBannerPDF() {
+  return (
+    <View
+      style={{
+        marginTop: 6,
+        marginBottom: 14,
+        padding: 10,
+        borderLeftWidth: 3,
+        borderLeftColor: '#d97706',
+        borderTopWidth: 0.5,
+        borderRightWidth: 0.5,
+        borderBottomWidth: 0.5,
+        borderColor: '#fcd34d',
+        backgroundColor: '#fffbeb',
+        borderRadius: 4,
+      }}
+      wrap={false}
+    >
+      <Text
+        style={{
+          fontFamily: 'Helvetica-Bold',
+          fontSize: 8,
+          color: '#92400e',
+          letterSpacing: 0.5,
+          marginBottom: 3,
+        }}
+      >
+        THIS IS AN ESTIMATE — NOT A FIXED-PRICE QUOTE
+      </Text>
+      <Text style={{ ...styles.body, color: '#7c2d12' }}>
+        Pricing reflects estimated volumes / quantities at the rates shown. Final amounts
+        are reconciled at completion against actual measured volumes and weighbridge / disposal
+        receipts; variance is billed or credited at the same rates. See Payment Terms below for
+        deposit and balance details.
+      </Text>
+    </View>
+  )
+}
+
+/**
  * Highlighted Payment Terms call-out for the PDF quote. Mirrors the emerald
  * box in the HTML print (`quote-payment-callout`) so the most commonly
  * disputed contractual clause (deposit %, balance, reconciliation) stands out
@@ -584,6 +629,7 @@ function QuotePDF({
       <Header reference={content.reference} date={today} company={company} />
       <Text style={styles.docTitle}>{content.title}</Text>
       {site ? <Section label="Site address" text={site} /> : null}
+      {content.is_estimate ? <EstimateBannerPDF /> : null}
       <Section label="Overview" text={content.intro} />
 
       <Text style={styles.sectionLabel}>Scope & Pricing</Text>
@@ -737,8 +783,9 @@ function IaqMultiPDF({
       <Page size="A4" style={styles.page} wrap>
         <Header reference={bundleRef} date={today} company={company} />
         <Text style={styles.docTitle}>{bundleTitle}</Text>
-        <Text style={styles.partSubtitle}>Part 3 of 3 — Quote</Text>
+        <Text style={styles.partSubtitle}>Part 3 of 3 — {quote.is_estimate ? 'Estimate' : 'Quote'}</Text>
         {(siteAddress ?? '').trim() ? <Section label="Site address" text={(siteAddress ?? '').trim()} /> : null}
+        {quote.is_estimate ? <EstimateBannerPDF /> : null}
         <Section label="Overview" text={quote.intro} />
 
         <Text style={styles.sectionLabel}>Scope & Pricing</Text>

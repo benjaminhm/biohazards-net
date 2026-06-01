@@ -173,6 +173,25 @@ export function volumePricingHasContent(block: VolumePricingBlock | undefined): 
   return (block.rows ?? []).some(r => Number(r.estimated_volume_m3 || 0) > 0)
 }
 
+/**
+ * A quote should identify as an Estimate (not a fixed-price Quote) whenever
+ * its rendered pricing includes the estimate-flagged per-m³ section — i.e.
+ * the section is layout-enabled, has content, and the user has the "ESTIMATE
+ * (FINAL MEASURED AT UPLIFT)" toggle on. Drives doc title, reference prefix,
+ * and the explanatory subtitle on the printed/PDF quote.
+ */
+export function quoteContentIsEstimate(content: {
+  pricing_layout?: QuotePricingLayout
+  volume_pricing?: VolumePricingBlock
+}): boolean {
+  const layout = content.pricing_layout
+  const volume = content.volume_pricing
+  if (!volume) return false
+  if (layout && layout.per_m3_enabled === false) return false
+  if (!volumePricingHasContent(volume)) return false
+  return volume.is_estimate === true
+}
+
 /** True when `area_pricing` has at least one priced row. */
 export function areaPricingHasContent(rows: AreaPricingRow[] | undefined): boolean {
   return (rows ?? []).some(r => Number(r.total ?? 0) > 0)

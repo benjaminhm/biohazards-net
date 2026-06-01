@@ -1262,6 +1262,12 @@ export interface WasteItem {
 export interface QuoteContent {
   title: string
   reference: string
+  /** True when the rendered pricing contains an estimate-flagged volume
+   *  section (or otherwise variable pricing that's reconciled at completion).
+   *  Drives doc title ("Estimate"), reference prefix ("EST-…"), and the
+   *  explanatory subtitle/info-bar near the top of the printed/PDF doc.
+   *  Computed at compose time from `volume_pricing.is_estimate` + layout. */
+  is_estimate?: boolean
   intro: string
   line_items: LineItem[]
   /** Outcome-based quote rows (preferred render path when present). */

@@ -328,6 +328,33 @@ function cssSowPrint(): string {
     .sow-root .quote-payment-callout .quote-payment-callout-body ol { margin: 0.35em 0 0.5em 1.2em; padding-left: 0.4em; }
     .sow-root .quote-payment-callout .quote-payment-callout-body li { margin-bottom: 3px; }
     .sow-root .quote-payment-callout .quote-payment-callout-body strong { color: #064e3b; font-weight: 700; }
+    /* "This is an Estimate, not a fixed-price quote" banner — sits at the top
+       of the quote body so the client never confuses a measured-at-uplift
+       estimate with a fixed price. Amber/warning palette so it reads as an
+       important context note (distinct from the green payment callout below). */
+    .sow-root .quote-estimate-banner {
+      margin: 4px 0 16px;
+      padding: 12px 16px;
+      border: 1px solid #fcd34d;
+      border-left: 4px solid #d97706;
+      background: #fffbeb;
+      border-radius: 8px;
+      color: #78350f;
+    }
+    .sow-root .quote-estimate-banner-title {
+      font-size: 9pt;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #92400e;
+      margin-bottom: 4px;
+    }
+    .sow-root .quote-estimate-banner-body {
+      font-size: 9.5pt;
+      line-height: 1.5;
+      color: #7c2d12;
+    }
+    .sow-root .quote-estimate-banner-body strong { color: #78350f; font-weight: 700; }
     .sow-root .sow-muted-box {
       margin-top: 22px;
       padding: 14px 16px;
@@ -1248,6 +1275,17 @@ function buildQuoteMid(
       <div class="body-text" style="font-weight:500;color:var(--sow-navy);">${esc(siteLine)}</div>
     </div>
     ` : ''}
+    ${c.is_estimate ? `
+    <div class="quote-estimate-banner">
+      <div class="quote-estimate-banner-title">This is an Estimate — not a fixed-price quote</div>
+      <div class="quote-estimate-banner-body">
+        Pricing reflects <strong>estimated</strong> volumes / quantities at the rates shown.
+        Final amounts are reconciled at completion against actual measured volumes and
+        weighbridge/disposal receipts; variance is billed or credited at the same rates.
+        See <strong>Payment Terms</strong> below for deposit and balance details.
+      </div>
+    </div>
+    ` : ''}
     <div class="label">Overview</div><div class="body-text sow-rich">${richBodyHtmlForPrint(c.intro)}</div>
     <div class="label">Scope &amp; Pricing</div>
     ${section1}
@@ -1826,7 +1864,13 @@ export function buildComposedBundleHTML(
   const inner = parts
     .map((p, i) => {
       const mid = buildPrintMidHTML(p.type, p.content, photos, areas, company, jobId, appUrl, client)
-      const label = DOC_TYPE_LABELS[p.type] ?? p.type
+      // Quote parts may have been promoted to "Estimate" at compose time — use
+      // the embedded content.title when present so the bundle TOC matches the
+      // actual rendered identity (e.g. "Estimate" instead of "Quote").
+      const inferredTitle = (p.content as { title?: unknown })?.title
+      const label = p.type === 'quote' && typeof inferredTitle === 'string' && inferredTitle.trim()
+        ? inferredTitle.trim()
+        : (DOC_TYPE_LABELS[p.type] ?? p.type)
       return `<section class="bundle-part" data-part="${i + 1}"><div class="bundle-part-head"><span class="bundle-part-num">${i + 1}</span><span class="bundle-part-title">${esc(label)}</span></div><div class="bundle-part-body">${mid}</div></section>`
     })
     .join('')
