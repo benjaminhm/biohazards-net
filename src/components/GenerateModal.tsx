@@ -132,13 +132,15 @@ export default function GenerateModal({ jobId, type, content, photos, clientName
     if (!result) return
     onSaved(result.doc)
 
-    // Mirror the composed doc identity in the email subject/body — when a
-    // quote was promoted to "Estimate" at compose time, the client shouldn't
-    // get an email subject calling it a fixed-price "Quote".
-    const composedTitle = (result.doc?.content as { title?: unknown } | undefined)?.title
+    // For Quote/Estimate docs, the PDF title is the unified "Quote/Estimate"
+    // but the email subject should call out the actual commercial commitment
+    // ("Fixed-price quote" vs "Estimate") so the client's inbox is clear.
+    const composedContent = result.doc?.content as { is_estimate?: unknown } | undefined
     const effectiveLabel =
-      type === 'quote' && typeof composedTitle === 'string' && composedTitle.trim()
-        ? composedTitle.trim()
+      type === 'quote'
+        ? composedContent?.is_estimate === true
+          ? 'Estimate'
+          : 'Fixed-price quote'
         : DOC_TYPE_LABELS[type]
 
     const subject = encodeURIComponent(`${effectiveLabel} — ${company?.name ?? 'Brisbane Biohazard Cleaning'}`)

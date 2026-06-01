@@ -342,6 +342,49 @@ function AreasDimensionsPDFSection({ areas, label = 'Areas & Dimensions' }: { ar
 }
 
 /**
+ * "This is a fixed-price quote" banner for the PDF. Companion to
+ * EstimateBannerPDF — same position, confident blue palette so the client
+ * reads "this is the final number" at a glance.
+ */
+function FixedPriceBannerPDF() {
+  return (
+    <View
+      style={{
+        marginTop: 6,
+        marginBottom: 14,
+        padding: 10,
+        borderLeftWidth: 3,
+        borderLeftColor: '#1d4ed8',
+        borderTopWidth: 0.5,
+        borderRightWidth: 0.5,
+        borderBottomWidth: 0.5,
+        borderColor: '#bfdbfe',
+        backgroundColor: '#eff6ff',
+        borderRadius: 4,
+      }}
+      wrap={false}
+    >
+      <Text
+        style={{
+          fontFamily: 'Helvetica-Bold',
+          fontSize: 8,
+          color: '#1e40af',
+          letterSpacing: 0.5,
+          marginBottom: 3,
+        }}
+      >
+        THIS IS A FIXED-PRICE QUOTE
+      </Text>
+      <Text style={{ ...styles.body, color: '#1e3a8a' }}>
+        The total below is the agreed fixed price for the scope of works described. It is not
+        subject to variation unless the scope itself changes in writing. See Payment Terms below
+        for deposit and balance details.
+      </Text>
+    </View>
+  )
+}
+
+/**
  * "This is an Estimate, not a fixed-price quote" banner for the PDF. Mirrors
  * the amber banner in the HTML print (`quote-estimate-banner`) — appears at
  * the top of the quote body whenever the rendered pricing includes the
@@ -629,7 +672,7 @@ function QuotePDF({
       <Header reference={content.reference} date={today} company={company} />
       <Text style={styles.docTitle}>{content.title}</Text>
       {site ? <Section label="Site address" text={site} /> : null}
-      {content.is_estimate ? <EstimateBannerPDF /> : null}
+      {content.is_estimate ? <EstimateBannerPDF /> : <FixedPriceBannerPDF />}
       <Section label="Overview" text={content.intro} />
 
       <Text style={styles.sectionLabel}>Scope & Pricing</Text>
@@ -783,9 +826,9 @@ function IaqMultiPDF({
       <Page size="A4" style={styles.page} wrap>
         <Header reference={bundleRef} date={today} company={company} />
         <Text style={styles.docTitle}>{bundleTitle}</Text>
-        <Text style={styles.partSubtitle}>Part 3 of 3 — {quote.is_estimate ? 'Estimate' : 'Quote'}</Text>
+        <Text style={styles.partSubtitle}>Part 3 of 3 — Quote/Estimate</Text>
         {(siteAddress ?? '').trim() ? <Section label="Site address" text={(siteAddress ?? '').trim()} /> : null}
-        {quote.is_estimate ? <EstimateBannerPDF /> : null}
+        {quote.is_estimate ? <EstimateBannerPDF /> : <FixedPriceBannerPDF />}
         <Section label="Overview" text={quote.intro} />
 
         <Text style={styles.sectionLabel}>Scope & Pricing</Text>

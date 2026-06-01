@@ -58,7 +58,7 @@ export type DocType =
 
 export const DOC_TYPE_LABELS: Record<DocType, string> = {
   iaq_multi:                  'Assessment / Scope / Quote',
-  quote:                      'Quote',
+  quote:                      'Quote/Estimate',
   sow:                        'Scope of Work',
   assessment_document:        'Assessment & Recommendations',
   swms:                       'SWMS',
@@ -829,6 +829,12 @@ export interface QuotePricingLayout {
 
 export interface OutcomeQuoteCapture {
   mode: 'line_items' | 'outcomes'
+  /** Explicit document identity chosen by the user in the Quote/Estimate
+   *  builder — drives the doc title, reference prefix, banner colour, and
+   *  banner text on the printed/PDF document. When undefined, callers fall
+   *  back to inferring from `volume_pricing.is_estimate` so legacy quotes
+   *  still get sensible defaults. */
+  quote_kind?: 'quote' | 'estimate'
   /** Section 1 rows — value-based fees, mobilisation, surcharges, etc. */
   rows: OutcomeQuoteRow[]
   /** Section 3 — per-room/surface pricing rows. */

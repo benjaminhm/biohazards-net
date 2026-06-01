@@ -35,6 +35,7 @@ import {
   OUTCOME_KIND_ORDER,
   derivePricingLayoutFromCapture,
   normalizeSectionTerms,
+  quoteContentIsEstimate,
   recomputeVolumePricingTotal,
   syncVolumePricing,
   volumePricingSubtotal,
@@ -46,6 +47,25 @@ interface Props {
   documents: Document[]
   onJobUpdate: (job: Job) => void
   onGoToScope?: () => void
+}
+
+type QuoteKind = 'quote' | 'estimate'
+
+/**
+ * Default the doc-identity toggle from saved capture state. Honours an
+ * explicit `quote_kind` when present; otherwise derives from the same
+ * heuristic the print path used pre-toggle (per-m³ section flagged as
+ * estimate) so the toggle reflects whatever the rendered doc was already
+ * showing the client.
+ */
+function deriveQuoteKind(cap: OutcomeQuoteCapture | undefined | null): QuoteKind {
+  if (cap?.quote_kind === 'quote' || cap?.quote_kind === 'estimate') return cap.quote_kind
+  return quoteContentIsEstimate({
+    pricing_layout: cap?.pricing_layout,
+    volume_pricing: cap?.volume_pricing,
+  })
+    ? 'estimate'
+    : 'quote'
 }
 
 function toMoney(n: number): number {
@@ -297,6 +317,10 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
   const [pricingLayout, setPricingLayout] = useState<QuotePricingLayout>(() =>
     derivePricingLayoutFromCapture(existing),
   )
+  /** Explicit doc identity — drives the printed doc's banner + reference
+   *  prefix. Defaults derived from saved capture so legacy quotes don't
+   *  silently flip identity on first open. */
+  const [quoteKind, setQuoteKind] = useState<QuoteKind>(() => deriveQuoteKind(existing))
   const [globalMobilisationFee, setGlobalMobilisationFee] = useState<number>(
     Math.max(0, Number(existing?.global_mobilisation_fee ?? 0)),
   )
@@ -356,6 +380,7 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
     setAreaPricingTerms(cap?.area_pricing_terms ?? blankSectionTerms())
     setVolumePricingTerms(cap?.volume_pricing_terms ?? blankSectionTerms())
     setPricingLayout(derivePricingLayoutFromCapture(cap))
+    setQuoteKind(deriveQuoteKind(cap))
     setGlobalMobilisationFee(Math.max(0, Number(cap?.global_mobilisation_fee ?? 0)))
     setGlobalSurfaceRatePerM2(Math.max(0, Number(cap?.global_surface_rate_per_m2 ?? 0)))
     setGlobalContentsRatePerM3(Math.max(0, Number(cap?.global_contents_rate_per_m3 ?? 0)))
@@ -559,6 +584,7 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
       )
       merged.outcome_quote_capture = {
         mode: 'outcomes',
+        quote_kind: quoteKind,
         rows: promotedRows,
         area_pricing: areaPricing,
         ...(cleanAreaTerms ? { area_pricing_terms: cleanAreaTerms } : {}),
@@ -620,6 +646,74 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
           </div>
         </div>
       )}
+
+      {/* ── Document identity (Quote vs Estimate) ────────────────────────
+        * Drives the in-doc banner ("THIS IS A FIXED-PRICE QUOTE" vs
+        * "THIS IS AN ESTIMATE") and the reference prefix (QUO- vs EST-).
+        * Title stays "Quote/Estimate" in either case so the doc category
+        * is consistent. Stored as outcome_quote_capture.quote_kind. */}
+      <div style={{ marginBottom: 18 }}>
+        <div style={SECTION}>Document type</div>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: -6, marginBottom: 8, lineHeight: 1.5 }}>
+          Pick which commercial commitment this document makes. The generated PDF is titled
+          <strong style={{ color: 'var(--text)' }}> Quote/Estimate</strong> in either case;
+          a banner near the top of the doc tells the client which it is.
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          {([
+            {
+              key: 'quote' as const,
+              label: 'Fixed-price Quote',
+              sub: 'Total is the agreed price. Not subject to variation unless scope changes in writing.',
+              activeColor: '#1d4ed8',
+              activeBg: 'rgba(29,78,216,0.18)',
+              activeBorder: 'rgba(29,78,216,0.55)',
+            },
+            {
+              key: 'estimate' as const,
+              label: 'Estimate',
+              sub: 'Reconciled at completion against actual volumes / weighbridge receipts; variance billed or credited.',
+              activeColor: '#d97706',
+              activeBg: 'rgba(217,119,6,0.18)',
+              activeBorder: 'rgba(217,119,6,0.55)',
+            },
+          ]).map(opt => {
+            const active = quoteKind === opt.key
+            return (
+              <button
+                key={opt.key}
+                type="button"
+                onClick={() => { setQuoteKind(opt.key); setSaved(false); setSaveError('') }}
+                aria-pressed={active}
+                style={{
+                  textAlign: 'left',
+                  borderRadius: 9,
+                  border: `1px solid ${active ? opt.activeBorder : 'var(--border)'}`,
+                  background: active ? opt.activeBg : 'var(--surface-2)',
+                  color: 'var(--text)',
+                  padding: '10px 12px',
+                  cursor: 'pointer',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      display: 'inline-block',
+                      width: 14, height: 14, borderRadius: '50%',
+                      border: `2px solid ${active ? opt.activeColor : 'var(--border)'}`,
+                      background: active ? opt.activeColor : 'transparent',
+                      boxShadow: active ? `inset 0 0 0 2px var(--surface-2)` : 'none',
+                    }}
+                  />
+                  <span style={{ fontSize: 13, fontWeight: 800 }}>{opt.label}</span>
+                </div>
+                <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 4, lineHeight: 1.45 }}>{opt.sub}</div>
+              </button>
+            )
+          })}
+        </div>
+      </div>
 
       {/* ── Pricing approach toggles ───────────────────────────────────────
         * Independent on/off for each pricing axis. Real jobs combine all

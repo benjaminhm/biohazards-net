@@ -91,7 +91,7 @@ const HOME_SECTIONS: { id: HomeSection; label: string }[] = [
   { id: 'initial_contact', label: 'Initial Contact' },
   { id: 'onsite_assessment', label: 'Onsite Assessment' },
   { id: 'scope_of_work', label: 'Scope of Work' },
-  { id: 'quote', label: 'Quote' },
+  { id: 'quote', label: 'Quote/Estimate' },
   { id: 'legal', label: 'Legal' },
   { id: 'safety_compliance', label: 'Safety and Compliance' },
   { id: 'plan', label: 'Plan' },

@@ -42,14 +42,7 @@ function DocViewerInner() {
   const [composedPreviewHtml, setComposedPreviewHtml] = useState<string | null>(null)
   const lastComposeKeyRef = useRef<string | null>(null)
 
-  // Quote docs may have been promoted to "Estimate" at compose time (per-m³
-  // section flagged as estimate). Honour that in the in-app header so the
-  // shell reads the same as the rendered PDF/print preview.
-  const baseDocLabel = DOC_TYPE_LABELS[docType] ?? docType
-  const docLabel =
-    docType === 'quote' && content?.is_estimate === true
-      ? 'Estimate'
-      : baseDocLabel
+  const docLabel   = DOC_TYPE_LABELS[docType] ?? docType
   const hasContent = Object.keys(content).length > 0
   // Assessment Document treats photos as an opt-in extra (default off) since
   // the doc historically had no photo block; flipping the default ON would

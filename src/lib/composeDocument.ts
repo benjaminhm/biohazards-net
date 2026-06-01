@@ -492,7 +492,12 @@ function composeQuote(job: Job): ComposeDocumentResult {
   const hasOutcomes = cap && cap.rows?.length > 0
   const hasCapture = hasOutcomes || areaPricing.length > 0 || !!volumePricing
   const raw: QuoteContent = {
-    title: 'Quote',
+    // Unified doc identity — every Quote-type document prints as
+    // "Quote/Estimate"; the in-doc banner clarifies whether it's a
+    // fixed-price Quote or a measured-at-uplift Estimate (driven by
+    // outcome_quote_capture.quote_kind below, with a derive-from-data
+    // fallback for legacy captures).
+    title: 'Quote/Estimate',
     reference: refPrefix('quote', job.id),
     intro: hasCapture
       ? ''
@@ -528,13 +533,13 @@ function composeQuote(job: Job): ComposeDocumentResult {
   // Apply layout flags last so disabled-section data doesn't leak into the
   // composed content even if the capture's totals were stale.
   const c = applyPricingLayoutToContent(raw, layout)
-  // Promote the doc identity to "Estimate" when the rendered pricing
-  // includes the user's estimate-flagged per-m³ section — title, reference
-  // prefix, and downstream renderers all flip off this single flag.
-  const isEstimate = quoteContentIsEstimate(c)
-  if (isEstimate) {
-    c.is_estimate = true
-    c.title = 'Estimate'
+  // Explicit user choice wins; fall back to the derive-from-data heuristic
+  // so legacy captures (no `quote_kind`) still pick up the estimate identity
+  // when their per-m³ section was flagged as estimate.
+  const effectiveKind: 'quote' | 'estimate' =
+    cap?.quote_kind ?? (quoteContentIsEstimate(c) ? 'estimate' : 'quote')
+  c.is_estimate = effectiveKind === 'estimate'
+  if (effectiveKind === 'estimate') {
     c.reference = c.reference.replace(/^QUO-/, 'EST-')
   }
   return { content: { ...c }, source: hasCapture ? 'assessment_capture' : 'skeleton' }
@@ -740,12 +745,10 @@ function composeIaqMulti(
   const s = composeSow(job, equipment, chems)
   const q = composeQuote(job)
   const ref = refPrefix('iaq_multi', job.id)
-  // Mirror the embedded Quote part's identity so the bundle cover doesn't
-  // call itself a "Quote" while the pricing inside is actually an Estimate.
-  const quoteIsEstimate = (q.content as { is_estimate?: boolean }).is_estimate === true
-  const title = quoteIsEstimate
-    ? 'Assessment, Scope and Estimate'
-    : 'Assessment, Scope and Quote'
+  // Embedded Quote part is always titled "Quote/Estimate" with an in-doc
+  // banner spelling out which it is; the bundle cover mirrors that label so
+  // the table-of-contents reads consistently with the part body.
+  const title = 'Assessment, Scope and Quote/Estimate'
   const parts: Array<{ type: DocType; content: Record<string, unknown> }> = [
     { type: 'assessment_document', content: a.content },
     { type: 'sow', content: s.content },

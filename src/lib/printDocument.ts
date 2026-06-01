@@ -355,6 +355,32 @@ function cssSowPrint(): string {
       color: #7c2d12;
     }
     .sow-root .quote-estimate-banner-body strong { color: #78350f; font-weight: 700; }
+    /* "This is a fixed-price quote" companion banner — same position as the
+       estimate banner but a confident slate/emerald palette so the client
+       reads "this is the final number" at a glance. */
+    .sow-root .quote-fixed-banner {
+      margin: 4px 0 16px;
+      padding: 12px 16px;
+      border: 1px solid #bfdbfe;
+      border-left: 4px solid #1d4ed8;
+      background: #eff6ff;
+      border-radius: 8px;
+      color: #1e3a8a;
+    }
+    .sow-root .quote-fixed-banner-title {
+      font-size: 9pt;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #1e40af;
+      margin-bottom: 4px;
+    }
+    .sow-root .quote-fixed-banner-body {
+      font-size: 9.5pt;
+      line-height: 1.5;
+      color: #1e3a8a;
+    }
+    .sow-root .quote-fixed-banner-body strong { color: #1e3a8a; font-weight: 700; }
     .sow-root .sow-muted-box {
       margin-top: 22px;
       padding: 14px 16px;
@@ -1285,7 +1311,16 @@ function buildQuoteMid(
         See <strong>Payment Terms</strong> below for deposit and balance details.
       </div>
     </div>
-    ` : ''}
+    ` : `
+    <div class="quote-fixed-banner">
+      <div class="quote-fixed-banner-title">This is a fixed-price quote</div>
+      <div class="quote-fixed-banner-body">
+        The <strong>total below</strong> is the agreed fixed price for the scope of works described.
+        It is not subject to variation unless the scope itself changes in writing.
+        See <strong>Payment Terms</strong> below for deposit and balance details.
+      </div>
+    </div>
+    `}
     <div class="label">Overview</div><div class="body-text sow-rich">${richBodyHtmlForPrint(c.intro)}</div>
     <div class="label">Scope &amp; Pricing</div>
     ${section1}
