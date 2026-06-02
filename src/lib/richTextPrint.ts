@@ -2,10 +2,9 @@
  * TipTap stores prose as a small HTML subset. Print/PDF must sanitize before
  * embedding in branded HTML (XSS). Legacy plain-text fields stay escaped.
  */
-import DOMPurify from 'isomorphic-dompurify'
+import sanitizeHtml from 'sanitize-html'
 
 const ALLOWED_TAGS = ['p', 'span', 'br', 'strong', 'b', 'em', 'i', 'u', 'ul', 'ol', 'li', 'blockquote']
-const ALLOWED_ATTR = ['style']
 const ALLOWED_ALIGN = new Set(['left', 'center', 'right'])
 
 /** Keep only print-safe style declarations that we intentionally support in the editor. */
@@ -51,7 +50,15 @@ export function richBodyHtmlForPrint(raw: string | undefined | null): string {
   const t = raw ?? ''
   if (!t.trim()) return ''
   if (looksLikeHtml(t)) {
-    const cleaned = DOMPurify.sanitize(t, { ALLOWED_TAGS, ALLOWED_ATTR })
+    // Parser-based allowlist sanitiser (htmlparser2). Keeps only formatting tags
+    // and the `style` attribute; `sanitizeAllowedStyles` then narrows styles to
+    // the handful of declarations we intentionally support in print. No jsdom.
+    const cleaned = sanitizeHtml(t, {
+      allowedTags: ALLOWED_TAGS,
+      allowedAttributes: { '*': ['style'] },
+      // Drop disallowed tags but keep their text (matches prior behaviour).
+      disallowedTagsMode: 'discard',
+    })
     return sanitizeAllowedStyles(cleaned)
   }
   return escPlain(t).replace(/\r\n/g, '\n').replace(/\n/g, '<br>')
