@@ -18,6 +18,20 @@ import { DOC_TYPE_LABELS } from '@/lib/types'
 import { composeDocumentContent, buildComposedPreviewHtml, type ComposeDocumentOptions } from '@/lib/composeDocument'
 import { mergeQuoteLineItemsIntoDocContent } from '@/lib/quoteLineItemsForDocuments'
 
+/** True when a quote/iaq_multi doc carries a spoke quote_id (frozen snapshot). */
+function contentHasQuoteId(docType: DocType, content: Record<string, unknown>): boolean {
+  if (docType === 'quote') return typeof content.quote_id === 'string' && content.quote_id.length > 0
+  if (docType === 'iaq_multi') {
+    const parts = content.parts
+    if (!Array.isArray(parts)) return false
+    return parts.some(p => {
+      const part = p as { type?: string; content?: { quote_id?: unknown } }
+      return part?.type === 'quote' && typeof part.content?.quote_id === 'string' && part.content.quote_id.length > 0
+    })
+  }
+  return false
+}
+
 function DocViewerInner() {
   const params       = useParams()
   const router       = useRouter()
@@ -26,6 +40,7 @@ function DocViewerInner() {
   const jobId   = params.id as string
   const docType = params.type as DocType
   const docId   = searchParams.get('docId')
+  const quoteId = searchParams.get('quoteId')
 
   const [job,              setJob]             = useState<Job | null>(null)
   const [photos,           setPhotos]          = useState<Photo[]>([])
@@ -118,7 +133,7 @@ function DocViewerInner() {
         const d = await fetch(`/api/documents/${docId}`).then(r => r.json())
         if (d.document?.content) {
           let next = d.document.content as Record<string, unknown>
-          if (docType === 'quote' || docType === 'iaq_multi') {
+          if ((docType === 'quote' || docType === 'iaq_multi') && !contentHasQuoteId(docType, next)) {
             const quoteRes = await fetch(`/api/jobs/${jobId}/quote-line-items`).then(r => r.json())
             const rows = (quoteRes.items ?? []) as QuoteLineItemRow[]
             const gst_mode = quoteRes.run?.gst_mode
@@ -150,7 +165,7 @@ function DocViewerInner() {
       const spCompose = searchParams.get('compose')
       const spGen = searchParams.get('generate')
       const wantCompose = spCompose === '1' || spGen === '1'
-      const composeKey = `${jobId}:${docType}:${spCompose ?? ''}:${spGen ?? ''}`
+      const composeKey = `${jobId}:${docType}:${spCompose ?? ''}:${spGen ?? ''}:${quoteId ?? ''}`
       if (wantCompose && j && lastComposeKeyRef.current !== composeKey) {
         lastComposeKeyRef.current = composeKey
         let composeOpts: ComposeDocumentOptions | undefined
@@ -173,10 +188,13 @@ function DocViewerInner() {
           ...(composeOpts ?? {}),
           equipmentCatalogue: co?.equipment_catalogue ?? null,
           chemicalsCatalogue: co?.chemicals_catalogue ?? null,
+          ...(quoteId ? { quoteId } : {}),
         }
         const { content: composed } = composeDocumentContent(docType, j, composeOpts)
         let finalComposed = composed
-        if (docType === 'quote' || docType === 'iaq_multi') {
+        // Spoke composes (quoteId present) are already complete + frozen; only
+        // legacy single-quote composes overlay the live line-items run.
+        if ((docType === 'quote' || docType === 'iaq_multi') && !quoteId) {
           const quoteRes = await fetch(`/api/jobs/${jobId}/quote-line-items`).then(r => r.json())
           const rows = (quoteRes.items ?? []) as QuoteLineItemRow[]
           const gst_mode = quoteRes.run?.gst_mode
@@ -206,7 +224,7 @@ function DocViewerInner() {
       }
     }
     load()
-  }, [jobId, docId, docType, router, searchParams])
+  }, [jobId, docId, docType, quoteId, router, searchParams])
 
   useEffect(() => {
     if (!job || !hasContent) {

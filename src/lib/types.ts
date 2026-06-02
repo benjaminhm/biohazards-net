@@ -871,6 +871,27 @@ export interface OutcomeQuoteCapture {
   last_reviewed_at?: string
 }
 
+/**
+ * A single named, independent quote ("spoke") within a job. The Assessment
+ * data is the shared source-of-truth "hub"; each spoke reads from it but owns
+ * its own selection, pricing, terms, and totals. A spoke is the durable
+ * working quote; generating a document freezes a snapshot of one spoke into
+ * the `documents` table.
+ *
+ * QuoteSpoke is a structural superset of OutcomeQuoteCapture, so anything that
+ * reads a capture can read a spoke. The legacy single `outcome_quote_capture`
+ * is migrated into a one-element `outcome_quotes` array on first read
+ * (see lib/quoteSpokes.ts).
+ */
+export interface QuoteSpoke extends OutcomeQuoteCapture {
+  /** Stable client-generated id; used as the React key and the doc `quote_id`. */
+  id: string
+  /** Human label shown in the quote selector and the generated document, e.g. "Mould remediation". */
+  label: string
+  created_at: string
+  updated_at: string
+}
+
 /** Phase 1 job-scoped blocks for composer / future print wiring; stable string ids. */
 export type ContentBlockType = 'prose' | 'key_value' | 'table'
 
@@ -991,8 +1012,14 @@ export interface AssessmentData {
    * Aggregated into the completion report when staff completion_report_capture fields are left blank.
    */
   per_execute_capture?: PerExecuteCapture
-  /** Outcome-first quote capture for HITL value-based pricing; line items remain internal engine. */
+  /**
+   * @deprecated Legacy single quote. Retained for backward-compatible reads and
+   * mirrored to the currently-active spoke on save. New code reads/writes
+   * `outcome_quotes` via lib/quoteSpokes.ts.
+   */
   outcome_quote_capture?: OutcomeQuoteCapture
+  /** Multiple independent named quotes ("spokes") for one job. See QuoteSpoke. */
+  outcome_quotes?: QuoteSpoke[]
   /** Job-scoped pathogen / pathophysiology PDF reference library. Used as
    *  grounded biology source by the Assessment Document AI suggester. */
   pathogens_capture?: PathogensCapture
@@ -1268,6 +1295,12 @@ export interface WasteItem {
 export interface QuoteContent {
   title: string
   reference: string
+  /** When this quote document was composed from a named spoke, its id. Presence
+   *  marks the saved document as a frozen snapshot — the print/viewer paths skip
+   *  the live capture re-merge so the sent quote never changes. */
+  quote_id?: string
+  /** Human label of the source spoke, surfaced on the document for distinction. */
+  quote_label?: string
   /** True when the rendered pricing contains an estimate-flagged volume
    *  section (or otherwise variable pricing that's reconciled at completion).
    *  Drives doc title ("Estimate"), reference prefix ("EST-…"), and the

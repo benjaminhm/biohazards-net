@@ -36,6 +36,7 @@ import {
   type CompletionReportComposeContext,
 } from '@/lib/perCompletionAssembly'
 import { assessmentDocumentHasContent, mergedAssessmentDocumentCapture } from '@/lib/assessmentDocumentCapture'
+import { getSpokeById } from '@/lib/quoteSpokes'
 import { collectExcludedSurfaces } from '@/lib/areaSurfaces'
 import { effectiveAreaDimensions } from '@/lib/areaSubzones'
 import {
@@ -77,6 +78,8 @@ export interface ComposeDocumentOptions {
   equipmentCatalogue?: EquipmentCatalogueItem[] | null
   /** Org chemicals catalogue so we can resolve used_chemical_catalogue_uses → named rows with SDS-parsed PPE. */
   chemicalsCatalogue?: ChemicalCatalogueItem[] | null
+  /** Which quote spoke to compose (quote / iaq_multi). Omitted = legacy single capture. */
+  quoteId?: string
 }
 
 const todayRef = () => new Date().toISOString().slice(0, 10).replace(/-/g, '')
@@ -477,9 +480,12 @@ function composeSow(
   return { content: { ...c }, source: 'skeleton' }
 }
 
-function composeQuote(job: Job): ComposeDocumentResult {
+function composeQuote(job: Job, quoteId?: string): ComposeDocumentResult {
   const ad = job.assessment_data
-  const cap = ad?.outcome_quote_capture
+  // Hub-and-spoke: when a quoteId is given, compose from that named spoke;
+  // otherwise fall back to the legacy single capture.
+  const spoke = quoteId ? getSpokeById(ad, quoteId) : undefined
+  const cap = spoke ?? ad?.outcome_quote_capture
   const auth = cap?.authorisation
   const areaPricing = (cap?.area_pricing ?? []).filter(r => Number(r.total ?? 0) > 0)
   const autoExcludedSurfaces = collectExcludedSurfaces(areaPricing)
@@ -541,6 +547,15 @@ function composeQuote(job: Job): ComposeDocumentResult {
   c.is_estimate = effectiveKind === 'estimate'
   if (effectiveKind === 'estimate') {
     c.reference = c.reference.replace(/^QUO-/, 'EST-')
+  }
+  // Stamp spoke identity so the print/viewer paths treat this as a frozen
+  // snapshot (skip the live capture re-merge) and the label distinguishes it
+  // from sibling quotes on the same job.
+  if (spoke) {
+    c.quote_id = spoke.id
+    c.quote_label = spoke.label
+    const trimmedLabel = spoke.label.trim()
+    if (trimmedLabel) c.title = `Quote/Estimate — ${trimmedLabel}`
   }
   return { content: { ...c }, source: hasCapture ? 'assessment_capture' : 'skeleton' }
 }
@@ -740,10 +755,11 @@ function composeIaqMulti(
   job: Job,
   equipment: ResolvedEquipmentItem[],
   chems: ResolvedChemicalItem[],
+  quoteId?: string,
 ): ComposeDocumentResult {
   const a = composeAssessmentDocument(job, equipment, chems)
   const s = composeSow(job, equipment, chems)
-  const q = composeQuote(job)
+  const q = composeQuote(job, quoteId)
   const ref = refPrefix('iaq_multi', job.id)
   // Embedded Quote part is always titled "Quote/Estimate" with an in-doc
   // banner spelling out which it is; the bundle cover mirrors that label so
@@ -773,13 +789,13 @@ export function composeDocumentContent(type: DocType, job: Job, options?: Compos
   const chems = resolveJobChemicals(job.assessment_data, options?.chemicalsCatalogue ?? null)
   switch (type) {
     case 'iaq_multi':
-      return composeIaqMulti(job, equipment, chems)
+      return composeIaqMulti(job, equipment, chems, options?.quoteId)
     case 'assessment_document':
       return composeAssessmentDocument(job, equipment, chems)
     case 'sow':
       return composeSow(job, equipment, chems)
     case 'quote':
-      return composeQuote(job)
+      return composeQuote(job, options?.quoteId)
     case 'swms':
       return composeSwms(job, equipment, chems)
     case 'authority_to_proceed':

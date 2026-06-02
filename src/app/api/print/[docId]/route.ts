@@ -22,6 +22,20 @@ import {
 } from '@/lib/quoteLineItemsForDocuments'
 import type { DocType } from '@/lib/types'
 
+/** True when a saved doc already carries a spoke `quote_id` (a frozen snapshot). */
+function docHasQuoteId(docType: DocType, content: Record<string, unknown>): boolean {
+  if (docType === 'quote') return typeof content.quote_id === 'string' && content.quote_id.length > 0
+  if (docType === 'iaq_multi') {
+    const parts = content.parts
+    if (!Array.isArray(parts)) return false
+    return parts.some(p => {
+      const part = p as { type?: string; content?: { quote_id?: unknown } }
+      return part?.type === 'quote' && typeof part.content?.quote_id === 'string' && part.content.quote_id.length > 0
+    })
+  }
+  return false
+}
+
 export async function GET(_req: Request, { params }: { params: Promise<{ docId: string }> }) {
   const { docId } = await params
   const supabase = createServiceClient()
@@ -52,7 +66,10 @@ export async function GET(_req: Request, { params }: { params: Promise<{ docId: 
 
   let docContent: Record<string, unknown> = (doc.content ?? {}) as Record<string, unknown>
   const docType = doc.type as DocType
-  if (docType === 'quote' || docType === 'iaq_multi') {
+  // Spoke-based quote documents (carrying quote_id) are frozen snapshots — render
+  // their stored content as-is. Only legacy quotes re-merge the live capture.
+  const isFrozenSpokeQuote = docHasQuoteId(docType, docContent)
+  if ((docType === 'quote' || docType === 'iaq_multi') && !isFrozenSpokeQuote) {
     try {
       const ctx = await fetchQuoteLineItemsMergeContext(supabase, doc.job_id)
       docContent = mergeQuoteLineItemsIntoDocContent(docType, docContent, ctx.rows, {

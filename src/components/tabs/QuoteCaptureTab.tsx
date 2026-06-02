@@ -6,6 +6,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useRouter } from 'next/navigation'
 import type {
   Area,
   AreaPricingRow,
@@ -17,12 +18,14 @@ import type {
   QuoteAuthorisation,
   QuoteGstMode,
   QuotePricingLayout,
+  QuoteSpoke,
   SectionTerms,
   SurfaceKind,
   SurfacePricingLine,
   VolumePricingBlock,
   VolumePricingRow,
 } from '@/lib/types'
+import { genQuoteSpokeId, getQuoteSpokesOrSeed, makeBlankSpoke } from '@/lib/quoteSpokes'
 import {
   SURFACE_KINDS,
   SURFACE_LABELS,
@@ -290,9 +293,21 @@ const SECTION: CSSProperties = {
 }
 
 export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
+  const router = useRouter()
   const ad = job.assessment_data
-  const existing = ad?.outcome_quote_capture
   const fastQuote = ad?.fast_quote?.enabled ? ad.fast_quote : null
+
+  // Hub-and-spoke: assessment_data is the shared hub; each spoke is an
+  // independent named quote. Seed at least one so the editor is never empty.
+  const initialSpokesRef = useRef<QuoteSpoke[] | null>(null)
+  if (initialSpokesRef.current === null) {
+    initialSpokesRef.current = getQuoteSpokesOrSeed(ad)
+  }
+  const [spokes, setSpokes] = useState<QuoteSpoke[]>(initialSpokesRef.current)
+  const [activeSpokeId, setActiveSpokeId] = useState<string>(initialSpokesRef.current[0].id)
+  /** The active spoke's capture — drives every field's initial value below. */
+  const existing: OutcomeQuoteCapture | undefined =
+    spokes.find(s => s.id === activeSpokeId) ?? spokes[0]
 
   const [instruction, setInstruction] = useState('')
   const [suggesting, setSuggesting] = useState(false)
@@ -359,7 +374,9 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
       .then(r => r.json())
       .then((d: { run?: { gst_mode?: QuoteGstMode; add_gst_to_total?: boolean } | null }) => {
         if (cancelled) return
-        setGstMode(d.run ? gstModeFromRun(d.run) : existing?.gst_mode ?? 'no_gst')
+        // Spoke GST is the source of truth; the per-job run is only a fallback
+        // for legacy single-quote jobs whose capture predates gst_mode.
+        setGstMode(existing?.gst_mode ?? (d.run ? gstModeFromRun(d.run) : 'no_gst'))
       })
       .catch(() => {
         if (!cancelled) setGstMode(existing?.gst_mode ?? 'no_gst')
@@ -372,8 +389,9 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
     }
   }, [existing?.gst_mode, job.id])
 
-  useEffect(() => {
-    const cap = job.assessment_data?.outcome_quote_capture
+  /** Push one capture (spoke) into every editor field. Shared by the job-sync
+   *  effect and the spoke selector handlers. Payment terms stay job-level (hub). */
+  function applyCapture(cap: OutcomeQuoteCapture | undefined) {
     setRows(cap?.rows ?? [])
     setAreaPricing(syncAreaPricing(job.assessment_data?.areas, cap?.area_pricing))
     setVolumePricing(syncVolumePricing(job.assessment_data?.areas, cap?.volume_pricing))
@@ -385,7 +403,6 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
     setGlobalSurfaceRatePerM2(Math.max(0, Number(cap?.global_surface_rate_per_m2 ?? 0)))
     setGlobalContentsRatePerM3(Math.max(0, Number(cap?.global_contents_rate_per_m3 ?? 0)))
     setGstMode(cap?.gst_mode ?? 'no_gst')
-    setPaymentTerms(job.assessment_data?.payment_terms ?? '')
     setValidity(cap?.validity ?? '')
     setNotes(cap?.notes ?? '')
     const a = cap?.authorisation
@@ -395,9 +412,22 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
       liability_statement: a?.liability_statement ?? DEFAULT_LIABILITY,
       acceptance_statement: a?.acceptance_statement ?? DEFAULT_ACCEPTANCE,
     })
+  }
+
+  // Re-sync from the server copy when the job changes (e.g. after our own save).
+  // Spoke switching is handled locally in switchSpoke(); we keep the current
+  // selection if it still exists, else fall back to the first spoke.
+  useEffect(() => {
+    const fresh = getQuoteSpokesOrSeed(job.assessment_data)
+    setSpokes(fresh)
+    const active = fresh.find(s => s.id === activeSpokeId) ?? fresh[0]
+    setActiveSpokeId(active.id)
+    applyCapture(active)
+    setPaymentTerms(job.assessment_data?.payment_terms ?? '')
     setSaved(false)
     setSaveError('')
-  }, [job.assessment_data?.outcome_quote_capture, job.assessment_data?.areas, job.assessment_data?.payment_terms, job.id, job.updated_at])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job.assessment_data?.outcome_quotes, job.assessment_data?.outcome_quote_capture, job.assessment_data?.areas, job.assessment_data?.payment_terms, job.id, job.updated_at])
 
   const totals = useMemo(
     () => computeTotals(rows, areaPricing, volumePricing, pricingLayout, gstMode, globalMobilisationFee),
@@ -559,49 +589,143 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
     }
   }
 
-  async function save() {
+  /** Assemble the active spoke's capture from the current editor state.
+   *  Saving promotes priced AI-suggested rows to 'approved' so the builder,
+   *  the generated doc body, and the totals stay in sync. */
+  function buildActiveCapture(): OutcomeQuoteCapture {
+    const cleanAreaTerms = normalizeSectionTerms(areaPricingTerms)
+    const cleanVolumeTerms = normalizeSectionTerms(volumePricingTerms)
+    const persistedVolume = pricingLayout.per_m3_enabled || (volumePricing.rows.length > 0)
+      ? recomputeVolumePricingTotal(volumePricing)
+      : undefined
+    const promotedRows: OutcomeQuoteRow[] = rows.map(r =>
+      r.status === 'suggested' && Number(r.price || 0) > 0
+        ? { ...r, status: 'approved' }
+        : r,
+    )
+    return {
+      mode: 'outcomes',
+      quote_kind: quoteKind,
+      rows: promotedRows,
+      area_pricing: areaPricing,
+      ...(cleanAreaTerms ? { area_pricing_terms: cleanAreaTerms } : {}),
+      ...(persistedVolume ? { volume_pricing: persistedVolume } : {}),
+      ...(cleanVolumeTerms ? { volume_pricing_terms: cleanVolumeTerms } : {}),
+      pricing_layout: pricingLayout,
+      global_mobilisation_fee: globalMobilisationFee,
+      global_surface_rate_per_m2: globalSurfaceRatePerM2,
+      global_contents_rate_per_m3: globalContentsRatePerM3,
+      gst_mode: gstMode,
+      totals: computeTotals(promotedRows, areaPricing, persistedVolume ?? null, pricingLayout, gstMode, globalMobilisationFee),
+      target_pricing: {},
+      validity,
+      notes,
+      authorisation: auth,
+      last_reviewed_at: new Date().toISOString(),
+    } satisfies OutcomeQuoteCapture
+  }
+
+  /** Fold the active editor state back into the spokes list (in-memory). */
+  function commitActiveSpoke(list: QuoteSpoke[]): QuoteSpoke[] {
+    const cap = buildActiveCapture()
+    const now = new Date().toISOString()
+    return list.map(s =>
+      s.id === activeSpokeId
+        ? { ...s, ...cap, id: s.id, label: s.label, created_at: s.created_at, updated_at: now }
+        : s,
+    )
+  }
+
+  function switchSpoke(targetId: string) {
+    if (targetId === activeSpokeId) return
+    const committed = commitActiveSpoke(spokes)
+    const target = committed.find(s => s.id === targetId)
+    setSpokes(committed)
+    setActiveSpokeId(targetId)
+    if (target) applyCapture(target)
+    setSaved(false)
+    setSaveError('')
+  }
+
+  function addSpoke() {
+    const label = window.prompt('Name this quote', `Quote ${spokes.length + 1}`)
+    if (label === null) return
+    const committed = commitActiveSpoke(spokes)
+    const spoke = makeBlankSpoke(label.trim() || `Quote ${spokes.length + 1}`)
+    setSpokes([...committed, spoke])
+    setActiveSpokeId(spoke.id)
+    applyCapture(spoke)
+    setSaved(false)
+    setSaveError('')
+  }
+
+  function duplicateActiveSpoke() {
+    const current = spokes.find(s => s.id === activeSpokeId)
+    if (!current) return
+    const label = window.prompt('Name the copy', `${current.label} (copy)`)
+    if (label === null) return
+    const committed = commitActiveSpoke(spokes)
+    const source = committed.find(s => s.id === activeSpokeId) ?? current
+    const now = new Date().toISOString()
+    const copy: QuoteSpoke = {
+      ...source,
+      id: genQuoteSpokeId(),
+      label: label.trim() || `${current.label} (copy)`,
+      created_at: now,
+      updated_at: now,
+    }
+    setSpokes([...committed, copy])
+    setActiveSpokeId(copy.id)
+    applyCapture(copy)
+    setSaved(false)
+    setSaveError('')
+  }
+
+  function renameActiveSpoke() {
+    const current = spokes.find(s => s.id === activeSpokeId)
+    if (!current) return
+    const label = window.prompt('Rename quote', current.label)
+    if (label === null) return
+    const trimmed = label.trim()
+    if (!trimmed) return
+    setSpokes(prev => prev.map(s => (s.id === activeSpokeId ? { ...s, label: trimmed } : s)))
+    setSaved(false)
+    setSaveError('')
+  }
+
+  function deleteActiveSpoke() {
+    if (spokes.length <= 1) return
+    const current = spokes.find(s => s.id === activeSpokeId)
+    if (!current) return
+    if (!window.confirm(`Delete quote "${current.label}"? Documents already generated from it are unaffected.`)) return
+    const remaining = spokes.filter(s => s.id !== activeSpokeId)
+    const next = remaining[0]
+    setSpokes(remaining)
+    setActiveSpokeId(next.id)
+    applyCapture(next)
+    setSaved(false)
+    setSaveError('')
+  }
+
+  /** Persist all spokes; mirror the active spoke into the legacy field so the
+   *  existing live-merge / line-items / print paths for the active quote keep
+   *  working. Returns the updated Job on success, else null. */
+  async function save(): Promise<Job | null> {
     setSaving(true)
     setSaved(false)
     setSaveError('')
     try {
+      const cap = buildActiveCapture()
+      const now = new Date().toISOString()
+      const nextSpokes: QuoteSpoke[] = spokes.map(s =>
+        s.id === activeSpokeId
+          ? { ...s, ...cap, id: s.id, label: s.label, created_at: s.created_at, updated_at: now }
+          : s,
+      )
       const merged = { ...(ad ?? {}) } as Record<string, unknown>
       merged.payment_terms = paymentTerms
-      const cleanAreaTerms = normalizeSectionTerms(areaPricingTerms)
-      const cleanVolumeTerms = normalizeSectionTerms(volumePricingTerms)
-      const persistedVolume = pricingLayout.per_m3_enabled || (volumePricing.rows.length > 0)
-        ? recomputeVolumePricingTotal(volumePricing)
-        : undefined
-      // Saving the capture is treated as the user approving the rows that
-      // have a price. The downstream quote-line-items API only counts rows
-      // with status 'approved' or 'edited' towards the generated subtotal,
-      // so suggested-but-priced rows (straight from AI Suggest) would render
-      // in the doc but be excluded from totals. Promoting them on save keeps
-      // the builder UI, the generated doc body, and the doc totals in sync.
-      const promotedRows: OutcomeQuoteRow[] = rows.map(r =>
-        r.status === 'suggested' && Number(r.price || 0) > 0
-          ? { ...r, status: 'approved' }
-          : r,
-      )
-      merged.outcome_quote_capture = {
-        mode: 'outcomes',
-        quote_kind: quoteKind,
-        rows: promotedRows,
-        area_pricing: areaPricing,
-        ...(cleanAreaTerms ? { area_pricing_terms: cleanAreaTerms } : {}),
-        ...(persistedVolume ? { volume_pricing: persistedVolume } : {}),
-        ...(cleanVolumeTerms ? { volume_pricing_terms: cleanVolumeTerms } : {}),
-        pricing_layout: pricingLayout,
-        global_mobilisation_fee: globalMobilisationFee,
-        global_surface_rate_per_m2: globalSurfaceRatePerM2,
-        global_contents_rate_per_m3: globalContentsRatePerM3,
-        gst_mode: gstMode,
-        totals: computeTotals(promotedRows, areaPricing, persistedVolume ?? null, pricingLayout, gstMode, globalMobilisationFee),
-        target_pricing: {},
-        validity,
-        notes,
-        authorisation: auth,
-        last_reviewed_at: new Date().toISOString(),
-      } satisfies OutcomeQuoteCapture
+      merged.outcome_quotes = nextSpokes
+      merged.outcome_quote_capture = cap
       const res = await fetch(`/api/jobs/${job.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -610,21 +734,105 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
       const data = (await res.json()) as { job?: Job; error?: string }
       if (!res.ok || !data.job) {
         setSaveError(data.error ?? `Save failed (${res.status})`)
-        return
+        return null
       }
-      setRows(promotedRows)
+      setRows(cap.rows)
+      setSpokes(nextSpokes)
       onJobUpdate(data.job)
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
+      return data.job
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : 'Save failed')
+      return null
     } finally {
       setSaving(false)
     }
   }
 
+  /** Save, then open the document composer for this spoke (frozen snapshot). */
+  async function saveAndOpenDocument() {
+    const updated = await save()
+    if (updated) {
+      router.push(`/jobs/${job.id}/docs/quote?compose=1&quoteId=${encodeURIComponent(activeSpokeId)}`)
+    }
+  }
+
   return (
     <div style={{ maxWidth: 720, paddingBottom: 40 }}>
+      {/* ── Quote selector (hub-and-spoke) ───────────────────────────────────
+        * The Assessment data is the shared hub; each quote here is an
+        * independent spoke with its own pricing. One spoke is edited at a
+        * time; "Save as document" freezes the selected spoke into a PDF. */}
+      <div
+        style={{
+          border: '1px solid var(--border)',
+          background: 'var(--surface)',
+          borderRadius: 12,
+          padding: 12,
+          marginBottom: 18,
+        }}
+      >
+        <div style={{ ...SECTION, marginBottom: 8 }}>Quotes for this job</div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <select
+            value={activeSpokeId}
+            onChange={e => switchSpoke(e.target.value)}
+            aria-label="Select quote"
+            style={{
+              flex: '1 1 220px',
+              minWidth: 0,
+              fontSize: 14,
+              fontWeight: 700,
+              padding: '8px 10px',
+              borderRadius: 8,
+              border: '1px solid var(--border)',
+              background: 'var(--surface-2)',
+              color: 'var(--text)',
+              cursor: 'pointer',
+            }}
+          >
+            {spokes.map(s => (
+              <option key={s.id} value={s.id}>{s.label}</option>
+            ))}
+          </select>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <button type="button" className="btn btn-secondary" style={{ fontSize: 12, padding: '6px 10px' }} onClick={addSpoke}>
+              + New
+            </button>
+            <button type="button" className="btn btn-secondary" style={{ fontSize: 12, padding: '6px 10px' }} onClick={duplicateActiveSpoke}>
+              Duplicate
+            </button>
+            <button type="button" className="btn btn-secondary" style={{ fontSize: 12, padding: '6px 10px' }} onClick={renameActiveSpoke}>
+              Rename
+            </button>
+            <button
+              type="button"
+              onClick={deleteActiveSpoke}
+              disabled={spokes.length <= 1}
+              title={spokes.length <= 1 ? 'A job keeps at least one quote' : 'Delete this quote'}
+              style={{
+                fontSize: 12,
+                padding: '6px 10px',
+                borderRadius: 8,
+                border: '1px solid #F87171',
+                background: 'none',
+                color: '#F87171',
+                cursor: spokes.length <= 1 ? 'not-allowed' : 'pointer',
+                opacity: spokes.length <= 1 ? 0.4 : 1,
+              }}
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+        <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 8, lineHeight: 1.5 }}>
+          {spokes.length === 1
+            ? 'One quote for this job. Add another for a separate part (e.g. mould remediation vs contents removal).'
+            : `${spokes.length} quotes. Each is priced independently and prints as its own document.`}
+        </div>
+      </div>
+
       {fastQuote && (
         <div
           style={{
@@ -1754,15 +1962,27 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
         </div>
       )}
 
-      <button
-        type="button"
-        className="btn btn-primary"
-        onClick={save}
-        disabled={saving}
-        style={{ width: '100%', padding: 14, fontSize: 15, touchAction: 'manipulation' }}
-      >
-        {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save Quote'}
-      </button>
+      <div style={{ display: 'flex', gap: 10 }}>
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={save}
+          disabled={saving}
+          style={{ flex: 2, padding: 14, fontSize: 15, touchAction: 'manipulation' }}
+        >
+          {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save progress'}
+        </button>
+        <button
+          type="button"
+          className="btn btn-secondary"
+          onClick={saveAndOpenDocument}
+          disabled={saving}
+          title="Save, then open the printable document for this quote"
+          style={{ flex: 3, padding: 14, fontSize: 15, touchAction: 'manipulation' }}
+        >
+          Save as document →
+        </button>
+      </div>
     </div>
   )
 }
