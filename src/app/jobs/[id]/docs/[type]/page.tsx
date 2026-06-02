@@ -63,7 +63,7 @@ function DocViewerInner() {
   // the doc historically had no photo block; flipping the default ON would
   // retroactively grow every existing assessment doc print. Reports keep
   // their default-on behaviour for backward compatibility.
-  const supportsPhotoToggle = docType === 'report' || docType === 'assessment_document'
+  const supportsPhotoToggle = docType === 'report' || docType === 'assessment_document' || docType === 'quote'
   const includePhotos =
     docType === 'assessment_document'
       ? content.include_photos === true
