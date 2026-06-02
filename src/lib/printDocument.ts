@@ -1254,7 +1254,6 @@ function buildQuoteMid(
   _appUrl: string,
   client: ClientInfo | undefined,
 ): string {
-  const before = photos.filter(p => ['before','assessment'].includes(p.category))
   const siteLine = (client?.site_address ?? '').trim()
   const layout = c.pricing_layout
   const outcomeRows = (c.outcome_rows ?? []).filter(Boolean)
@@ -1386,7 +1385,7 @@ function buildQuoteMid(
         ` : ''}
       `
     })()}
-    ${c.include_photos !== false ? roomPhotoSections(groups, 'Site Condition Photos', ['assessment', 'before']) : photoGrid(before, 'Site Condition Photos')}
+    ${c.include_photos !== false ? roomPhotoSections(groups, 'Site Condition Photos', ['assessment', 'before']) : ''}
   `
 }
 
