@@ -503,6 +503,10 @@ export interface ClientInfo {
   /** Job site / address of works (from jobs.site_address). */
   site_address?: string
   printUrl?: string
+  /** When true, the screen action bar shows an Images On/Off toggle (photo-capable doc types). */
+  photoToggleSupported?: boolean
+  /** Current effective state of photo inclusion, used to label/link the toggle. */
+  photosOn?: boolean
 }
 
 /**
@@ -524,15 +528,33 @@ function actionBar(docTitle: string, client: ClientInfo | undefined): string {
   const subject = encodeURIComponent(line)
   const body    = encodeURIComponent(`Hi ${name.split(' ')[0]},\n\nPlease find your document at the link below:\n\n${url}\n\nKind regards`)
 
+  // Images On/Off reloads the page with ?images=on|off so the change is reflected
+  // in the actual printed/saved PDF (server re-renders the photo sections).
+  const photosOn = client?.photosOn !== false
+  const photoToggle = client?.photoToggleSupported && url
+    ? `<a class="ab-btn ab-secondary" href="${esc(toggleImagesUrl(url, photosOn))}">🖼 Images: ${photosOn ? 'On' : 'Off'}</a>`
+    : ''
+
   return `
     <div class="action-bar">
       <span class="doc-title">${esc(line)}</span>
       <button class="ab-btn ab-primary" onclick="window.print()">🖨 Print / Save PDF</button>
+      ${photoToggle}
       ${email ? `<a class="ab-btn ab-secondary" href="mailto:${esc(email)}?subject=${subject}&body=${body}">✉️ Email</a>` : ''}
       ${phone ? `<a class="ab-btn ab-secondary" href="sms:${esc(phone)}&body=${encodeURIComponent(`Hi ${name.split(' ')[0]}, here is your document: ${url}`)}">💬 Text Link</a>` : ''}
       <button class="ab-btn ab-secondary" onclick="navigator.clipboard.writeText('${esc(url)}').then(()=>{this.textContent='✓ Copied';setTimeout(()=>this.textContent='🔗 Copy Link',2000)})">🔗 Copy Link</button>
     </div>
   `
+}
+
+/** Build the print URL with the `images` param flipped to the opposite of the current state. */
+function toggleImagesUrl(printUrl: string, currentlyOn: boolean): string {
+  const next = currentlyOn ? 'off' : 'on'
+  const base = printUrl.split('#')[0]
+  const [path, query = ''] = base.split('?')
+  const params = new URLSearchParams(query)
+  params.set('images', next)
+  return `${path}?${params.toString()}`
 }
 
 /** Full HTML wrapper (navy layout + Inter; optional screen action bar). */

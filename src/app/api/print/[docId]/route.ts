@@ -36,8 +36,49 @@ function docHasQuoteId(docType: DocType, content: Record<string, unknown>): bool
   return false
 }
 
-export async function GET(_req: Request, { params }: { params: Promise<{ docId: string }> }) {
+/** Doc types whose printed output contains photo sections that can be toggled. */
+const PHOTO_TOGGLE_TYPES: DocType[] = ['quote', 'report', 'assessment_document', 'iaq_multi']
+
+/** Force the photo-inclusion flag on a doc's content (and any nested bundle parts). */
+function applyIncludePhotos(docType: DocType, content: Record<string, unknown>, on: boolean): void {
+  if (docType === 'iaq_multi') {
+    const parts = content.parts
+    if (Array.isArray(parts)) {
+      for (const p of parts) {
+        const part = p as { type?: DocType; content?: Record<string, unknown> }
+        if (part?.content && part.type && PHOTO_TOGGLE_TYPES.includes(part.type)) {
+          part.content.include_photos = on
+        }
+      }
+    }
+    return
+  }
+  content.include_photos = on
+}
+
+/**
+ * Each builder has its own default when `include_photos` is unset: assessment
+ * documents default OFF (opt-in), quotes/reports default ON. Mirror that so the
+ * toggle label reflects reality without mutating stored content.
+ */
+function defaultPhotosOn(docType: DocType, content: Record<string, unknown>): boolean {
+  if (docType === 'assessment_document') return content.include_photos === true
+  if (docType === 'iaq_multi') {
+    const parts = content.parts
+    if (!Array.isArray(parts)) return false
+    return parts.some(p => {
+      const part = p as { type?: DocType; content?: Record<string, unknown> }
+      if (!part?.content || !part.type) return false
+      if (part.type === 'assessment_document') return part.content.include_photos === true
+      return PHOTO_TOGGLE_TYPES.includes(part.type) && part.content.include_photos !== false
+    })
+  }
+  return content.include_photos !== false
+}
+
+export async function GET(req: Request, { params }: { params: Promise<{ docId: string }> }) {
   const { docId } = await params
+  const imagesParam = new URL(req.url).searchParams.get('images')
   const supabase = createServiceClient()
 
   const { data: doc, error: docErr } = await supabase
@@ -92,6 +133,18 @@ export async function GET(_req: Request, { params }: { params: Promise<{ docId: 
     }
   }
 
+  // Images On/Off: an explicit ?images= override mutates the content (so the
+  // printed/saved PDF reflects it); with no param we leave content untouched and
+  // just report the builder's stored default for the toggle label.
+  const photoToggleSupported = PHOTO_TOGGLE_TYPES.includes(docType)
+  let photosOn: boolean
+  if (imagesParam === 'on' || imagesParam === 'off') {
+    photosOn = imagesParam === 'on'
+    if (photoToggleSupported) applyIncludePhotos(docType, docContent, photosOn)
+  } else {
+    photosOn = defaultPhotosOn(docType, docContent)
+  }
+
   const html = buildPrintHTML(
     doc.type,
     docContent,
@@ -100,7 +153,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ docId: 
     companyRes.data ?? null,
     doc.job_id,
     appUrl,
-    { ...jobRes.data, site_address: jobRes.data?.site_address, printUrl },
+    { ...jobRes.data, site_address: jobRes.data?.site_address, printUrl, photoToggleSupported, photosOn },
   )
 
   return new NextResponse(html, {
