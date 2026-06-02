@@ -13,7 +13,7 @@
 
 import { useEffect, useState, useRef, Suspense } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
-import type { AreaPricingRow, CompanyProfile, DocType, Job, OutcomeQuoteRow, Photo, ProgressNote, ProgressRoomNote, QuoteLineItemRow, QuotePricingLayout, SectionTerms, VolumePricingBlock } from '@/lib/types'
+import type { AreaPricingRow, CompanyProfile, DocType, Job, OutcomeQuoteRow, Photo, ProgressNote, ProgressRoomNote, QuoteContent, QuoteLineItemRow, QuotePricingLayout, SectionTerms, VolumePricingBlock } from '@/lib/types'
 import { DOC_TYPE_LABELS } from '@/lib/types'
 import { composeDocumentContent, buildComposedPreviewHtml, type ComposeDocumentOptions } from '@/lib/composeDocument'
 import { mergeQuoteLineItemsIntoDocContent } from '@/lib/quoteLineItemsForDocuments'
@@ -41,6 +41,7 @@ function DocViewerInner() {
   const docType = params.type as DocType
   const docId   = searchParams.get('docId')
   const quoteId = searchParams.get('quoteId')
+  const preId   = searchParams.get('preId')
 
   const [job,              setJob]             = useState<Job | null>(null)
   const [photos,           setPhotos]          = useState<Photo[]>([])
@@ -165,7 +166,7 @@ function DocViewerInner() {
       const spCompose = searchParams.get('compose')
       const spGen = searchParams.get('generate')
       const wantCompose = spCompose === '1' || spGen === '1'
-      const composeKey = `${jobId}:${docType}:${spCompose ?? ''}:${spGen ?? ''}:${quoteId ?? ''}`
+      const composeKey = `${jobId}:${docType}:${spCompose ?? ''}:${spGen ?? ''}:${quoteId ?? ''}:${preId ?? ''}`
       if (wantCompose && j && lastComposeKeyRef.current !== composeKey) {
         lastComposeKeyRef.current = composeKey
         let composeOpts: ComposeDocumentOptions | undefined
@@ -174,11 +175,26 @@ function DocViewerInner() {
             fetch(`/api/jobs/${jobId}/progress-notes`).then(r => r.json()),
             fetch(`/api/jobs/${jobId}/progress-room-notes`).then(r => r.json()),
           ])
+          // PRE compose: fetch the source quote document so quoted-line context
+          // can be baked into the evaluation.
+          let sourceQuoteContent: Partial<QuoteContent> | undefined
+          if (preId) {
+            const pre = (j.assessment_data?.post_remediation_evaluations ?? []).find(p => p.id === preId)
+            if (pre?.source_quote_document_id) {
+              try {
+                const srcDoc = await fetch(`/api/documents/${pre.source_quote_document_id}`).then(r => r.json())
+                sourceQuoteContent = (srcDoc?.document?.content ?? srcDoc?.content) as Partial<QuoteContent> | undefined
+              } catch {
+                sourceQuoteContent = undefined
+              }
+            }
+          }
           composeOpts = {
             report: {
               photos: ph as Photo[],
               progressNotes: (pnRes.notes ?? []) as ProgressNote[],
               progressRoomNotes: (prnRes.notes ?? []) as ProgressRoomNote[],
+              ...(preId ? { preId, sourceQuoteContent } : {}),
             },
           }
         }
@@ -224,7 +240,7 @@ function DocViewerInner() {
       }
     }
     load()
-  }, [jobId, docId, docType, quoteId, router, searchParams])
+  }, [jobId, docId, docType, quoteId, preId, router, searchParams])
 
   useEffect(() => {
     if (!job || !hasContent) {

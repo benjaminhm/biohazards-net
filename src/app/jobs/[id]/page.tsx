@@ -57,7 +57,7 @@ import MessagesTab from '@/components/tabs/MessagesTab'
 import InvoiceTab from '@/components/tabs/InvoiceTab'
 import ProgressNotesTab from '@/components/tabs/ProgressNotesTab'
 import ProgressPhotosTab from '@/components/tabs/ProgressPhotosTab'
-import CompletionReportTab from '@/components/tabs/CompletionReportTab'
+import PostRemediationEvaluationTab from '@/components/tabs/PostRemediationEvaluationTab'
 import PerExecuteCapturePanel from '@/components/tabs/PerExecuteCapturePanel'
 import CompanyLetterTab from '@/components/tabs/CompanyLetterTab'
 import PreStartBriefingTab from '@/components/tabs/PreStartBriefingTab'
@@ -96,7 +96,7 @@ const HOME_SECTIONS: { id: HomeSection; label: string }[] = [
   { id: 'safety_compliance', label: 'Safety and Compliance' },
   { id: 'plan', label: 'Plan' },
   { id: 'execute', label: 'Execute' },
-  { id: 'verify', label: 'Verify' },
+  { id: 'verify', label: 'Post Remediation Evaluation' },
   { id: 'review', label: 'Review' },
 ]
 
@@ -376,13 +376,6 @@ const EXECUTE_SECTIONS: { id: ExecuteSection; label: string }[] = [
   { id: 'waste_manifest', label: 'Waste Disposal Manifest' },
 ]
 
-type VerifySection = 'quality_checks' | 'recommendations' | 'completion_report'
-const VERIFY_SECTIONS: { id: VerifySection; label: string }[] = [
-  { id: 'quality_checks', label: 'Quality Control Checks' },
-  { id: 'recommendations', label: 'Recommendations' },
-  { id: 'completion_report', label: 'Completion Report' },
-]
-
 type ReviewSection = 'client_feedback' | 'team_feedback'
 const REVIEW_SECTIONS: { id: ReviewSection; label: string }[] = [
   { id: 'client_feedback', label: 'Client feedback' },
@@ -563,7 +556,7 @@ function pageTitleForTab(tab: Tab, job: Job): string {
     case 'recommendations_capture':
       return 'Recommendations'
     case 'progress_report_generate':
-      return 'Completion report'
+      return 'Post Remediation Evaluation'
     case 'client_feedback_capture':
       return 'Client feedback'
     case 'team_feedback_capture':
@@ -671,7 +664,6 @@ export default function JobPage() {
   const [legalSection,   setLegalSection]   = useState<LegalSection>('engagement_agreement')
   const [safetySection,  setSafetySection]  = useState<SafetySection>('authority_to_proceed')
   const [executeSection, setExecuteSection] = useState<ExecuteSection>('progress_photos')
-  const [verifySection,  setVerifySection]  = useState<VerifySection>('quality_checks')
   const [reviewSection,  setReviewSection]  = useState<ReviewSection>('client_feedback')
   /** Secondary tabs when viewing Assessment (Presentation → Health Hazards → Risks → Recommendations → Equipment → Document) */
   const [assessmentSection, setAssessmentSection] = useState<'presentation' | 'hazards' | 'risks' | 'pathogens' | 'contents' | 'structure' | 'recommendations' | 'chemicals' | 'equipment' | 'document'>('presentation')
@@ -861,10 +853,6 @@ export default function JobPage() {
   }, [activeTab, homeSection])
 
   useEffect(() => {
-    if (!(activeTab === 'home' && homeSection === 'verify')) setVerifySection('quality_checks')
-  }, [activeTab, homeSection])
-
-  useEffect(() => {
     if (!(activeTab === 'home' && homeSection === 'review')) setReviewSection('client_feedback')
   }, [activeTab, homeSection])
 
@@ -1026,9 +1014,9 @@ export default function JobPage() {
   const showProgressPhotos = activeTab === 'progress_capture' || (inHome('execute') && executeSection === 'progress_photos')
   const showProgressNotes  = activeTab === 'progress_notes_capture' || (inHome('execute') && executeSection === 'progress_notes')
   const showWasteManifest  = activeTab === 'waste_disposal_manifest_capture' || (inHome('execute') && executeSection === 'waste_manifest')
-  const showQualityChecks  = activeTab === 'quality_checks_capture' || (inHome('verify') && verifySection === 'quality_checks')
-  const showRecommendations= activeTab === 'recommendations_capture' || (inHome('verify') && verifySection === 'recommendations')
-  const showCompletionRpt  = activeTab === 'progress_report_generate' || (inHome('verify') && verifySection === 'completion_report')
+  const showQualityChecks  = activeTab === 'quality_checks_capture'
+  const showRecommendations= activeTab === 'recommendations_capture'
+  const showCompletionRpt  = activeTab === 'progress_report_generate' || inHome('verify')
   const showClientFeedback = activeTab === 'client_feedback_capture' || (inHome('review') && reviewSection === 'client_feedback')
   const showTeamFeedback   = activeTab === 'team_feedback_capture' || (inHome('review') && reviewSection === 'team_feedback')
 
@@ -1427,14 +1415,6 @@ export default function JobPage() {
             ariaLabel="Execute sub-sections"
           />
         )}
-        {inHome('verify') && (
-          <SubTabStrip
-            sections={VERIFY_SECTIONS}
-            active={verifySection}
-            onChange={setVerifySection}
-            ariaLabel="Verify sub-sections"
-          />
-        )}
         {inHome('review') && (
           <SubTabStrip
             sections={REVIEW_SECTIONS}
@@ -1776,7 +1756,7 @@ export default function JobPage() {
           <PerExecuteCapturePanel job={job} onJobUpdate={setJob} emphasis="recommendations" />
         )}
         {showCompletionRpt && (
-          <CompletionReportTab job={job} photos={photos} onJobUpdate={setJob} />
+          <PostRemediationEvaluationTab job={job} photos={photos} documents={documents} onJobUpdate={setJob} />
         )}
         {showClientFeedback && (
           <div style={emptyRoomStyle}>Client feedback (empty room)</div>

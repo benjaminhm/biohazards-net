@@ -27,7 +27,13 @@ import type {
   JSAContent,
   NDAContent,
   RiskAssessmentContent,
+  PostRemediationEvaluation,
+  PostRemediationEvaluationContent,
+  PreScopeLineResolved,
+  PreAreaNoteResolved,
 } from '@/lib/types'
+import { resolveQuotedLineContext } from '@/lib/postRemediationEvaluations'
+import { richBodyHtmlForPrint, proseHasPrintableContent } from '@/lib/richTextPrint'
 import { mergedSowCapture, staffSowHasContent } from '@/lib/sowCapture'
 import { mergedCompletionReportCapture, completionReportCaptureHasContent } from '@/lib/completionReportCapture'
 import {
@@ -73,7 +79,14 @@ export interface ComposeDocumentResult {
 
 /** Optional data for composing the completion report from execute-phase sources (photos, notes, PER silos). */
 export interface ComposeDocumentOptions {
-  report?: Partial<Pick<CompletionReportComposeContext, 'photos' | 'progressNotes' | 'progressRoomNotes'>>
+  report?: Partial<Pick<CompletionReportComposeContext, 'photos' | 'progressNotes' | 'progressRoomNotes'>> & {
+    /** When set, compose a Post Remediation Evaluation for this PRE id instead of
+     *  the legacy completion report. */
+    preId?: string
+    /** Content of the PRE's source quote document, used to bake quoted-line
+     *  context into the composed PRE. */
+    sourceQuoteContent?: Partial<QuoteContent>
+  }
   /** Org equipment catalogue so we can resolve used_equipment_catalogue_ids → named rows. */
   equipmentCatalogue?: EquipmentCatalogueItem[] | null
   /** Org chemicals catalogue so we can resolve used_chemical_catalogue_uses → named rows with SDS-parsed PPE. */
@@ -90,7 +103,7 @@ function refPrefix(type: DocType, jobId: string): string {
     iaq_multi: 'IAQ',
     sow: 'SOW',
     quote: 'QUO',
-    report: 'RPT',
+    report: 'PRE',
     swms: 'SWMS',
     authority_to_proceed: 'ATP',
     engagement_agreement: 'EA',
@@ -637,7 +650,7 @@ function composeReport(job: Job, opts?: ComposeDocumentOptions['report']): Compo
     : '— To be completed after works.'
 
   const c: ReportContent = {
-    title: 'Completion Report',
+    title: 'Post Remediation Evaluation',
     reference: refPrefix('report', job.id),
     executive_summary: execLine,
     site_conditions: fieldOrDash(m.site_conditions),
@@ -655,6 +668,81 @@ function composeReport(job: Job, opts?: ComposeDocumentOptions['report']): Compo
   if (completionReportCaptureHasContent(staff)) source = 'assessment_capture'
   else if (completionReportCaptureHasContent(assembled)) source = 'assessment_facts'
   return { content: { ...c }, source }
+}
+
+/**
+ * Compose a Post Remediation Evaluation document from a saved PRE. NON-FINANCIAL:
+ * no totals, no variance dollars. Quoted-line text context is baked in from the
+ * source quote document content (opts.sourceQuoteContent) so the rendered doc is
+ * self-contained. Photos stay referenced by id and are resolved by each renderer.
+ */
+function composePre(
+  job: Job,
+  pre: PostRemediationEvaluation,
+  sourceQuoteContent?: Partial<QuoteContent>,
+): ComposeDocumentResult {
+  const scope_lines: PreScopeLineResolved[] = pre.scope_lines.map(line => {
+    if (line.kind === 'from_quote') {
+      const ctx = resolveQuotedLineContext(sourceQuoteContent, line.source_line_id)
+      return {
+        kind: 'from_quote',
+        source_line_id: line.source_line_id,
+        status: line.status,
+        section_label: ctx?.sectionLabel,
+        quoted_title: ctx?.title ?? line.source_line_id,
+        quoted_detail: ctx?.detail,
+        quoted_qty: ctx?.qty,
+        quoted_unit: ctx?.unit,
+        actual_qty: line.actual_qty,
+        actual_unit: line.actual_unit,
+        note_html: proseHasPrintableContent(line.note_rich_html)
+          ? richBodyHtmlForPrint(line.note_rich_html)
+          : undefined,
+        photo_ids: line.photo_ids,
+      }
+    }
+    return {
+      kind: 'added',
+      title: line.title,
+      qty: line.qty,
+      unit: line.unit,
+      note_html: proseHasPrintableContent(line.note_rich_html)
+        ? richBodyHtmlForPrint(line.note_rich_html)
+        : line.description_rich_html && proseHasPrintableContent(line.description_rich_html)
+          ? richBodyHtmlForPrint(line.description_rich_html)
+          : undefined,
+      photo_ids: line.photo_ids,
+    }
+  })
+
+  const area_notes: PreAreaNoteResolved[] = (pre.area_notes ?? [])
+    .map(n => ({
+      area_name: n.area_name,
+      intro_html: proseHasPrintableContent(n.intro_rich_html)
+        ? richBodyHtmlForPrint(n.intro_rich_html)
+        : undefined,
+      photos: n.photo_captions,
+    }))
+    .filter(n => n.intro_html || (n.photos && n.photos.length > 0))
+
+  const c: PostRemediationEvaluationContent = {
+    title: 'Post Remediation Evaluation',
+    reference: refPrefix('report', job.id),
+    source_quote_document_id: pre.source_quote_document_id,
+    source_quote_label: pre.source_quote_label,
+    source_quote_reference: pre.source_quote_reference,
+    opening_html: proseHasPrintableContent(pre.opening_rich_html)
+      ? richBodyHtmlForPrint(pre.opening_rich_html)
+      : undefined,
+    scope_lines,
+    area_notes,
+    closing_html: proseHasPrintableContent(pre.closing_rich_html)
+      ? richBodyHtmlForPrint(pre.closing_rich_html)
+      : undefined,
+    technician_signoff: (pre.technician_signoff ?? '').trim() || undefined,
+    completed_by: (pre.technician_signoff ?? '').trim() || undefined,
+  }
+  return { content: { ...c }, source: 'assessment_capture' }
 }
 
 function composeCod(job: Job): ComposeDocumentResult {
@@ -802,8 +890,14 @@ export function composeDocumentContent(type: DocType, job: Job, options?: Compos
       return composeAtp(job)
     case 'engagement_agreement':
       return composeEngagement(job)
-    case 'report':
+    case 'report': {
+      const preId = options?.report?.preId
+      if (preId) {
+        const pre = (job.assessment_data?.post_remediation_evaluations ?? []).find(p => p.id === preId)
+        if (pre) return composePre(job, pre, options?.report?.sourceQuoteContent)
+      }
       return composeReport(job, options?.report)
+    }
     case 'certificate_of_decontamination':
       return composeCod(job)
     case 'waste_disposal_manifest':

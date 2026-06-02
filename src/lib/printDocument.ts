@@ -26,6 +26,7 @@ import type {
   WasteDisposalManifestContent, JSAContent, NDAContent, RiskAssessmentContent,
   WorkStep, RiskRow, WasteItem, OutcomeQuoteRow,
   PathophysiologyRow,
+  PostRemediationEvaluationContent, PreScopeLineResolved,
 } from './types'
 import { DOC_TYPE_LABELS } from './types'
 import { filterGroupedStages, groupPhotosByRoomAndStage, type RoomPhotoGroup } from './photoGroups'
@@ -1549,6 +1550,153 @@ function buildReportHTML(
   return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
+// ── 6b. Post Remediation Evaluation (PRE) ─────────────────────────────────────
+
+const PRE_STATUS_META: Record<'as_done' | 'varied' | 'not_done', { label: string; color: string; bg: string }> = {
+  as_done: { label: 'AS DONE', color: '#047857', bg: '#ecfdf5' },
+  varied: { label: 'VARIED', color: '#b45309', bg: '#fffbeb' },
+  not_done: { label: 'NOT DONE', color: '#475569', bg: '#f1f5f9' },
+}
+
+/** Render a small evidence-photo grid for resolved photo ids. */
+function prePhotoStrip(photoIds: string[] | undefined, byId: Map<string, Photo>): string {
+  const pics = (photoIds ?? []).map(id => byId.get(id)).filter((p): p is Photo => !!p)
+  if (!pics.length) return ''
+  return `
+    <div class="photos-grid photos-grid-single" style="margin-top:8px">
+      ${pics
+        .map(
+          p => `
+        <div class="photo-card">
+          <img src="${esc(p.file_url)}" alt="${esc(p.caption || p.area_ref || '')}">
+          ${p.caption ? `<div class="photo-meta"><div class="photo-cap">${esc(p.caption)}</div></div>` : ''}
+        </div>`,
+        )
+        .join('')}
+    </div>`
+}
+
+function preStatusPill(status: 'as_done' | 'varied' | 'not_done'): string {
+  const m = PRE_STATUS_META[status]
+  return `<span style="display:inline-block;padding:2px 8px;border-radius:999px;font-size:8pt;font-weight:700;letter-spacing:0.04em;color:${m.color};background:${m.bg};border:1px solid ${m.color}33">${m.label}</span>`
+}
+
+function preFromQuoteCard(line: Extract<PreScopeLineResolved, { kind: 'from_quote' }>, byId: Map<string, Photo>): string {
+  const actual =
+    line.actual_qty != null
+      ? `<div class="body-text" style="font-size:9pt;margin:2px 0 4px"><strong>Actual:</strong> ${esc(String(line.actual_qty))}${line.actual_unit ? ` ${esc(line.actual_unit)}` : ''}</div>`
+      : ''
+  const note = line.note_html ? `<div class="body-text sow-rich" style="margin-top:4px">${line.note_html}</div>` : ''
+  return `
+    <div style="border-left:3px solid #e5e7eb;padding:6px 0 6px 12px;margin:0 0 12px">
+      <div style="margin-bottom:4px">${preStatusPill(line.status)} <strong style="font-size:10.5pt">${esc(line.quoted_title)}</strong></div>
+      ${line.quoted_detail ? `<div class="body-text" style="font-size:9pt;color:#555;margin-bottom:2px">Quoted: ${esc(line.quoted_detail)}</div>` : ''}
+      ${actual}
+      ${note}
+      ${prePhotoStrip(line.photo_ids, byId)}
+    </div>`
+}
+
+function buildPreMid(c: PostRemediationEvaluationContent, photos: Photo[]): string {
+  const byId = new Map(photos.map(p => [p.id, p]))
+
+  // Group from_quote lines by their section label, preserving first-seen order.
+  const fromQuote = c.scope_lines.filter((l): l is Extract<PreScopeLineResolved, { kind: 'from_quote' }> => l.kind === 'from_quote')
+  const added = c.scope_lines.filter((l): l is Extract<PreScopeLineResolved, { kind: 'added' }> => l.kind === 'added')
+
+  const sectionOrder: string[] = []
+  const bySection = new Map<string, typeof fromQuote>()
+  for (const l of fromQuote) {
+    const key = l.section_label || 'Scope'
+    if (!bySection.has(key)) {
+      bySection.set(key, [])
+      sectionOrder.push(key)
+    }
+    bySection.get(key)!.push(l)
+  }
+
+  const scopeHtml = sectionOrder
+    .map(sec => `
+      <div class="label" style="margin-top:14px">${esc(sec)}</div>
+      ${bySection.get(sec)!.map(l => preFromQuoteCard(l, byId)).join('')}
+    `)
+    .join('')
+
+  const addedHtml = added.length
+    ? `
+      <div class="label" style="margin-top:22px">Added works</div>
+      ${added
+        .map(l => `
+        <div style="border-left:3px solid #e5e7eb;padding:6px 0 6px 12px;margin:0 0 12px">
+          <div style="margin-bottom:2px"><strong style="font-size:10.5pt">${esc(l.title || 'Added work')}</strong>${
+            l.qty != null ? ` <span style="font-size:9pt;color:#555">— ${esc(String(l.qty))}${l.unit ? ` ${esc(l.unit)}` : ''}</span>` : ''
+          }</div>
+          ${l.note_html ? `<div class="body-text sow-rich" style="margin-top:4px">${l.note_html}</div>` : ''}
+          ${prePhotoStrip(l.photo_ids, byId)}
+        </div>`)
+        .join('')}
+    `
+    : ''
+
+  const areaHtml = (c.area_notes ?? []).length
+    ? `
+      <div class="label" style="margin-top:22px">Per-room evidence</div>
+      ${(c.area_notes ?? [])
+        .map(n => {
+          const pics = (n.photos ?? [])
+            .map(ref => {
+              const p = byId.get(ref.photo_id)
+              if (!p) return ''
+              const cap = (ref.caption || p.caption || '').trim()
+              return `
+                <div class="photo-card">
+                  <img src="${esc(p.file_url)}" alt="${esc(cap)}">
+                  ${cap ? `<div class="photo-meta"><div class="photo-cap">${esc(cap)}</div></div>` : ''}
+                </div>`
+            })
+            .join('')
+          return `
+            <div class="label" style="margin-top:14px;color:#1a1a1a">${esc(n.area_name)}</div>
+            ${n.intro_html ? `<div class="body-text sow-rich">${n.intro_html}</div>` : ''}
+            ${pics.trim() ? `<div class="photos-grid photos-grid-single" style="margin-top:8px">${pics}</div>` : ''}
+          `
+        })
+        .join('')}
+    `
+    : ''
+
+  const sourceLine = c.source_quote_reference || c.source_quote_label
+    ? `<div class="body-text" style="font-size:9pt;color:#555;margin:-6px 0 14px">Reporting against: ${esc([c.source_quote_label, c.source_quote_reference].filter(Boolean).join(' · '))}</div>`
+    : ''
+
+  return `
+    ${sourceLine}
+    ${c.opening_html ? `<div class="label">Overview</div><div class="body-text sow-rich">${c.opening_html}</div>` : ''}
+    <div class="label" style="margin-top:18px">Scope — as done</div>
+    ${scopeHtml || '<div class="body-text" style="font-size:9pt;color:#777">No itemised scope lines.</div>'}
+    ${addedHtml}
+    ${areaHtml}
+    ${c.closing_html ? `<div class="label" style="margin-top:22px">Outcome</div><div class="body-text sow-rich">${c.closing_html}</div>` : ''}
+    ${c.technician_signoff ? `<div class="label" style="margin-top:22px">Sign-off</div><div class="body-text">${esc(c.technician_signoff)}</div>` : ''}
+  `
+}
+
+function buildPreHTML(
+  c: PostRemediationEvaluationContent,
+  photos: Photo[],
+  company: CompanyProfile | null,
+  client: ClientInfo | undefined,
+  screenActionBar: boolean,
+): string {
+  const mid = buildPreMid(c, photos)
+  return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
+}
+
+/** A composed `report` document is a PRE when it carries scope_lines. */
+function isPreContent(c: Record<string, unknown>): boolean {
+  return Array.isArray((c as { scope_lines?: unknown }).scope_lines)
+}
+
 // ── 7. Certificate of Decontamination ─────────────────────────────────────────
 
 function buildCODMid(c: CertificateOfDecontaminationContent): string {
@@ -1880,7 +2028,9 @@ export function buildPrintMidHTML(
     case 'engagement_agreement':
       return buildEngagementMid(c as unknown as EngagementAgreementContent)
     case 'report':
-      return buildReportMid(c as unknown as ReportContent, photos, areas)
+      return isPreContent(c)
+        ? buildPreMid(c as unknown as PostRemediationEvaluationContent, photos)
+        : buildReportMid(c as unknown as ReportContent, photos, areas)
     case 'certificate_of_decontamination':
       return buildCODMid(c as unknown as CertificateOfDecontaminationContent)
     case 'waste_disposal_manifest':
@@ -1977,7 +2127,9 @@ export function buildPrintHTML(
     case 'swms':                       return buildSWMSHTML(c as unknown as SWMSContent, company, client, screenActionBar)
     case 'authority_to_proceed':       return buildATPHTML(c as unknown as AuthorityToProceedContent, company, client, screenActionBar)
     case 'engagement_agreement':       return buildEngagementHTML(c as unknown as EngagementAgreementContent, company, client, screenActionBar)
-    case 'report':                     return buildReportHTML(c as unknown as ReportContent, photos, areas, company, client, screenActionBar)
+    case 'report':                     return isPreContent(c)
+                                         ? buildPreHTML(c as unknown as PostRemediationEvaluationContent, photos, company, client, screenActionBar)
+                                         : buildReportHTML(c as unknown as ReportContent, photos, areas, company, client, screenActionBar)
     case 'certificate_of_decontamination': return buildCODHTML(c as unknown as CertificateOfDecontaminationContent, company, client, screenActionBar)
     case 'waste_disposal_manifest':    return buildWDMHTML(c as unknown as WasteDisposalManifestContent, company, client, screenActionBar)
     case 'jsa':                        return buildJSAHTML(c as unknown as JSAContent, company, client, screenActionBar)

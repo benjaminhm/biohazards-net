@@ -64,7 +64,7 @@ export const DOC_TYPE_LABELS: Record<DocType, string> = {
   swms:                       'SWMS',
   authority_to_proceed:       'Authority to Proceed',
   engagement_agreement:       'Engagement Agreement',
-  report:                     'Completion Report',
+  report:                     'Post Remediation Evaluation',
   certificate_of_decontamination: 'Certificate of Decontamination',
   waste_disposal_manifest:    'Waste Disposal Manifest',
   jsa:                        'Job Safety Analysis',
@@ -1020,6 +1020,9 @@ export interface AssessmentData {
   outcome_quote_capture?: OutcomeQuoteCapture
   /** Multiple independent named quotes ("spokes") for one job. See QuoteSpoke. */
   outcome_quotes?: QuoteSpoke[]
+  /** Post Remediation Evaluations — each anchored 1:1 to a saved quote document.
+   *  Hub-and-spoke mirror of outcome_quotes[]. See PostRemediationEvaluation. */
+  post_remediation_evaluations?: PostRemediationEvaluation[]
   /** Job-scoped pathogen / pathophysiology PDF reference library. Used as
    *  grounded biology source by the Assessment Document AI suggester. */
   pathogens_capture?: PathogensCapture
@@ -1474,6 +1477,138 @@ export interface ReportContent {
   completed_by?: string
 }
 
+/* ── Post Remediation Evaluation (PRE) ────────────────────────────────────────
+ *
+ * The PRE is the redesigned completion report. It is anchored to exactly one
+ * saved quote/estimate document (`source_quote_document_id`) which acts as the
+ * immutable source of truth for "what we agreed to do". The PRE records what was
+ * actually done against that scope, plus added works, per-room evidence, and
+ * narrative — deliberately NON-FINANCIAL (no totals, no variance dollars). The
+ * money story stays on the accepted estimate / invoice.
+ *
+ * Storage compatibility: PRE documents are saved with DocType `report`; only the
+ * user-facing labels/title/reference prefix change ('Completion Report' → 'Post
+ * Remediation Evaluation', 'RPT-' → 'PRE-'). This avoids a DocType migration.
+ */
+
+/** Per-line overlay on the PRE. Either an overlay on a source-quote line
+ *  (`from_quote`) or a brand-new line added during/after the works (`added`). */
+export type PreScopeLine =
+  | {
+      kind: 'from_quote'
+      /** Stable id of the source quote row this overlays (OutcomeQuoteRow.id,
+       *  AreaPricingRow.area_name, or a volume row id). */
+      source_line_id: string
+      /** How the quoted line actually went. Human-set only (never AI-set). */
+      status: 'as_done' | 'varied' | 'not_done'
+      /** Optional qualitative quantity (e.g. "removed 7 m³"); NOT a price. */
+      actual_qty?: number
+      /** Unit mirroring the source line when an actual_qty is recorded. */
+      actual_unit?: string
+      /** The heart of the card — rich HTML (TipTap), same editor as Payment Terms. */
+      note_rich_html?: string
+      /** Refs into job photos (Photo.id) attached as evidence for this line. */
+      photo_ids?: string[]
+    }
+  | {
+      kind: 'added'
+      title: string
+      description_rich_html?: string
+      qty?: number
+      unit?: string
+      note_rich_html?: string
+      photo_ids?: string[]
+    }
+
+/** Per-area narrative + photo evidence, separate from the per-line scope cards. */
+export interface PreAreaNote {
+  /** Matches an AssessmentData.areas[].name. */
+  area_name: string
+  intro_rich_html?: string
+  photo_captions?: { photo_id: string; caption?: string }[]
+}
+
+/** Durable PRE capture stored on the job (hub-and-spoke mirror of outcome_quotes[]).
+ *  At most one PRE per source quote document; source is immutable after first save. */
+export interface PostRemediationEvaluation {
+  /** Stable client-generated id; React key and the doc anchor. */
+  id: string
+  /** Strict 1:1 to a saved quote document; immutable after first save. */
+  source_quote_document_id: string
+  /** Snapshot of the source label/ref so the PRE keeps a stable header even if
+   *  the quote spoke is later renamed or deleted. */
+  source_quote_label?: string
+  source_quote_reference?: string
+  /** Top-of-doc prose. Rich HTML (TipTap). */
+  opening_rich_html?: string
+  /** Per-line overlays — pre-seeded from the source quote's rows. */
+  scope_lines: PreScopeLine[]
+  /** Per-area narrative + photo evidence. */
+  area_notes?: PreAreaNote[]
+  /** Bottom-of-doc prose. Outcome statement, sign-off context. */
+  closing_rich_html?: string
+  /** Free-text sign-off line (technician name, date, etc.). */
+  technician_signoff?: string
+  created_at: string
+  updated_at: string
+  last_suggested_at?: string
+}
+
+/** Frozen doc content for a PRE (composed at generate time). Scope lines carry a
+ *  baked-in snapshot of their quoted text context so the rendered doc never
+ *  depends on the source quote staying alive. Photos are referenced by id and
+ *  resolved by each renderer against the job's photo set (same as legacy
+ *  reports), so file urls / data urls are never baked into content. */
+export interface PostRemediationEvaluationContent {
+  title: string
+  reference: string
+  /** Anchor link back to the source quote document. */
+  source_quote_document_id: string
+  source_quote_label?: string
+  source_quote_reference?: string
+  opening_html?: string
+  scope_lines: PreScopeLineResolved[]
+  area_notes?: PreAreaNoteResolved[]
+  closing_html?: string
+  technician_signoff?: string
+  completed_by?: string
+}
+
+/** A PRE scope line with the quoted text context snapshot baked in for printing. */
+export type PreScopeLineResolved =
+  | {
+      kind: 'from_quote'
+      source_line_id: string
+      status: 'as_done' | 'varied' | 'not_done'
+      /** Section grouping label for the printed doc (e.g. "Section 2 — Contents removal"). */
+      section_label?: string
+      /** Snapshot of the quoted line title/detail at compose time. */
+      quoted_title: string
+      quoted_detail?: string
+      quoted_qty?: number
+      quoted_unit?: string
+      actual_qty?: number
+      actual_unit?: string
+      /** Note rendered to print-safe HTML at compose time. */
+      note_html?: string
+      photo_ids?: string[]
+    }
+  | {
+      kind: 'added'
+      title: string
+      qty?: number
+      unit?: string
+      note_html?: string
+      photo_ids?: string[]
+    }
+
+/** A PRE area note with note rendered to HTML and photos referenced by id. */
+export interface PreAreaNoteResolved {
+  area_name: string
+  intro_html?: string
+  photos?: { photo_id: string; caption?: string }[]
+}
+
 export interface CertificateOfDecontaminationContent {
   title: string
   reference: string
@@ -1544,6 +1679,7 @@ export type AnyDocContent =
   | AuthorityToProceedContent
   | EngagementAgreementContent
   | ReportContent
+  | PostRemediationEvaluationContent
   | CertificateOfDecontaminationContent
   | WasteDisposalManifestContent
   | JSAContent

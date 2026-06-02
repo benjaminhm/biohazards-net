@@ -36,6 +36,8 @@ import type {
   PhotoWithData,
   Area,
   PathophysiologyRow,
+  PostRemediationEvaluationContent,
+  PreScopeLineResolved,
 } from '@/lib/types'
 import { filterGroupedStages, groupPhotosByRoomAndStage } from '@/lib/photoGroups'
 import { photosForComposedReports } from '@/lib/photosForComposedReports'
@@ -973,6 +975,135 @@ function SOWOrReportPDF({
   )
 }
 
+const PRE_BADGE: Record<'as_done' | 'varied' | 'not_done', { label: string; color: string }> = {
+  as_done: { label: 'AS DONE', color: '#047857' },
+  varied: { label: 'VARIED', color: '#b45309' },
+  not_done: { label: 'NOT DONE', color: '#475569' },
+}
+
+/** Post Remediation Evaluation — non-financial completion evaluation against a quote. */
+function PrePDF({
+  content,
+  photos,
+  company,
+}: {
+  content: PostRemediationEvaluationContent
+  photos: PhotoWithData[]
+  company: CompanyProfile | null
+}) {
+  const today = new Date().toLocaleDateString('en-AU', { day: '2-digit', month: 'long', year: 'numeric' })
+  const byId = new Map(photos.map(p => [p.id, p]))
+  const resolve = (ids?: string[]) => (ids ?? []).map(id => byId.get(id)).filter((p): p is PhotoWithData => !!p)
+
+  const fromQuote = content.scope_lines.filter(
+    (l): l is Extract<PreScopeLineResolved, { kind: 'from_quote' }> => l.kind === 'from_quote',
+  )
+  const added = content.scope_lines.filter(
+    (l): l is Extract<PreScopeLineResolved, { kind: 'added' }> => l.kind === 'added',
+  )
+
+  const sectionOrder: string[] = []
+  const bySection = new Map<string, typeof fromQuote>()
+  for (const l of fromQuote) {
+    const key = l.section_label || 'Scope'
+    if (!bySection.has(key)) {
+      bySection.set(key, [])
+      sectionOrder.push(key)
+    }
+    bySection.get(key)!.push(l)
+  }
+
+  const sourceLine = [content.source_quote_label, content.source_quote_reference].filter(Boolean).join(' · ')
+
+  return (
+    <Page size="A4" style={styles.page}>
+      <Header reference={content.reference} date={today} company={company} />
+      <Text style={styles.docTitle}>{content.title}</Text>
+      {sourceLine ? <Text style={[styles.body, { color: MUTED, marginTop: -12, marginBottom: 16 }]}>Reporting against: {sourceLine}</Text> : null}
+
+      {content.opening_html ? <Section label="Overview" text={content.opening_html} /> : null}
+
+      <View style={styles.section}>
+        <Text style={styles.sectionLabel}>Scope — as done</Text>
+        {sectionOrder.map(sec => (
+          <View key={sec} style={{ marginBottom: 8 }}>
+            <Text style={[styles.body, { fontFamily: 'Helvetica-Bold', marginBottom: 4 }]}>{sec}</Text>
+            {bySection.get(sec)!.map((l, i) => {
+              const badge = PRE_BADGE[l.status]
+              const linePhotos = resolve(l.photo_ids)
+              return (
+                <View key={i} style={{ marginBottom: 8, paddingLeft: 8, borderLeftWidth: 2, borderLeftColor: BORDER }}>
+                  <Text style={styles.body}>
+                    <Text style={{ color: badge.color, fontFamily: 'Helvetica-Bold', fontSize: 8 }}>{badge.label}  </Text>
+                    <Text style={{ fontFamily: 'Helvetica-Bold' }}>{l.quoted_title}</Text>
+                  </Text>
+                  {l.quoted_detail ? <Text style={[styles.body, { fontSize: 8, color: MUTED }]}>Quoted: {l.quoted_detail}</Text> : null}
+                  {l.actual_qty != null ? (
+                    <Text style={[styles.body, { fontSize: 9 }]}>Actual: {l.actual_qty}{l.actual_unit ? ` ${l.actual_unit}` : ''}</Text>
+                  ) : null}
+                  {plainTextForPdf(l.note_html).trim() ? <Text style={styles.body}>{plainTextForPdf(l.note_html)}</Text> : null}
+                  {linePhotos.length > 0 ? <PhotoSection photos={linePhotos.slice(0, 6)} label="Photos" showAppMetadata={false} singleColumn /> : null}
+                </View>
+              )
+            })}
+          </View>
+        ))}
+        {sectionOrder.length === 0 ? <Text style={[styles.body, { color: MUTED }]}>No itemised scope lines.</Text> : null}
+      </View>
+
+      {added.length > 0 ? (
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>Added works</Text>
+          {added.map((l, i) => {
+            const linePhotos = resolve(l.photo_ids)
+            return (
+              <View key={i} style={{ marginBottom: 8, paddingLeft: 8, borderLeftWidth: 2, borderLeftColor: BORDER }}>
+                <Text style={[styles.body, { fontFamily: 'Helvetica-Bold' }]}>
+                  {l.title || 'Added work'}{l.qty != null ? ` — ${l.qty}${l.unit ? ` ${l.unit}` : ''}` : ''}
+                </Text>
+                {plainTextForPdf(l.note_html).trim() ? <Text style={styles.body}>{plainTextForPdf(l.note_html)}</Text> : null}
+                {linePhotos.length > 0 ? <PhotoSection photos={linePhotos.slice(0, 6)} label="Photos" showAppMetadata={false} singleColumn /> : null}
+              </View>
+            )
+          })}
+        </View>
+      ) : null}
+
+      {(content.area_notes ?? []).length > 0 ? (
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>Per-room evidence</Text>
+          {(content.area_notes ?? []).map((n, i) => {
+            const areaPhotos = (n.photos ?? [])
+              .map(ref => {
+                const p = byId.get(ref.photo_id)
+                if (!p) return null
+                return { ...p, caption: ref.caption || p.caption } as PhotoWithData
+              })
+              .filter((p): p is PhotoWithData => !!p)
+            return (
+              <View key={i} style={styles.roomBlock}>
+                <Text style={styles.roomHeading}>{n.area_name}</Text>
+                {plainTextForPdf(n.intro_html).trim() ? <Text style={styles.roomNote}>{plainTextForPdf(n.intro_html)}</Text> : null}
+                {areaPhotos.length > 0 ? <PhotoSection photos={areaPhotos.slice(0, 6)} label="Photos" showAppMetadata={false} singleColumn /> : null}
+              </View>
+            )
+          })}
+        </View>
+      ) : null}
+
+      {content.closing_html ? <Section label="Outcome" text={content.closing_html} /> : null}
+      {content.technician_signoff ? <Section label="Sign-off" text={content.technician_signoff} /> : null}
+
+      <Footer company={company} />
+    </Page>
+  )
+}
+
+/** A composed `report` document is a PRE when it carries scope_lines. */
+function isPreContent(c: object): boolean {
+  return Array.isArray((c as { scope_lines?: unknown }).scope_lines)
+}
+
 interface JobPDFDocumentProps {
   type: DocType
   content: object
@@ -999,6 +1130,8 @@ export function JobPDFDocument({ type, content, photos, company, areas = [], sit
           areas={areas}
           siteAddress={siteAddress}
         />
+      ) : type === 'report' && isPreContent(content) ? (
+        <PrePDF content={content as PostRemediationEvaluationContent} photos={photos} company={company} />
       ) : (
         <SOWOrReportPDF content={content as SOWContent | ReportContent} type={type} photos={photos} company={company} areas={areas} />
       )}
