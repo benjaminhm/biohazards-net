@@ -17,7 +17,7 @@ import { getAnthropicApiKey } from '@/lib/loadAnthropicEnvFallback'
 import { mergedSowCapture } from '@/lib/sowCapture'
 import { fetchPhotosForEvidenceSuggest, inferCapturePhaseFromCategory } from '@/lib/photoCapturePhase'
 import { resolveQuotedLineContext } from '@/lib/postRemediationEvaluations'
-import type { AssessmentData, JobType, Photo, QuoteContent } from '@/lib/types'
+import type { AssessmentData, JobType, Photo, PostRemediationEvaluation, QuoteContent } from '@/lib/types'
 
 const SYSTEM = `You draft a Post Remediation Evaluation (PRE) for Australian biohazard remediation staff (internal use only).
 
@@ -93,7 +93,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const client = new Anthropic({ apiKey })
 
     const { id: jobId } = await params
-    const body = (await req.json().catch(() => ({}))) as { preId?: string }
+    const body = (await req.json().catch(() => ({}))) as {
+      preId?: string
+      pre?: PostRemediationEvaluation
+    }
     const preId = (body.preId ?? '').trim()
     if (!preId) return NextResponse.json({ error: 'preId is required' }, { status: 400 })
 
@@ -124,8 +127,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
     const ad = job.assessment_data
 
-    const pre = (ad?.post_remediation_evaluations ?? []).find(p => p.id === preId)
-    if (!pre) return NextResponse.json({ error: 'PRE not found on this job' }, { status: 404 })
+    // Prefer the draft sent in the request body (lets Generate run before the
+    // first save); fall back to the persisted PRE for older callers.
+    const bodyPre =
+      body.pre && typeof body.pre === 'object' && body.pre.id === preId ? body.pre : null
+    const pre = bodyPre ?? (ad?.post_remediation_evaluations ?? []).find(p => p.id === preId)
+    if (!pre) return NextResponse.json({ error: 'PRE not found on this job' }, { status: 400 })
 
     // Resolve the source quote document so we can describe each quoted scope line.
     let sourceContent: Partial<QuoteContent> | undefined

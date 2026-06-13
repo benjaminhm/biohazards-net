@@ -312,7 +312,7 @@ export default function PostRemediationEvaluationTab({ job, photos, documents, o
       const res = await fetch(`/api/jobs/${job.id}/suggest-pre`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ preId: pre.id }),
+        body: JSON.stringify({ preId: pre.id, pre }),
       })
       const data = (await res.json()) as {
         opening?: string
@@ -501,50 +501,6 @@ export default function PostRemediationEvaluationTab({ job, photos, documents, o
         >
           Switch source
         </button>
-      </div>
-
-      {/* AI assist */}
-      <div
-        style={{
-          padding: '14px 16px',
-          borderRadius: 12,
-          border: '1px solid var(--border)',
-          background: 'var(--surface-2)',
-        }}
-      >
-        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', marginBottom: 6, letterSpacing: '0.04em' }}>
-          Draft from quote + notes (Claude)
-        </div>
-        <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5, margin: '0 0 12px' }}>
-          Pre-fills the overview, per-line notes, and per-room intros from the quoted scope, progress notes, and photos.
-          Only fills blank fields — it never overwrites your text or sets the status pills. Save first, then draft.
-        </p>
-        {persistedSnapshot === '' ? (
-          <button type="button" className="btn btn-secondary" disabled style={{ fontSize: 13 }}>
-            Save first to enable drafting
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="btn btn-secondary"
-            disabled={aiBusy}
-            onClick={() => void draftFromQuote()}
-            style={{ fontSize: 13 }}
-          >
-            {aiBusy ? (
-              <>
-                <span className="spinner" /> Drafting…
-              </>
-            ) : (
-              'Draft from quote + notes'
-            )}
-          </button>
-        )}
-        {aiError && (
-          <p style={{ fontSize: 13, color: '#F87171', margin: '10px 0 0' }} role="alert">
-            {aiError}
-          </p>
-        )}
       </div>
 
       {/* Opening narrative */}
@@ -784,32 +740,57 @@ export default function PostRemediationEvaluationTab({ job, photos, documents, o
         style={textInput}
       />
 
-      {saveError && <div style={{ fontSize: 13, color: '#F87171', margin: '16px 0 0' }}>{saveError}</div>}
+      {(saveError || aiError) && (
+        <div style={{ fontSize: 13, color: '#F87171', margin: '16px 0 0' }} role="alert">
+          {saveError || aiError}
+        </div>
+      )}
 
-      <button
-        type="button"
-        className="btn btn-primary"
-        onClick={() => void save()}
-        disabled={saving || !isDirty}
-        style={{ width: '100%', padding: 14, fontSize: 15, marginTop: 20 }}
-      >
-        {saving ? 'Saving…' : savedFlash ? '✓ Saved' : 'Save Post Remediation Evaluation'}
-      </button>
+      <p style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5, margin: '20px 0 8px' }}>
+        Generate pre-fills blank fields only from the quote, notes, and photos — it never overwrites
+        your text or sets the status pills. Review, then save.
+      </p>
+      <div style={{ display: 'flex', gap: 12 }}>
+        <button
+          type="button"
+          className="btn btn-secondary"
+          onClick={() => void draftFromQuote()}
+          disabled={aiBusy || saving}
+          style={{ flex: 1, padding: 14, fontSize: 15 }}
+        >
+          {aiBusy ? (
+            <>
+              <span className="spinner" /> Generating…
+            </>
+          ) : (
+            'Generate'
+          )}
+        </button>
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={() => void save()}
+          disabled={saving || !isDirty}
+          style={{ flex: 1, padding: 14, fontSize: 15 }}
+        >
+          {saving ? 'Saving…' : savedFlash ? '✓ Saved' : 'Save'}
+        </button>
+      </div>
 
       <div style={{ marginTop: 16 }}>
         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
           {isDirty
-            ? 'Save your changes first, then generate the document.'
-            : 'Generate the print/PDF document for this evaluation.'}
+            ? 'Save your changes first, then create the document.'
+            : 'Create the print/PDF document for this evaluation.'}
         </div>
         {isDirty || persistedSnapshot === '' ? (
           <button type="button" className="btn btn-secondary" disabled style={{ fontSize: 13 }}>
-            Generate document
+            Create document
           </button>
         ) : (
           <Link href={`/jobs/${job.id}/docs/report?compose=1&preId=${pre.id}`}>
             <button type="button" className="btn btn-secondary" style={{ fontSize: 13 }}>
-              Generate document
+              Create document
             </button>
           </Link>
         )}
