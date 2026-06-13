@@ -1499,8 +1499,6 @@ export type PreScopeLine =
       /** Stable id of the source quote row this overlays (OutcomeQuoteRow.id,
        *  AreaPricingRow.area_name, or a volume row id). */
       source_line_id: string
-      /** How the quoted line actually went. Human-set only (never AI-set). */
-      status: 'as_done' | 'varied' | 'not_done'
       /** Optional qualitative quantity (e.g. "removed 7 m³"); NOT a price. */
       actual_qty?: number
       /** Unit mirroring the source line when an actual_qty is recorded. */
@@ -1539,6 +1537,10 @@ export interface PostRemediationEvaluation {
    *  the quote spoke is later renamed or deleted. */
   source_quote_label?: string
   source_quote_reference?: string
+  /** Technician steer for Generate: first-hand account of what happened against
+   *  the quoted scope (followed as agreed, complexities, variations,
+   *  recommendations). Authoritative context for drafting; not rendered. */
+  generation_brief?: string
   /** Top-of-doc prose. Rich HTML (TipTap). */
   opening_rich_html?: string
   /** Per-line overlays — pre-seeded from the source quote's rows. */
@@ -1579,7 +1581,6 @@ export type PreScopeLineResolved =
   | {
       kind: 'from_quote'
       source_line_id: string
-      status: 'as_done' | 'varied' | 'not_done'
       /** Section grouping label for the printed doc (e.g. "Section 2 — Contents removal"). */
       section_label?: string
       /** Snapshot of the quoted line title/detail at compose time. */

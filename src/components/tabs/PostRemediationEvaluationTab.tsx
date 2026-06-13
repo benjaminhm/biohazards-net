@@ -38,14 +38,6 @@ interface Props {
   onJobUpdate: (job: Job) => void
 }
 
-type LineStatus = 'as_done' | 'varied' | 'not_done'
-
-const STATUS_META: Record<LineStatus, { label: string; color: string; bg: string }> = {
-  as_done: { label: 'As done', color: '#34D399', bg: 'rgba(16,185,129,0.16)' },
-  varied: { label: 'Varied', color: '#FBBF24', bg: 'rgba(245,158,11,0.16)' },
-  not_done: { label: 'Not done', color: '#94A3B8', bg: 'rgba(148,163,184,0.16)' },
-}
-
 const card: CSSProperties = {
   border: '1px solid var(--border)',
   borderRadius: 12,
@@ -304,8 +296,28 @@ export default function PostRemediationEvaluationTab({ job, photos, documents, o
     })
   }
 
-  async function draftFromQuote() {
+  /**
+   * Regenerate the AI-authored prose from the quoted scope + technician note.
+   * Unlike a fill-blanks pass, this OVERWRITES the overview, per-line notes, and
+   * per-room intros so editing the technician note and re-running refreshes the
+   * draft. Structured human input is preserved: the technician note itself,
+   * added-works lines, actual quantities, and photo selections.
+   */
+  async function regenerateFromNote() {
     if (!pre) return
+    const hasDraftedProse =
+      hasProseText(pre.opening_rich_html) ||
+      hasProseText(pre.closing_rich_html) ||
+      pre.scope_lines.some(l => l.kind === 'from_quote' && hasProseText(l.note_rich_html)) ||
+      (pre.area_notes ?? []).some(n => hasProseText(n.intro_rich_html))
+    if (
+      hasDraftedProse &&
+      !window.confirm(
+        'Replace the drafted overview, line notes, and outcome with a fresh draft from your technician note? Your note, added works, quantities, and photos are kept.',
+      )
+    ) {
+      return
+    }
     setAiBusy(true)
     setAiError(null)
     try {
@@ -324,21 +336,17 @@ export default function PostRemediationEvaluationTab({ job, photos, documents, o
       if (!res.ok) throw new Error(data.error || 'Draft failed')
       patchPre(p => {
         const next: PostRemediationEvaluation = { ...p }
-        if (!hasProseText(next.opening_rich_html) && data.opening) next.opening_rich_html = data.opening
-        if (!hasProseText(next.closing_rich_html) && data.closing) next.closing_rich_html = data.closing
+        next.opening_rich_html = data.opening ?? ''
+        next.closing_rich_html = data.closing ?? ''
         next.scope_lines = p.scope_lines.map(l => {
-          if (l.kind === 'from_quote' && !hasProseText(l.note_rich_html)) {
-            const n = data.line_notes?.[l.source_line_id]
-            if (n) return { ...l, note_rich_html: n }
-          }
-          return l
+          if (l.kind !== 'from_quote') return l
+          return { ...l, note_rich_html: data.line_notes?.[l.source_line_id] ?? '' }
         })
         const mergedNotes = [...(p.area_notes ?? [])]
         for (const [areaName, text] of Object.entries(data.area_notes ?? {})) {
           const idx = mergedNotes.findIndex(n => n.area_name === areaName)
           if (idx === -1) mergedNotes.push({ area_name: areaName, intro_rich_html: text })
-          else if (!hasProseText(mergedNotes[idx].intro_rich_html))
-            mergedNotes[idx] = { ...mergedNotes[idx], intro_rich_html: text }
+          else mergedNotes[idx] = { ...mergedNotes[idx], intro_rich_html: text }
         }
         next.area_notes = mergedNotes
         return next
@@ -503,6 +511,20 @@ export default function PostRemediationEvaluationTab({ job, photos, documents, o
         </button>
       </div>
 
+      {/* Technician note — steers Generate */}
+      <div style={sectionHeading}>Technician note</div>
+      <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 8px' }}>
+        Tell the draft what actually happened against the quote — followed as agreed, complexities
+        that arose, scope changes, recommendations. Used with the quote as context when you
+        Regenerate; it is not printed on the document.
+      </p>
+      <textarea
+        value={pre.generation_brief ?? ''}
+        onChange={e => patchPre(p => ({ ...p, generation_brief: e.target.value }))}
+        placeholder="e.g. Quote followed in full. Bathroom needed extra subfloor treatment after lifting vinyl. Recommend a moisture re-check in 2 weeks."
+        style={{ ...textInput, minHeight: 110, resize: 'vertical', lineHeight: 1.5 }}
+      />
+
       {/* Opening narrative */}
       <div style={sectionHeading}>Overview</div>
       <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 8px' }}>
@@ -526,34 +548,8 @@ export default function PostRemediationEvaluationTab({ job, photos, documents, o
       {fromQuoteLines.map(({ l, idx }) => {
         if (l.kind !== 'from_quote') return null
         const ctx = resolveQuotedLineContext(sourceContent, l.source_line_id)
-        const status = l.status as LineStatus
         return (
           <div key={idx} style={card}>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-              {(Object.keys(STATUS_META) as LineStatus[]).map(s => {
-                const meta = STATUS_META[s]
-                const active = status === s
-                return (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => patchLine(idx, ll => ({ ...ll, status: s } as PreScopeLine))}
-                    style={{
-                      padding: '5px 11px',
-                      borderRadius: 999,
-                      fontSize: 12,
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      border: `1px solid ${active ? meta.color : 'var(--border)'}`,
-                      background: active ? meta.bg : 'transparent',
-                      color: active ? meta.color : 'var(--text-muted)',
-                    }}
-                  >
-                    {meta.label}
-                  </button>
-                )
-              })}
-            </div>
             <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>
               {ctx?.sectionLabel ?? 'From quote'}
             </div>
@@ -747,14 +743,15 @@ export default function PostRemediationEvaluationTab({ job, photos, documents, o
       )}
 
       <p style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5, margin: '20px 0 8px' }}>
-        Generate pre-fills blank fields only from the quote, notes, and photos — it never overwrites
-        your text or sets the status pills. Review, then save.
+        Regenerate drafts the overview, per-line notes, and per-room intros from the quote and your
+        technician note, replacing the previously drafted prose. Your note, added works, quantities,
+        and photos are kept. Review, then save.
       </p>
       <div style={{ display: 'flex', gap: 12 }}>
         <button
           type="button"
           className="btn btn-secondary"
-          onClick={() => void draftFromQuote()}
+          onClick={() => void regenerateFromNote()}
           disabled={aiBusy || saving}
           style={{ flex: 1, padding: 14, fontSize: 15 }}
         >
@@ -763,7 +760,7 @@ export default function PostRemediationEvaluationTab({ job, photos, documents, o
               <span className="spinner" /> Generating…
             </>
           ) : (
-            'Generate'
+            'Regenerate'
           )}
         </button>
         <button

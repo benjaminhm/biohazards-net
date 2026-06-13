@@ -23,13 +23,13 @@ const SYSTEM = `You draft a Post Remediation Evaluation (PRE) for Australian bio
 
 A PRE is a NON-FINANCIAL completion evaluation built against an agreed Quote/Estimate. It records, in natural professional prose, what was actually done against each quoted scope line, plus an overall opening and closing.
 
-You receive JOB_CONTEXT: the quoted scope lines (the agreed work), Scope of Work, progress notes, room notes, progress photo metadata, and any execute-phase silos.
+You receive JOB_CONTEXT: a TECHNICIAN_BRIEF (the attending technician's first-hand account), the quoted scope lines (the agreed work), Scope of Work, progress notes, room notes, progress photo metadata, and any execute-phase silos.
 
 RULES:
-- Ground every statement in the provided data. Do NOT invent incidents, clearance results, legal commitments, dollar amounts, or client quotes not supported by the JSON.
+- TECHNICIAN_BRIEF is authoritative. Treat it as the ground truth for what actually happened against the quoted scope. Where it confirms the quote was followed, describe the relevant lines as completed as agreed (past tense). Where it reports complexities, variations, scope changes, or recommendations, reflect those in the affected lines and in the closing.
+- Ground every statement in the provided data (brief, notes, photos, scope). Do NOT invent incidents, clearance results, legal commitments, dollar amounts, quantities, dates, or client quotes not supported by the JSON.
 - NEVER include money, prices, totals, or variance figures — the PRE is non-financial.
-- Do NOT decide whether a line was done / varied / not done — that is a human decision. Just describe what the notes/photos indicate for that scope item, neutrally.
-- Write clear, human, professional prose. Australian English.
+- Write clear, human, professional prose, past tense, describing the completed works. Australian English.
 - Use photo metadata only as internal context; do not output raw metadata (category labels, capture_phase, timestamps, file IDs).
 
 Respond ONLY with valid JSON (no markdown fences). Shape exactly:
@@ -190,7 +190,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     const sow = mergedSowCapture(ad)
 
+    const technicianBrief = (pre.generation_brief ?? '').trim()
+
     const jobContext = {
+      technician_brief: technicianBrief || null,
       job: {
         job_type: job.job_type,
         site_address: job.site_address,
@@ -219,6 +222,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     const hasSignal =
+      technicianBrief.length > 0 ||
       jobContext.progress_notes.some(n => n.body) ||
       jobContext.progress_room_notes.some(n => n.note) ||
       progressPhotos.length > 0 ||
@@ -231,7 +235,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json(
         {
           error:
-            'Add job notes, progress notes, room notes, progress photos, or quoted scope before drafting.',
+            'Add a technician note, job notes, progress notes, room notes, progress photos, or quoted scope before drafting.',
         },
         { status: 400 },
       )

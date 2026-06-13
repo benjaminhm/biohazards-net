@@ -975,12 +975,6 @@ function SOWOrReportPDF({
   )
 }
 
-const PRE_BADGE: Record<'as_done' | 'varied' | 'not_done', { label: string; color: string }> = {
-  as_done: { label: 'AS DONE', color: '#047857' },
-  varied: { label: 'VARIED', color: '#b45309' },
-  not_done: { label: 'NOT DONE', color: '#475569' },
-}
-
 /** Post Remediation Evaluation — non-financial completion evaluation against a quote. */
 function PrePDF({
   content,
@@ -1029,12 +1023,10 @@ function PrePDF({
           <View key={sec} style={{ marginBottom: 8 }}>
             <Text style={[styles.body, { fontFamily: 'Helvetica-Bold', marginBottom: 4 }]}>{sec}</Text>
             {bySection.get(sec)!.map((l, i) => {
-              const badge = PRE_BADGE[l.status]
               const linePhotos = resolve(l.photo_ids)
               return (
                 <View key={i} style={{ marginBottom: 8, paddingLeft: 8, borderLeftWidth: 2, borderLeftColor: BORDER }}>
                   <Text style={styles.body}>
-                    <Text style={{ color: badge.color, fontFamily: 'Helvetica-Bold', fontSize: 8 }}>{badge.label}  </Text>
                     <Text style={{ fontFamily: 'Helvetica-Bold' }}>{l.quoted_title}</Text>
                   </Text>
                   {l.quoted_detail ? <Text style={[styles.body, { fontSize: 8, color: MUTED }]}>Quoted: {l.quoted_detail}</Text> : null}

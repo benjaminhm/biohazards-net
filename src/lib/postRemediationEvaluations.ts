@@ -52,17 +52,17 @@ export function seedScopeLinesFromQuoteContent(
 
   for (const row of content.outcome_rows ?? []) {
     if (!row?.id) continue
-    lines.push({ kind: 'from_quote', source_line_id: `outcome:${row.id}`, status: 'as_done' })
+    lines.push({ kind: 'from_quote', source_line_id: `outcome:${row.id}` })
   }
 
   for (const row of content.area_pricing ?? []) {
     if (!row?.area_name) continue
-    lines.push({ kind: 'from_quote', source_line_id: `area:${row.area_name}`, status: 'as_done' })
+    lines.push({ kind: 'from_quote', source_line_id: `area:${row.area_name}` })
   }
 
   const volumeRows = content.volume_pricing?.rows ?? []
   volumeRows.forEach((_row, i) => {
-    lines.push({ kind: 'from_quote', source_line_id: `volume:${i}`, status: 'as_done' })
+    lines.push({ kind: 'from_quote', source_line_id: `volume:${i}` })
   })
 
   return lines

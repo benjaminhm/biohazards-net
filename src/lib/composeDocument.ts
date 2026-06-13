@@ -687,7 +687,6 @@ function composePre(
       return {
         kind: 'from_quote',
         source_line_id: line.source_line_id,
-        status: line.status,
         section_label: ctx?.sectionLabel,
         quoted_title: ctx?.title ?? line.source_line_id,
         quoted_detail: ctx?.detail,

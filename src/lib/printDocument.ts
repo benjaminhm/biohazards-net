@@ -1552,12 +1552,6 @@ function buildReportHTML(
 
 // ── 6b. Post Remediation Evaluation (PRE) ─────────────────────────────────────
 
-const PRE_STATUS_META: Record<'as_done' | 'varied' | 'not_done', { label: string; color: string; bg: string }> = {
-  as_done: { label: 'AS DONE', color: '#047857', bg: '#ecfdf5' },
-  varied: { label: 'VARIED', color: '#b45309', bg: '#fffbeb' },
-  not_done: { label: 'NOT DONE', color: '#475569', bg: '#f1f5f9' },
-}
-
 /** Render a small evidence-photo grid for resolved photo ids. */
 function prePhotoStrip(photoIds: string[] | undefined, byId: Map<string, Photo>): string {
   const pics = (photoIds ?? []).map(id => byId.get(id)).filter((p): p is Photo => !!p)
@@ -1576,11 +1570,6 @@ function prePhotoStrip(photoIds: string[] | undefined, byId: Map<string, Photo>)
     </div>`
 }
 
-function preStatusPill(status: 'as_done' | 'varied' | 'not_done'): string {
-  const m = PRE_STATUS_META[status]
-  return `<span style="display:inline-block;padding:2px 8px;border-radius:999px;font-size:8pt;font-weight:700;letter-spacing:0.04em;color:${m.color};background:${m.bg};border:1px solid ${m.color}33">${m.label}</span>`
-}
-
 function preFromQuoteCard(line: Extract<PreScopeLineResolved, { kind: 'from_quote' }>, byId: Map<string, Photo>): string {
   const actual =
     line.actual_qty != null
@@ -1589,7 +1578,7 @@ function preFromQuoteCard(line: Extract<PreScopeLineResolved, { kind: 'from_quot
   const note = line.note_html ? `<div class="body-text sow-rich" style="margin-top:4px">${line.note_html}</div>` : ''
   return `
     <div style="border-left:3px solid #e5e7eb;padding:6px 0 6px 12px;margin:0 0 12px">
-      <div style="margin-bottom:4px">${preStatusPill(line.status)} <strong style="font-size:10.5pt">${esc(line.quoted_title)}</strong></div>
+      <div style="margin-bottom:4px"><strong style="font-size:10.5pt">${esc(line.quoted_title)}</strong></div>
       ${line.quoted_detail ? `<div class="body-text" style="font-size:9pt;color:#555;margin-bottom:2px">Quoted: ${esc(line.quoted_detail)}</div>` : ''}
       ${actual}
       ${note}
