@@ -13,6 +13,8 @@ import type {
 } from '@/lib/types'
 import { collectExcludedSurfaces } from '@/lib/areaSurfaces'
 import {
+  areaPricingHasContent,
+  areaPricingSectionSubtotal,
   derivePricingLayoutFromCapture,
   normalizeSectionTerms,
   recomputeVolumePricingTotal,
@@ -52,6 +54,7 @@ export interface QuoteContentPatchInputs {
   captureFields?: QuoteCaptureFields
   areaPricing?: AreaPricingRow[]
   areaPricingTerms?: SectionTerms
+  areaPricingSectionTotal?: number
   volumePricing?: VolumePricingBlock
   volumePricingTerms?: SectionTerms
   pricingLayout?: QuotePricingLayout
@@ -71,6 +74,7 @@ export function quoteLineItemsContentPatch(
     captureFields,
     areaPricing,
     areaPricingTerms,
+    areaPricingSectionTotal,
     volumePricing,
     volumePricingTerms,
     pricingLayout,
@@ -97,7 +101,7 @@ export function quoteLineItemsContentPatch(
   // Layout defaults: enable any section that has data unless an explicit layout disables it.
   const effectiveLayout: QuotePricingLayout = pricingLayout ?? {
     outcomes_enabled: baseMobilisationFee > 0 || lineItems.length > 0 || pricedOutcomes.length > 0,
-    per_sqm_enabled: pricedAreaPricing.length > 0,
+    per_sqm_enabled: areaPricingHasContent(areaPricing, areaPricingSectionTotal),
     per_m3_enabled: !!volumeIncluded,
   }
 
@@ -116,14 +120,14 @@ export function quoteLineItemsContentPatch(
             : pricedOutcomes.reduce((sum, row) => sum + Number(row.price || 0), 0)))
     : 0
   const areaPricingSum = effectiveLayout.per_sqm_enabled
-    ? pricedAreaPricing.reduce((s, r) => s + Number(r.total || 0), 0)
+    ? areaPricingSectionSubtotal(areaPricing, areaPricingSectionTotal)
     : 0
   const volumeSum = effectiveLayout.per_m3_enabled ? volumePricingSubtotal(volumeIncluded) : 0
 
   const subtotal = Math.round((outcomesSum + areaPricingSum + volumeSum) * 100) / 100
   const noData = !lineItems.length
     && !(outcomeRows?.length)
-    && pricedAreaPricing.length === 0
+    && areaPricingSum <= 0
     && !volumeIncluded
     && baseMobilisationFee <= 0
   if (noData) return {}
@@ -152,6 +156,9 @@ export function quoteLineItemsContentPatch(
     intro: '',
   }
   if (cleanAreaTerms) patch.area_pricing_terms = cleanAreaTerms
+  if (effectiveLayout.per_sqm_enabled && Number(areaPricingSectionTotal || 0) > 0) {
+    patch.area_pricing_section_total = Math.max(0, Number(areaPricingSectionTotal || 0))
+  }
   if (volumeIncluded && effectiveLayout.per_m3_enabled) patch.volume_pricing = volumeIncluded
   if (cleanVolumeTerms) patch.volume_pricing_terms = cleanVolumeTerms
   if (captureFields?.notes) patch.notes = captureFields.notes
@@ -169,6 +176,7 @@ export interface MergeQuoteLineItemsOptions {
   capture_fields?: QuoteCaptureFields
   area_pricing?: AreaPricingRow[]
   area_pricing_terms?: SectionTerms
+  area_pricing_section_total?: number
   volume_pricing?: VolumePricingBlock
   volume_pricing_terms?: SectionTerms
   pricing_layout?: QuotePricingLayout
@@ -193,6 +201,7 @@ export function mergeQuoteLineItemsIntoDocContent(
       captureFields: options?.capture_fields,
       areaPricing: options?.area_pricing,
       areaPricingTerms: options?.area_pricing_terms,
+      areaPricingSectionTotal: options?.area_pricing_section_total,
       volumePricing: options?.volume_pricing,
       volumePricingTerms: options?.volume_pricing_terms,
       pricingLayout: options?.pricing_layout,
@@ -300,6 +309,8 @@ export async function fetchQuoteLineItemsMergeContext(
   const global_surface_rate_per_m2 = Math.max(0, Number(capture?.global_surface_rate_per_m2 || 0))
   const global_contents_rate_per_m3 = Math.max(0, Number(capture?.global_contents_rate_per_m3 || 0))
 
+  const area_pricing_section_total = Math.max(0, Number(capture?.area_pricing_section_total || 0))
+
   const capture_fields: QuoteCaptureFields = {
     notes: capture?.notes ?? '',
     payment_terms: ad?.payment_terms ?? '',
@@ -316,6 +327,7 @@ export async function fetchQuoteLineItemsMergeContext(
 
   const baseExtras = {
     area_pricing_terms,
+    area_pricing_section_total: area_pricing_section_total > 0 ? area_pricing_section_total : undefined,
     volume_pricing,
     volume_pricing_terms,
     pricing_layout,

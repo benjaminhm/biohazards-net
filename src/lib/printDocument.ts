@@ -1049,6 +1049,10 @@ function renderSectionTerms(t: SectionTerms | undefined): string {
   </div>`
 }
 
+function hasSectionTerms(t: SectionTerms | undefined): boolean {
+  return renderSectionTerms(t) !== ''
+}
+
 /** Section 2 — Contents Removal: volume table + estimate caveat + section terms. */
 function renderVolumeSection(block: VolumePricingBlock | undefined, terms: SectionTerms | undefined): string {
   if (!block) return ''
@@ -1096,8 +1100,36 @@ function renderVolumeSection(block: VolumePricingBlock | undefined, terms: Secti
 function renderAreaPricingSection(
   rows: NonNullable<QuoteContent['area_pricing']>,
   terms: SectionTerms | undefined,
+  sectionTotal = 0,
 ): string {
-  if (rows.length === 0) return ''
+  if (rows.length === 0 && sectionTotal <= 0) {
+    const termsHtml = renderSectionTerms(terms)
+    if (!termsHtml) return ''
+    return `
+    <div class="label" style="margin-top:18px">3. Remediation, Cleaning &amp; Sanitisation</div>
+    ${termsHtml}
+  `
+  }
+  if (rows.length === 0 && sectionTotal > 0) {
+    return `
+    <div class="label" style="margin-top:18px">3. Remediation, Cleaning &amp; Sanitisation</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Description</th>
+          <th class="r">Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Remediation, cleaning &amp; sanitisation</td>
+          <td class="r">${fmtMoney(sectionTotal)}</td>
+        </tr>
+      </tbody>
+    </table>
+    ${renderSectionTerms(terms)}
+  `
+  }
   const body = rows.map(row => {
     const dims = row.length_m > 0 && row.width_m > 0
       ? `${row.length_m}×${row.width_m}${row.height_m > 0 ? `×${row.height_m}` : ''} m`
@@ -1261,7 +1293,9 @@ function buildQuoteMid(
   const globalMobilisationFee = Math.max(0, Number(c.global_mobilisation_fee || 0))
   const showSection1 = (layout?.outcomes_enabled ?? true) && (outcomeRows.length > 0 || (c.line_items ?? []).length > 0 || globalMobilisationFee > 0)
   const areaPricing = (c.area_pricing ?? []).filter(r => Number(r.total ?? 0) > 0)
-  const showSection3 = (layout?.per_sqm_enabled ?? true) && areaPricing.length > 0
+  const areaPricingSectionTotal = Math.max(0, Number(c.area_pricing_section_total || 0))
+  const showSection3 = (layout?.per_sqm_enabled ?? true)
+    && (areaPricing.length > 0 || areaPricingSectionTotal > 0 || hasSectionTerms(c.area_pricing_terms))
   const volumeBlock = c.volume_pricing
   const showSection2 = (layout?.per_m3_enabled ?? true) && !!volumeBlock && (volumeBlock.rows?.length ?? 0) > 0
 
@@ -1298,7 +1332,9 @@ function buildQuoteMid(
     ? `<div class="label" style="margin-top:6px">1. Mobilisation, Fees &amp; Fixed-Rate Items</div>${section1Body}`
     : ''
   const section2 = showSection2 ? renderVolumeSection(volumeBlock, c.volume_pricing_terms) : ''
-  const section3 = showSection3 ? renderAreaPricingSection(areaPricing, c.area_pricing_terms) : ''
+  const section3 = showSection3
+    ? renderAreaPricingSection(areaPricing, c.area_pricing_terms, areaPricingSectionTotal)
+    : ''
 
   const anySection = section1 || section2 || section3
   const noSectionsFallback = anySection ? '' : `<div class="body-text">— Pricing to be confirmed.</div>`

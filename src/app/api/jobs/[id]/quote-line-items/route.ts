@@ -52,8 +52,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const globalMobilisationFee = Math.max(0, Number(outcomeCapture?.global_mobilisation_fee || 0))
     const globalSurfaceRatePerM2 = Math.max(0, Number(outcomeCapture?.global_surface_rate_per_m2 || 0))
     const globalContentsRatePerM3 = Math.max(0, Number(outcomeCapture?.global_contents_rate_per_m3 || 0))
+    const areaPricingSectionTotal = Math.max(0, Number(outcomeCapture?.area_pricing_section_total || 0))
     const sectionExtras = {
       area_pricing_terms: areaPricingTerms,
+      ...(areaPricingSectionTotal > 0 ? { area_pricing_section_total: areaPricingSectionTotal } : {}),
       volume_pricing: volumePricing,
       volume_pricing_terms: volumePricingTerms,
       pricing_layout: pricingLayout,

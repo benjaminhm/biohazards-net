@@ -192,9 +192,29 @@ export function quoteContentIsEstimate(content: {
   return volume.is_estimate === true
 }
 
-/** True when `area_pricing` has at least one priced row. */
-export function areaPricingHasContent(rows: AreaPricingRow[] | undefined): boolean {
-  return (rows ?? []).some(r => Number(r.total ?? 0) > 0)
+/** Sum of included surface line totals across all area rows. */
+export function areaPricingSurfaceSum(rows: AreaPricingRow[] | undefined): number {
+  return round2(
+    (rows ?? []).reduce((s, r) => s + Math.max(0, Number(r.total || 0)), 0),
+  )
+}
+
+/** Section 3 subtotal: surface line sum when present, otherwise the lump-sum field. */
+export function areaPricingSectionSubtotal(
+  rows: AreaPricingRow[] | undefined,
+  sectionTotal = 0,
+): number {
+  const fromSurfaces = areaPricingSurfaceSum(rows)
+  if (fromSurfaces > 0) return fromSurfaces
+  return Math.max(0, Number(sectionTotal) || 0)
+}
+
+/** True when Section 3 has priced surface rows or a lump-sum total. */
+export function areaPricingHasContent(
+  rows: AreaPricingRow[] | undefined,
+  sectionTotal = 0,
+): boolean {
+  return areaPricingSectionSubtotal(rows, sectionTotal) > 0
 }
 
 /** True when Section 1 has at least one priced row. */
@@ -212,7 +232,7 @@ export function derivePricingLayoutFromCapture(
 ): QuotePricingLayout {
   if (cap?.pricing_layout) return cap.pricing_layout
   const outcomes = outcomesHaveContent(cap?.rows) || Number(cap?.global_mobilisation_fee || 0) > 0
-  const perSqm = areaPricingHasContent(cap?.area_pricing)
+  const perSqm = areaPricingHasContent(cap?.area_pricing, cap?.area_pricing_section_total)
   const perM3 = volumePricingHasContent(cap?.volume_pricing)
   // Brand-new captures default to outcomes-only (matches the most common case).
   if (!outcomes && !perSqm && !perM3) {

@@ -36,6 +36,8 @@ import { effectiveAreaDimensions } from '@/lib/areaSubzones'
 import {
   OUTCOME_KIND_LABELS,
   OUTCOME_KIND_ORDER,
+  areaPricingSectionSubtotal,
+  areaPricingSurfaceSum,
   derivePricingLayoutFromCapture,
   normalizeSectionTerms,
   quoteContentIsEstimate,
@@ -111,8 +113,32 @@ function gstModeFromRun(run: { gst_mode?: unknown; add_gst_to_total?: boolean } 
   return run?.add_gst_to_total === true ? 'exclusive' : 'no_gst'
 }
 
-function areaPricingSum(areas: AreaPricingRow[]): number {
-  return toMoney(areas.reduce((s, r) => s + Math.max(0, Number(r.total || 0)), 0))
+function computeTotals(
+  rows: OutcomeQuoteRow[],
+  areaPricing: AreaPricingRow[],
+  volumePricing: VolumePricingBlock | null,
+  layout: QuotePricingLayout,
+  gstMode: QuoteGstMode,
+  globalMobilisationFee = 0,
+  areaPricingSectionTotal = 0,
+) {
+  const outcomeSum = layout.outcomes_enabled
+    ? Math.max(0, Number(globalMobilisationFee || 0)) + rows.reduce((s, r) => s + Math.max(0, Number(r.price || 0)), 0)
+    : 0
+  const surfaceSum = layout.per_sqm_enabled
+    ? areaPricingSectionSubtotal(areaPricing, areaPricingSectionTotal)
+    : 0
+  const volSum = layout.per_m3_enabled ? volumePricingSubtotal(volumePricing ?? undefined) : 0
+  const lineSum = toMoney(outcomeSum + surfaceSum + volSum)
+  if (gstMode === 'exclusive') {
+    const gst = toMoney(lineSum * 0.1)
+    return { subtotal: lineSum, gst, total: toMoney(lineSum + gst) }
+  }
+  if (gstMode === 'inclusive') {
+    const gst = toMoney(lineSum / 11)
+    return { subtotal: toMoney(lineSum - gst), gst, total: lineSum }
+  }
+  return { subtotal: lineSum, gst: 0, total: lineSum }
 }
 
 function fmtM2(n: number): string {
@@ -143,34 +169,6 @@ function selectedAreasForRow(row: OutcomeQuoteRow, areas: Area[] | undefined): A
 
 function totalSurfaceM2ForAreas(areas: Area[]): number {
   return toMoney(areas.reduce((sum, area) => sum + areaSurfaceMeasurements(area).total, 0))
-}
-
-/** Compute totals across all enabled sections. Sections that the layout
- *  marks disabled don't contribute even if their data is non-empty — so
- *  toggling a section off is non-destructive but immediately accurate. */
-function computeTotals(
-  rows: OutcomeQuoteRow[],
-  areaPricing: AreaPricingRow[],
-  volumePricing: VolumePricingBlock | null,
-  layout: QuotePricingLayout,
-  gstMode: QuoteGstMode,
-  globalMobilisationFee = 0,
-) {
-  const outcomeSum = layout.outcomes_enabled
-    ? Math.max(0, Number(globalMobilisationFee || 0)) + rows.reduce((s, r) => s + Math.max(0, Number(r.price || 0)), 0)
-    : 0
-  const surfaceSum = layout.per_sqm_enabled ? areaPricingSum(areaPricing) : 0
-  const volSum = layout.per_m3_enabled ? volumePricingSubtotal(volumePricing ?? undefined) : 0
-  const lineSum = toMoney(outcomeSum + surfaceSum + volSum)
-  if (gstMode === 'exclusive') {
-    const gst = toMoney(lineSum * 0.1)
-    return { subtotal: lineSum, gst, total: toMoney(lineSum + gst) }
-  }
-  if (gstMode === 'inclusive') {
-    const gst = toMoney(lineSum / 11)
-    return { subtotal: toMoney(lineSum - gst), gst, total: lineSum }
-  }
-  return { subtotal: lineSum, gst: 0, total: lineSum }
 }
 
 /** Build a fresh per-room pricing snapshot from the live assessment areas,
@@ -427,6 +425,9 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
   const [globalContentsRatePerM3, setGlobalContentsRatePerM3] = useState<number>(
     Math.max(0, Number(existing?.global_contents_rate_per_m3 ?? 0)),
   )
+  const [areaPricingSectionTotal, setAreaPricingSectionTotal] = useState<number>(
+    Math.max(0, Number(existing?.area_pricing_section_total ?? 0)),
+  )
   const [paymentTerms, setPaymentTerms] = useState(ad?.payment_terms ?? '')
   const [validity, setValidity] = useState(existing?.validity ?? '')
   const [notes, setNotes] = useState(existing?.notes ?? '')
@@ -484,6 +485,7 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
     setGlobalMobilisationFee(Math.max(0, Number(cap?.global_mobilisation_fee ?? 0)))
     setGlobalSurfaceRatePerM2(Math.max(0, Number(cap?.global_surface_rate_per_m2 ?? 0)))
     setGlobalContentsRatePerM3(Math.max(0, Number(cap?.global_contents_rate_per_m3 ?? 0)))
+    setAreaPricingSectionTotal(Math.max(0, Number(cap?.area_pricing_section_total ?? 0)))
     setGstMode(cap?.gst_mode ?? 'no_gst')
     setValidity(cap?.validity ?? '')
     setNotes(cap?.notes ?? '')
@@ -512,10 +514,26 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
   }, [job.assessment_data?.outcome_quotes, job.assessment_data?.outcome_quote_capture, job.assessment_data?.areas, job.assessment_data?.payment_terms, job.id, job.updated_at])
 
   const totals = useMemo(
-    () => computeTotals(rows, areaPricing, volumePricing, pricingLayout, gstMode, globalMobilisationFee),
-    [rows, areaPricing, volumePricing, pricingLayout, gstMode, globalMobilisationFee],
+    () =>
+      computeTotals(
+        rows,
+        areaPricing,
+        volumePricing,
+        pricingLayout,
+        gstMode,
+        globalMobilisationFee,
+        areaPricingSectionTotal,
+      ),
+    [rows, areaPricing, volumePricing, pricingLayout, gstMode, globalMobilisationFee, areaPricingSectionTotal],
   )
-  const areaPricingSubtotal = useMemo(() => areaPricingSum(areaPricing), [areaPricing])
+  const areaPricingSurfaceSubtotal = useMemo(
+    () => areaPricingSurfaceSum(areaPricing),
+    [areaPricing],
+  )
+  const areaPricingSubtotal = useMemo(
+    () => areaPricingSectionSubtotal(areaPricing, areaPricingSectionTotal),
+    [areaPricing, areaPricingSectionTotal],
+  )
   const volumeSubtotal = useMemo(() => volumePricingSubtotal(volumePricing), [volumePricing])
   const outcomesSubtotal = useMemo(
     () => toMoney(Math.max(0, Number(globalMobilisationFee || 0)) + rows.reduce((s, r) => s + Math.max(0, Number(r.price || 0)), 0)),
@@ -784,6 +802,7 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
       quote_kind: quoteKind,
       rows: promotedRows,
       area_pricing: areaPricing,
+      ...(areaPricingSectionTotal > 0 ? { area_pricing_section_total: areaPricingSectionTotal } : {}),
       ...(cleanAreaTerms ? { area_pricing_terms: cleanAreaTerms } : {}),
       ...(persistedVolume ? { volume_pricing: persistedVolume } : {}),
       ...(cleanVolumeTerms ? { volume_pricing_terms: cleanVolumeTerms } : {}),
@@ -792,7 +811,15 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
       global_surface_rate_per_m2: globalSurfaceRatePerM2,
       global_contents_rate_per_m3: globalContentsRatePerM3,
       gst_mode: gstMode,
-      totals: computeTotals(promotedRows, areaPricing, persistedVolume ?? null, pricingLayout, gstMode, globalMobilisationFee),
+      totals: computeTotals(
+        promotedRows,
+        areaPricing,
+        persistedVolume ?? null,
+        pricingLayout,
+        gstMode,
+        globalMobilisationFee,
+        areaPricingSectionTotal,
+      ),
       target_pricing: {},
       validity,
       notes,
@@ -1723,11 +1750,9 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
       <div style={{ marginBottom: 8 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
           <div style={SECTION}>3. Remediation, Cleaning &amp; Sanitisation</div>
-          {areaPricing.length > 0 && (
-            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-              Subtotal: <strong style={{ color: 'var(--text)' }}>${areaPricingSubtotal.toFixed(2)}</strong>
-            </div>
-          )}
+          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+            Subtotal: <strong style={{ color: 'var(--text)' }}>${areaPricingSubtotal.toFixed(2)}</strong>
+          </div>
         </div>
         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: -6, marginBottom: 12, lineHeight: 1.5 }}>
           Per-m² surface pricing driven by the Assessment dimensions. Floor / Walls / Ceiling priced independently.
@@ -1884,6 +1909,37 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
         </div>
       )}
 
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end', marginBottom: 14 }}>
+        <div className="field" style={{ marginBottom: 0, flex: '0 0 200px' }}>
+          <label>Section total ($)</label>
+          <input
+            type="number"
+            inputMode="decimal"
+            min="0"
+            step="1"
+            value={areaPricingSectionTotal > 0 ? areaPricingSectionTotal : ''}
+            onChange={e => {
+              const n = parseFloat(e.target.value)
+              setAreaPricingSectionTotal(isNaN(n) ? 0 : Math.max(0, n))
+              setSaved(false)
+              setSaveError('')
+            }}
+            placeholder="0.00"
+            disabled={areaPricingSurfaceSubtotal > 0}
+            aria-label="Section 3 total price"
+          />
+        </div>
+        {areaPricingSurfaceSubtotal > 0 ? (
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.45, paddingBottom: 8 }}>
+            Total is the sum of included surface lines (${areaPricingSurfaceSubtotal.toFixed(2)}).
+          </div>
+        ) : (
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.45, paddingBottom: 8 }}>
+            Enter a lump-sum total when not pricing per surface, or add areas in Assessment for per-m² lines.
+          </div>
+        )}
+      </div>
+
       {/* Section-level terms for Section 3 */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 22 }}>
         <div className="field" style={{ marginBottom: 0 }}>
@@ -1976,6 +2032,35 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
         {gstError && (
           <div style={{ fontSize: 12, color: '#F87171', marginBottom: 10 }} role="alert">
             {gstError}
+          </div>
+        )}
+        {(pricingLayout.outcomes_enabled || pricingLayout.per_m3_enabled || pricingLayout.per_sqm_enabled) && (
+          <div
+            style={{
+              marginBottom: 12,
+              paddingBottom: 12,
+              borderBottom: '1px solid var(--border)',
+            }}
+          >
+            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>Section summary</div>
+            {pricingLayout.outcomes_enabled && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                <span style={{ color: 'var(--text-muted)' }}>1. Mobilisation &amp; fees</span>
+                <span>${outcomesSubtotal.toFixed(2)}</span>
+              </div>
+            )}
+            {pricingLayout.per_m3_enabled && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                <span style={{ color: 'var(--text-muted)' }}>2. Contents removal</span>
+                <span>${volumeSubtotal.toFixed(2)}</span>
+              </div>
+            )}
+            {pricingLayout.per_sqm_enabled && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                <span style={{ color: 'var(--text-muted)' }}>3. Remediation &amp; cleaning</span>
+                <span>${areaPricingSubtotal.toFixed(2)}</span>
+              </div>
+            )}
           </div>
         )}
         {gstMode === 'exclusive' && (

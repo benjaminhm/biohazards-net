@@ -841,6 +841,8 @@ export interface OutcomeQuoteCapture {
   area_pricing?: AreaPricingRow[]
   /** Section-level inclusions / exclusions / assumptions for Section 3. */
   area_pricing_terms?: SectionTerms
+  /** Lump-sum Section 3 total when per-surface lines are empty or not used. */
+  area_pricing_section_total?: number
   /** Section 2 — contents-removal volume pricing block. */
   volume_pricing?: VolumePricingBlock
   /** Section-level inclusions / exclusions / assumptions for Section 2. */
@@ -1318,6 +1320,8 @@ export interface QuoteContent {
   area_pricing?: AreaPricingRow[]
   /** Section-level Inclusions / Exclusions / Assumptions for Section 3. */
   area_pricing_terms?: SectionTerms
+  /** Lump-sum Section 3 total when per-surface lines are empty or not used. */
+  area_pricing_section_total?: number
   /** Section 2 — Contents Removal volume pricing block. */
   volume_pricing?: VolumePricingBlock
   /** Section-level Inclusions / Exclusions / Assumptions for Section 2. */

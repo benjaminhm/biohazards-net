@@ -501,6 +501,7 @@ function composeQuote(job: Job, quoteId?: string): ComposeDocumentResult {
   const cap = spoke ?? ad?.outcome_quote_capture
   const auth = cap?.authorisation
   const areaPricing = (cap?.area_pricing ?? []).filter(r => Number(r.total ?? 0) > 0)
+  const areaPricingSectionTotal = Math.max(0, Number(cap?.area_pricing_section_total || 0))
   const autoExcludedSurfaces = collectExcludedSurfaces(areaPricing)
   const volumePricing = cap?.volume_pricing && volumePricingHasContent(cap.volume_pricing)
     ? cap.volume_pricing
@@ -509,7 +510,10 @@ function composeQuote(job: Job, quoteId?: string): ComposeDocumentResult {
   const areaTerms = normalizeSectionTerms(cap?.area_pricing_terms)
   const volumeTerms = normalizeSectionTerms(cap?.volume_pricing_terms)
   const hasOutcomes = cap && cap.rows?.length > 0
-  const hasCapture = hasOutcomes || areaPricing.length > 0 || !!volumePricing
+  const hasCapture = hasOutcomes
+    || areaPricing.length > 0
+    || areaPricingSectionTotal > 0
+    || !!volumePricing
   const raw: QuoteContent = {
     // Unified doc identity — every Quote-type document prints as
     // "Quote/Estimate"; the in-doc banner clarifies whether it's a
@@ -526,6 +530,7 @@ function composeQuote(job: Job, quoteId?: string): ComposeDocumentResult {
     outcome_mode: hasOutcomes ? 'outcomes' : undefined,
     area_pricing: areaPricing.length > 0 ? areaPricing : undefined,
     area_pricing_terms: areaTerms,
+    ...(areaPricingSectionTotal > 0 ? { area_pricing_section_total: areaPricingSectionTotal } : {}),
     volume_pricing: volumePricing,
     volume_pricing_terms: volumeTerms,
     pricing_layout: layout,
