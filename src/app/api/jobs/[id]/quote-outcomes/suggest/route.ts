@@ -1,3 +1,12 @@
+/*
+ * POST /api/jobs/[id]/quote-outcomes/suggest
+ *
+ * Staff-only: AI draft for quote pricing sections from job context + instruction.
+ * Body: { instruction?: string, section?: 'outcomes' | 'volume' | 'surface' }
+ *   outcomes (default) → Section 1 mobilisation/fee rows
+ *   volume            → Section 2 contents m³ lines + optional section terms
+ *   surface           → Section 3 per-room surface include/rate patches + terms
+ */
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { auth } from '@clerk/nextjs/server'
@@ -6,7 +15,15 @@ import { getOrgId } from '@/lib/org'
 import { getAnthropicApiKey } from '@/lib/loadAnthropicEnvFallback'
 import { mergedSowCapture } from '@/lib/sowCapture'
 import { derivePricingLayoutFromCapture } from '@/lib/quoteSections'
-import type { AssessmentData, JobType, OutcomeKind, OutcomeQuoteRow } from '@/lib/types'
+import type {
+  AssessmentData,
+  JobType,
+  OutcomeKind,
+  OutcomeQuoteRow,
+  SectionTerms,
+  SurfaceKind,
+  VolumePricingRow,
+} from '@/lib/types'
 
 const SYSTEM = `You draft Section 1 ("Mobilisation, Fees & Fixed-Rate Items") rows for an Australian biohazard remediation quote.
 
@@ -97,6 +114,75 @@ Rules:
   - If pricing isn't stated or clearly inferable, set price to 0 rather than inventing.
   - Add assumption/exclusion lines that make the limited-info basis clear.
 `
+
+const SYSTEM_VOLUME = `You draft Section 2 ("Contents Removal") rows for an Australian biohazard remediation quote.
+
+Section 2 bills estimated cubic-metre (m³) volume per room or free-form line. You ONLY draft Section 2 — do NOT draft Section 1 fees or Section 3 surface m² pricing.
+
+Return ONLY valid JSON:
+{
+  "volume_rows": [
+    {
+      "description": "",
+      "area_name": "",
+      "estimated_volume_m3": 0,
+      "notes": ""
+    }
+  ],
+  "terms": {
+    "included": [""],
+    "excluded": [""],
+    "assumptions": [""]
+  }
+}
+
+Rules:
+- Ground estimates in context (assessment areas, photos, notes, instruction). Do NOT invent rooms.
+- "area_name" must match an assessment area when the row is room-specific; leave "" for free-form lines (e.g. skip hire).
+- "description" is required (e.g. "Bedroom contents", "Garage hoarding pile").
+- "estimated_volume_m3" is a conservative estimate >= 0. Use 0 when truly unknown rather than guessing wildly.
+- "notes" optional — access limits, mixed waste, staged uplift, etc.
+- "terms" optional section-level inclusions/exclusions/assumptions for Section 2 only.
+- Proposed-action / estimate language only — no achieved outcomes or clearance claims.
+- Follow the staff instruction when provided.`
+
+const SYSTEM_SURFACE = `You draft Section 3 ("Remediation, Cleaning & Sanitisation") surface-pricing suggestions for an Australian biohazard remediation quote.
+
+Section 3 prices Floor / Walls / Ceiling per room at $/m². You suggest which surfaces to include and optional $/m² rates — staff edit before saving.
+
+Return ONLY valid JSON:
+{
+  "surface_patches": [
+    {
+      "area_name": "",
+      "surfaces": [
+        { "kind": "floor", "included": true, "unit_price_per_sqm": 0 },
+        { "kind": "walls", "included": false, "unit_price_per_sqm": 0 },
+        { "kind": "ceiling", "included": false, "unit_price_per_sqm": 0 }
+      ]
+    }
+  ],
+  "terms": {
+    "included": [""],
+    "excluded": [""],
+    "assumptions": [""]
+  }
+}
+
+Rules:
+- Only patch areas that exist in context.assessment_data.areas — do NOT invent rooms.
+- "kind" must be exactly "floor", "walls", or "ceiling".
+- Set "included" true/false per surface based on contamination scope and instruction.
+- "unit_price_per_sqm" >= 0; use context.global_surface_rate_per_m2 when set, else 0 for staff to fill.
+- Omit surfaces you have no basis to change.
+- "terms" optional section-level inclusions/exclusions/assumptions for Section 3 only.
+- Proposed pricing language only — no achieved outcomes or clearance claims.
+- Follow the staff instruction when provided.`
+
+type QuoteSuggestSection = 'outcomes' | 'volume' | 'surface'
+
+const VALID_SECTIONS: QuoteSuggestSection[] = ['outcomes', 'volume', 'surface']
+const VALID_SURFACE_KINDS: SurfaceKind[] = ['floor', 'walls', 'ceiling']
 
 function safeNumber(v: unknown, fallback: number): number {
   const n = Number(v)
@@ -212,6 +298,59 @@ function parseRows(raw: unknown): OutcomeQuoteRow[] {
     .filter(row => row.outcome_title && row.outcome_description)
 }
 
+function parseStringList(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return []
+  return raw.map(v => String(v ?? '').trim()).filter(Boolean)
+}
+
+function parseSectionTerms(raw: unknown): SectionTerms | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const o = raw as Record<string, unknown>
+  const included = parseStringList(o.included)
+  const excluded = parseStringList(o.excluded)
+  const assumptions = parseStringList(o.assumptions)
+  if (!included.length && !excluded.length && !assumptions.length) return undefined
+  return { included, excluded, assumptions }
+}
+
+function parseVolumeRows(raw: unknown): VolumePricingRow[] {
+  const root = raw as { volume_rows?: Array<Record<string, unknown>> }
+  return (root.volume_rows ?? [])
+    .map(row => ({
+      description: String(row.description ?? '').trim(),
+      area_name: String(row.area_name ?? '').trim(),
+      estimated_volume_m3: Math.max(0, Math.round(safeNumber(row.estimated_volume_m3, 0) * 10) / 10),
+      notes: String(row.notes ?? '').trim() || undefined,
+    }))
+    .filter(row => row.description)
+}
+
+function parseSurfacePatches(raw: unknown): Array<{
+  area_name: string
+  surfaces: Array<{ kind: SurfaceKind; included: boolean; unit_price_per_sqm: number }>
+}> {
+  const root = raw as { surface_patches?: Array<Record<string, unknown>> }
+  return (root.surface_patches ?? [])
+    .map(patch => {
+      const area_name = String(patch.area_name ?? '').trim()
+      const surfacesRaw = Array.isArray(patch.surfaces) ? patch.surfaces : []
+      const surfaces = surfacesRaw
+        .map(s => {
+          const o = s as Record<string, unknown>
+          const kind = String(o.kind ?? '').trim() as SurfaceKind
+          if (!VALID_SURFACE_KINDS.includes(kind)) return null
+          return {
+            kind,
+            included: o.included === true,
+            unit_price_per_sqm: Math.max(0, Math.round(safeNumber(o.unit_price_per_sqm, 0) * 100) / 100),
+          }
+        })
+        .filter((s): s is { kind: SurfaceKind; included: boolean; unit_price_per_sqm: number } => !!s)
+      return { area_name, surfaces }
+    })
+    .filter(p => p.area_name && p.surfaces.length > 0)
+}
+
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { userId } = await auth()
@@ -223,8 +362,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (!apiKey) return NextResponse.json({ error: 'Anthropic is not configured' }, { status: 503 })
     const client = new Anthropic({ apiKey })
 
-    const body = (await req.json().catch(() => ({}))) as { instruction?: string }
+    const body = (await req.json().catch(() => ({}))) as { instruction?: string; section?: string }
     const instruction = typeof body.instruction === 'string' ? body.instruction.trim() : ''
+    const sectionRaw = typeof body.section === 'string' ? body.section.trim() : 'outcomes'
+    const section: QuoteSuggestSection = (VALID_SECTIONS as readonly string[]).includes(sectionRaw)
+      ? (sectionRaw as QuoteSuggestSection)
+      : 'outcomes'
 
     const { id: jobId } = await params
     const supabase = createServiceClient()
@@ -238,7 +381,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     const ad = (job.assessment_data ?? null) as AssessmentData | null
     const sow = mergedSowCapture(ad)
-    const pricingLayout = derivePricingLayoutFromCapture(ad?.outcome_quote_capture)
+    const capture = ad?.outcome_quote_capture
+    const pricingLayout = derivePricingLayoutFromCapture(capture)
     const [photosRes, docsRes] = await Promise.all([
       supabase
         .from('photos')
@@ -272,6 +416,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           }
         : { enabled: false },
       pricing_layout: pricingLayout,
+      global_mobilisation_fee: Math.max(0, Number(capture?.global_mobilisation_fee ?? 0)),
+      global_surface_rate_per_m2: Math.max(0, Number(capture?.global_surface_rate_per_m2 ?? 0)),
+      global_contents_rate_per_m3: Math.max(0, Number(capture?.global_contents_rate_per_m3 ?? 0)),
       assessment_data: ad,
       scope_of_work: {
         objective: sow.objective,
@@ -333,10 +480,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       },
     ]
 
+    const system =
+      section === 'volume' ? SYSTEM_VOLUME : section === 'surface' ? SYSTEM_SURFACE : SYSTEM
+
     const msg = await client.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 8192,
-      system: SYSTEM,
+      system,
       messages: [{ role: 'user', content: userContent }],
     })
     const raw = msg.content[0]?.type === 'text' ? msg.content[0].text.trim() : ''
@@ -344,6 +494,25 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (!jsonMatch) return NextResponse.json({ error: 'Could not parse AI response' }, { status: 500 })
 
     const parsed = JSON.parse(jsonMatch[0]) as unknown
+
+    if (section === 'volume') {
+      const volume_rows = parseVolumeRows(parsed)
+      const terms = parseSectionTerms((parsed as Record<string, unknown>).terms)
+      if (!volume_rows.length && !terms) {
+        return NextResponse.json({ error: 'AI did not return usable contents lines' }, { status: 500 })
+      }
+      return NextResponse.json({ volume_rows, ...(terms ? { terms } : {}) })
+    }
+
+    if (section === 'surface') {
+      const surface_patches = parseSurfacePatches(parsed)
+      const terms = parseSectionTerms((parsed as Record<string, unknown>).terms)
+      if (!surface_patches.length && !terms) {
+        return NextResponse.json({ error: 'AI did not return usable surface pricing' }, { status: 500 })
+      }
+      return NextResponse.json({ surface_patches, ...(terms ? { terms } : {}) })
+    }
+
     const rows = parseRows(parsed)
     if (!rows.length) {
       return NextResponse.json({ error: 'AI did not return usable outcome rows' }, { status: 500 })

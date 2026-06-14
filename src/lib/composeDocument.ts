@@ -32,7 +32,7 @@ import type {
   PreScopeLineResolved,
   PreAreaNoteResolved,
 } from '@/lib/types'
-import { resolveQuotedLineContext } from '@/lib/postRemediationEvaluations'
+import { preHasV2Content, resolveQuotedLineContext } from '@/lib/postRemediationEvaluations'
 import { richBodyHtmlForPrint, proseHasPrintableContent } from '@/lib/richTextPrint'
 import { mergedSowCapture, staffSowHasContent } from '@/lib/sowCapture'
 import { mergedCompletionReportCapture, completionReportCaptureHasContent } from '@/lib/completionReportCapture'
@@ -103,7 +103,7 @@ function refPrefix(type: DocType, jobId: string): string {
     iaq_multi: 'IAQ',
     sow: 'SOW',
     quote: 'QUO',
-    report: 'PRE',
+    report: 'RPT',
     swms: 'SWMS',
     authority_to_proceed: 'ATP',
     engagement_agreement: 'EA',
@@ -724,12 +724,37 @@ function composePre(
     }))
     .filter(n => n.intro_html || (n.photos && n.photos.length > 0))
 
+  const useV2 = preHasV2Content(pre)
+  const cleanStr = (s?: string) => {
+    const t = (s ?? '').trim()
+    return t || undefined
+  }
+  const cleanList = (xs?: string[]) => (xs ?? []).map(x => x.trim()).filter(Boolean)
+
   const c: PostRemediationEvaluationContent = {
-    title: 'Post Remediation Evaluation',
+    title: 'Completion Report',
     reference: refPrefix('report', job.id),
     source_quote_document_id: pre.source_quote_document_id,
     source_quote_label: pre.source_quote_label,
     source_quote_reference: pre.source_quote_reference,
+    // v2 completion-report sections
+    report_format: useV2 ? 'completion_v2' : undefined,
+    attendance: cleanStr(pre.attendance),
+    service_type: cleanStr(job.job_type),
+    executive_summary: cleanStr(pre.executive_summary),
+    site_conditions: cleanList(pre.site_conditions),
+    works_rows: (pre.works_rows ?? []).filter(r => r.stage_name.trim() || r.description.trim()),
+    methodology: cleanStr(pre.methodology),
+    products_rows: (pre.products_rows ?? []).filter(r => r.item_name.trim() || r.usage_note.trim()),
+    waste:
+      pre.waste && (pre.waste.waste_type || pre.waste.volume || pre.waste.containment || pre.waste.disposal)
+        ? pre.waste
+        : undefined,
+    outcome_verification: cleanStr(pre.outcome_verification),
+    recommendations: cleanList(pre.recommendations),
+    compliance: cleanStr(pre.compliance),
+    limitations: cleanStr(pre.limitations),
+    // legacy scope-line layout (used when report_format is not v2)
     opening_html: proseHasPrintableContent(pre.opening_rich_html)
       ? richBodyHtmlForPrint(pre.opening_rich_html)
       : undefined,

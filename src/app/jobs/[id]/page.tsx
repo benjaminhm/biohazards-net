@@ -1756,7 +1756,7 @@ export default function JobPage() {
           <PerExecuteCapturePanel job={job} onJobUpdate={setJob} emphasis="recommendations" />
         )}
         {showCompletionRpt && (
-          <PostRemediationEvaluationTab job={job} photos={photos} documents={documents} onJobUpdate={setJob} />
+          <PostRemediationEvaluationTab job={job} photos={photos} documents={documents} onJobUpdate={setJob} onPhotosUpdate={setPhotos} />
         )}
         {showClientFeedback && (
           <div style={emptyRoomStyle}>Client feedback (empty room)</div>

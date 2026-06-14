@@ -1526,6 +1526,26 @@ export interface PreAreaNote {
   photo_captions?: { photo_id: string; caption?: string }[]
 }
 
+/** Works Undertaken row (Completion Report §03). */
+export interface PreWorksRow {
+  stage_name: string
+  description: string
+}
+
+/** Products & Equipment row (Completion Report §05). */
+export interface PreProductRow {
+  item_name: string
+  usage_note: string
+}
+
+/** Waste Management & Disposal block (Completion Report §06). */
+export interface PreWasteBlock {
+  waste_type?: string
+  volume?: string
+  containment?: string
+  disposal?: string
+}
+
 /** Durable PRE capture stored on the job (hub-and-spoke mirror of outcome_quotes[]).
  *  At most one PRE per source quote document; source is immutable after first save. */
 export interface PostRemediationEvaluation {
@@ -1541,7 +1561,32 @@ export interface PostRemediationEvaluation {
    *  the quoted scope (followed as agreed, complexities, variations,
    *  recommendations). Authoritative context for drafting; not rendered. */
   generation_brief?: string
-  /** Top-of-doc prose. Rich HTML (TipTap). */
+
+  // ── Completion report (v2) — HITL-editable sections, AI-drafted ──────────────
+  /** On-site attendance, e.g. "2.5 days on site". Manual. */
+  attendance?: string
+  /** 01 Executive Summary — prose. */
+  executive_summary?: string
+  /** 02 Site Conditions on Attendance — bullets. */
+  site_conditions?: string[]
+  /** 03 Works Undertaken — staged rows. */
+  works_rows?: PreWorksRow[]
+  /** 04 Remediation Methodology — prose (incl. explicit out-of-scope). */
+  methodology?: string
+  /** 05 Products & Equipment Used — rows. */
+  products_rows?: PreProductRow[]
+  /** 06 Waste Management & Disposal — key/value. */
+  waste?: PreWasteBlock
+  /** 07 Outcome & Verification — prose. */
+  outcome_verification?: string
+  /** 08 Recommendations — bullets (issue + impact + who must address). */
+  recommendations?: string[]
+  /** 09 Compliance — prose. */
+  compliance?: string
+  /** Limitations & Scope Notice — prose. */
+  limitations?: string
+
+  /** Top-of-doc prose. Rich HTML (TipTap). LEGACY (pre-v2 scope-line reports). */
   opening_rich_html?: string
   /** Per-line overlays — pre-seeded from the source quote's rows. */
   scope_lines: PreScopeLine[]
@@ -1568,6 +1613,23 @@ export interface PostRemediationEvaluationContent {
   source_quote_document_id: string
   source_quote_label?: string
   source_quote_reference?: string
+  /** When 'completion_v2', renderers use the 9-section completion-report layout
+   *  below; otherwise they fall back to the legacy scope-line layout. */
+  report_format?: 'completion_v2'
+  // ── v2 completion-report sections ──
+  attendance?: string
+  service_type?: string
+  executive_summary?: string
+  site_conditions?: string[]
+  works_rows?: PreWorksRow[]
+  methodology?: string
+  products_rows?: PreProductRow[]
+  waste?: PreWasteBlock
+  outcome_verification?: string
+  recommendations?: string[]
+  compliance?: string
+  limitations?: string
+  // ── legacy scope-line layout ──
   opening_html?: string
   scope_lines: PreScopeLineResolved[]
   area_notes?: PreAreaNoteResolved[]

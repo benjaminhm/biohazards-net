@@ -975,6 +975,146 @@ function SOWOrReportPDF({
   )
 }
 
+const PRE_NAVY = '#0a1f44'
+
+/** Plain (possibly multi-paragraph) text → stacked PDF Text paragraphs. */
+function PreProse({ text }: { text?: string }) {
+  const t = (text ?? '').trim()
+  if (!t) return null
+  return (
+    <>
+      {t.split(/\n{2,}/).map((para, i) => (
+        <Text key={i} style={[styles.body, { marginBottom: 4 }]}>{para.replace(/\n/g, ' ')}</Text>
+      ))}
+    </>
+  )
+}
+
+function PreNavyHeading({ children }: { children: string }) {
+  return <Text style={[styles.sectionLabel, { color: PRE_NAVY }]}>{children}</Text>
+}
+
+/** v2 completion report — standardised 9-section client-facing layout. */
+function CompletionReportPDF({
+  content,
+  photos,
+  company,
+}: {
+  content: PostRemediationEvaluationContent
+  photos: PhotoWithData[]
+  company: CompanyProfile | null
+}) {
+  const c = content
+  const today = new Date().toLocaleDateString('en-AU', { day: '2-digit', month: 'long', year: 'numeric' })
+  const sourceLine = [c.source_quote_label, c.source_quote_reference].filter(Boolean).join(' · ')
+  const works = (c.works_rows ?? []).filter(r => r.stage_name || r.description)
+  const products = (c.products_rows ?? []).filter(r => r.item_name || r.usage_note)
+  const conditions = (c.site_conditions ?? []).filter(Boolean)
+  const recs = (c.recommendations ?? []).filter(Boolean)
+  const w = c.waste
+  const wasteRows = w
+    ? ([['Waste type', w.waste_type], ['Volume', w.volume], ['Containment', w.containment], ['Disposal', w.disposal]] as const).filter(
+        ([, v]) => (v ?? '').trim(),
+      )
+    : []
+  const appendixPhotos = photos.filter(
+    p => p.capture_phase === 'progress' || (p.capture_phase !== 'assessment' && (p.category === 'during' || p.category === 'after')),
+  )
+
+  const cellLeft = { width: '30%', paddingRight: 8, fontFamily: 'Helvetica-Bold' as const }
+  const cellRight = { flex: 1 }
+  const row = { flexDirection: 'row' as const, borderBottomWidth: 1, borderBottomColor: BORDER, paddingVertical: 4 }
+
+  return (
+    <Page size="A4" style={styles.page}>
+      <Header reference={c.reference} date={today} company={company} />
+      <Text style={styles.docTitle}>{c.title}</Text>
+      {sourceLine ? <Text style={[styles.body, { color: MUTED, marginTop: -12 }]}>Linked quote: {sourceLine}</Text> : null}
+      {c.attendance ? <Text style={[styles.body, { color: MUTED, marginBottom: 12 }]}>Attendance: {c.attendance}</Text> : null}
+
+      {c.executive_summary ? (
+        <View style={styles.section}><PreNavyHeading>01 · Executive Summary</PreNavyHeading><PreProse text={c.executive_summary} /></View>
+      ) : null}
+
+      {conditions.length ? (
+        <View style={styles.section}>
+          <PreNavyHeading>02 · Site Conditions on Attendance</PreNavyHeading>
+          <Text style={styles.body}>On arrival, the following was observed before any work began:</Text>
+          {conditions.map((s, i) => <Text key={i} style={[styles.body, { marginTop: 2 }]}>•  {s}</Text>)}
+        </View>
+      ) : null}
+
+      {works.length ? (
+        <View style={styles.section}>
+          <PreNavyHeading>03 · Works Undertaken</PreNavyHeading>
+          {works.map((r, i) => (
+            <View key={i} style={row}>
+              <Text style={[styles.body, cellLeft]}>{r.stage_name}</Text>
+              <Text style={[styles.body, cellRight]}>{r.description}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
+
+      {c.methodology ? (
+        <View style={styles.section}><PreNavyHeading>04 · Remediation Methodology</PreNavyHeading><PreProse text={c.methodology} /></View>
+      ) : null}
+
+      {products.length ? (
+        <View style={styles.section}>
+          <PreNavyHeading>05 · Products & Equipment Used</PreNavyHeading>
+          {products.map((r, i) => (
+            <View key={i} style={row}>
+              <Text style={[styles.body, { width: '40%', paddingRight: 8, fontFamily: 'Helvetica-Bold' }]}>{r.item_name}</Text>
+              <Text style={[styles.body, cellRight]}>{r.usage_note}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
+
+      {wasteRows.length ? (
+        <View style={styles.section}>
+          <PreNavyHeading>06 · Waste Management & Disposal</PreNavyHeading>
+          {wasteRows.map(([k, v], i) => (
+            <View key={i} style={row}>
+              <Text style={[styles.body, cellLeft]}>{k}</Text>
+              <Text style={[styles.body, cellRight]}>{v}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
+
+      {c.outcome_verification ? (
+        <View style={styles.section}><PreNavyHeading>07 · Outcome & Verification</PreNavyHeading><PreProse text={c.outcome_verification} /></View>
+      ) : null}
+
+      {recs.length ? (
+        <View style={styles.section}>
+          <PreNavyHeading>08 · Recommendations</PreNavyHeading>
+          <Text style={styles.body}>The following was noted on site and is outside the cleaning scope. It is flagged here for the client to action:</Text>
+          {recs.map((s, i) => <Text key={i} style={[styles.body, { marginTop: 2 }]}>•  {s}</Text>)}
+        </View>
+      ) : null}
+
+      {c.compliance ? (
+        <View style={styles.section}><PreNavyHeading>09 · Compliance</PreNavyHeading><PreProse text={c.compliance} /></View>
+      ) : null}
+
+      {c.limitations ? (
+        <View style={styles.section}><PreNavyHeading>Limitations & Scope Notice</PreNavyHeading><PreProse text={c.limitations} /></View>
+      ) : null}
+
+      {appendixPhotos.length ? <PhotoSection photos={appendixPhotos} label="Photo Documentation" showAppMetadata={false} /> : null}
+
+      {c.technician_signoff ? (
+        <View style={styles.section}><PreNavyHeading>Sign-off</PreNavyHeading><Text style={styles.body}>{c.technician_signoff}</Text></View>
+      ) : null}
+
+      <Footer company={company} />
+    </Page>
+  )
+}
+
 /** Post Remediation Evaluation — non-financial completion evaluation against a quote. */
 function PrePDF({
   content,
@@ -985,6 +1125,10 @@ function PrePDF({
   photos: PhotoWithData[]
   company: CompanyProfile | null
 }) {
+  if (content.report_format === 'completion_v2') {
+    return <CompletionReportPDF content={content} photos={photos} company={company} />
+  }
+
   const today = new Date().toLocaleDateString('en-AU', { day: '2-digit', month: 'long', year: 'numeric' })
   const byId = new Map(photos.map(p => [p.id, p]))
   const resolve = (ids?: string[]) => (ids ?? []).map(id => byId.get(id)).filter((p): p is PhotoWithData => !!p)
@@ -1024,16 +1168,20 @@ function PrePDF({
             <Text style={[styles.body, { fontFamily: 'Helvetica-Bold', marginBottom: 4 }]}>{sec}</Text>
             {bySection.get(sec)!.map((l, i) => {
               const linePhotos = resolve(l.photo_ids)
+              const noteText = plainTextForPdf(l.note_html).trim()
               return (
                 <View key={i} style={{ marginBottom: 8, paddingLeft: 8, borderLeftWidth: 2, borderLeftColor: BORDER }}>
                   <Text style={styles.body}>
                     <Text style={{ fontFamily: 'Helvetica-Bold' }}>{l.quoted_title}</Text>
                   </Text>
-                  {l.quoted_detail ? <Text style={[styles.body, { fontSize: 8, color: MUTED }]}>Quoted: {l.quoted_detail}</Text> : null}
                   {l.actual_qty != null ? (
                     <Text style={[styles.body, { fontSize: 9 }]}>Actual: {l.actual_qty}{l.actual_unit ? ` ${l.actual_unit}` : ''}</Text>
                   ) : null}
-                  {plainTextForPdf(l.note_html).trim() ? <Text style={styles.body}>{plainTextForPdf(l.note_html)}</Text> : null}
+                  {noteText ? (
+                    <Text style={styles.body}>{noteText}</Text>
+                  ) : l.quoted_detail ? (
+                    <Text style={styles.body}>{l.quoted_detail}</Text>
+                  ) : null}
                   {linePhotos.length > 0 ? <PhotoSection photos={linePhotos.slice(0, 6)} label="Photos" showAppMetadata={false} singleColumn /> : null}
                 </View>
               )

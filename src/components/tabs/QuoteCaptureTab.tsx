@@ -54,6 +54,33 @@ interface Props {
 
 type QuoteKind = 'quote' | 'estimate'
 
+/** Pricing section targeted by the AI suggest panel. */
+type QuoteSuggestSection = 'outcomes' | 'volume' | 'surface'
+
+const QUOTE_AI_SECTION_META: Record<
+  QuoteSuggestSection,
+  { placeholder: string; button: string; thinking: string }
+> = {
+  outcomes: {
+    placeholder:
+      'Tell the AI what proposed actions to draft — e.g. client-reported bedroom carpet contamination; nominate visible/source materials; avoid outcome promises.',
+    button: 'Suggest proposed actions',
+    thinking: 'Reading job data and generating…',
+  },
+  volume: {
+    placeholder:
+      'Tell the AI what contents to estimate — e.g. bedroom hoarding ~4 m³; garage skip load; exclude built-in fixtures.',
+    button: 'Suggest contents lines',
+    thinking: 'Estimating contents volumes…',
+  },
+  surface: {
+    placeholder:
+      'Tell the AI which surfaces to price — e.g. decon floor and walls in bathroom and kitchen; exclude ceilings in laundry.',
+    button: 'Suggest surface pricing',
+    thinking: 'Drafting surface pricing…',
+  },
+}
+
 /**
  * Default the doc-identity toggle from saved capture state. Honours an
  * explicit `quote_kind` when present; otherwise derives from the same
@@ -258,6 +285,57 @@ function AutoGrow({
   )
 }
 
+/** AI instruction + suggest button — one panel per enabled pricing section. */
+function QuoteSectionAiPanel({
+  section,
+  instruction,
+  onInstructionChange,
+  onSuggest,
+  suggesting,
+  error,
+}: {
+  section: QuoteSuggestSection
+  instruction: string
+  onInstructionChange: (v: string) => void
+  onSuggest: () => void
+  suggesting: boolean
+  error: string
+}) {
+  const meta = QUOTE_AI_SECTION_META[section]
+  return (
+    <>
+      <div style={{ ...SECTION, fontSize: 11 }}>AI Instructions</div>
+      <div className="field" style={{ marginBottom: 6 }}>
+        <AutoGrow
+          value={instruction}
+          onChange={onInstructionChange}
+          placeholder={meta.placeholder}
+          rows={2}
+        />
+      </div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: error ? 8 : 20 }}>
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={onSuggest}
+          disabled={suggesting}
+          style={{ fontSize: 13, padding: '8px 18px', touchAction: 'manipulation' }}
+        >
+          {suggesting ? 'Thinking…' : meta.button}
+        </button>
+        {suggesting && (
+          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{meta.thinking}</span>
+        )}
+      </div>
+      {error && (
+        <div style={{ fontSize: 13, color: '#F87171', marginBottom: 12, lineHeight: 1.45 }} role="alert">
+          {error}
+        </div>
+      )}
+    </>
+  )
+}
+
 const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
   suggested: { bg: 'rgba(59,130,246,0.15)', fg: '#60A5FA' },
   edited:    { bg: 'rgba(250,204,21,0.15)', fg: '#FACC15' },
@@ -309,9 +387,13 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
   const existing: OutcomeQuoteCapture | undefined =
     spokes.find(s => s.id === activeSpokeId) ?? spokes[0]
 
-  const [instruction, setInstruction] = useState('')
-  const [suggesting, setSuggesting] = useState(false)
-  const [suggestError, setSuggestError] = useState('')
+  const [sectionInstructions, setSectionInstructions] = useState<Record<QuoteSuggestSection, string>>({
+    outcomes: '',
+    volume: '',
+    surface: '',
+  })
+  const [suggestingSection, setSuggestingSection] = useState<QuoteSuggestSection | null>(null)
+  const [suggestErrorBySection, setSuggestErrorBySection] = useState<Partial<Record<QuoteSuggestSection, string>>>({})
 
   const DEFAULT_LIABILITY = 'Liability is limited to the value of services quoted. The service provider accepts no responsibility for pre-existing damage, concealed conditions, or third-party property unless expressly agreed in writing.'
   const DEFAULT_ACCEPTANCE = 'By signing below, the client authorises the above works to commence under the terms and conditions stated in this document.'
@@ -565,27 +647,121 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
     setSaveError('')
   }
 
-  async function suggest() {
-    setSuggesting(true)
-    setSuggestError('')
+  function mergeSectionTerms(existing: SectionTerms, incoming?: SectionTerms): SectionTerms {
+    if (!incoming) return existing
+    const mergeList = (a: string[] | undefined, b: string[] | undefined) => {
+      const seen = new Set<string>()
+      const out: string[] = []
+      for (const item of [...(a ?? []), ...(b ?? [])]) {
+        const t = item.trim()
+        if (!t || seen.has(t.toLowerCase())) continue
+        seen.add(t.toLowerCase())
+        out.push(t)
+      }
+      return out
+    }
+    return {
+      included: mergeList(existing.included, incoming.included),
+      excluded: mergeList(existing.excluded, incoming.excluded),
+      assumptions: mergeList(existing.assumptions, incoming.assumptions),
+    }
+  }
+
+  async function suggestSection(section: QuoteSuggestSection) {
+    setSuggestingSection(section)
+    setSuggestErrorBySection(prev => ({ ...prev, [section]: undefined }))
     try {
+      const instruction = (sectionInstructions[section] ?? '').trim()
       const res = await fetch(`/api/jobs/${job.id}/quote-outcomes/suggest`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ instruction }),
+        body: JSON.stringify({ instruction, section }),
       })
-      const data = (await res.json()) as { rows?: OutcomeQuoteRow[]; error?: string }
-      if (!res.ok || !data.rows?.length) {
-        setSuggestError(data.error ?? 'No outcomes returned')
+      const data = (await res.json()) as {
+        rows?: OutcomeQuoteRow[]
+        volume_rows?: VolumePricingRow[]
+        surface_patches?: Array<{
+          area_name: string
+          surfaces?: Array<{ kind: SurfaceKind; included?: boolean; unit_price_per_sqm?: number }>
+        }>
+        terms?: SectionTerms
+        error?: string
+      }
+      if (!res.ok) {
+        setSuggestErrorBySection(prev => ({ ...prev, [section]: data.error ?? 'Suggest failed' }))
         return
       }
-      setRows(data.rows)
+
+      if (section === 'outcomes') {
+        if (!data.rows?.length) {
+          setSuggestErrorBySection(prev => ({ ...prev, [section]: 'No outcomes returned' }))
+          return
+        }
+        setRows(data.rows)
+      } else if (section === 'volume') {
+        if (!data.volume_rows?.length) {
+          setSuggestErrorBySection(prev => ({ ...prev, [section]: 'No contents lines returned' }))
+          return
+        }
+        setVolumePricing(prev => {
+          const byArea = new Map(
+            prev.rows
+              .filter(r => (r.area_name ?? '').trim())
+              .map(r => [(r.area_name ?? '').trim().toLowerCase(), r]),
+          )
+          const nextRows = [...prev.rows]
+          for (const row of data.volume_rows ?? []) {
+            const areaKey = (row.area_name ?? '').trim().toLowerCase()
+            if (areaKey && byArea.has(areaKey)) {
+              const idx = nextRows.findIndex(r => (r.area_name ?? '').trim().toLowerCase() === areaKey)
+              if (idx !== -1) nextRows[idx] = { ...nextRows[idx], ...row, area_name: nextRows[idx].area_name }
+            } else {
+              nextRows.push(row)
+            }
+          }
+          return recomputeVolumePricingTotal({ ...prev, rows: nextRows })
+        })
+        if (data.terms) setVolumePricingTerms(prev => mergeSectionTerms(prev, data.terms))
+      } else {
+        if (!data.surface_patches?.length && !data.terms) {
+          setSuggestErrorBySection(prev => ({ ...prev, [section]: 'No surface pricing returned' }))
+          return
+        }
+        if (data.surface_patches?.length) {
+          setAreaPricing(prev =>
+            prev.map(row => {
+              const patch = data.surface_patches!.find(
+                p => p.area_name.trim().toLowerCase() === row.area_name.trim().toLowerCase(),
+              )
+              if (!patch?.surfaces?.length) return row
+              const surfaces = (row.surfaces ?? []).map(s => {
+                const hit = patch.surfaces!.find(p => p.kind === s.kind)
+                if (!hit) return s
+                const unit = Math.max(0, Number(hit.unit_price_per_sqm ?? s.unit_price_per_sqm) || 0)
+                const included = hit.included ?? s.included
+                return {
+                  ...s,
+                  included,
+                  unit_price_per_sqm: unit,
+                  total: included ? toMoney(Number(s.area_m2 || 0) * unit) : 0,
+                }
+              })
+              return { ...row, surfaces, total: sumIncludedSurfaceTotals(surfaces) }
+            }),
+          )
+        }
+        if (data.terms) setAreaPricingTerms(prev => mergeSectionTerms(prev, data.terms))
+      }
+
       setSaved(false)
       setSaveError('')
     } catch (e) {
-      setSuggestError(e instanceof Error ? e.message : 'Suggest failed')
+      setSuggestErrorBySection(prev => ({
+        ...prev,
+        [section]: e instanceof Error ? e.message : 'Suggest failed',
+      }))
     } finally {
-      setSuggesting(false)
+      setSuggestingSection(null)
     }
   }
 
@@ -1078,40 +1254,14 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
         </div>
       )}
 
-      {/* ── AI instruction ── */}
-      <div style={{ ...SECTION, fontSize: 11 }}>AI Instructions</div>
-
-      <div className="field" style={{ marginBottom: 6 }}>
-        <AutoGrow
-          value={instruction}
-          onChange={setInstruction}
-          placeholder="Tell the AI what proposed actions to draft — e.g. client-reported bedroom carpet contamination; nominate visible/source materials; avoid outcome promises."
-          rows={2}
-        />
-      </div>
-
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 20 }}>
-        <button
-          type="button"
-          className="btn btn-primary"
-          onClick={suggest}
-          disabled={suggesting}
-          style={{ fontSize: 13, padding: '8px 18px', touchAction: 'manipulation' }}
-        >
-          {suggesting ? 'Thinking…' : 'Suggest proposed actions'}
-        </button>
-        {suggesting && (
-          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-            Reading job data and generating…
-          </span>
-        )}
-      </div>
-
-      {suggestError && (
-        <div style={{ fontSize: 13, color: '#F87171', marginBottom: 12, lineHeight: 1.45 }} role="alert">
-          {suggestError}
-        </div>
-      )}
+      <QuoteSectionAiPanel
+        section="outcomes"
+        instruction={sectionInstructions.outcomes}
+        onInstructionChange={v => setSectionInstructions(prev => ({ ...prev, outcomes: v }))}
+        onSuggest={() => void suggestSection('outcomes')}
+        suggesting={suggestingSection === 'outcomes'}
+        error={suggestErrorBySection.outcomes ?? ''}
+      />
 
       {rows.length > 0 && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
@@ -1383,6 +1533,15 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
         </div>
       </div>
 
+      <QuoteSectionAiPanel
+        section="volume"
+        instruction={sectionInstructions.volume}
+        onInstructionChange={v => setSectionInstructions(prev => ({ ...prev, volume: v }))}
+        onSuggest={() => void suggestSection('volume')}
+        suggesting={suggestingSection === 'volume'}
+        error={suggestErrorBySection.volume ?? ''}
+      />
+
       {volumePricing.rows.length === 0 ? (
         <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12, lineHeight: 1.5 }}>
           No rooms yet — add areas in Assessment to auto-populate, or add a free-form line below (e.g. &quot;Garage skip&quot;).
@@ -1574,6 +1733,15 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
           Per-m² surface pricing driven by the Assessment dimensions. Floor / Walls / Ceiling priced independently.
         </div>
       </div>
+
+      <QuoteSectionAiPanel
+        section="surface"
+        instruction={sectionInstructions.surface}
+        onInstructionChange={v => setSectionInstructions(prev => ({ ...prev, surface: v }))}
+        onSuggest={() => void suggestSection('surface')}
+        suggesting={suggestingSection === 'surface'}
+        error={suggestErrorBySection.surface ?? ''}
+      />
 
       {areaPricing.length === 0 ? (
         <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20, lineHeight: 1.5 }}>

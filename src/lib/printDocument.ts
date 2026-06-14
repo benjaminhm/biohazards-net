@@ -1575,18 +1575,133 @@ function preFromQuoteCard(line: Extract<PreScopeLineResolved, { kind: 'from_quot
     line.actual_qty != null
       ? `<div class="body-text" style="font-size:9pt;margin:2px 0 4px"><strong>Actual:</strong> ${esc(String(line.actual_qty))}${line.actual_unit ? ` ${esc(line.actual_unit)}` : ''}</div>`
       : ''
-  const note = line.note_html ? `<div class="body-text sow-rich" style="margin-top:4px">${line.note_html}</div>` : ''
+  const body = line.note_html
+    ? `<div class="body-text sow-rich" style="margin-top:4px">${line.note_html}</div>`
+    : line.quoted_detail
+      ? `<div class="body-text" style="margin-top:4px">${esc(line.quoted_detail)}</div>`
+      : ''
   return `
     <div style="border-left:3px solid #e5e7eb;padding:6px 0 6px 12px;margin:0 0 12px">
       <div style="margin-bottom:4px"><strong style="font-size:10.5pt">${esc(line.quoted_title)}</strong></div>
-      ${line.quoted_detail ? `<div class="body-text" style="font-size:9pt;color:#555;margin-bottom:2px">Quoted: ${esc(line.quoted_detail)}</div>` : ''}
       ${actual}
-      ${note}
+      ${body}
       ${prePhotoStrip(line.photo_ids, byId)}
     </div>`
 }
 
+/** Render plain (possibly multi-paragraph) text as print-safe HTML paragraphs. */
+function preProseBlock(text?: string): string {
+  const t = (text ?? '').trim()
+  if (!t) return ''
+  return t
+    .split(/\n{2,}/)
+    .map(para => `<p class="body-text" style="margin:0 0 8px">${esc(para).replace(/\n/g, '<br>')}</p>`)
+    .join('')
+}
+
+/** Progress (during/after) photos rendered as an end-of-report appendix grid. */
+function preCompletionPhotoAppendix(photos: Photo[]): string {
+  const progress = photos.filter(
+    p => p.capture_phase === 'progress' || (p.capture_phase !== 'assessment' && (p.category === 'during' || p.category === 'after')),
+  )
+  if (!progress.length) return ''
+  const cards = progress
+    .map(p => {
+      const cap = (p.caption || p.area_ref || '').trim()
+      return `
+        <div class="photo-card">
+          <img src="${esc(p.file_url)}" alt="${esc(cap)}">
+          ${cap ? `<div class="photo-meta"><div class="photo-cap">${esc(cap)}</div></div>` : ''}
+        </div>`
+    })
+    .join('')
+  return `
+    <div class="label" style="margin-top:22px;color:#0a1f44">Photo Documentation</div>
+    <div class="photos-grid" style="margin-top:8px">${cards}</div>`
+}
+
+/** v2 completion report: standardised 9-section client-facing layout. */
+function buildCompletionReportMid(c: PostRemediationEvaluationContent, photos: Photo[]): string {
+  const navyHeading = (n: string, title: string) =>
+    `<div class="label" style="margin-top:22px;color:#0a1f44">${esc(n)} · ${esc(title)}</div>`
+
+  const sourceLine = c.source_quote_reference || c.source_quote_label
+    ? `<div class="body-text" style="font-size:9pt;color:#555;margin:-6px 0 6px">Linked quote: ${esc([c.source_quote_label, c.source_quote_reference].filter(Boolean).join(' · '))}</div>`
+    : ''
+  const attendance = c.attendance ? `<div class="body-text" style="font-size:9pt;color:#555;margin:0 0 8px">Attendance: ${esc(c.attendance)}</div>` : ''
+
+  const bullets = (items?: string[]) =>
+    (items ?? []).filter(Boolean).length
+      ? `<ul style="margin:6px 0 0;padding-left:18px">${(items ?? [])
+          .filter(Boolean)
+          .map(i => `<li class="body-text" style="margin:0 0 4px">${esc(i)}</li>`)
+          .join('')}</ul>`
+      : ''
+
+  const worksTable = (c.works_rows ?? []).filter(r => r.stage_name || r.description).length
+    ? `<table style="width:100%;border-collapse:collapse;margin-top:8px;font-size:9.5pt">
+        ${(c.works_rows ?? [])
+          .filter(r => r.stage_name || r.description)
+          .map(
+            r => `<tr>
+              <td style="vertical-align:top;padding:6px 10px 6px 0;width:28%;font-weight:700;border-bottom:1px solid #eee">${esc(r.stage_name)}</td>
+              <td style="vertical-align:top;padding:6px 0;border-bottom:1px solid #eee">${esc(r.description)}</td>
+            </tr>`,
+          )
+          .join('')}
+      </table>`
+    : ''
+
+  const productsTable = (c.products_rows ?? []).filter(r => r.item_name || r.usage_note).length
+    ? `<table style="width:100%;border-collapse:collapse;margin-top:8px;font-size:9.5pt">
+        ${(c.products_rows ?? [])
+          .filter(r => r.item_name || r.usage_note)
+          .map(
+            r => `<tr>
+              <td style="vertical-align:top;padding:6px 10px 6px 0;width:40%;font-weight:700;border-bottom:1px solid #eee">${esc(r.item_name)}</td>
+              <td style="vertical-align:top;padding:6px 0;border-bottom:1px solid #eee">${esc(r.usage_note)}</td>
+            </tr>`,
+          )
+          .join('')}
+      </table>`
+    : ''
+
+  const w = c.waste
+  const wasteTable = w && (w.waste_type || w.volume || w.containment || w.disposal)
+    ? `<table style="width:100%;border-collapse:collapse;margin-top:8px;font-size:9.5pt">
+        ${([['Waste type', w.waste_type], ['Volume', w.volume], ['Containment', w.containment], ['Disposal', w.disposal]] as const)
+          .filter(([, v]) => (v ?? '').trim())
+          .map(
+            ([k, v]) => `<tr>
+              <td style="vertical-align:top;padding:6px 10px 6px 0;width:28%;font-weight:700;border-bottom:1px solid #eee">${esc(k)}</td>
+              <td style="vertical-align:top;padding:6px 0;border-bottom:1px solid #eee">${esc(v ?? '')}</td>
+            </tr>`,
+          )
+          .join('')}
+      </table>`
+    : ''
+
+  return `
+    ${sourceLine}
+    ${attendance}
+    ${c.executive_summary ? `${navyHeading('01', 'Executive Summary')}${preProseBlock(c.executive_summary)}` : ''}
+    ${(c.site_conditions ?? []).filter(Boolean).length ? `${navyHeading('02', 'Site Conditions on Attendance')}<div class="body-text" style="margin:6px 0 0">On arrival, the following was observed before any work began:</div>${bullets(c.site_conditions)}` : ''}
+    ${worksTable ? `${navyHeading('03', 'Works Undertaken')}${worksTable}` : ''}
+    ${c.methodology ? `${navyHeading('04', 'Remediation Methodology')}${preProseBlock(c.methodology)}` : ''}
+    ${productsTable ? `${navyHeading('05', 'Products & Equipment Used')}${productsTable}` : ''}
+    ${wasteTable ? `${navyHeading('06', 'Waste Management & Disposal')}${wasteTable}` : ''}
+    ${c.outcome_verification ? `${navyHeading('07', 'Outcome & Verification')}${preProseBlock(c.outcome_verification)}` : ''}
+    ${(c.recommendations ?? []).filter(Boolean).length ? `${navyHeading('08', 'Recommendations')}<div class="body-text" style="margin:6px 0 0">The following was noted on site and is outside the cleaning scope. It is flagged here for the client to action:</div>${bullets(c.recommendations)}` : ''}
+    ${c.compliance ? `${navyHeading('09', 'Compliance')}${preProseBlock(c.compliance)}` : ''}
+    ${c.limitations ? `${navyHeading('—', 'Limitations & Scope Notice')}${preProseBlock(c.limitations)}` : ''}
+    ${preCompletionPhotoAppendix(photos)}
+    ${c.technician_signoff ? `<div class="label" style="margin-top:22px;color:#0a1f44">Sign-off</div><div class="body-text">${esc(c.technician_signoff)}</div>` : ''}
+  `
+}
+
 function buildPreMid(c: PostRemediationEvaluationContent, photos: Photo[]): string {
+  if (c.report_format === 'completion_v2') return buildCompletionReportMid(c, photos)
+
   const byId = new Map(photos.map(p => [p.id, p]))
 
   // Group from_quote lines by their section label, preserving first-seen order.

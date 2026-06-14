@@ -19,34 +19,47 @@ import { fetchPhotosForEvidenceSuggest, inferCapturePhaseFromCategory } from '@/
 import { resolveQuotedLineContext } from '@/lib/postRemediationEvaluations'
 import type { AssessmentData, JobType, Photo, PostRemediationEvaluation, QuoteContent } from '@/lib/types'
 
-const SYSTEM = `You draft a Post Remediation Evaluation (PRE) for Australian biohazard remediation staff (internal use only).
+const SYSTEM = `You draft a Biohazard Remediation Completion Report for an Australian remediation company. The report is client-facing.
 
-A PRE is a NON-FINANCIAL completion evaluation built against an agreed Quote/Estimate. It records, in natural professional prose, what was actually done against each quoted scope line, plus an overall opening and closing.
+You receive JOB_CONTEXT: a TECHNICIAN_BRIEF (the attending technician's first-hand account), the quoted/agreed scope, Scope of Work, progress notes, room notes, and progress photo metadata.
 
-You receive JOB_CONTEXT: a TECHNICIAN_BRIEF (the attending technician's first-hand account), the quoted scope lines (the agreed work), Scope of Work, progress notes, room notes, progress photo metadata, and any execute-phase silos.
+VOICE & STYLE:
+- First-person, plain tradesperson language ("we", "I"). Past tense. Factual, defensible, no embellishment.
+- Australian English. Professional but human — describe the actual works performed, not marketing copy.
 
 RULES:
-- TECHNICIAN_BRIEF is authoritative. Treat it as the ground truth for what actually happened against the quoted scope. Where it confirms the quote was followed, describe the relevant lines as completed as agreed (past tense). Where it reports complexities, variations, scope changes, or recommendations, reflect those in the affected lines and in the closing.
-- Ground every statement in the provided data (brief, notes, photos, scope). Do NOT invent incidents, clearance results, legal commitments, dollar amounts, quantities, dates, or client quotes not supported by the JSON.
-- NEVER include money, prices, totals, or variance figures — the PRE is non-financial.
-- Write clear, human, professional prose, past tense, describing the completed works. Australian English.
-- Use photo metadata only as internal context; do not output raw metadata (category labels, capture_phase, timestamps, file IDs).
+- TECHNICIAN_BRIEF is authoritative ground truth for what actually happened. Reflect confirmations, complexities, variations, and recommendations from it.
+- Ground every statement in the provided data. Do NOT invent incidents, clearance/lab results, quantities, dates, products, or commitments not supported by the JSON.
+- NEVER include money, prices, totals, or variance figures — this report is non-financial.
+- Use photo metadata only as internal context; never output raw metadata (category labels, capture_phase, timestamps, file IDs).
 
 Respond ONLY with valid JSON (no markdown fences). Shape exactly:
 {
-  "opening": "",
-  "closing": "",
-  "line_notes": { "<source_line_id>": "" },
-  "area_notes": { "<area_name>": "" }
+  "executive_summary": "",
+  "site_conditions": [""],
+  "works": [{ "stage_name": "", "description": "" }],
+  "methodology": "",
+  "products": [{ "item_name": "", "usage_note": "" }],
+  "waste": { "waste_type": "", "volume": "", "containment": "", "disposal": "" },
+  "outcome_verification": "",
+  "recommendations": [""],
+  "compliance": "",
+  "limitations": ""
 }
 
 Field intent:
-- opening: short overview of the job and how it went.
-- closing: outcome statement, residuals, limitations not contradicted by data.
-- line_notes: one short note per quoted scope line id provided, describing what was done for that item. Use the exact source_line_id keys provided. Omit keys you have nothing defensible for.
-- area_notes: one short narrative per area name provided. Omit keys with nothing defensible.
+- executive_summary: 2-4 sentences — site attended, scope per the linked quote, rooms/areas covered, duration, and headline waste volume if known.
+- site_conditions: bullet strings — pre-existing conditions / staging observed on arrival, before any work began.
+- works: rows of work carried out, per authorised scope. stage_name is a short stage (e.g. Mobilisation, Zone setup, Kitchen, Floor scrubbing, Sanitiser, Final check); description is a first-person past-tense action description.
+- methodology: prose — zone-based approach, product application method (dilution/dwell time if known), and an explicit out-of-scope statement (e.g. structural/HVAC/appliance work not included).
+- products: rows of products & equipment used. usage_note e.g. "Used per manufacturer instructions". Only items supported by context.
+- waste: waste_type; volume (e.g. "Approximately X m³"); containment; disposal. Leave a field "" if unknown.
+- outcome_verification: prose — final walkthrough against quoted scope, compliance-with-standards statement, handback confirmation.
+- recommendations: bullet strings — issues noted on site, outside the cleaning scope, flagged for the client to action (issue + impact + who must address it).
+- compliance: prose — standard-procedures statement + disposal-compliance statement.
+- limitations: prose — scope boundary restated from the linked quote, unaccessed/uncleaned areas and why, explicit exclusions, and a testing/lab disclaimer.
 
-Use empty string / omit keys when there is truly nothing defensible from context.`
+Use empty string / empty array when there is truly nothing defensible from context. Never fabricate to fill a field.`
 
 function isProgressEvidencePhoto(p: Pick<Photo, 'capture_phase' | 'category'>): boolean {
   if (p.capture_phase === 'progress') return true
@@ -58,11 +71,25 @@ function asString(v: unknown): string {
   return typeof v === 'string' ? v : ''
 }
 
-function asStringMap(v: unknown): Record<string, string> {
-  if (!v || typeof v !== 'object') return {}
-  const out: Record<string, string> = {}
-  for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
-    if (typeof val === 'string' && val.trim()) out[k] = val
+function asStringArray(v: unknown): string[] {
+  if (!Array.isArray(v)) return []
+  return v.filter((x): x is string => typeof x === 'string').map(s => s.trim()).filter(Boolean)
+}
+
+function asRows<K extends string>(v: unknown, keys: readonly K[]): Record<K, string>[] {
+  if (!Array.isArray(v)) return []
+  const out: Record<K, string>[] = []
+  for (const item of v) {
+    if (!item || typeof item !== 'object') continue
+    const obj = item as Record<string, unknown>
+    const row = {} as Record<K, string>
+    let any = false
+    for (const k of keys) {
+      const s = typeof obj[k] === 'string' ? (obj[k] as string).trim() : ''
+      row[k] = s
+      if (s) any = true
+    }
+    if (any) out.push(row)
   }
   return out
 }
@@ -268,12 +295,24 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     const root = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {}
+    const wasteRaw = root.waste && typeof root.waste === 'object' ? (root.waste as Record<string, unknown>) : {}
 
     return NextResponse.json({
-      opening: asString(root.opening),
-      closing: asString(root.closing),
-      line_notes: asStringMap(root.line_notes),
-      area_notes: asStringMap(root.area_notes),
+      executive_summary: asString(root.executive_summary),
+      site_conditions: asStringArray(root.site_conditions),
+      works: asRows(root.works, ['stage_name', 'description'] as const),
+      methodology: asString(root.methodology),
+      products: asRows(root.products, ['item_name', 'usage_note'] as const),
+      waste: {
+        waste_type: asString(wasteRaw.waste_type),
+        volume: asString(wasteRaw.volume),
+        containment: asString(wasteRaw.containment),
+        disposal: asString(wasteRaw.disposal),
+      },
+      outcome_verification: asString(root.outcome_verification),
+      recommendations: asStringArray(root.recommendations),
+      compliance: asString(root.compliance),
+      limitations: asString(root.limitations),
     })
   } catch (e: unknown) {
     console.error('[suggest-pre]', e)

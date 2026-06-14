@@ -137,6 +137,19 @@ export function makeBlankPre(opts: {
     source_quote_document_id: opts.source_quote_document_id,
     source_quote_label: opts.source_quote_label,
     source_quote_reference: opts.source_quote_reference,
+    // v2 completion-report sections (filled by Regenerate, then HITL-edited)
+    attendance: '',
+    executive_summary: '',
+    site_conditions: [],
+    works_rows: [],
+    methodology: '',
+    products_rows: [],
+    waste: {},
+    outcome_verification: '',
+    recommendations: [],
+    compliance: '',
+    limitations: '',
+    // legacy scope-line fields retained for back-compat with older PREs
     opening_rich_html: '',
     scope_lines: opts.scope_lines ?? [],
     area_notes: [],
@@ -145,6 +158,26 @@ export function makeBlankPre(opts: {
     created_at: now,
     updated_at: now,
   }
+}
+
+/** True when a PRE carries any v2 completion-report section content, i.e. it
+ *  should render with the 9-section completion-report layout (not legacy). */
+export function preHasV2Content(pre: PostRemediationEvaluation): boolean {
+  const hasText = (s?: string) => !!(s && s.replace(/<[^>]+>/g, '').trim().length > 0)
+  const w = pre.waste
+  return (
+    hasText(pre.executive_summary) ||
+    hasText(pre.methodology) ||
+    hasText(pre.outcome_verification) ||
+    hasText(pre.compliance) ||
+    hasText(pre.limitations) ||
+    hasText(pre.attendance) ||
+    (pre.site_conditions ?? []).some(s => s.trim()) ||
+    (pre.recommendations ?? []).some(s => s.trim()) ||
+    (pre.works_rows ?? []).some(r => r.stage_name.trim() || r.description.trim()) ||
+    (pre.products_rows ?? []).some(r => r.item_name.trim() || r.usage_note.trim()) ||
+    !!(w && (w.waste_type || w.volume || w.containment || w.disposal))
+  )
 }
 
 /**

@@ -16,26 +16,26 @@ import type {
   Job,
   Photo,
   PostRemediationEvaluation,
-  PreAreaNote,
-  PreScopeLine,
+  PreProductRow,
+  PreWorksRow,
   QuoteContent,
 } from '@/lib/types'
 import { mergeAssessmentData } from '@/lib/riskDerivation'
 import {
   getPreBySourceQuoteId,
   makeBlankPre,
-  resolveQuotedLineContext,
   seedScopeLinesFromQuoteContent,
   upsertPre,
 } from '@/lib/postRemediationEvaluations'
 import { useRegisterUnsavedChanges } from '@/lib/unsavedChangesContext'
-import RichTextEditor from '@/components/RichTextEditor'
+import PhotoUploadPanel from '@/components/PhotoUploadPanel'
 
 interface Props {
   job: Job
   photos: Photo[]
   documents: Document[]
   onJobUpdate: (job: Job) => void
+  onPhotosUpdate: (photos: Photo[]) => void
 }
 
 const card: CSSProperties = {
@@ -101,99 +101,42 @@ function quoteDocLabel(doc: Document): { label: string; reference: string; date:
   return { label, reference, date }
 }
 
-/** Compact inline thumbnail toggler for attaching existing job photos to a line/area. */
-function PhotoAttacher({
-  photos,
-  selectedIds,
+/** Small repeatable list of bullet text inputs (site conditions, recommendations). */
+function BulletEditor({
+  items,
   onChange,
+  placeholder,
 }: {
-  photos: Photo[]
-  selectedIds: string[]
-  onChange: (ids: string[]) => void
+  items: string[]
+  onChange: (items: string[]) => void
+  placeholder: string
 }) {
-  const [open, setOpen] = useState(false)
-  if (photos.length === 0) {
-    return (
-      <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '8px 0 0' }}>
-        No job photos available to attach yet.
-      </p>
-    )
-  }
-  const toggle = (id: string) =>
-    onChange(selectedIds.includes(id) ? selectedIds.filter(x => x !== id) : [...selectedIds, id])
+  const set = (i: number, v: string) => onChange(items.map((x, j) => (j === i ? v : x)))
+  const add = () => onChange([...items, ''])
+  const remove = (i: number) => onChange(items.filter((_, j) => j !== i))
   return (
-    <div style={{ marginTop: 10 }}>
-      <button
-        type="button"
-        className="btn btn-secondary"
-        onClick={() => setOpen(o => !o)}
-        style={{ fontSize: 12, padding: '6px 10px' }}
-      >
-        {open ? 'Hide photos' : `Photos (${selectedIds.length})`}
-      </button>
-      {open && (
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(72px, 1fr))',
-            gap: 8,
-            marginTop: 10,
-          }}
-        >
-          {photos.map(p => {
-            const sel = selectedIds.includes(p.id)
-            return (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => toggle(p.id)}
-                title={p.caption || p.area_ref || ''}
-                style={{
-                  position: 'relative',
-                  padding: 0,
-                  border: sel ? '2px solid var(--accent)' : '2px solid transparent',
-                  borderRadius: 8,
-                  overflow: 'hidden',
-                  cursor: 'pointer',
-                  aspectRatio: '1 / 1',
-                  background: 'var(--surface-2)',
-                }}
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={p.file_url}
-                  alt={p.caption || 'job photo'}
-                  style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: sel ? 1 : 0.7 }}
-                />
-                {sel && (
-                  <span
-                    style={{
-                      position: 'absolute',
-                      top: 2,
-                      right: 2,
-                      background: 'var(--accent)',
-                      color: '#fff',
-                      borderRadius: 999,
-                      width: 16,
-                      height: 16,
-                      fontSize: 11,
-                      lineHeight: '16px',
-                      textAlign: 'center',
-                    }}
-                  >
-                    ✓
-                  </span>
-                )}
-              </button>
-            )
-          })}
+    <div>
+      {items.map((it, i) => (
+        <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+          <span style={{ color: 'var(--text-muted)', fontSize: 14 }}>•</span>
+          <input value={it} onChange={e => set(i, e.target.value)} placeholder={placeholder} style={textInput} />
+          <button
+            type="button"
+            onClick={() => remove(i)}
+            style={{ background: 'transparent', border: 'none', color: '#F87171', cursor: 'pointer', fontSize: 12 }}
+          >
+            ✕
+          </button>
         </div>
-      )}
+      ))}
+      <button type="button" className="btn btn-secondary" onClick={add} style={{ fontSize: 12, padding: '6px 10px' }}>
+        + Add
+      </button>
     </div>
   )
 }
 
-export default function PostRemediationEvaluationTab({ job, photos, documents, onJobUpdate }: Props) {
+export default function PostRemediationEvaluationTab({ job, photos, documents, onJobUpdate, onPhotosUpdate }: Props) {
   const quoteDocs = useMemo(
     () =>
       documents
@@ -202,8 +145,6 @@ export default function PostRemediationEvaluationTab({ job, photos, documents, o
         .sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at)),
     [documents],
   )
-
-  const areas = useMemo(() => job.assessment_data?.areas ?? [], [job.assessment_data])
 
   const [sourceDocId, setSourceDocId] = useState<string>('')
   const [pre, setPre] = useState<PostRemediationEvaluation | null>(null)
@@ -235,7 +176,6 @@ export default function PostRemediationEvaluationTab({ job, photos, documents, o
     () => quoteDocs.find(d => d.id === (pre?.source_quote_document_id ?? sourceDocId)),
     [quoteDocs, pre, sourceDocId],
   )
-  const sourceContent = useMemo(() => quoteContentOf(sourceDoc), [sourceDoc])
 
   const isDirty = pre ? JSON.stringify(pre) !== persistedSnapshot : false
   useRegisterUnsavedChanges('post-remediation-evaluation', isDirty)
@@ -270,50 +210,30 @@ export default function PostRemediationEvaluationTab({ job, photos, documents, o
     setSaveError(null)
   }
 
-  function patchLine(idx: number, mut: (l: PreScopeLine) => PreScopeLine) {
-    patchPre(p => ({ ...p, scope_lines: p.scope_lines.map((l, i) => (i === idx ? mut(l) : l)) }))
+  function patchWorksRow(idx: number, mut: (r: PreWorksRow) => PreWorksRow) {
+    patchPre(p => ({ ...p, works_rows: (p.works_rows ?? []).map((r, i) => (i === idx ? mut(r) : r)) }))
   }
-
-  function addAddedWork() {
-    patchPre(p => ({
-      ...p,
-      scope_lines: [...p.scope_lines, { kind: 'added', title: '', note_rich_html: '' }],
-    }))
-  }
-
-  function removeLine(idx: number) {
-    patchPre(p => ({ ...p, scope_lines: p.scope_lines.filter((_, i) => i !== idx) }))
-  }
-
-  function patchAreaNote(areaName: string, mut: (n: PreAreaNote) => PreAreaNote) {
-    patchPre(p => {
-      const notes = p.area_notes ?? []
-      const idx = notes.findIndex(n => n.area_name === areaName)
-      const base: PreAreaNote = idx === -1 ? { area_name: areaName } : notes[idx]
-      const next = mut(base)
-      const merged = idx === -1 ? [...notes, next] : notes.map((n, i) => (i === idx ? next : n))
-      return { ...p, area_notes: merged }
-    })
+  function patchProductRow(idx: number, mut: (r: PreProductRow) => PreProductRow) {
+    patchPre(p => ({ ...p, products_rows: (p.products_rows ?? []).map((r, i) => (i === idx ? mut(r) : r)) }))
   }
 
   /**
-   * Regenerate the AI-authored prose from the quoted scope + technician note.
-   * Unlike a fill-blanks pass, this OVERWRITES the overview, per-line notes, and
-   * per-room intros so editing the technician note and re-running refreshes the
-   * draft. Structured human input is preserved: the technician note itself,
-   * added-works lines, actual quantities, and photo selections.
+   * Regenerate the completion-report sections from the quote + technician note.
+   * OVERWRITES the AI-authored sections so editing the note and re-running
+   * refreshes the draft. Preserves the technician note, attendance, and photos.
    */
   async function regenerateFromNote() {
     if (!pre) return
-    const hasDraftedProse =
-      hasProseText(pre.opening_rich_html) ||
-      hasProseText(pre.closing_rich_html) ||
-      pre.scope_lines.some(l => l.kind === 'from_quote' && hasProseText(l.note_rich_html)) ||
-      (pre.area_notes ?? []).some(n => hasProseText(n.intro_rich_html))
+    const hasDraft =
+      hasProseText(pre.executive_summary) ||
+      hasProseText(pre.methodology) ||
+      hasProseText(pre.outcome_verification) ||
+      (pre.works_rows ?? []).length > 0 ||
+      (pre.site_conditions ?? []).some(s => s.trim())
     if (
-      hasDraftedProse &&
+      hasDraft &&
       !window.confirm(
-        'Replace the drafted overview, line notes, and outcome with a fresh draft from your technician note? Your note, added works, quantities, and photos are kept.',
+        'Replace the drafted report sections with a fresh draft from your technician note? Your note, attendance, and photos are kept.',
       )
     ) {
       return
@@ -327,30 +247,32 @@ export default function PostRemediationEvaluationTab({ job, photos, documents, o
         body: JSON.stringify({ preId: pre.id, pre }),
       })
       const data = (await res.json()) as {
-        opening?: string
-        closing?: string
-        line_notes?: Record<string, string>
-        area_notes?: Record<string, string>
+        executive_summary?: string
+        site_conditions?: string[]
+        works?: PreWorksRow[]
+        methodology?: string
+        products?: PreProductRow[]
+        waste?: { waste_type?: string; volume?: string; containment?: string; disposal?: string }
+        outcome_verification?: string
+        recommendations?: string[]
+        compliance?: string
+        limitations?: string
         error?: string
       }
-      if (!res.ok) throw new Error(data.error || 'Draft failed')
-      patchPre(p => {
-        const next: PostRemediationEvaluation = { ...p }
-        next.opening_rich_html = data.opening ?? ''
-        next.closing_rich_html = data.closing ?? ''
-        next.scope_lines = p.scope_lines.map(l => {
-          if (l.kind !== 'from_quote') return l
-          return { ...l, note_rich_html: data.line_notes?.[l.source_line_id] ?? '' }
-        })
-        const mergedNotes = [...(p.area_notes ?? [])]
-        for (const [areaName, text] of Object.entries(data.area_notes ?? {})) {
-          const idx = mergedNotes.findIndex(n => n.area_name === areaName)
-          if (idx === -1) mergedNotes.push({ area_name: areaName, intro_rich_html: text })
-          else mergedNotes[idx] = { ...mergedNotes[idx], intro_rich_html: text }
-        }
-        next.area_notes = mergedNotes
-        return next
-      })
+      if (!res.ok) throw new Error((data as { error?: string }).error || 'Draft failed')
+      patchPre(p => ({
+        ...p,
+        executive_summary: data.executive_summary ?? '',
+        site_conditions: data.site_conditions ?? [],
+        works_rows: data.works ?? [],
+        methodology: data.methodology ?? '',
+        products_rows: data.products ?? [],
+        waste: data.waste ?? {},
+        outcome_verification: data.outcome_verification ?? '',
+        recommendations: data.recommendations ?? [],
+        compliance: data.compliance ?? '',
+        limitations: data.limitations ?? '',
+      }))
     } catch (e) {
       setAiError(e instanceof Error ? e.message : 'Draft failed')
     } finally {
@@ -458,10 +380,17 @@ export default function PostRemediationEvaluationTab({ job, photos, documents, o
 
   // ── Builder ─────────────────────────────────────────────────────────────────
   const headerMeta = sourceDoc ? quoteDocLabel(sourceDoc) : null
-  const fromQuoteLines = pre.scope_lines
-    .map((l, idx) => ({ l, idx }))
-    .filter(({ l }) => l.kind === 'from_quote')
-  const addedLines = pre.scope_lines.map((l, idx) => ({ l, idx })).filter(({ l }) => l.kind === 'added')
+  const prose = (label: string, value: string | undefined, set: (v: string) => void, hint?: string, minHeight = 110) => (
+    <>
+      <div style={sectionHeading}>{label}</div>
+      {hint && <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 8px' }}>{hint}</p>}
+      <textarea
+        value={value ?? ''}
+        onChange={e => set(e.target.value)}
+        style={{ ...textInput, minHeight, resize: 'vertical', lineHeight: 1.5 }}
+      />
+    </>
+  )
 
   return (
     <div style={{ maxWidth: 760, paddingBottom: 48 }}>
@@ -525,206 +454,181 @@ export default function PostRemediationEvaluationTab({ job, photos, documents, o
         style={{ ...textInput, minHeight: 110, resize: 'vertical', lineHeight: 1.5 }}
       />
 
-      {/* Opening narrative */}
-      <div style={sectionHeading}>Overview</div>
-      <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 8px' }}>
-        Optional short opening summarising the job and how it went.
-      </p>
-      <RichTextEditor
-        value={pre.opening_rich_html ?? ''}
-        onChange={html => patchPre(p => ({ ...p, opening_rich_html: html }))}
-        minHeight={120}
+      {/* Attendance — manual */}
+      <div style={sectionHeading}>Attendance</div>
+      <input
+        value={pre.attendance ?? ''}
+        onChange={e => patchPre(p => ({ ...p, attendance: e.target.value }))}
+        placeholder="e.g. 2.5 days on site"
+        style={textInput}
       />
 
-      {/* Scope — as done */}
-      <div style={sectionHeading}>
-        Scope — as done{fromQuoteLines.length ? ` (${fromQuoteLines.length} from quote)` : ''}
-      </div>
-      {fromQuoteLines.length === 0 && (
-        <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 12px' }}>
-          This quote had no itemised scope lines to seed. Use Added works below to record what was done.
-        </p>
+      {/* 01 Executive Summary */}
+      {prose(
+        '01 · Executive Summary',
+        pre.executive_summary,
+        v => patchPre(p => ({ ...p, executive_summary: v })),
+        'Site attended, scope per the linked quote, areas covered, duration, headline waste volume.',
       )}
-      {fromQuoteLines.map(({ l, idx }) => {
-        if (l.kind !== 'from_quote') return null
-        const ctx = resolveQuotedLineContext(sourceContent, l.source_line_id)
-        return (
-          <div key={idx} style={card}>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>
-              {ctx?.sectionLabel ?? 'From quote'}
-            </div>
-            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', marginBottom: ctx?.detail ? 2 : 8 }}>
-              Quoted: {ctx?.title ?? l.source_line_id}
-            </div>
-            {ctx?.detail && (
-              <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 10 }}>{ctx.detail}</div>
-            )}
-            {ctx?.unit && (
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
-                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Actual qty:</span>
-                <input
-                  type="number"
-                  value={l.actual_qty ?? ''}
-                  onChange={e =>
-                    patchLine(idx, ll => ({
-                      ...ll,
-                      actual_qty: e.target.value === '' ? undefined : Number(e.target.value),
-                      actual_unit: ctx.unit,
-                    } as PreScopeLine))
-                  }
-                  style={{ ...textInput, width: 100 }}
-                  placeholder={ctx.qty != null ? String(ctx.qty) : ''}
-                />
-                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{ctx.unit}</span>
-              </div>
-            )}
-            <label style={fieldLabel}>Note</label>
-            <RichTextEditor
-              value={l.note_rich_html ?? ''}
-              onChange={html => patchLine(idx, ll => ({ ...ll, note_rich_html: html } as PreScopeLine))}
-              minHeight={90}
-            />
-            <PhotoAttacher
-              photos={photos}
-              selectedIds={l.photo_ids ?? []}
-              onChange={ids => patchLine(idx, ll => ({ ...ll, photo_ids: ids } as PreScopeLine))}
-            />
-          </div>
-        )
-      })}
 
-      {/* Added works */}
-      <div style={sectionHeading}>Added works</div>
-      {addedLines.map(({ l, idx }) => {
-        if (l.kind !== 'added') return null
-        return (
-          <div key={idx} style={card}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>Added work</span>
-              <button
-                type="button"
-                onClick={() => removeLine(idx)}
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  color: '#F87171',
-                  cursor: 'pointer',
-                  fontSize: 12,
-                }}
-              >
-                Remove
-              </button>
-            </div>
-            <label style={fieldLabel}>Title</label>
-            <input
-              value={l.title}
-              onChange={e => patchLine(idx, ll => ({ ...ll, title: e.target.value } as PreScopeLine))}
-              placeholder="e.g. Roof cavity inspection"
-              style={{ ...textInput, marginBottom: 10 }}
-            />
-            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-              <span style={{ flex: 1 }}>
-                <label style={fieldLabel}>Qty</label>
-                <input
-                  type="number"
-                  value={l.qty ?? ''}
-                  onChange={e =>
-                    patchLine(idx, ll => ({
-                      ...ll,
-                      qty: e.target.value === '' ? undefined : Number(e.target.value),
-                    } as PreScopeLine))
-                  }
-                  style={textInput}
-                />
-              </span>
-              <span style={{ flex: 1 }}>
-                <label style={fieldLabel}>Unit</label>
-                <input
-                  value={l.unit ?? ''}
-                  onChange={e => patchLine(idx, ll => ({ ...ll, unit: e.target.value } as PreScopeLine))}
-                  placeholder="hr, m², ea…"
-                  style={textInput}
-                />
-              </span>
-            </div>
-            <label style={fieldLabel}>Description / note</label>
-            <RichTextEditor
-              value={l.note_rich_html ?? ''}
-              onChange={html => patchLine(idx, ll => ({ ...ll, note_rich_html: html } as PreScopeLine))}
-              minHeight={90}
-            />
-            <PhotoAttacher
-              photos={photos}
-              selectedIds={l.photo_ids ?? []}
-              onChange={ids => patchLine(idx, ll => ({ ...ll, photo_ids: ids } as PreScopeLine))}
-            />
+      {/* 02 Site Conditions on Attendance */}
+      <div style={sectionHeading}>02 · Site Conditions on Attendance</div>
+      <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 8px' }}>
+        Pre-existing conditions / staging observed on arrival, before any work began.
+      </p>
+      <BulletEditor
+        items={pre.site_conditions ?? []}
+        onChange={items => patchPre(p => ({ ...p, site_conditions: items }))}
+        placeholder="Observation before work began…"
+      />
+
+      {/* 03 Works Undertaken */}
+      <div style={sectionHeading}>03 · Works Undertaken</div>
+      {(pre.works_rows ?? []).map((r, idx) => (
+        <div key={idx} style={card}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>Stage {idx + 1}</span>
+            <button
+              type="button"
+              onClick={() => patchPre(p => ({ ...p, works_rows: (p.works_rows ?? []).filter((_, i) => i !== idx) }))}
+              style={{ background: 'transparent', border: 'none', color: '#F87171', cursor: 'pointer', fontSize: 12 }}
+            >
+              Remove
+            </button>
           </div>
-        )
-      })}
-      <button type="button" className="btn btn-secondary" onClick={addAddedWork} style={{ fontSize: 13 }}>
-        + Add line
+          <label style={fieldLabel}>Stage name</label>
+          <input
+            value={r.stage_name}
+            onChange={e => patchWorksRow(idx, rr => ({ ...rr, stage_name: e.target.value }))}
+            placeholder="e.g. Mobilisation, Kitchen, Final check"
+            style={{ ...textInput, marginBottom: 10 }}
+          />
+          <label style={fieldLabel}>Description</label>
+          <textarea
+            value={r.description}
+            onChange={e => patchWorksRow(idx, rr => ({ ...rr, description: e.target.value }))}
+            placeholder="First-person past-tense action description…"
+            style={{ ...textInput, minHeight: 70, resize: 'vertical', lineHeight: 1.5 }}
+          />
+        </div>
+      ))}
+      <button
+        type="button"
+        className="btn btn-secondary"
+        onClick={() => patchPre(p => ({ ...p, works_rows: [...(p.works_rows ?? []), { stage_name: '', description: '' }] }))}
+        style={{ fontSize: 13 }}
+      >
+        + Add stage
       </button>
 
-      {/* Per-room notes */}
-      <div style={sectionHeading}>Per-room notes &amp; photos</div>
-      {areas.length === 0 ? (
-        <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>
-          No areas captured on this job. Add areas under Assessment to attach per-room evidence.
-        </p>
-      ) : (
-        areas.map(area => {
-          const note = (pre.area_notes ?? []).find(n => n.area_name === area.name)
-          const captions = note?.photo_captions ?? []
-          const selectedIds = captions.map(c => c.photo_id)
-          return (
-            <div key={area.name} style={card}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', marginBottom: 10 }}>{area.name}</div>
-              <label style={fieldLabel}>Intro note</label>
-              <RichTextEditor
-                value={note?.intro_rich_html ?? ''}
-                onChange={html => patchAreaNote(area.name, n => ({ ...n, intro_rich_html: html }))}
-                minHeight={80}
-              />
-              <PhotoAttacher
-                photos={photos}
-                selectedIds={selectedIds}
-                onChange={ids =>
-                  patchAreaNote(area.name, n => {
-                    const prev = n.photo_captions ?? []
-                    const next = ids.map(id => prev.find(c => c.photo_id === id) ?? { photo_id: id })
-                    return { ...n, photo_captions: next }
-                  })
-                }
-              />
-              {captions.map(c => (
-                <div key={c.photo_id} style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
-                  <span style={{ fontSize: 11, color: 'var(--text-muted)', minWidth: 60 }}>Caption</span>
-                  <input
-                    value={c.caption ?? ''}
-                    onChange={e =>
-                      patchAreaNote(area.name, n => ({
-                        ...n,
-                        photo_captions: (n.photo_captions ?? []).map(pc =>
-                          pc.photo_id === c.photo_id ? { ...pc, caption: e.target.value } : pc,
-                        ),
-                      }))
-                    }
-                    placeholder="Optional caption…"
-                    style={textInput}
-                  />
-                </div>
-              ))}
-            </div>
-          )
-        })
+      {/* 04 Remediation Methodology */}
+      {prose(
+        '04 · Remediation Methodology',
+        pre.methodology,
+        v => patchPre(p => ({ ...p, methodology: v })),
+        'Zone-based approach, product application (dilution/dwell time), explicit out-of-scope statement.',
       )}
 
-      {/* Closing narrative */}
-      <div style={sectionHeading}>Outcome</div>
-      <RichTextEditor
-        value={pre.closing_rich_html ?? ''}
-        onChange={html => patchPre(p => ({ ...p, closing_rich_html: html }))}
-        minHeight={120}
+      {/* 05 Products & Equipment Used */}
+      <div style={sectionHeading}>05 · Products &amp; Equipment Used</div>
+      {(pre.products_rows ?? []).map((r, idx) => (
+        <div key={idx} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+          <input
+            value={r.item_name}
+            onChange={e => patchProductRow(idx, rr => ({ ...rr, item_name: e.target.value }))}
+            placeholder="Item"
+            style={{ ...textInput, flex: 1 }}
+          />
+          <input
+            value={r.usage_note}
+            onChange={e => patchProductRow(idx, rr => ({ ...rr, usage_note: e.target.value }))}
+            placeholder="Usage note"
+            style={{ ...textInput, flex: 1.4 }}
+          />
+          <button
+            type="button"
+            onClick={() => patchPre(p => ({ ...p, products_rows: (p.products_rows ?? []).filter((_, i) => i !== idx) }))}
+            style={{ background: 'transparent', border: 'none', color: '#F87171', cursor: 'pointer', fontSize: 12 }}
+          >
+            ✕
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        className="btn btn-secondary"
+        onClick={() => patchPre(p => ({ ...p, products_rows: [...(p.products_rows ?? []), { item_name: '', usage_note: '' }] }))}
+        style={{ fontSize: 12, padding: '6px 10px' }}
+      >
+        + Add item
+      </button>
+
+      {/* 06 Waste Management & Disposal */}
+      <div style={sectionHeading}>06 · Waste Management &amp; Disposal</div>
+      {([
+        ['waste_type', 'Waste type'],
+        ['volume', 'Volume (e.g. Approximately 2 m³)'],
+        ['containment', 'Containment'],
+        ['disposal', 'Disposal'],
+      ] as const).map(([key, label]) => (
+        <div key={key} style={{ marginBottom: 8 }}>
+          <label style={fieldLabel}>{label}</label>
+          <input
+            value={pre.waste?.[key] ?? ''}
+            onChange={e => patchPre(p => ({ ...p, waste: { ...(p.waste ?? {}), [key]: e.target.value } }))}
+            style={textInput}
+          />
+        </div>
+      ))}
+
+      {/* 07 Outcome & Verification */}
+      {prose(
+        '07 · Outcome & Verification',
+        pre.outcome_verification,
+        v => patchPre(p => ({ ...p, outcome_verification: v })),
+        'Final walkthrough vs quoted scope, compliance statement, handback confirmation.',
+      )}
+
+      {/* 08 Recommendations */}
+      <div style={sectionHeading}>08 · Recommendations</div>
+      <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 8px' }}>
+        Issues noted on site, outside the cleaning scope — flagged for the client to action.
+      </p>
+      <BulletEditor
+        items={pre.recommendations ?? []}
+        onChange={items => patchPre(p => ({ ...p, recommendations: items }))}
+        placeholder="Issue + impact + who must address it…"
+      />
+
+      {/* 09 Compliance */}
+      {prose(
+        '09 · Compliance',
+        pre.compliance,
+        v => patchPre(p => ({ ...p, compliance: v })),
+        'Standard-procedures statement + disposal-compliance statement.',
+      )}
+
+      {/* Limitations & Scope Notice */}
+      {prose(
+        'Limitations & Scope Notice',
+        pre.limitations,
+        v => patchPre(p => ({ ...p, limitations: v })),
+        'Scope boundary, unaccessed/uncleaned areas and why, exclusions, testing/lab disclaimer.',
+      )}
+
+      {/* Photo documentation */}
+      <div style={sectionHeading}>Photo documentation</div>
+      <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 10px' }}>
+        Upload during/after photos. These appear as a photo appendix at the end of the report.
+      </p>
+      <PhotoUploadPanel
+        jobId={job.id}
+        photos={photos}
+        onPhotosUpdate={onPhotosUpdate}
+        defaultPendingCategory="after"
+        allowedCategories={['during', 'after']}
+        fixedCapturePhase="progress"
+        fixedAreaRef=""
       />
 
       {/* Sign-off */}
@@ -743,9 +647,8 @@ export default function PostRemediationEvaluationTab({ job, photos, documents, o
       )}
 
       <p style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5, margin: '20px 0 8px' }}>
-        Regenerate drafts the overview, per-line notes, and per-room intros from the quote and your
-        technician note, replacing the previously drafted prose. Your note, added works, quantities,
-        and photos are kept. Review, then save.
+        Regenerate drafts the report sections from the quote and your technician note, replacing the
+        previously drafted content. Your note, attendance, and photos are kept. Review, then save.
       </p>
       <div style={{ display: 'flex', gap: 12 }}>
         <button
