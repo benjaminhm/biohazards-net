@@ -38,6 +38,7 @@ import {
   OUTCOME_KIND_ORDER,
   areaPricingSectionSubtotal,
   areaPricingSurfaceSum,
+  computeQuoteCaptureTotals,
   derivePricingLayoutFromCapture,
   normalizeSectionTerms,
   quoteContentIsEstimate,
@@ -122,23 +123,15 @@ function computeTotals(
   globalMobilisationFee = 0,
   areaPricingSectionTotal = 0,
 ) {
-  const outcomeSum = layout.outcomes_enabled
-    ? Math.max(0, Number(globalMobilisationFee || 0)) + rows.reduce((s, r) => s + Math.max(0, Number(r.price || 0)), 0)
-    : 0
-  const surfaceSum = layout.per_sqm_enabled
-    ? areaPricingSectionSubtotal(areaPricing, areaPricingSectionTotal)
-    : 0
-  const volSum = layout.per_m3_enabled ? volumePricingSubtotal(volumePricing ?? undefined) : 0
-  const lineSum = toMoney(outcomeSum + surfaceSum + volSum)
-  if (gstMode === 'exclusive') {
-    const gst = toMoney(lineSum * 0.1)
-    return { subtotal: lineSum, gst, total: toMoney(lineSum + gst) }
-  }
-  if (gstMode === 'inclusive') {
-    const gst = toMoney(lineSum / 11)
-    return { subtotal: toMoney(lineSum - gst), gst, total: lineSum }
-  }
-  return { subtotal: lineSum, gst: 0, total: lineSum }
+  return computeQuoteCaptureTotals(
+    rows,
+    areaPricing,
+    volumePricing,
+    layout,
+    gstMode,
+    globalMobilisationFee,
+    areaPricingSectionTotal,
+  )
 }
 
 function fmtM2(n: number): string {

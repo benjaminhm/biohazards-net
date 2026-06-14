@@ -56,6 +56,8 @@ export async function POST(req: Request) {
           capture_fields: ctx.capture_fields,
           area_pricing: ctx.area_pricing,
           area_pricing_terms: ctx.area_pricing_terms,
+          area_pricing_section_total: ctx.area_pricing_section_total,
+          outcomes_section_terms: ctx.outcomes_section_terms,
           volume_pricing: ctx.volume_pricing,
           volume_pricing_terms: ctx.volume_pricing_terms,
           pricing_layout: ctx.pricing_layout,

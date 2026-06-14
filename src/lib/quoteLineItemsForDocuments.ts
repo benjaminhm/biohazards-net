@@ -251,6 +251,8 @@ export interface QuoteLineItemsMergeContext {
   capture_fields: QuoteCaptureFields
   area_pricing: AreaPricingRow[]
   area_pricing_terms?: SectionTerms
+  area_pricing_section_total?: number
+  outcomes_section_terms?: SectionTerms
   volume_pricing?: VolumePricingBlock
   volume_pricing_terms?: SectionTerms
   pricing_layout?: QuotePricingLayout

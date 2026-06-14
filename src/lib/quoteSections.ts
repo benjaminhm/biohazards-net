@@ -24,6 +24,7 @@ import type {
   OutcomeQuoteCapture,
   OutcomeQuoteRow,
   QuoteContent,
+  QuoteGstMode,
   QuotePricingLayout,
   SectionTerms,
   VolumePricingBlock,
@@ -215,6 +216,43 @@ export function areaPricingSectionSubtotal(
   return Math.max(0, Number(sectionTotal) || 0)
 }
 
+/** Totals across enabled pricing sections — shared by Quote tab and composed docs. */
+export function computeQuoteCaptureTotals(
+  rows: OutcomeQuoteRow[],
+  areaPricing: AreaPricingRow[] | undefined,
+  volumePricing: VolumePricingBlock | null | undefined,
+  layout: QuotePricingLayout,
+  gstMode: QuoteGstMode,
+  globalMobilisationFee = 0,
+  areaPricingSectionTotal = 0,
+  /** When outcome rows are empty, sum legacy line_items instead (printed quote path). */
+  lineItemsFallback?: Array<{ total?: number }>,
+): { subtotal: number; gst: number; total: number } {
+  const pricedRows = rows.reduce((s, r) => s + Math.max(0, Number(r.price || 0)), 0)
+  const pricedLineItems = (lineItemsFallback ?? []).reduce(
+    (s, li) => s + Math.max(0, Number(li.total || 0)),
+    0,
+  )
+  const outcomeSum = layout.outcomes_enabled
+    ? Math.max(0, Number(globalMobilisationFee || 0))
+      + (rows.length > 0 ? pricedRows : pricedLineItems)
+    : 0
+  const surfaceSum = layout.per_sqm_enabled
+    ? areaPricingSectionSubtotal(areaPricing, areaPricingSectionTotal)
+    : 0
+  const volSum = layout.per_m3_enabled ? volumePricingSubtotal(volumePricing ?? undefined) : 0
+  const lineSum = round2(outcomeSum + surfaceSum + volSum)
+  if (gstMode === 'exclusive') {
+    const gst = round2(lineSum * 0.1)
+    return { subtotal: lineSum, gst, total: round2(lineSum + gst) }
+  }
+  if (gstMode === 'inclusive') {
+    const gst = round2(lineSum / 11)
+    return { subtotal: round2(lineSum - gst), gst, total: lineSum }
+  }
+  return { subtotal: lineSum, gst: 0, total: lineSum }
+}
+
 /** True when Section 3 has priced surface rows or a lump-sum total. */
 export function areaPricingHasContent(
   rows: AreaPricingRow[] | undefined,
@@ -271,6 +309,7 @@ export function applyPricingLayoutToContent(
   if (!layout.per_sqm_enabled) {
     next.area_pricing = undefined
     next.area_pricing_terms = undefined
+    next.area_pricing_section_total = undefined
     next.auto_excluded_surfaces = undefined
   }
   if (!layout.per_m3_enabled) {
@@ -278,38 +317,20 @@ export function applyPricingLayoutToContent(
     next.volume_pricing_terms = undefined
   }
 
-  // Recompute totals from what's actually being rendered.
-  const mobilisationFee = layout.outcomes_enabled ? Math.max(0, Number(next.global_mobilisation_fee || 0)) : 0
-  const outcomeRowsSum = (next.outcome_rows ?? []).reduce(
-    (s, r) => s + Math.max(0, Number(r.price || 0)),
-    0,
-  )
-  const lineItemsSum = (next.line_items ?? []).reduce((s, li) => s + Number(li.total || 0), 0)
-  const areaSum = (next.area_pricing ?? []).reduce((s, r) => s + Number(r.total || 0), 0)
-  const volSum = next.volume_pricing ? Number(next.volume_pricing.total || 0) : 0
-
-  // Outcomes-vs-line_items: line_items only contributes when outcomes weren't
-  // the chosen mode (matches the existing behaviour in quoteLineItemsContentPatch).
-  const hasOutcomeRows = (next.outcome_rows ?? []).length > 0
-  const baseSum = mobilisationFee + (hasOutcomeRows ? outcomeRowsSum : lineItemsSum)
-  const lineSum = round2(baseSum + areaSum + volSum)
-
   const gstMode = next.gst_mode ?? 'no_gst'
-  if (gstMode === 'exclusive') {
-    const gst = round2(lineSum * 0.1)
-    next.subtotal = lineSum
-    next.gst = gst
-    next.total = round2(lineSum + gst)
-  } else if (gstMode === 'inclusive') {
-    const gst = round2(lineSum / 11)
-    next.subtotal = round2(lineSum - gst)
-    next.gst = gst
-    next.total = lineSum
-  } else {
-    next.subtotal = lineSum
-    next.gst = 0
-    next.total = lineSum
-  }
+  const totals = computeQuoteCaptureTotals(
+    next.outcome_rows ?? [],
+    next.area_pricing,
+    next.volume_pricing ?? null,
+    layout,
+    gstMode,
+    Math.max(0, Number(next.global_mobilisation_fee || 0)),
+    Math.max(0, Number(next.area_pricing_section_total || 0)),
+    next.line_items,
+  )
+  next.subtotal = totals.subtotal
+  next.gst = totals.gst
+  next.total = totals.total
 
   return next
 }
