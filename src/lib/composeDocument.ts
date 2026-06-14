@@ -509,6 +509,7 @@ function composeQuote(job: Job, quoteId?: string): ComposeDocumentResult {
   const layout = derivePricingLayoutFromCapture(cap)
   const areaTerms = normalizeSectionTerms(cap?.area_pricing_terms)
   const volumeTerms = normalizeSectionTerms(cap?.volume_pricing_terms)
+  const outcomesTerms = normalizeSectionTerms(cap?.outcomes_section_terms)
   const hasOutcomes = cap && cap.rows?.length > 0
   const hasCapture = hasOutcomes
     || areaPricing.length > 0
@@ -528,6 +529,7 @@ function composeQuote(job: Job, quoteId?: string): ComposeDocumentResult {
     line_items: [],
     outcome_rows: hasOutcomes ? cap!.rows : undefined,
     outcome_mode: hasOutcomes ? 'outcomes' : undefined,
+    ...(outcomesTerms ? { outcomes_section_terms: outcomesTerms } : {}),
     area_pricing: areaPricing.length > 0 ? areaPricing : undefined,
     area_pricing_terms: areaTerms,
     ...(areaPricingSectionTotal > 0 ? { area_pricing_section_total: areaPricingSectionTotal } : {}),

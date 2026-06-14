@@ -52,6 +52,7 @@ export interface QuoteContentPatchInputs {
   outcomeRows?: OutcomeQuoteRow[]
   outcomeMode?: 'outcomes' | 'line_items'
   captureFields?: QuoteCaptureFields
+  outcomesSectionTerms?: SectionTerms
   areaPricing?: AreaPricingRow[]
   areaPricingTerms?: SectionTerms
   areaPricingSectionTotal?: number
@@ -72,6 +73,7 @@ export function quoteLineItemsContentPatch(
     outcomeRows,
     outcomeMode,
     captureFields,
+    outcomesSectionTerms,
     areaPricing,
     areaPricingTerms,
     areaPricingSectionTotal,
@@ -156,6 +158,10 @@ export function quoteLineItemsContentPatch(
     intro: '',
   }
   if (cleanAreaTerms) patch.area_pricing_terms = cleanAreaTerms
+  const cleanOutcomesTerms = effectiveLayout.outcomes_enabled
+    ? normalizeSectionTerms(outcomesSectionTerms)
+    : undefined
+  if (cleanOutcomesTerms) patch.outcomes_section_terms = cleanOutcomesTerms
   if (effectiveLayout.per_sqm_enabled && Number(areaPricingSectionTotal || 0) > 0) {
     patch.area_pricing_section_total = Math.max(0, Number(areaPricingSectionTotal || 0))
   }
@@ -174,6 +180,7 @@ export interface MergeQuoteLineItemsOptions {
   outcome_rows?: OutcomeQuoteRow[]
   outcome_mode?: 'outcomes' | 'line_items'
   capture_fields?: QuoteCaptureFields
+  outcomes_section_terms?: SectionTerms
   area_pricing?: AreaPricingRow[]
   area_pricing_terms?: SectionTerms
   area_pricing_section_total?: number
@@ -199,6 +206,7 @@ export function mergeQuoteLineItemsIntoDocContent(
       outcomeRows: options?.outcome_rows,
       outcomeMode: options?.outcome_mode,
       captureFields: options?.capture_fields,
+      outcomesSectionTerms: options?.outcomes_section_terms,
       areaPricing: options?.area_pricing,
       areaPricingTerms: options?.area_pricing_terms,
       areaPricingSectionTotal: options?.area_pricing_section_total,
@@ -300,6 +308,7 @@ export async function fetchQuoteLineItemsMergeContext(
   const outcomeRows = (capture?.rows ?? []) as OutcomeQuoteRow[]
   const area_pricing = (capture?.area_pricing ?? []).filter(r => Number(r.total ?? 0) > 0) as AreaPricingRow[]
   const area_pricing_terms = capture?.area_pricing_terms
+  const outcomes_section_terms = capture?.outcomes_section_terms
   const volume_pricing = capture?.volume_pricing && volumePricingHasContent(capture.volume_pricing)
     ? capture.volume_pricing
     : undefined
@@ -327,6 +336,7 @@ export async function fetchQuoteLineItemsMergeContext(
 
   const baseExtras = {
     area_pricing_terms,
+    outcomes_section_terms,
     area_pricing_section_total: area_pricing_section_total > 0 ? area_pricing_section_total : undefined,
     volume_pricing,
     volume_pricing_terms,

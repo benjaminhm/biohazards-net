@@ -130,6 +130,7 @@ Return ONLY valid JSON:
     }
   ],
   "terms": {
+    "observed_contents": [""],
     "included": [""],
     "excluded": [""],
     "assumptions": [""]
@@ -163,6 +164,7 @@ Return ONLY valid JSON:
     }
   ],
   "terms": {
+    "observed_contents": [""],
     "included": [""],
     "excluded": [""],
     "assumptions": [""]
@@ -309,8 +311,14 @@ function parseSectionTerms(raw: unknown): SectionTerms | undefined {
   const included = parseStringList(o.included)
   const excluded = parseStringList(o.excluded)
   const assumptions = parseStringList(o.assumptions)
-  if (!included.length && !excluded.length && !assumptions.length) return undefined
-  return { included, excluded, assumptions }
+  const observed_contents = parseStringList(o.observed_contents)
+  if (!included.length && !excluded.length && !assumptions.length && !observed_contents.length) return undefined
+  return {
+    ...(observed_contents.length ? { observed_contents } : {}),
+    ...(included.length ? { included } : {}),
+    ...(excluded.length ? { excluded } : {}),
+    ...(assumptions.length ? { assumptions } : {}),
+  }
 }
 
 function parseVolumeRows(raw: unknown): VolumePricingRow[] {

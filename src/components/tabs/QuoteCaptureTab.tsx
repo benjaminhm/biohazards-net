@@ -234,7 +234,30 @@ function blankRow(seed: number, kind: OutcomeKind = 'mobilisation'): OutcomeQuot
 }
 
 function blankSectionTerms(): SectionTerms {
-  return { included: [], excluded: [], assumptions: [] }
+  return { observed_contents: [], included: [], excluded: [], assumptions: [] }
+}
+
+const OBSERVED_CONTENTS_PLACEHOLDER =
+  'One per line — e.g.\nReported affected carpet\nFurniture requiring relocation\nLoose household contents'
+
+function SectionObservedContentsField({
+  terms,
+  onChange,
+}: {
+  terms: SectionTerms
+  onChange: (field: keyof SectionTerms, value: string) => void
+}) {
+  return (
+    <div className="field" style={{ marginBottom: 14 }}>
+      <label>Observed / reported contents</label>
+      <AutoGrow
+        value={(terms.observed_contents ?? []).join('\n')}
+        onChange={v => onChange('observed_contents', v)}
+        placeholder={OBSERVED_CONTENTS_PLACEHOLDER}
+        rows={3}
+      />
+    </div>
+  )
 }
 
 /** Parse comma-separated room list without eating the trailing comma/space while typing. */
@@ -406,6 +429,9 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
   const [areaPricingTerms, setAreaPricingTerms] = useState<SectionTerms>(
     existing?.area_pricing_terms ?? blankSectionTerms(),
   )
+  const [outcomesSectionTerms, setOutcomesSectionTerms] = useState<SectionTerms>(
+    existing?.outcomes_section_terms ?? blankSectionTerms(),
+  )
   const [volumePricingTerms, setVolumePricingTerms] = useState<SectionTerms>(
     existing?.volume_pricing_terms ?? blankSectionTerms(),
   )
@@ -479,6 +505,7 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
     setAreaPricing(syncAreaPricing(job.assessment_data?.areas, cap?.area_pricing))
     setVolumePricing(syncVolumePricing(job.assessment_data?.areas, cap?.volume_pricing))
     setAreaPricingTerms(cap?.area_pricing_terms ?? blankSectionTerms())
+    setOutcomesSectionTerms(cap?.outcomes_section_terms ?? blankSectionTerms())
     setVolumePricingTerms(cap?.volume_pricing_terms ?? blankSectionTerms())
     setPricingLayout(derivePricingLayoutFromCapture(cap))
     setQuoteKind(deriveQuoteKind(cap))
@@ -682,6 +709,7 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
       included: mergeList(existing.included, incoming.included),
       excluded: mergeList(existing.excluded, incoming.excluded),
       assumptions: mergeList(existing.assumptions, incoming.assumptions),
+      observed_contents: mergeList(existing.observed_contents, incoming.observed_contents),
     }
   }
 
@@ -789,6 +817,7 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
   function buildActiveCapture(): OutcomeQuoteCapture {
     const cleanAreaTerms = normalizeSectionTerms(areaPricingTerms)
     const cleanVolumeTerms = normalizeSectionTerms(volumePricingTerms)
+    const cleanOutcomesTerms = normalizeSectionTerms(outcomesSectionTerms)
     const persistedVolume = pricingLayout.per_m3_enabled || (volumePricing.rows.length > 0)
       ? recomputeVolumePricingTotal(volumePricing)
       : undefined
@@ -801,6 +830,7 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
       mode: 'outcomes',
       quote_kind: quoteKind,
       rows: promotedRows,
+      ...(cleanOutcomesTerms ? { outcomes_section_terms: cleanOutcomesTerms } : {}),
       area_pricing: areaPricing,
       ...(areaPricingSectionTotal > 0 ? { area_pricing_section_total: areaPricingSectionTotal } : {}),
       ...(cleanAreaTerms ? { area_pricing_terms: cleanAreaTerms } : {}),
@@ -1290,6 +1320,11 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
         error={suggestErrorBySection.outcomes ?? ''}
       />
 
+      <SectionObservedContentsField
+        terms={outcomesSectionTerms}
+        onChange={(field, value) => patchSectionTerms(setOutcomesSectionTerms, field, value)}
+      />
+
       {rows.length > 0 && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
           <button
@@ -1418,7 +1453,7 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
                 <AutoGrow
                   value={(row.contents ?? []).join('\n')}
                   onChange={v => patchRow(row.id, { contents: v.split('\n') })}
-                  placeholder={'One per line — e.g.\nReported affected carpet\nFurniture requiring relocation\nLoose household contents'}
+                  placeholder={OBSERVED_CONTENTS_PLACEHOLDER}
                   rows={4}
                 />
               </div>
@@ -1710,6 +1745,11 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
         </label>
       </div>
 
+      <SectionObservedContentsField
+        terms={volumePricingTerms}
+        onChange={(field, value) => patchSectionTerms(setVolumePricingTerms, field, value)}
+      />
+
       {/* Section-level terms */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 22 }}>
         <div className="field" style={{ marginBottom: 0 }}>
@@ -1939,6 +1979,11 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
           </div>
         )}
       </div>
+
+      <SectionObservedContentsField
+        terms={areaPricingTerms}
+        onChange={(field, value) => patchSectionTerms(setAreaPricingTerms, field, value)}
+      />
 
       {/* Section-level terms for Section 3 */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 22 }}>

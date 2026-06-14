@@ -1034,15 +1034,17 @@ function wasteTable(items: WasteItem[]): string {
  *  Returns '' when every list is empty so the print stays tight. */
 function renderSectionTerms(t: SectionTerms | undefined): string {
   if (!t) return ''
+  const observed = (t.observed_contents ?? []).filter(s => s?.trim())
   const inc = (t.included ?? []).filter(s => s?.trim())
   const exc = (t.excluded ?? []).filter(s => s?.trim())
   const ass = (t.assumptions ?? []).filter(s => s?.trim())
-  if (!inc.length && !exc.length && !ass.length) return ''
+  if (!observed.length && !inc.length && !exc.length && !ass.length) return ''
   const block = (label: string, list: string[]): string =>
     list.length
       ? `<div class="label" style="font-size:7pt;margin-top:10px">${label}</div><ul class="body-text">${list.map(s => `<li>${esc(s)}</li>`).join('')}</ul>`
       : ''
   return `<div style="margin-top:6px">
+    ${block('Observed / Reported Contents', observed)}
     ${block('Included', inc)}
     ${block('Excluded', exc)}
     ${block('Assumptions', ass)}
@@ -1291,7 +1293,8 @@ function buildQuoteMid(
   const layout = c.pricing_layout
   const outcomeRows = (c.outcome_rows ?? []).filter(Boolean)
   const globalMobilisationFee = Math.max(0, Number(c.global_mobilisation_fee || 0))
-  const showSection1 = (layout?.outcomes_enabled ?? true) && (outcomeRows.length > 0 || (c.line_items ?? []).length > 0 || globalMobilisationFee > 0)
+  const showSection1 = (layout?.outcomes_enabled ?? true)
+    && (outcomeRows.length > 0 || (c.line_items ?? []).length > 0 || globalMobilisationFee > 0 || hasSectionTerms(c.outcomes_section_terms))
   const areaPricing = (c.area_pricing ?? []).filter(r => Number(r.total ?? 0) > 0)
   const areaPricingSectionTotal = Math.max(0, Number(c.area_pricing_section_total || 0))
   const showSection3 = (layout?.per_sqm_enabled ?? true)
@@ -1329,7 +1332,7 @@ function buildQuoteMid(
         : `<div class="body-text">— No fee items have been drafted for this quote.</div>`)
 
   const section1 = showSection1
-    ? `<div class="label" style="margin-top:6px">1. Mobilisation, Fees &amp; Fixed-Rate Items</div>${section1Body}`
+    ? `<div class="label" style="margin-top:6px">1. Mobilisation, Fees &amp; Fixed-Rate Items</div>${section1Body}${renderSectionTerms(c.outcomes_section_terms)}`
     : ''
   const section2 = showSection2 ? renderVolumeSection(volumeBlock, c.volume_pricing_terms) : ''
   const section3 = showSection3

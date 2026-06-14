@@ -44,6 +44,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       r => Number(r.total ?? 0) > 0,
     )
     const areaPricingTerms = outcomeCapture?.area_pricing_terms
+    const outcomesSectionTerms = outcomeCapture?.outcomes_section_terms
     const volumePricing = outcomeCapture?.volume_pricing && volumePricingHasContent(outcomeCapture.volume_pricing)
       ? outcomeCapture.volume_pricing
       : undefined
@@ -55,6 +56,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const areaPricingSectionTotal = Math.max(0, Number(outcomeCapture?.area_pricing_section_total || 0))
     const sectionExtras = {
       area_pricing_terms: areaPricingTerms,
+      outcomes_section_terms: outcomesSectionTerms,
       ...(areaPricingSectionTotal > 0 ? { area_pricing_section_total: areaPricingSectionTotal } : {}),
       volume_pricing: volumePricing,
       volume_pricing_terms: volumePricingTerms,

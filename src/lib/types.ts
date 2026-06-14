@@ -787,6 +787,8 @@ export interface AreaPricingRow {
  *  pricing section (Sections 2 and 3). Section 1 keeps these per-row on each
  *  `OutcomeQuoteRow` because each fee row tends to have its own caveats. */
 export interface SectionTerms {
+  /** Visual/reported items for this section — not a volume or price estimate. */
+  observed_contents?: string[]
   included?: string[]
   excluded?: string[]
   assumptions?: string[]
@@ -837,6 +839,8 @@ export interface OutcomeQuoteCapture {
   quote_kind?: 'quote' | 'estimate'
   /** Section 1 rows — value-based fees, mobilisation, surcharges, etc. */
   rows: OutcomeQuoteRow[]
+  /** Section-level observed/reported contents and terms for Section 1. */
+  outcomes_section_terms?: SectionTerms
   /** Section 3 — per-room/surface pricing rows. */
   area_pricing?: AreaPricingRow[]
   /** Section-level inclusions / exclusions / assumptions for Section 3. */
@@ -1316,6 +1320,8 @@ export interface QuoteContent {
   line_items: LineItem[]
   /** Outcome-based quote rows (preferred render path when present). */
   outcome_rows?: OutcomeQuoteRow[]
+  /** Section-level observed/reported contents for Section 1. */
+  outcomes_section_terms?: SectionTerms
   /** Per-room pricing rows (dimensions × $/m²). Rendered as a dedicated table. */
   area_pricing?: AreaPricingRow[]
   /** Section-level Inclusions / Exclusions / Assumptions for Section 3. */

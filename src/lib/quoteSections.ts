@@ -90,7 +90,7 @@ export function groupRowsByKind(
 /** True when a SectionTerms object has at least one non-empty list. */
 export function sectionTermsHasContent(t: SectionTerms | undefined | null): boolean {
   if (!t) return false
-  const lists: Array<string[] | undefined> = [t.included, t.excluded, t.assumptions]
+  const lists: Array<string[] | undefined> = [t.observed_contents, t.included, t.excluded, t.assumptions]
   return lists.some(l => (l ?? []).some(x => (x ?? '').trim()))
 }
 
@@ -101,11 +101,17 @@ export function normalizeSectionTerms(t: SectionTerms | undefined | null): Secti
     const items = (l ?? []).map(s => (s ?? '').trim()).filter(Boolean)
     return items.length > 0 ? items : undefined
   }
+  const observed_contents = clean(t.observed_contents)
   const included = clean(t.included)
   const excluded = clean(t.excluded)
   const assumptions = clean(t.assumptions)
-  if (!included && !excluded && !assumptions) return undefined
-  return { ...(included ? { included } : {}), ...(excluded ? { excluded } : {}), ...(assumptions ? { assumptions } : {}) }
+  if (!observed_contents && !included && !excluded && !assumptions) return undefined
+  return {
+    ...(observed_contents ? { observed_contents } : {}),
+    ...(included ? { included } : {}),
+    ...(excluded ? { excluded } : {}),
+    ...(assumptions ? { assumptions } : {}),
+  }
 }
 
 function round2(n: number): number {
