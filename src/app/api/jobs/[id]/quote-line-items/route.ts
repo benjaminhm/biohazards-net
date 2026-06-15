@@ -58,11 +58,15 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const globalContentsRatePerM3 = Math.max(0, Number(outcomeCapture?.global_contents_rate_per_m3 || 0))
     const areaPricingSectionTotal = Math.max(0, Number(outcomeCapture?.area_pricing_section_total || 0))
     const volumePricingSectionTotal = Math.max(0, Number(outcomeCapture?.volume_pricing_section_total || 0))
+    const volumeDisposalFeeMode = outcomeCapture?.volume_disposal_fee_mode
+    const volumeDisposalFeePerTonne = Math.max(0, Number(outcomeCapture?.volume_disposal_fee_per_tonne || 0))
     const sectionExtras = {
       area_pricing_terms: areaPricingTerms,
       outcomes_section_terms: outcomesSectionTerms,
       ...(areaPricingSectionTotal > 0 ? { area_pricing_section_total: areaPricingSectionTotal } : {}),
       ...(volumePricingSectionTotal > 0 ? { volume_pricing_section_total: volumePricingSectionTotal } : {}),
+      ...(volumeDisposalFeeMode ? { volume_disposal_fee_mode: volumeDisposalFeeMode } : {}),
+      ...(volumeDisposalFeePerTonne > 0 ? { volume_disposal_fee_per_tonne: volumeDisposalFeePerTonne } : {}),
       volume_pricing: volumePricing,
       volume_pricing_terms: volumePricingTerms,
       pricing_layout: pricingLayout,

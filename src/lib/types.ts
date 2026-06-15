@@ -805,6 +805,9 @@ export interface VolumePricingRow {
   notes?: string
 }
 
+/** How Section 2 disposal / tip fees are presented on the quote. */
+export type VolumeDisposalFeeMode = 'added_for_reimbursement' | 'included_in_fixed'
+
 /** Section 2 — Contents Removal pricing block. Bills at a single $/m³ rate
  *  applied to the sum of estimated volumes; actual is measured at uplift and
  *  variation billed at the same rate when `is_estimate = true`. */
@@ -851,6 +854,10 @@ export interface OutcomeQuoteCapture {
   volume_pricing?: VolumePricingBlock
   /** Lump-sum Section 2 total when per-m³ lines are empty or not used. */
   volume_pricing_section_total?: number
+  /** Whether disposal fees are pass-through or bundled into Section 2 fixed pricing. */
+  volume_disposal_fee_mode?: VolumeDisposalFeeMode
+  /** Disposal fee rate per tonne (reimbursement rate or reference when included). */
+  volume_disposal_fee_per_tonne?: number
   /** Section-level inclusions / exclusions / assumptions for Section 2. */
   volume_pricing_terms?: SectionTerms
   /** Per-job toggle state for the three pricing axes. Optional: when absent,
@@ -1334,6 +1341,10 @@ export interface QuoteContent {
   volume_pricing?: VolumePricingBlock
   /** Lump-sum Section 2 total when per-m³ lines are empty or not used. */
   volume_pricing_section_total?: number
+  /** Whether disposal fees are pass-through or bundled into Section 2 fixed pricing. */
+  volume_disposal_fee_mode?: VolumeDisposalFeeMode
+  /** Disposal fee rate per tonne (reimbursement rate or reference when included). */
+  volume_disposal_fee_per_tonne?: number
   /** Section-level Inclusions / Exclusions / Assumptions for Section 2. */
   volume_pricing_terms?: SectionTerms
   /** Toggle state echoed onto the rendered content so the print path knows

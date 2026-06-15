@@ -9,6 +9,7 @@ import type {
   QuoteLineItemRow,
   QuotePricingLayout,
   SectionTerms,
+  VolumeDisposalFeeMode,
   VolumePricingBlock,
 } from '@/lib/types'
 import { collectExcludedSurfaces } from '@/lib/areaSurfaces'
@@ -58,6 +59,8 @@ export interface QuoteContentPatchInputs {
   areaPricingSectionTotal?: number
   volumePricing?: VolumePricingBlock
   volumePricingSectionTotal?: number
+  volumeDisposalFeeMode?: VolumeDisposalFeeMode
+  volumeDisposalFeePerTonne?: number
   volumePricingTerms?: SectionTerms
   pricingLayout?: QuotePricingLayout
   globalMobilisationFee?: number
@@ -80,6 +83,8 @@ export function quoteLineItemsContentPatch(
     areaPricingSectionTotal,
     volumePricing,
     volumePricingSectionTotal,
+    volumeDisposalFeeMode,
+    volumeDisposalFeePerTonne,
     volumePricingTerms,
     pricingLayout,
     globalMobilisationFee,
@@ -172,6 +177,12 @@ export function quoteLineItemsContentPatch(
   if (effectiveLayout.per_m3_enabled && Number(volumePricingSectionTotal || 0) > 0) {
     patch.volume_pricing_section_total = Math.max(0, Number(volumePricingSectionTotal || 0))
   }
+  if (effectiveLayout.per_m3_enabled && volumeDisposalFeeMode) {
+    patch.volume_disposal_fee_mode = volumeDisposalFeeMode
+  }
+  if (effectiveLayout.per_m3_enabled && Number(volumeDisposalFeePerTonne || 0) > 0) {
+    patch.volume_disposal_fee_per_tonne = Math.max(0, Number(volumeDisposalFeePerTonne || 0))
+  }
   if (volumeIncluded && effectiveLayout.per_m3_enabled) patch.volume_pricing = volumeIncluded
   if (cleanVolumeTerms) patch.volume_pricing_terms = cleanVolumeTerms
   if (captureFields?.notes) patch.notes = captureFields.notes
@@ -193,6 +204,8 @@ export interface MergeQuoteLineItemsOptions {
   area_pricing_section_total?: number
   volume_pricing?: VolumePricingBlock
   volume_pricing_section_total?: number
+  volume_disposal_fee_mode?: VolumeDisposalFeeMode
+  volume_disposal_fee_per_tonne?: number
   volume_pricing_terms?: SectionTerms
   pricing_layout?: QuotePricingLayout
   global_mobilisation_fee?: number
@@ -220,6 +233,8 @@ export function mergeQuoteLineItemsIntoDocContent(
       areaPricingSectionTotal: options?.area_pricing_section_total,
       volumePricing: options?.volume_pricing,
       volumePricingSectionTotal: options?.volume_pricing_section_total,
+      volumeDisposalFeeMode: options?.volume_disposal_fee_mode,
+      volumeDisposalFeePerTonne: options?.volume_disposal_fee_per_tonne,
       volumePricingTerms: options?.volume_pricing_terms,
       pricingLayout: options?.pricing_layout,
       globalMobilisationFee: options?.global_mobilisation_fee,
@@ -264,6 +279,8 @@ export interface QuoteLineItemsMergeContext {
   outcomes_section_terms?: SectionTerms
   volume_pricing?: VolumePricingBlock
   volume_pricing_section_total?: number
+  volume_disposal_fee_mode?: VolumeDisposalFeeMode
+  volume_disposal_fee_per_tonne?: number
   volume_pricing_terms?: SectionTerms
   pricing_layout?: QuotePricingLayout
   global_mobilisation_fee?: number
@@ -328,6 +345,8 @@ export async function fetchQuoteLineItemsMergeContext(
     ? capture.volume_pricing
     : undefined
   const volume_pricing_section_total = Math.max(0, Number(capture?.volume_pricing_section_total || 0))
+  const volume_disposal_fee_mode = capture?.volume_disposal_fee_mode
+  const volume_disposal_fee_per_tonne = Math.max(0, Number(capture?.volume_disposal_fee_per_tonne || 0))
   const volume_pricing_terms = capture?.volume_pricing_terms
   const pricing_layout = derivePricingLayoutFromCapture(capture)
   const global_mobilisation_fee = Math.max(0, Number(capture?.global_mobilisation_fee || 0))
@@ -356,6 +375,8 @@ export async function fetchQuoteLineItemsMergeContext(
     area_pricing_section_total: area_pricing_section_total > 0 ? area_pricing_section_total : undefined,
     volume_pricing,
     volume_pricing_section_total: volume_pricing_section_total > 0 ? volume_pricing_section_total : undefined,
+    volume_disposal_fee_mode,
+    volume_disposal_fee_per_tonne: volume_disposal_fee_per_tonne > 0 ? volume_disposal_fee_per_tonne : undefined,
     volume_pricing_terms,
     pricing_layout,
     global_mobilisation_fee,

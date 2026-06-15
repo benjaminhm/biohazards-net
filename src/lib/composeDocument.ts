@@ -537,6 +537,10 @@ function composeQuote(job: Job, quoteId?: string): ComposeDocumentResult {
     ...(areaPricingSectionTotal > 0 ? { area_pricing_section_total: areaPricingSectionTotal } : {}),
     volume_pricing: volumePricing,
     ...(volumePricingSectionTotal > 0 ? { volume_pricing_section_total: volumePricingSectionTotal } : {}),
+    ...(cap?.volume_disposal_fee_mode ? { volume_disposal_fee_mode: cap.volume_disposal_fee_mode } : {}),
+    ...(Number(cap?.volume_disposal_fee_per_tonne || 0) > 0
+      ? { volume_disposal_fee_per_tonne: Math.max(0, Number(cap?.volume_disposal_fee_per_tonne)) }
+      : {}),
     volume_pricing_terms: volumeTerms,
     pricing_layout: layout,
     global_mobilisation_fee: Math.max(0, Number(cap?.global_mobilisation_fee || 0)),

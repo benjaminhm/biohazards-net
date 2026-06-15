@@ -335,6 +335,8 @@ export function applyPricingLayoutToContent(
     next.volume_pricing = undefined
     next.volume_pricing_terms = undefined
     next.volume_pricing_section_total = undefined
+    next.volume_disposal_fee_mode = undefined
+    next.volume_disposal_fee_per_tonne = undefined
   }
 
   const gstMode = next.gst_mode ?? 'no_gst'

@@ -13,7 +13,7 @@
 
 import { useEffect, useState, useRef, Suspense } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
-import type { AreaPricingRow, CompanyProfile, DocType, Job, OutcomeQuoteRow, Photo, ProgressNote, ProgressRoomNote, QuoteContent, QuoteLineItemRow, QuotePricingLayout, SectionTerms, VolumePricingBlock } from '@/lib/types'
+import type { AreaPricingRow, CompanyProfile, DocType, Job, OutcomeQuoteRow, Photo, ProgressNote, ProgressRoomNote, QuoteContent, QuoteLineItemRow, QuotePricingLayout, SectionTerms, VolumeDisposalFeeMode, VolumePricingBlock } from '@/lib/types'
 import { DOC_TYPE_LABELS } from '@/lib/types'
 import { composeDocumentContent, buildComposedPreviewHtml, type ComposeDocumentOptions } from '@/lib/composeDocument'
 import { mergeQuoteLineItemsIntoDocContent } from '@/lib/quoteLineItemsForDocuments'
@@ -151,12 +151,16 @@ function DocViewerInner() {
             const global_contents_rate_per_m3 = Number(quoteRes.global_contents_rate_per_m3 ?? 0)
             const area_pricing_section_total = Number(quoteRes.area_pricing_section_total ?? 0)
             const volume_pricing_section_total = Number(quoteRes.volume_pricing_section_total ?? 0)
+            const volume_disposal_fee_mode = quoteRes.volume_disposal_fee_mode as VolumeDisposalFeeMode | undefined
+            const volume_disposal_fee_per_tonne = Number(quoteRes.volume_disposal_fee_per_tonne ?? 0)
             const outcomes_section_terms = quoteRes.outcomes_section_terms as SectionTerms | undefined
             next = mergeQuoteLineItemsIntoDocContent(docType, next, rows, {
               gst_mode, add_gst_to_total, outcome_rows, outcome_mode,
               area_pricing, area_pricing_terms,
               area_pricing_section_total: area_pricing_section_total > 0 ? area_pricing_section_total : undefined,
               volume_pricing_section_total: volume_pricing_section_total > 0 ? volume_pricing_section_total : undefined,
+              volume_disposal_fee_mode,
+              volume_disposal_fee_per_tonne: volume_disposal_fee_per_tonne > 0 ? volume_disposal_fee_per_tonne : undefined,
               outcomes_section_terms,
               volume_pricing, volume_pricing_terms,
               pricing_layout,
@@ -233,12 +237,16 @@ function DocViewerInner() {
           const global_contents_rate_per_m3 = Number(quoteRes.global_contents_rate_per_m3 ?? 0)
           const area_pricing_section_total = Number(quoteRes.area_pricing_section_total ?? 0)
           const volume_pricing_section_total = Number(quoteRes.volume_pricing_section_total ?? 0)
+          const volume_disposal_fee_mode = quoteRes.volume_disposal_fee_mode as VolumeDisposalFeeMode | undefined
+          const volume_disposal_fee_per_tonne = Number(quoteRes.volume_disposal_fee_per_tonne ?? 0)
           const outcomes_section_terms = quoteRes.outcomes_section_terms as SectionTerms | undefined
           finalComposed = mergeQuoteLineItemsIntoDocContent(docType, composed, rows, {
             gst_mode, add_gst_to_total, outcome_rows, outcome_mode,
             area_pricing, area_pricing_terms,
             area_pricing_section_total: area_pricing_section_total > 0 ? area_pricing_section_total : undefined,
             volume_pricing_section_total: volume_pricing_section_total > 0 ? volume_pricing_section_total : undefined,
+            volume_disposal_fee_mode,
+            volume_disposal_fee_per_tonne: volume_disposal_fee_per_tonne > 0 ? volume_disposal_fee_per_tonne : undefined,
             outcomes_section_terms,
             volume_pricing, volume_pricing_terms,
             pricing_layout,

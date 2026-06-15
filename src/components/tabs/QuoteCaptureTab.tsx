@@ -22,6 +22,7 @@ import type {
   SectionTerms,
   SurfaceKind,
   SurfacePricingLine,
+  VolumeDisposalFeeMode,
   VolumePricingBlock,
   VolumePricingRow,
 } from '@/lib/types'
@@ -453,6 +454,12 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
   const [volumePricingSectionTotal, setVolumePricingSectionTotal] = useState<number>(
     Math.max(0, Number(existing?.volume_pricing_section_total ?? 0)),
   )
+  const [volumeDisposalFeeMode, setVolumeDisposalFeeMode] = useState<VolumeDisposalFeeMode | ''>(
+    existing?.volume_disposal_fee_mode ?? '',
+  )
+  const [volumeDisposalFeePerTonne, setVolumeDisposalFeePerTonne] = useState<number>(
+    Math.max(0, Number(existing?.volume_disposal_fee_per_tonne ?? 0)),
+  )
   const [paymentTerms, setPaymentTerms] = useState(ad?.payment_terms ?? '')
   const [validity, setValidity] = useState(existing?.validity ?? '')
   const [notes, setNotes] = useState(existing?.notes ?? '')
@@ -513,6 +520,8 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
     setGlobalContentsRatePerM3(Math.max(0, Number(cap?.global_contents_rate_per_m3 ?? 0)))
     setAreaPricingSectionTotal(Math.max(0, Number(cap?.area_pricing_section_total ?? 0)))
     setVolumePricingSectionTotal(Math.max(0, Number(cap?.volume_pricing_section_total ?? 0)))
+    setVolumeDisposalFeeMode(cap?.volume_disposal_fee_mode ?? '')
+    setVolumeDisposalFeePerTonne(Math.max(0, Number(cap?.volume_disposal_fee_per_tonne ?? 0)))
     setGstMode(cap?.gst_mode ?? 'no_gst')
     setValidity(cap?.validity ?? '')
     setNotes(cap?.notes ?? '')
@@ -841,6 +850,8 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
       ...(cleanAreaTerms ? { area_pricing_terms: cleanAreaTerms } : {}),
       ...(persistedVolume ? { volume_pricing: persistedVolume } : {}),
       ...(volumePricingSectionTotal > 0 ? { volume_pricing_section_total: volumePricingSectionTotal } : {}),
+      ...(volumeDisposalFeeMode ? { volume_disposal_fee_mode: volumeDisposalFeeMode } : {}),
+      ...(volumeDisposalFeePerTonne > 0 ? { volume_disposal_fee_per_tonne: volumeDisposalFeePerTonne } : {}),
       ...(cleanVolumeTerms ? { volume_pricing_terms: cleanVolumeTerms } : {}),
       pricing_layout: pricingLayout,
       global_mobilisation_fee: globalMobilisationFee,
@@ -1779,6 +1790,51 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
             Enter a fixed total when not pricing per m³, or add volume lines and a $/m³ rate above.
           </div>
         )}
+      </div>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end', marginBottom: 14 }}>
+        <div className="field" style={{ marginBottom: 0, flex: '1 1 320px' }}>
+          <label>Disposal fees</label>
+          <select
+            value={volumeDisposalFeeMode}
+            onChange={e => {
+              const v = e.target.value as VolumeDisposalFeeMode | ''
+              setVolumeDisposalFeeMode(v)
+              setSaved(false)
+              setSaveError('')
+            }}
+            aria-label="Disposal fee treatment"
+          >
+            <option value="">— Select —</option>
+            <option value="added_for_reimbursement">Added (for reimbursement)</option>
+            <option value="included_in_fixed">Included in fixed amount</option>
+          </select>
+        </div>
+        <div className="field" style={{ marginBottom: 0, flex: '0 0 180px' }}>
+          <label>$/tonne rate</label>
+          <input
+            type="number"
+            inputMode="decimal"
+            min="0"
+            step="1"
+            value={volumeDisposalFeePerTonne > 0 ? volumeDisposalFeePerTonne : ''}
+            onChange={e => {
+              const n = parseFloat(e.target.value)
+              setVolumeDisposalFeePerTonne(isNaN(n) ? 0 : Math.max(0, n))
+              setSaved(false)
+              setSaveError('')
+            }}
+            placeholder="0.00"
+            aria-label="Disposal fee per tonne"
+          />
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.45, paddingBottom: 8, flex: '1 1 240px' }}>
+          {volumeDisposalFeeMode === 'added_for_reimbursement'
+            ? 'Disposal charges pass through from weighbridge / tip receipts.'
+            : volumeDisposalFeeMode === 'included_in_fixed'
+              ? 'Tip and disposal costs are bundled into the Section 2 fixed total.'
+              : 'Choose how disposal fees appear on the quote.'}
+        </div>
       </div>
 
       <SectionObservedContentsField

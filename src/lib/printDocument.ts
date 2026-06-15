@@ -34,7 +34,7 @@ import { photosForComposedReports } from '@/lib/photosForComposedReports'
 import { SURFACE_LABELS } from '@/lib/areaSurfaces'
 import { effectiveAreaDimensions } from '@/lib/areaSubzones'
 import { OUTCOME_KIND_LABELS, groupRowsByKind, volumePricingSectionSubtotal, volumePricingSubtotal } from '@/lib/quoteSections'
-import type { SectionTerms, VolumePricingBlock } from '@/lib/types'
+import type { SectionTerms, VolumeDisposalFeeMode, VolumePricingBlock } from '@/lib/types'
 
 /** Matches the navy header when `company` is missing (meta grid used to show "—" while header showed this name). */
 const DEFAULT_PRINT_ORG_NAME = 'Brisbane Biohazard Cleaning'
@@ -1055,14 +1055,48 @@ function hasSectionTerms(t: SectionTerms | undefined): boolean {
   return renderSectionTerms(t) !== ''
 }
 
+function renderVolumeDisposalFees(
+  mode: VolumeDisposalFeeMode | undefined,
+  perTonne: number | undefined,
+): string {
+  const rate = Math.max(0, Number(perTonne || 0))
+  if (!mode && rate <= 0) return ''
+  const rateLine = rate > 0
+    ? `<div class="body-text" style="margin-top:6px"><strong>Rate:</strong> ${fmtMoney(rate)} per tonne</div>`
+    : ''
+  if (mode === 'added_for_reimbursement') {
+    return `<div class="sow-muted-box" style="margin-top:10px">
+      <div class="label" style="font-size:7pt">Disposal fees</div>
+      <div class="body-text">Disposal fees are <strong>added for reimbursement</strong> (pass-through from weighbridge / tip receipts).</div>
+      ${rateLine}
+    </div>`
+  }
+  if (mode === 'included_in_fixed') {
+    return `<div class="sow-muted-box" style="margin-top:10px">
+      <div class="label" style="font-size:7pt">Disposal fees</div>
+      <div class="body-text">Disposal fees are <strong>included in the fixed Section 2 amount</strong>.</div>
+      ${rateLine}
+    </div>`
+  }
+  return rate > 0
+    ? `<div class="sow-muted-box" style="margin-top:10px">
+        <div class="label" style="font-size:7pt">Disposal fees</div>
+        ${rateLine}
+      </div>`
+    : ''
+}
+
 /** Section 2 — Contents Removal: volume table + estimate caveat + section terms. */
 function renderVolumeSection(
   block: VolumePricingBlock | undefined,
   terms: SectionTerms | undefined,
   sectionTotal = 0,
+  disposalMode?: VolumeDisposalFeeMode,
+  disposalPerTonne?: number,
 ): string {
+  const disposalHtml = renderVolumeDisposalFees(disposalMode, disposalPerTonne)
   const pricedTotal = volumePricingSectionSubtotal(block, sectionTotal)
-  if (pricedTotal <= 0 && !hasSectionTerms(terms)) return ''
+  if (pricedTotal <= 0 && !hasSectionTerms(terms) && !disposalHtml) return ''
 
   const rows = (block?.rows ?? []).filter(r => Number(r.estimated_volume_m3 || 0) > 0 || (r.description ?? '').trim())
   const fromVolume = volumePricingSubtotal(block)
@@ -1084,20 +1118,23 @@ function renderVolumeSection(
         </tr>
       </tbody>
     </table>
+    ${disposalHtml}
     ${renderSectionTerms(terms)}
   `
   }
 
-  if (!block) return renderSectionTerms(terms) ? `
+  if (!block) return (renderSectionTerms(terms) || disposalHtml) ? `
     <div class="label" style="margin-top:18px">2. Contents Removal</div>
+    ${disposalHtml}
     ${renderSectionTerms(terms)}
   ` : ''
 
   if (rows.length === 0 && Number(block.unit_price_per_m3 || 0) === 0) {
     const termsHtml = renderSectionTerms(terms)
-    if (!termsHtml) return ''
+    if (!termsHtml && !disposalHtml) return ''
     return `
     <div class="label" style="margin-top:18px">2. Contents Removal</div>
+    ${disposalHtml}
     ${termsHtml}
   `
   }
@@ -1136,6 +1173,7 @@ function renderVolumeSection(
       </tbody>
     </table>
     ${caveat}
+    ${disposalHtml}
     ${renderSectionTerms(terms)}
   `
 }
@@ -1343,9 +1381,13 @@ function buildQuoteMid(
     && (areaPricing.length > 0 || areaPricingSectionTotal > 0 || hasSectionTerms(c.area_pricing_terms))
   const volumeBlock = c.volume_pricing
   const volumePricingSectionTotal = Math.max(0, Number(c.volume_pricing_section_total || 0))
+  const volumeDisposalFeeMode = c.volume_disposal_fee_mode
+  const volumeDisposalFeePerTonne = Math.max(0, Number(c.volume_disposal_fee_per_tonne || 0))
+  const hasVolumeDisposal = !!volumeDisposalFeeMode || volumeDisposalFeePerTonne > 0
   const showSection2 = (layout?.per_m3_enabled ?? true)
     && (volumePricingSectionSubtotal(volumeBlock, volumePricingSectionTotal) > 0
-      || hasSectionTerms(c.volume_pricing_terms))
+      || hasSectionTerms(c.volume_pricing_terms)
+      || hasVolumeDisposal)
 
   const lineItemsTable = (c.line_items ?? []).length > 0
     ? `<table>
@@ -1380,7 +1422,13 @@ function buildQuoteMid(
     ? `<div class="label" style="margin-top:6px">1. Mobilisation, Fees &amp; Fixed-Rate Items</div>${section1Body}${renderSectionTerms(c.outcomes_section_terms)}`
     : ''
   const section2 = showSection2
-    ? renderVolumeSection(volumeBlock, c.volume_pricing_terms, volumePricingSectionTotal)
+    ? renderVolumeSection(
+      volumeBlock,
+      c.volume_pricing_terms,
+      volumePricingSectionTotal,
+      volumeDisposalFeeMode,
+      volumeDisposalFeePerTonne > 0 ? volumeDisposalFeePerTonne : undefined,
+    )
     : ''
   const section3 = showSection3
     ? renderAreaPricingSection(areaPricing, c.area_pricing_terms, areaPricingSectionTotal)

@@ -125,6 +125,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ docId: s
         outcomes_section_terms: ctx.outcomes_section_terms,
         volume_pricing: ctx.volume_pricing,
         volume_pricing_section_total: ctx.volume_pricing_section_total,
+        volume_disposal_fee_mode: ctx.volume_disposal_fee_mode,
+        volume_disposal_fee_per_tonne: ctx.volume_disposal_fee_per_tonne,
         volume_pricing_terms: ctx.volume_pricing_terms,
         pricing_layout: ctx.pricing_layout,
         global_mobilisation_fee: ctx.global_mobilisation_fee,
