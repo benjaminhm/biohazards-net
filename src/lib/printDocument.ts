@@ -382,6 +382,20 @@ function cssSowPrint(): string {
       color: #1e3a8a;
     }
     .sow-root .quote-fixed-banner-body strong { color: #1e3a8a; font-weight: 700; }
+    .sow-root .quote-disposal-callout {
+      margin-top: 10px;
+      padding: 12px 14px;
+      background: rgba(220, 38, 38, 0.1);
+      border: 1px solid rgba(220, 38, 38, 0.35);
+      border-left: 3px solid #dc2626;
+      border-radius: 8px;
+      font-size: 9.5pt;
+      line-height: 1.55;
+      color: #7f1d1d;
+    }
+    .sow-root .quote-disposal-callout .label { color: #991b1b; }
+    .sow-root .quote-disposal-callout .body-text { color: #7f1d1d; }
+    .sow-root .quote-disposal-callout strong { color: #991b1b; font-weight: 700; }
     .sow-root .sow-muted-box {
       margin-top: 22px;
       padding: 14px 16px;
@@ -1065,21 +1079,21 @@ function renderVolumeDisposalFees(
     ? `<div class="body-text" style="margin-top:6px"><strong>Rate:</strong> ${fmtMoney(rate)} per tonne</div>`
     : ''
   if (mode === 'added_for_reimbursement') {
-    return `<div class="sow-muted-box" style="margin-top:10px">
+    return `<div class="quote-disposal-callout">
       <div class="label" style="font-size:7pt">Disposal fees</div>
       <div class="body-text">Disposal fees are <strong>added for reimbursement</strong> (pass-through from weighbridge / tip receipts).</div>
       ${rateLine}
     </div>`
   }
   if (mode === 'included_in_fixed') {
-    return `<div class="sow-muted-box" style="margin-top:10px">
+    return `<div class="quote-disposal-callout">
       <div class="label" style="font-size:7pt">Disposal fees</div>
       <div class="body-text">Disposal fees are <strong>included in the fixed Section 2 amount</strong>.</div>
       ${rateLine}
     </div>`
   }
   return rate > 0
-    ? `<div class="sow-muted-box" style="margin-top:10px">
+    ? `<div class="quote-disposal-callout">
         <div class="label" style="font-size:7pt">Disposal fees</div>
         ${rateLine}
       </div>`
