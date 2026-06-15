@@ -6,6 +6,7 @@
  * Persists assessment_data.identified_biohazards_ai (field name unchanged).
  */
 import { NextRequest, NextResponse } from 'next/server'
+import { CLAUDE_SONNET_MODEL } from '@/lib/anthropicModels'
 import Anthropic from '@anthropic-ai/sdk'
 import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
@@ -145,7 +146,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const vocabularyBlock = orgVocabularyBlock('health_hazard', vocabulary.health_hazard)
 
     const message = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: CLAUDE_SONNET_MODEL,
       max_tokens: 2048,
       system: `You assist biohazard remediation and specialist cleaning technicians in Australia.
 

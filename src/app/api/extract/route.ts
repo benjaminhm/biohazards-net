@@ -13,6 +13,7 @@
  * even if there is surrounding text — defensive against verbose completions.
  */
 import { NextRequest, NextResponse } from 'next/server'
+import { CLAUDE_SONNET_MODEL } from '@/lib/anthropicModels'
 import Anthropic from '@anthropic-ai/sdk'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
@@ -22,7 +23,7 @@ export async function POST(req: NextRequest) {
   if (!text?.trim()) return NextResponse.json({ error: 'No text provided' }, { status: 400 })
 
   const message = await client.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: CLAUDE_SONNET_MODEL,
     max_tokens: 1024,
     messages: [{
       role: 'user',

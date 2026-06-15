@@ -17,6 +17,7 @@
  * extraction_status:'error' so staff can retry later from the UI.
  */
 import { NextRequest, NextResponse } from 'next/server'
+import { CLAUDE_SONNET_MODEL } from '@/lib/anthropicModels'
 import Anthropic from '@anthropic-ai/sdk'
 import { randomUUID } from 'node:crypto'
 import { auth } from '@clerk/nextjs/server'
@@ -64,7 +65,7 @@ async function extractPathogenText(
 ): Promise<{ text: string | null; error?: string }> {
   try {
     const message = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: CLAUDE_SONNET_MODEL,
       max_tokens: 8192,
       system: EXTRACT_SYSTEM,
       messages: [

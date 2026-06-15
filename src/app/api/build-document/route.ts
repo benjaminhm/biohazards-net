@@ -25,6 +25,7 @@
  * so the numbers are exact.
  */
 import { NextResponse } from 'next/server'
+import { CLAUDE_SONNET_MODEL } from '@/lib/anthropicModels'
 import Anthropic from '@anthropic-ai/sdk'
 import { auth } from '@clerk/nextjs/server'
 import type { DocType, Job, Photo, CompanyProfile } from '@/lib/types'
@@ -507,7 +508,7 @@ export async function POST(req: Request) {
     userContent.push({ type: 'text', text: prompt })
 
     const message = await client.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: CLAUDE_SONNET_MODEL,
       max_tokens: 4096,
       messages: [{ role: 'user', content: userContent }],
     })

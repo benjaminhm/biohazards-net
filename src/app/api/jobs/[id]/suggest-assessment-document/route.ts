@@ -4,6 +4,7 @@
  * Staff-only: draft AssessmentDocumentCapture prose from presentation + HITL hazards/risks. Does not persist.
  */
 import { NextRequest, NextResponse } from 'next/server'
+import { CLAUDE_SONNET_MODEL } from '@/lib/anthropicModels'
 import Anthropic from '@anthropic-ai/sdk'
 import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
@@ -185,7 +186,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       : `Draft Assessment Document capture fields from the following data:\n\n${userBlock}`
 
     const message = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: CLAUDE_SONNET_MODEL,
       max_tokens: 8192,
       system: SYSTEM,
       messages: [

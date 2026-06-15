@@ -15,6 +15,7 @@
  * sometimes wraps JSON in ```json blocks despite explicit instructions not to.
  */
 import { NextResponse } from 'next/server'
+import { CLAUDE_SONNET_MODEL } from '@/lib/anthropicModels'
 import Anthropic from '@anthropic-ai/sdk'
 import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
@@ -68,7 +69,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ type: s
     else prompt = buildReportPrompt(job, photos)
 
     const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: CLAUDE_SONNET_MODEL,
       max_tokens: 4096,
       messages: [{ role: 'user', content: prompt }],
     })

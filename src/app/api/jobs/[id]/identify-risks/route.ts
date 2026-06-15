@@ -5,6 +5,7 @@
  * plausibility grounded in Presentation JSON. Persists identified_risks_ai + source_hazard_ids.
  */
 import { NextRequest, NextResponse } from 'next/server'
+import { CLAUDE_SONNET_MODEL } from '@/lib/anthropicModels'
 import Anthropic from '@anthropic-ai/sdk'
 import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
@@ -175,7 +176,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const vocabularyBlock = orgVocabularyBlock('risk', vocabulary.risk)
 
     const message = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: CLAUDE_SONNET_MODEL,
       max_tokens: 2048,
       system: `You assist biohazard remediation technicians in Australia.
 

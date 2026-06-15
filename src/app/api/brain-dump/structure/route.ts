@@ -18,6 +18,7 @@
  * AI is backend-only and invisible per docs/ai-product-principles.md.
  */
 import { NextRequest, NextResponse } from 'next/server'
+import { CLAUDE_SONNET_MODEL } from '@/lib/anthropicModels'
 import Anthropic from '@anthropic-ai/sdk'
 import { getAnthropicApiKey } from '@/lib/loadAnthropicEnvFallback'
 import { guardBrainDump } from '@/lib/brainDump/guard'
@@ -70,7 +71,7 @@ export async function POST(req: NextRequest) {
   let parsed: ParsedItem[] = []
   try {
     const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: CLAUDE_SONNET_MODEL,
       max_tokens: 4096,
       messages: [
         {

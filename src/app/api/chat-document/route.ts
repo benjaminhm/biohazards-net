@@ -14,6 +14,7 @@
  * Document rules: platform baseline + org rules from the client (see lib/documentRules.ts).
  */
 import { NextResponse } from 'next/server'
+import { CLAUDE_SONNET_MODEL } from '@/lib/anthropicModels'
 import Anthropic from '@anthropic-ai/sdk'
 import { auth } from '@clerk/nextjs/server'
 import type { DocType } from '@/lib/types'
@@ -78,7 +79,7 @@ Keep the same JSON keys and structure. Only change the values the user asked abo
 Write in a professional, confident tone appropriate for Australian biohazard remediation.`
 
     const message_ = await client.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: CLAUDE_SONNET_MODEL,
       max_tokens: 4096,
       system: systemPrompt,
       messages: [

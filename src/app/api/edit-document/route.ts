@@ -12,6 +12,7 @@
  * Markdown fences are stripped from the response for robustness.
  */
 import { NextResponse } from 'next/server'
+import { CLAUDE_OPUS_MODEL } from '@/lib/anthropicModels'
 import Anthropic from '@anthropic-ai/sdk'
 import { auth } from '@clerk/nextjs/server'
 import { getOrgId } from '@/lib/org'
@@ -53,7 +54,7 @@ export async function POST(req: Request) {
     const policyBlock = getDocumentRulesPlainForEdit(type, platformDbRules)
 
     const msg = await client.messages.create({
-      model: 'claude-opus-4-5',
+      model: CLAUDE_OPUS_MODEL,
       max_tokens: 4096,
       messages: [{
         role: 'user',

@@ -17,6 +17,7 @@
  * the user tweak parsed fields before committing anything to the org catalogue.
  */
 import { NextRequest, NextResponse } from 'next/server'
+import { CLAUDE_SONNET_MODEL } from '@/lib/anthropicModels'
 import Anthropic from '@anthropic-ai/sdk'
 import { randomUUID } from 'node:crypto'
 import { auth } from '@clerk/nextjs/server'
@@ -122,7 +123,7 @@ export async function POST(req: NextRequest) {
     // 2. Send PDF to Claude as a document block
     const client = new Anthropic({ apiKey })
     const message = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: CLAUDE_SONNET_MODEL,
       max_tokens: 2048,
       system: SYSTEM_SDS,
       messages: [

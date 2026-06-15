@@ -17,6 +17,7 @@
  * Admin only.
  */
 import { auth } from '@clerk/nextjs/server'
+import { CLAUDE_SONNET_MODEL } from '@/lib/anthropicModels'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import { NextResponse } from 'next/server'
@@ -102,7 +103,7 @@ Do not use phrases like "I hope this email finds you well", "please be advised",
 Return only the email body, nothing else.`
 
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: CLAUDE_SONNET_MODEL,
       max_tokens: 300,
       messages: [{ role: 'user', content: prompt }],
     })
