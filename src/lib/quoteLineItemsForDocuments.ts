@@ -3,6 +3,7 @@ import type {
   AreaPricingRow,
   AssessmentData,
   DocType,
+  CustomPricingRow,
   OutcomeQuoteRow,
   QuoteAuthorisation,
   QuoteGstMode,
@@ -17,6 +18,8 @@ import {
   areaPricingHasContent,
   areaPricingSectionSubtotal,
   volumePricingSectionSubtotal,
+  customSectionHasContent,
+  customSectionSubtotal,
   derivePricingLayoutFromCapture,
   normalizeSectionTerms,
   recomputeVolumePricingTotal,
@@ -62,6 +65,10 @@ export interface QuoteContentPatchInputs {
   volumeDisposalFeeMode?: VolumeDisposalFeeMode
   volumeDisposalFeePerTonne?: number
   volumePricingTerms?: SectionTerms
+  customSectionTitle?: string
+  customSectionRows?: CustomPricingRow[]
+  customSectionTotal?: number
+  customSectionTerms?: SectionTerms
   pricingLayout?: QuotePricingLayout
   globalMobilisationFee?: number
   globalSurfaceRatePerM2?: number
@@ -86,6 +93,10 @@ export function quoteLineItemsContentPatch(
     volumeDisposalFeeMode,
     volumeDisposalFeePerTonne,
     volumePricingTerms,
+    customSectionTitle,
+    customSectionRows,
+    customSectionTotal,
+    customSectionTerms,
     pricingLayout,
     globalMobilisationFee,
     globalSurfaceRatePerM2,
@@ -112,6 +123,7 @@ export function quoteLineItemsContentPatch(
     outcomes_enabled: baseMobilisationFee > 0 || lineItems.length > 0 || pricedOutcomes.length > 0,
     per_sqm_enabled: areaPricingHasContent(areaPricing, areaPricingSectionTotal),
     per_m3_enabled: volumePricingHasContent(volumePricing, volumePricingSectionTotal),
+    custom_enabled: customSectionHasContent(customSectionTitle, customSectionRows, customSectionTotal, customSectionTerms),
   }
 
   // Section sums — disabled sections contribute 0 even if data is present.
@@ -134,12 +146,16 @@ export function quoteLineItemsContentPatch(
   const volumeSum = effectiveLayout.per_m3_enabled
     ? volumePricingSectionSubtotal(volumeIncluded ?? volumePricing, volumePricingSectionTotal)
     : 0
+  const customSum = effectiveLayout.custom_enabled
+    ? customSectionSubtotal(customSectionRows, customSectionTotal)
+    : 0
 
-  const subtotal = Math.round((outcomesSum + areaPricingSum + volumeSum) * 100) / 100
+  const subtotal = Math.round((outcomesSum + areaPricingSum + volumeSum + customSum) * 100) / 100
   const noData = !lineItems.length
     && !(outcomeRows?.length)
     && areaPricingSum <= 0
     && volumeSum <= 0
+    && customSum <= 0
     && baseMobilisationFee <= 0
   if (noData) return {}
 
@@ -149,6 +165,7 @@ export function quoteLineItemsContentPatch(
     : []
   const cleanAreaTerms = effectiveLayout.per_sqm_enabled ? normalizeSectionTerms(areaPricingTerms) : undefined
   const cleanVolumeTerms = effectiveLayout.per_m3_enabled ? normalizeSectionTerms(volumePricingTerms) : undefined
+  const cleanCustomTerms = effectiveLayout.custom_enabled ? normalizeSectionTerms(customSectionTerms) : undefined
 
   const patch: Record<string, unknown> = {
     line_items: effectiveLayout.outcomes_enabled ? lineItems : [],
@@ -185,6 +202,16 @@ export function quoteLineItemsContentPatch(
   }
   if (volumeIncluded && effectiveLayout.per_m3_enabled) patch.volume_pricing = volumeIncluded
   if (cleanVolumeTerms) patch.volume_pricing_terms = cleanVolumeTerms
+  if (effectiveLayout.custom_enabled && (customSectionTitle ?? '').trim()) {
+    patch.custom_section_title = (customSectionTitle ?? '').trim()
+  }
+  if (effectiveLayout.custom_enabled && (customSectionRows?.length ?? 0) > 0) {
+    patch.custom_section_rows = customSectionRows
+  }
+  if (effectiveLayout.custom_enabled && Number(customSectionTotal || 0) > 0) {
+    patch.custom_section_total = Math.max(0, Number(customSectionTotal || 0))
+  }
+  if (cleanCustomTerms) patch.custom_section_terms = cleanCustomTerms
   if (captureFields?.notes) patch.notes = captureFields.notes
   if (captureFields?.payment_terms) patch.payment_terms = captureFields.payment_terms
   if (captureFields?.validity) patch.validity = captureFields.validity
@@ -207,6 +234,10 @@ export interface MergeQuoteLineItemsOptions {
   volume_disposal_fee_mode?: VolumeDisposalFeeMode
   volume_disposal_fee_per_tonne?: number
   volume_pricing_terms?: SectionTerms
+  custom_section_title?: string
+  custom_section_rows?: CustomPricingRow[]
+  custom_section_total?: number
+  custom_section_terms?: SectionTerms
   pricing_layout?: QuotePricingLayout
   global_mobilisation_fee?: number
   global_surface_rate_per_m2?: number
@@ -236,6 +267,10 @@ export function mergeQuoteLineItemsIntoDocContent(
       volumeDisposalFeeMode: options?.volume_disposal_fee_mode,
       volumeDisposalFeePerTonne: options?.volume_disposal_fee_per_tonne,
       volumePricingTerms: options?.volume_pricing_terms,
+      customSectionTitle: options?.custom_section_title,
+      customSectionRows: options?.custom_section_rows,
+      customSectionTotal: options?.custom_section_total,
+      customSectionTerms: options?.custom_section_terms,
       pricingLayout: options?.pricing_layout,
       globalMobilisationFee: options?.global_mobilisation_fee,
       globalSurfaceRatePerM2: options?.global_surface_rate_per_m2,
@@ -282,6 +317,10 @@ export interface QuoteLineItemsMergeContext {
   volume_disposal_fee_mode?: VolumeDisposalFeeMode
   volume_disposal_fee_per_tonne?: number
   volume_pricing_terms?: SectionTerms
+  custom_section_title?: string
+  custom_section_rows?: CustomPricingRow[]
+  custom_section_total?: number
+  custom_section_terms?: SectionTerms
   pricing_layout?: QuotePricingLayout
   global_mobilisation_fee?: number
   global_surface_rate_per_m2?: number
@@ -348,6 +387,12 @@ export async function fetchQuoteLineItemsMergeContext(
   const volume_disposal_fee_mode = capture?.volume_disposal_fee_mode
   const volume_disposal_fee_per_tonne = Math.max(0, Number(capture?.volume_disposal_fee_per_tonne || 0))
   const volume_pricing_terms = capture?.volume_pricing_terms
+  const custom_section_title = (capture?.custom_section_title ?? '').trim() || undefined
+  const custom_section_rows = (capture?.custom_section_rows ?? []).filter(
+    r => (r.scope_title ?? '').trim() || Number(r.price || 0) > 0,
+  )
+  const custom_section_total = Math.max(0, Number(capture?.custom_section_total || 0))
+  const custom_section_terms = capture?.custom_section_terms
   const pricing_layout = derivePricingLayoutFromCapture(capture)
   const global_mobilisation_fee = Math.max(0, Number(capture?.global_mobilisation_fee || 0))
   const global_surface_rate_per_m2 = Math.max(0, Number(capture?.global_surface_rate_per_m2 || 0))
@@ -378,6 +423,10 @@ export async function fetchQuoteLineItemsMergeContext(
     volume_disposal_fee_mode,
     volume_disposal_fee_per_tonne: volume_disposal_fee_per_tonne > 0 ? volume_disposal_fee_per_tonne : undefined,
     volume_pricing_terms,
+    custom_section_title,
+    custom_section_rows: custom_section_rows.length > 0 ? custom_section_rows : undefined,
+    custom_section_total: custom_section_total > 0 ? custom_section_total : undefined,
+    custom_section_terms,
     pricing_layout,
     global_mobilisation_fee,
     global_surface_rate_per_m2,

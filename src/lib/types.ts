@@ -808,6 +808,18 @@ export interface VolumePricingRow {
 /** How Section 2 disposal / tip fees are presented on the quote. */
 export type VolumeDisposalFeeMode = 'added_for_reimbursement' | 'included_in_fixed'
 
+/** Value-based scope line inside Section 4 (custom / wildcard). */
+export interface CustomPricingRow {
+  id: string
+  scope_title: string
+  scope_description: string
+  price: number
+  status: OutcomeQuoteStatus
+  included?: string[]
+  excluded?: string[]
+  assumptions?: string[]
+}
+
 /** Section 2 — Contents Removal pricing block. Bills at a single $/m³ rate
  *  applied to the sum of estimated volumes; actual is measured at uplift and
  *  variation billed at the same rate when `is_estimate = true`. */
@@ -830,6 +842,8 @@ export interface QuotePricingLayout {
   per_m3_enabled: boolean
   /** Section 3 — Remediation, cleaning & sanitisation (per-m² surfaces). */
   per_sqm_enabled: boolean
+  /** Section 4 — Custom / other (user-titled, value-based scope). */
+  custom_enabled: boolean
 }
 
 export interface OutcomeQuoteCapture {
@@ -860,6 +874,14 @@ export interface OutcomeQuoteCapture {
   volume_disposal_fee_per_tonne?: number
   /** Section-level inclusions / exclusions / assumptions for Section 2. */
   volume_pricing_terms?: SectionTerms
+  /** Section 4 — printed heading (e.g. "Asbestos clearance"). */
+  custom_section_title?: string
+  /** Section 4 — value-based scope lines from AI or manual entry. */
+  custom_section_rows?: CustomPricingRow[]
+  /** Section 4 — lump-sum when scope lines are empty or not priced per line. */
+  custom_section_total?: number
+  /** Section-level terms for Section 4. */
+  custom_section_terms?: SectionTerms
   /** Per-job toggle state for the three pricing axes. Optional: when absent,
    *  callers infer defaults from which section data exists. */
   pricing_layout?: QuotePricingLayout
@@ -1347,6 +1369,14 @@ export interface QuoteContent {
   volume_disposal_fee_per_tonne?: number
   /** Section-level Inclusions / Exclusions / Assumptions for Section 2. */
   volume_pricing_terms?: SectionTerms
+  /** Section 4 — printed heading. */
+  custom_section_title?: string
+  /** Section 4 — value-based scope lines. */
+  custom_section_rows?: CustomPricingRow[]
+  /** Section 4 — lump-sum total. */
+  custom_section_total?: number
+  /** Section-level terms for Section 4. */
+  custom_section_terms?: SectionTerms
   /** Toggle state echoed onto the rendered content so the print path knows
    *  which sections to suppress even if their data is non-empty. */
   pricing_layout?: QuotePricingLayout

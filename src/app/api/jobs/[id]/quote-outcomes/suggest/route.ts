@@ -19,6 +19,7 @@ import { derivePricingLayoutFromCapture } from '@/lib/quoteSections'
 import type {
   AssessmentData,
   JobType,
+  CustomPricingRow,
   OutcomeKind,
   OutcomeQuoteRow,
   SectionTerms,
@@ -182,9 +183,44 @@ Rules:
 - Proposed pricing language only — no achieved outcomes or clearance claims.
 - Follow the staff instruction when provided.`
 
-type QuoteSuggestSection = 'outcomes' | 'volume' | 'surface'
+const SYSTEM_CUSTOM = `You draft Section 4 (a custom / wildcard pricing section) for an Australian biohazard remediation quote.
 
-const VALID_SECTIONS: QuoteSuggestSection[] = ['outcomes', 'volume', 'surface']
+The staff member sets the printed section title separately. You will receive custom_section_title in the context or instruction — use it to steer scope, but do NOT repeat Sections 1–3 (mobilisation/fees, contents m³, surface m²).
+
+Return ONLY valid JSON:
+{
+  "rows": [
+    {
+      "scope_title": "",
+      "scope_description": "",
+      "price": 0,
+      "status": "suggested",
+      "included": [""],
+      "excluded": [""],
+      "assumptions": [""]
+    }
+  ],
+  "terms": {
+    "observed_contents": [""],
+    "included": [""],
+    "excluded": [""],
+    "assumptions": [""]
+  }
+}
+
+Rules:
+- Draft value-based scope lines only for this custom section.
+- Proposed-action language — no achieved outcomes, clearance, or certification claims.
+- price >= 0; use 0 when not inferable from context.
+- status must be "suggested" on every row.
+- scope_title and scope_description required on each row.
+- Optional "terms" for section-level bullets.
+- Facts must come from context — do not hallucinate rooms or scope.
+- Follow the staff instruction when provided.`
+
+type QuoteSuggestSection = 'outcomes' | 'volume' | 'surface' | 'custom'
+
+const VALID_SECTIONS: QuoteSuggestSection[] = ['outcomes', 'volume', 'surface', 'custom']
 const VALID_SURFACE_KINDS: SurfaceKind[] = ['floor', 'walls', 'ceiling']
 
 function safeNumber(v: unknown, fallback: number): number {
@@ -301,6 +337,22 @@ function parseRows(raw: unknown): OutcomeQuoteRow[] {
     .filter(row => row.outcome_title && row.outcome_description)
 }
 
+function parseCustomRows(raw: unknown): CustomPricingRow[] {
+  const root = raw as { rows?: Array<Record<string, unknown>> }
+  return (root.rows ?? [])
+    .map((row, idx) => ({
+      id: `custom_${idx + 1}`,
+      scope_title: String(row.scope_title ?? row.title ?? '').trim(),
+      scope_description: String(row.scope_description ?? row.description ?? '').trim(),
+      price: Math.max(0, Math.round(safeNumber(row.price, 0) * 100) / 100),
+      status: 'suggested' as const,
+      included: parseStringList(row.included),
+      excluded: parseStringList(row.excluded),
+      assumptions: parseStringList(row.assumptions),
+    }))
+    .filter(row => row.scope_title && row.scope_description)
+}
+
 function parseStringList(raw: unknown): string[] {
   if (!Array.isArray(raw)) return []
   return raw.map(v => String(v ?? '').trim()).filter(Boolean)
@@ -371,8 +423,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (!apiKey) return NextResponse.json({ error: 'Anthropic is not configured' }, { status: 503 })
     const client = new Anthropic({ apiKey })
 
-    const body = (await req.json().catch(() => ({}))) as { instruction?: string; section?: string }
+    const body = (await req.json().catch(() => ({}))) as {
+      instruction?: string
+      section?: string
+      custom_section_title?: string
+    }
     const instruction = typeof body.instruction === 'string' ? body.instruction.trim() : ''
+    const customSectionTitleFromBody = typeof body.custom_section_title === 'string'
+      ? body.custom_section_title.trim()
+      : ''
     const sectionRaw = typeof body.section === 'string' ? body.section.trim() : 'outcomes'
     const section: QuoteSuggestSection = (VALID_SECTIONS as readonly string[]).includes(sectionRaw)
       ? (sectionRaw as QuoteSuggestSection)
@@ -428,6 +487,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       global_mobilisation_fee: Math.max(0, Number(capture?.global_mobilisation_fee ?? 0)),
       global_surface_rate_per_m2: Math.max(0, Number(capture?.global_surface_rate_per_m2 ?? 0)),
       global_contents_rate_per_m3: Math.max(0, Number(capture?.global_contents_rate_per_m3 ?? 0)),
+      custom_section_title: customSectionTitleFromBody
+        || (capture?.custom_section_title ?? '').trim()
+        || undefined,
       assessment_data: ad,
       scope_of_work: {
         objective: sow.objective,
@@ -490,7 +552,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     ]
 
     const system =
-      section === 'volume' ? SYSTEM_VOLUME : section === 'surface' ? SYSTEM_SURFACE : SYSTEM
+      section === 'volume' ? SYSTEM_VOLUME
+        : section === 'surface' ? SYSTEM_SURFACE
+          : section === 'custom' ? SYSTEM_CUSTOM
+            : SYSTEM
 
     const msg = await client.messages.create({
       model: CLAUDE_SONNET_MODEL,
@@ -520,6 +585,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         return NextResponse.json({ error: 'AI did not return usable surface pricing' }, { status: 500 })
       }
       return NextResponse.json({ surface_patches, ...(terms ? { terms } : {}) })
+    }
+
+    if (section === 'custom') {
+      const custom_rows = parseCustomRows(parsed)
+      const terms = parseSectionTerms((parsed as Record<string, unknown>).terms)
+      if (!custom_rows.length && !terms) {
+        return NextResponse.json({ error: 'AI did not return usable custom scope lines' }, { status: 500 })
+      }
+      return NextResponse.json({ custom_rows, ...(terms ? { terms } : {}) })
     }
 
     const rows = parseRows(parsed)

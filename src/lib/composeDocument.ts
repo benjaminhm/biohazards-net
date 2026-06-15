@@ -503,6 +503,9 @@ function composeQuote(job: Job, quoteId?: string): ComposeDocumentResult {
   const areaPricing = (cap?.area_pricing ?? []).filter(r => Number(r.total ?? 0) > 0)
   const areaPricingSectionTotal = Math.max(0, Number(cap?.area_pricing_section_total || 0))
   const volumePricingSectionTotal = Math.max(0, Number(cap?.volume_pricing_section_total || 0))
+  const customSectionTotal = Math.max(0, Number(cap?.custom_section_total || 0))
+  const customSectionTitle = (cap?.custom_section_title ?? '').trim()
+  const customSectionRows = (cap?.custom_section_rows ?? []).filter(r => (r.scope_title ?? '').trim() || Number(r.price || 0) > 0)
   const autoExcludedSurfaces = collectExcludedSurfaces(areaPricing)
   const volumePricing = cap?.volume_pricing && volumePricingHasContent(cap.volume_pricing, volumePricingSectionTotal)
     ? cap.volume_pricing
@@ -510,12 +513,16 @@ function composeQuote(job: Job, quoteId?: string): ComposeDocumentResult {
   const layout = derivePricingLayoutFromCapture(cap)
   const areaTerms = normalizeSectionTerms(cap?.area_pricing_terms)
   const volumeTerms = normalizeSectionTerms(cap?.volume_pricing_terms)
+  const customTerms = normalizeSectionTerms(cap?.custom_section_terms)
   const outcomesTerms = normalizeSectionTerms(cap?.outcomes_section_terms)
   const hasOutcomes = cap && cap.rows?.length > 0
   const hasCapture = hasOutcomes
     || areaPricing.length > 0
     || areaPricingSectionTotal > 0
     || volumePricingSectionTotal > 0
+    || customSectionTotal > 0
+    || customSectionRows.length > 0
+    || !!customSectionTitle
     || !!volumePricing
   const raw: QuoteContent = {
     // Unified doc identity — every Quote-type document prints as
@@ -542,6 +549,10 @@ function composeQuote(job: Job, quoteId?: string): ComposeDocumentResult {
       ? { volume_disposal_fee_per_tonne: Math.max(0, Number(cap?.volume_disposal_fee_per_tonne)) }
       : {}),
     volume_pricing_terms: volumeTerms,
+    ...(customSectionTitle ? { custom_section_title: customSectionTitle } : {}),
+    ...(customSectionRows.length > 0 ? { custom_section_rows: customSectionRows } : {}),
+    ...(customSectionTotal > 0 ? { custom_section_total: customSectionTotal } : {}),
+    ...(customTerms ? { custom_section_terms: customTerms } : {}),
     pricing_layout: layout,
     global_mobilisation_fee: Math.max(0, Number(cap?.global_mobilisation_fee || 0)),
     global_surface_rate_per_m2: Math.max(0, Number(cap?.global_surface_rate_per_m2 || 0)),

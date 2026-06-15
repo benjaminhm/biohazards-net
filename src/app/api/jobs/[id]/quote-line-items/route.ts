@@ -60,6 +60,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const volumePricingSectionTotal = Math.max(0, Number(outcomeCapture?.volume_pricing_section_total || 0))
     const volumeDisposalFeeMode = outcomeCapture?.volume_disposal_fee_mode
     const volumeDisposalFeePerTonne = Math.max(0, Number(outcomeCapture?.volume_disposal_fee_per_tonne || 0))
+    const customSectionTitle = (outcomeCapture?.custom_section_title ?? '').trim() || undefined
+    const customSectionRows = outcomeCapture?.custom_section_rows
+    const customSectionTotal = Math.max(0, Number(outcomeCapture?.custom_section_total || 0))
+    const customSectionTerms = outcomeCapture?.custom_section_terms
     const sectionExtras = {
       area_pricing_terms: areaPricingTerms,
       outcomes_section_terms: outcomesSectionTerms,
@@ -67,6 +71,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       ...(volumePricingSectionTotal > 0 ? { volume_pricing_section_total: volumePricingSectionTotal } : {}),
       ...(volumeDisposalFeeMode ? { volume_disposal_fee_mode: volumeDisposalFeeMode } : {}),
       ...(volumeDisposalFeePerTonne > 0 ? { volume_disposal_fee_per_tonne: volumeDisposalFeePerTonne } : {}),
+      ...(customSectionTitle ? { custom_section_title: customSectionTitle } : {}),
+      ...(customSectionRows?.length ? { custom_section_rows: customSectionRows } : {}),
+      ...(customSectionTotal > 0 ? { custom_section_total: customSectionTotal } : {}),
+      ...(customSectionTerms ? { custom_section_terms: customSectionTerms } : {}),
       volume_pricing: volumePricing,
       volume_pricing_terms: volumePricingTerms,
       pricing_layout: pricingLayout,

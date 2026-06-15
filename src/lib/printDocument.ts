@@ -33,8 +33,8 @@ import { filterGroupedStages, groupPhotosByRoomAndStage, type RoomPhotoGroup } f
 import { photosForComposedReports } from '@/lib/photosForComposedReports'
 import { SURFACE_LABELS } from '@/lib/areaSurfaces'
 import { effectiveAreaDimensions } from '@/lib/areaSubzones'
-import { OUTCOME_KIND_LABELS, groupRowsByKind, volumePricingSectionSubtotal, volumePricingSubtotal } from '@/lib/quoteSections'
-import type { SectionTerms, VolumeDisposalFeeMode, VolumePricingBlock } from '@/lib/types'
+import { OUTCOME_KIND_LABELS, groupRowsByKind, volumePricingSectionSubtotal, volumePricingSubtotal, customSectionSubtotal, customSectionRowsSum } from '@/lib/quoteSections'
+import type { CustomPricingRow, SectionTerms, VolumeDisposalFeeMode, VolumePricingBlock } from '@/lib/types'
 
 /** Matches the navy header when `company` is missing (meta grid used to show "—" while header showed this name). */
 const DEFAULT_PRINT_ORG_NAME = 'Brisbane Biohazard Cleaning'
@@ -1262,6 +1262,77 @@ function renderAreaPricingSection(
   `
 }
 
+/** Section 4 — Custom / other: user-titled value-based scope or lump sum. */
+function renderCustomSection(
+  title: string | undefined,
+  rows: CustomPricingRow[] | undefined,
+  terms: SectionTerms | undefined,
+  sectionTotal = 0,
+): string {
+  const heading = esc((title ?? '').trim() || 'Other / Custom')
+  const rowSum = customSectionRowsSum(rows)
+  const pricedTotal = customSectionSubtotal(rows, sectionTotal)
+  if (pricedTotal <= 0 && !hasSectionTerms(terms) && !(title ?? '').trim()) return ''
+
+  if (rowSum <= 0 && sectionTotal > 0) {
+    return `
+    <div class="label" style="margin-top:18px">${heading}</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Description</th>
+          <th class="r">Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>${heading}</td>
+          <td class="r">${fmtMoney(sectionTotal)}</td>
+        </tr>
+      </tbody>
+    </table>
+    ${renderSectionTerms(terms)}
+  `
+  }
+
+  const pricedRows = (rows ?? []).filter(r => (r.scope_title ?? '').trim() || Number(r.price || 0) > 0)
+  if (pricedRows.length === 0) {
+    const termsHtml = renderSectionTerms(terms)
+    if (!termsHtml) return ''
+    return `
+      <div class="label" style="margin-top:18px">${heading}</div>
+      ${termsHtml}
+    `
+  }
+
+  const tbody = pricedRows.map(r => {
+    const desc = (r.scope_description ?? '').trim()
+    return `
+      <tr>
+        <td>
+          <strong>${esc(r.scope_title || 'Scope item')}</strong>
+          ${desc ? `<div style="font-size:7pt;color:var(--sow-muted);margin-top:4px">${esc(desc)}</div>` : ''}
+        </td>
+        <td class="r">${Number(r.price || 0) > 0 ? fmtMoney(Number(r.price || 0)) : 'TBC'}</td>
+      </tr>
+    `
+  }).join('')
+
+  return `
+    <div class="label" style="margin-top:18px">${heading}</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Scope</th>
+          <th class="r">Total</th>
+        </tr>
+      </thead>
+      <tbody>${tbody}</tbody>
+    </table>
+    ${renderSectionTerms(terms)}
+  `
+}
+
 function fmtM2(n: number): string {
   return `${Number(n || 0).toLocaleString('en-AU', { maximumFractionDigits: 2 })} m²`
 }
@@ -1388,6 +1459,12 @@ function buildQuoteMid(
     && (volumePricingSectionSubtotal(volumeBlock, volumePricingSectionTotal) > 0
       || hasSectionTerms(c.volume_pricing_terms)
       || hasVolumeDisposal)
+  const customSectionTotal = Math.max(0, Number(c.custom_section_total || 0))
+  const customRows = (c.custom_section_rows ?? []).filter(Boolean)
+  const showSection4 = (layout?.custom_enabled ?? false)
+    && (customSectionSubtotal(customRows, customSectionTotal) > 0
+      || hasSectionTerms(c.custom_section_terms)
+      || !!(c.custom_section_title ?? '').trim())
 
   const lineItemsTable = (c.line_items ?? []).length > 0
     ? `<table>
@@ -1433,8 +1510,11 @@ function buildQuoteMid(
   const section3 = showSection3
     ? renderAreaPricingSection(areaPricing, c.area_pricing_terms, areaPricingSectionTotal)
     : ''
+  const section4 = showSection4
+    ? renderCustomSection(c.custom_section_title, customRows, c.custom_section_terms, customSectionTotal)
+    : ''
 
-  const anySection = section1 || section2 || section3
+  const anySection = section1 || section2 || section3 || section4
   const noSectionsFallback = anySection ? '' : `<div class="body-text">— Pricing to be confirmed.</div>`
 
   const autoExcludedSurfaces = showSection3
@@ -1482,6 +1562,7 @@ function buildQuoteMid(
     ${section1}
     ${section2}
     ${section3}
+    ${section4}
     ${noSectionsFallback}
     ${autoExcludedBlock}
     <div class="totals">

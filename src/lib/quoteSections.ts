@@ -20,6 +20,7 @@
 import type {
   Area,
   AreaPricingRow,
+  CustomPricingRow,
   OutcomeKind,
   OutcomeQuoteCapture,
   OutcomeQuoteRow,
@@ -232,6 +233,39 @@ export function areaPricingSectionSubtotal(
   return Math.max(0, Number(sectionTotal) || 0)
 }
 
+/** Sum of priced Section 4 scope lines. */
+export function customSectionRowsSum(rows: CustomPricingRow[] | undefined): number {
+  return round2((rows ?? []).reduce((s, r) => s + Math.max(0, Number(r.price || 0)), 0))
+}
+
+/** Section 4 subtotal: scope line sum when present, otherwise the lump-sum field. */
+export function customSectionSubtotal(
+  rows: CustomPricingRow[] | undefined,
+  sectionTotal = 0,
+): number {
+  const fromRows = customSectionRowsSum(rows)
+  if (fromRows > 0) return fromRows
+  return Math.max(0, Number(sectionTotal) || 0)
+}
+
+/** True when Section 4 has priced lines, a lump sum, title, or section terms. */
+export function customSectionHasContent(
+  title: string | undefined,
+  rows: CustomPricingRow[] | undefined,
+  sectionTotal = 0,
+  terms?: SectionTerms,
+): boolean {
+  if (customSectionSubtotal(rows, sectionTotal) > 0) return true
+  if ((title ?? '').trim()) return true
+  if (!terms) return false
+  return (
+    (terms.observed_contents ?? []).some(s => s?.trim())
+    || (terms.included ?? []).some(s => s?.trim())
+    || (terms.excluded ?? []).some(s => s?.trim())
+    || (terms.assumptions ?? []).some(s => s?.trim())
+  )
+}
+
 /** Totals across enabled pricing sections — shared by Quote tab and composed docs. */
 export function computeQuoteCaptureTotals(
   rows: OutcomeQuoteRow[],
@@ -242,6 +276,8 @@ export function computeQuoteCaptureTotals(
   globalMobilisationFee = 0,
   areaPricingSectionTotal = 0,
   volumePricingSectionTotal = 0,
+  customSectionRows: CustomPricingRow[] | undefined = undefined,
+  customSectionTotal = 0,
   /** When outcome rows are empty, sum legacy line_items instead (printed quote path). */
   lineItemsFallback?: Array<{ total?: number }>,
 ): { subtotal: number; gst: number; total: number } {
@@ -260,7 +296,10 @@ export function computeQuoteCaptureTotals(
   const volSum = layout.per_m3_enabled
     ? volumePricingSectionSubtotal(volumePricing ?? undefined, volumePricingSectionTotal)
     : 0
-  const lineSum = round2(outcomeSum + surfaceSum + volSum)
+  const customSum = layout.custom_enabled
+    ? customSectionSubtotal(customSectionRows, customSectionTotal)
+    : 0
+  const lineSum = round2(outcomeSum + surfaceSum + volSum + customSum)
   if (gstMode === 'exclusive') {
     const gst = round2(lineSum * 0.1)
     return { subtotal: lineSum, gst, total: round2(lineSum + gst) }
@@ -293,18 +332,33 @@ export function outcomesHaveContent(rows: OutcomeQuoteRow[] | undefined): boolea
 export function derivePricingLayoutFromCapture(
   cap: OutcomeQuoteCapture | undefined | null,
 ): QuotePricingLayout {
-  if (cap?.pricing_layout) return cap.pricing_layout
+  if (cap?.pricing_layout) {
+    const l = cap.pricing_layout
+    return {
+      outcomes_enabled: l.outcomes_enabled,
+      per_m3_enabled: l.per_m3_enabled,
+      per_sqm_enabled: l.per_sqm_enabled,
+      custom_enabled: l.custom_enabled ?? false,
+    }
+  }
   const outcomes = outcomesHaveContent(cap?.rows) || Number(cap?.global_mobilisation_fee || 0) > 0
   const perSqm = areaPricingHasContent(cap?.area_pricing, cap?.area_pricing_section_total)
   const perM3 = volumePricingHasContent(cap?.volume_pricing, cap?.volume_pricing_section_total)
+  const custom = customSectionHasContent(
+    cap?.custom_section_title,
+    cap?.custom_section_rows,
+    cap?.custom_section_total,
+    cap?.custom_section_terms,
+  )
   // Brand-new captures default to outcomes-only (matches the most common case).
-  if (!outcomes && !perSqm && !perM3) {
-    return { outcomes_enabled: true, per_m3_enabled: false, per_sqm_enabled: false }
+  if (!outcomes && !perSqm && !perM3 && !custom) {
+    return { outcomes_enabled: true, per_m3_enabled: false, per_sqm_enabled: false, custom_enabled: false }
   }
   return {
     outcomes_enabled: outcomes,
     per_m3_enabled: perM3,
     per_sqm_enabled: perSqm,
+    custom_enabled: custom,
   }
 }
 
@@ -338,6 +392,12 @@ export function applyPricingLayoutToContent(
     next.volume_disposal_fee_mode = undefined
     next.volume_disposal_fee_per_tonne = undefined
   }
+  if (!layout.custom_enabled) {
+    next.custom_section_title = undefined
+    next.custom_section_rows = undefined
+    next.custom_section_total = undefined
+    next.custom_section_terms = undefined
+  }
 
   const gstMode = next.gst_mode ?? 'no_gst'
   const totals = computeQuoteCaptureTotals(
@@ -349,6 +409,8 @@ export function applyPricingLayoutToContent(
     Math.max(0, Number(next.global_mobilisation_fee || 0)),
     Math.max(0, Number(next.area_pricing_section_total || 0)),
     Math.max(0, Number(next.volume_pricing_section_total || 0)),
+    next.custom_section_rows,
+    Math.max(0, Number(next.custom_section_total || 0)),
     next.line_items,
   )
   next.subtotal = totals.subtotal

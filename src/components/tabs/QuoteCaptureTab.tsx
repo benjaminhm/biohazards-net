@@ -12,6 +12,7 @@ import type {
   AreaPricingRow,
   Job,
   Document,
+  CustomPricingRow,
   OutcomeKind,
   OutcomeQuoteCapture,
   OutcomeQuoteRow,
@@ -40,6 +41,8 @@ import {
   areaPricingSectionSubtotal,
   areaPricingSurfaceSum,
   computeQuoteCaptureTotals,
+  customSectionRowsSum,
+  customSectionSubtotal,
   volumePricingSectionSubtotal,
   derivePricingLayoutFromCapture,
   normalizeSectionTerms,
@@ -60,7 +63,7 @@ interface Props {
 type QuoteKind = 'quote' | 'estimate'
 
 /** Pricing section targeted by the AI suggest panel. */
-type QuoteSuggestSection = 'outcomes' | 'volume' | 'surface'
+type QuoteSuggestSection = 'outcomes' | 'volume' | 'surface' | 'custom'
 
 const QUOTE_AI_SECTION_META: Record<
   QuoteSuggestSection,
@@ -83,6 +86,12 @@ const QUOTE_AI_SECTION_META: Record<
       'Tell the AI which surfaces to price — e.g. decon floor and walls in bathroom and kitchen; exclude ceilings in laundry.',
     button: 'Suggest surface pricing',
     thinking: 'Drafting surface pricing…',
+  },
+  custom: {
+    placeholder:
+      'Tell the AI what scope to draft for this section — e.g. asbestos clearance scope; skip bin hire; temporary fencing.',
+    button: 'Suggest scope lines',
+    thinking: 'Drafting custom scope…',
   },
 }
 
@@ -125,6 +134,8 @@ function computeTotals(
   globalMobilisationFee = 0,
   areaPricingSectionTotal = 0,
   volumePricingSectionTotal = 0,
+  customSectionRows: CustomPricingRow[] = [],
+  customSectionTotal = 0,
 ) {
   return computeQuoteCaptureTotals(
     rows,
@@ -135,6 +146,8 @@ function computeTotals(
     globalMobilisationFee,
     areaPricingSectionTotal,
     volumePricingSectionTotal,
+    customSectionRows,
+    customSectionTotal,
   )
 }
 
@@ -409,6 +422,7 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
     outcomes: '',
     volume: '',
     surface: '',
+    custom: '',
   })
   const [suggestingSection, setSuggestingSection] = useState<QuoteSuggestSection | null>(null)
   const [suggestErrorBySection, setSuggestErrorBySection] = useState<Partial<Record<QuoteSuggestSection, string>>>({})
@@ -459,6 +473,14 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
   )
   const [volumeDisposalFeePerTonne, setVolumeDisposalFeePerTonne] = useState<number>(
     Math.max(0, Number(existing?.volume_disposal_fee_per_tonne ?? 0)),
+  )
+  const [customSectionTitle, setCustomSectionTitle] = useState<string>(existing?.custom_section_title ?? '')
+  const [customSectionRows, setCustomSectionRows] = useState<CustomPricingRow[]>(existing?.custom_section_rows ?? [])
+  const [customSectionTotal, setCustomSectionTotal] = useState<number>(
+    Math.max(0, Number(existing?.custom_section_total ?? 0)),
+  )
+  const [customSectionTerms, setCustomSectionTerms] = useState<SectionTerms>(
+    existing?.custom_section_terms ?? blankSectionTerms(),
   )
   const [paymentTerms, setPaymentTerms] = useState(ad?.payment_terms ?? '')
   const [validity, setValidity] = useState(existing?.validity ?? '')
@@ -522,6 +544,10 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
     setVolumePricingSectionTotal(Math.max(0, Number(cap?.volume_pricing_section_total ?? 0)))
     setVolumeDisposalFeeMode(cap?.volume_disposal_fee_mode ?? '')
     setVolumeDisposalFeePerTonne(Math.max(0, Number(cap?.volume_disposal_fee_per_tonne ?? 0)))
+    setCustomSectionTitle(cap?.custom_section_title ?? '')
+    setCustomSectionRows(cap?.custom_section_rows ?? [])
+    setCustomSectionTotal(Math.max(0, Number(cap?.custom_section_total ?? 0)))
+    setCustomSectionTerms(cap?.custom_section_terms ?? blankSectionTerms())
     setGstMode(cap?.gst_mode ?? 'no_gst')
     setValidity(cap?.validity ?? '')
     setNotes(cap?.notes ?? '')
@@ -560,8 +586,10 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
         globalMobilisationFee,
         areaPricingSectionTotal,
         volumePricingSectionTotal,
+        customSectionRows,
+        customSectionTotal,
       ),
-    [rows, areaPricing, volumePricing, pricingLayout, gstMode, globalMobilisationFee, areaPricingSectionTotal, volumePricingSectionTotal],
+    [rows, areaPricing, volumePricing, pricingLayout, gstMode, globalMobilisationFee, areaPricingSectionTotal, volumePricingSectionTotal, customSectionRows, customSectionTotal],
   )
   const areaPricingSurfaceSubtotal = useMemo(
     () => areaPricingSurfaceSum(areaPricing),
@@ -575,6 +603,11 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
   const volumeSubtotal = useMemo(
     () => volumePricingSectionSubtotal(volumePricing, volumePricingSectionTotal),
     [volumePricing, volumePricingSectionTotal],
+  )
+  const customRowsSubtotal = useMemo(() => customSectionRowsSum(customSectionRows), [customSectionRows])
+  const customSubtotal = useMemo(
+    () => customSectionSubtotal(customSectionRows, customSectionTotal),
+    [customSectionRows, customSectionTotal],
   )
   const outcomesSubtotal = useMemo(
     () => toMoney(Math.max(0, Number(globalMobilisationFee || 0)) + rows.reduce((s, r) => s + Math.max(0, Number(r.price || 0)), 0)),
@@ -673,6 +706,33 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
     setSaveError('')
   }
 
+  function patchCustomRow(id: string, patch: Partial<CustomPricingRow>) {
+    setCustomSectionRows(prev => prev.map(r => (r.id === id ? { ...r, ...patch, status: 'edited' } : r)))
+    setSaved(false)
+    setSaveError('')
+  }
+
+  function addCustomRow() {
+    setCustomSectionRows(prev => [
+      ...prev,
+      {
+        id: `custom_${Date.now()}_${prev.length}`,
+        scope_title: '',
+        scope_description: '',
+        price: 0,
+        status: 'edited',
+      },
+    ])
+    setSaved(false)
+    setSaveError('')
+  }
+
+  function removeCustomRow(id: string) {
+    setCustomSectionRows(prev => prev.filter(r => r.id !== id))
+    setSaved(false)
+    setSaveError('')
+  }
+
   function patchSectionTerms(
     setter: (next: (prev: SectionTerms) => SectionTerms) => void,
     field: keyof SectionTerms,
@@ -735,11 +795,16 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
       const res = await fetch(`/api/jobs/${job.id}/quote-outcomes/suggest`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ instruction, section }),
+        body: JSON.stringify({
+          instruction,
+          section,
+          ...(section === 'custom' ? { custom_section_title: customSectionTitle.trim() } : {}),
+        }),
       })
       const data = (await res.json()) as {
         rows?: OutcomeQuoteRow[]
         volume_rows?: VolumePricingRow[]
+        custom_rows?: CustomPricingRow[]
         surface_patches?: Array<{
           area_name: string
           surfaces?: Array<{ kind: SurfaceKind; included?: boolean; unit_price_per_sqm?: number }>
@@ -782,6 +847,15 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
           return recomputeVolumePricingTotal({ ...prev, rows: nextRows })
         })
         if (data.terms) setVolumePricingTerms(prev => mergeSectionTerms(prev, data.terms))
+      } else if (section === 'custom') {
+        if (!data.custom_rows?.length && !data.terms) {
+          setSuggestErrorBySection(prev => ({ ...prev, [section]: 'No custom scope lines returned' }))
+          return
+        }
+        if (data.custom_rows?.length) {
+          setCustomSectionRows(prev => [...prev, ...data.custom_rows!])
+        }
+        if (data.terms) setCustomSectionTerms(prev => mergeSectionTerms(prev, data.terms))
       } else {
         if (!data.surface_patches?.length && !data.terms) {
           setSuggestErrorBySection(prev => ({ ...prev, [section]: 'No surface pricing returned' }))
@@ -840,6 +914,12 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
         ? { ...r, status: 'approved' }
         : r,
     )
+    const promotedCustomRows: CustomPricingRow[] = customSectionRows.map(r =>
+      r.status === 'suggested' && Number(r.price || 0) > 0
+        ? { ...r, status: 'approved' }
+        : r,
+    )
+    const cleanCustomTerms = normalizeSectionTerms(customSectionTerms)
     return {
       mode: 'outcomes',
       quote_kind: quoteKind,
@@ -853,6 +933,10 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
       ...(volumeDisposalFeeMode ? { volume_disposal_fee_mode: volumeDisposalFeeMode } : {}),
       ...(volumeDisposalFeePerTonne > 0 ? { volume_disposal_fee_per_tonne: volumeDisposalFeePerTonne } : {}),
       ...(cleanVolumeTerms ? { volume_pricing_terms: cleanVolumeTerms } : {}),
+      ...(customSectionTitle.trim() ? { custom_section_title: customSectionTitle.trim() } : {}),
+      ...(promotedCustomRows.length > 0 ? { custom_section_rows: promotedCustomRows } : {}),
+      ...(customSectionTotal > 0 ? { custom_section_total: customSectionTotal } : {}),
+      ...(cleanCustomTerms ? { custom_section_terms: cleanCustomTerms } : {}),
       pricing_layout: pricingLayout,
       global_mobilisation_fee: globalMobilisationFee,
       global_surface_rate_per_m2: globalSurfaceRatePerM2,
@@ -867,6 +951,8 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
         globalMobilisationFee,
         areaPricingSectionTotal,
         volumePricingSectionTotal,
+        promotedCustomRows,
+        customSectionTotal,
       ),
       target_pricing: {},
       validity,
@@ -1182,13 +1268,14 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
       <div style={{ marginBottom: 18 }}>
         <div style={SECTION}>Pricing approach</div>
         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: -6, marginBottom: 8, lineHeight: 1.5 }}>
-          Toggle each section on or off — quotes can mix all three. Hidden sections preserve their data.
+          Toggle each section on or off — quotes can mix any combination. Hidden sections preserve their data.
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
           {([
             { key: 'outcomes_enabled', label: '1. Mobilisation & fees', sub: 'Callout, PM, surcharges, fixed scopes' },
             { key: 'per_m3_enabled', label: '2. Contents removal', sub: 'Per cubic metre' },
             { key: 'per_sqm_enabled', label: '3. Remediation & cleaning', sub: 'Per square metre, surfaces' },
+            { key: 'custom_enabled', label: '4. Other / custom', sub: 'Your title, value-based scope' },
           ] as { key: keyof QuotePricingLayout; label: string; sub: string }[]).map(opt => {
             const active = pricingLayout[opt.key]
             return (
@@ -2111,6 +2198,201 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
       </>
       )}
 
+      {pricingLayout.custom_enabled && (
+      <>
+      <div style={{ marginBottom: 8 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
+          <div className="field" style={{ marginBottom: 0, flex: '1 1 320px' }}>
+            <label>Section title</label>
+            <input
+              type="text"
+              value={customSectionTitle}
+              onChange={e => {
+                setCustomSectionTitle(e.target.value)
+                setSaved(false)
+                setSaveError('')
+              }}
+              placeholder="e.g. Asbestos clearance, Skip hire, Temporary fencing"
+              aria-label="Custom section title"
+            />
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', paddingTop: 22 }}>
+            Subtotal: <strong style={{ color: 'var(--text)' }}>${customSubtotal.toFixed(2)}</strong>
+          </div>
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4, marginBottom: 12, lineHeight: 1.5 }}>
+          Blank wildcard section — name it, draft scope lines with AI or manually, or enter a fixed section total.
+        </div>
+      </div>
+
+      <QuoteSectionAiPanel
+        section="custom"
+        instruction={sectionInstructions.custom}
+        onInstructionChange={v => setSectionInstructions(prev => ({ ...prev, custom: v }))}
+        onSuggest={() => void suggestSection('custom')}
+        suggesting={suggestingSection === 'custom'}
+        error={suggestErrorBySection.custom ?? ''}
+      />
+
+      <div
+        style={{
+          border: '1px solid var(--border)',
+          borderRadius: 10,
+          background: 'var(--surface)',
+          marginBottom: 12,
+          overflow: 'hidden',
+        }}
+      >
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1.2fr 2fr 0.9fr 0.4fr',
+            gap: 8,
+            padding: '8px 12px',
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: '0.06em',
+            textTransform: 'uppercase',
+            color: 'var(--text-muted)',
+            borderBottom: '1px solid var(--border)',
+            background: 'var(--surface-2)',
+          }}
+        >
+          <span>Scope title</span>
+          <span>Description</span>
+          <span style={{ textAlign: 'right' }}>Price ($)</span>
+          <span aria-hidden="true" />
+        </div>
+        {customSectionRows.length === 0 ? (
+          <div style={{ padding: '12px', fontSize: 13, color: 'var(--text-muted)' }}>
+            No scope lines yet — use Suggest scope lines or add a line below.
+          </div>
+        ) : (
+          customSectionRows.map(row => (
+            <div
+              key={row.id}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1.2fr 2fr 0.9fr 0.4fr',
+                gap: 8,
+                alignItems: 'center',
+                padding: '8px 12px',
+                borderTop: '1px solid var(--border)',
+                fontSize: 13,
+              }}
+            >
+              <input
+                type="text"
+                value={row.scope_title}
+                onChange={e => patchCustomRow(row.id, { scope_title: e.target.value })}
+                placeholder="Scope item"
+                aria-label="Scope title"
+              />
+              <input
+                type="text"
+                value={row.scope_description}
+                onChange={e => patchCustomRow(row.id, { scope_description: e.target.value })}
+                placeholder="Scope details"
+                aria-label="Scope description"
+              />
+              <input
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step="1"
+                value={Number(row.price || 0) > 0 ? row.price : ''}
+                onChange={e => {
+                  const n = parseFloat(e.target.value)
+                  patchCustomRow(row.id, { price: isNaN(n) ? 0 : Math.max(0, n) })
+                }}
+                placeholder="0.00"
+                aria-label="Scope price"
+                style={{ textAlign: 'right' }}
+              />
+              <button
+                type="button"
+                onClick={() => removeCustomRow(row.id)}
+                aria-label="Remove scope line"
+                style={{ fontSize: 12, color: '#F87171', background: 'none', border: 'none', cursor: 'pointer' }}
+              >
+                ✕
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end', marginBottom: 14 }}>
+        <button type="button" className="btn-secondary" onClick={addCustomRow} style={{ marginBottom: 0 }}>
+          + Add scope line
+        </button>
+        <div className="field" style={{ marginBottom: 0, flex: '0 0 200px' }}>
+          <label>Section total ($)</label>
+          <input
+            type="number"
+            inputMode="decimal"
+            min="0"
+            step="1"
+            value={customSectionTotal > 0 ? customSectionTotal : ''}
+            onChange={e => {
+              const n = parseFloat(e.target.value)
+              setCustomSectionTotal(isNaN(n) ? 0 : Math.max(0, n))
+              setSaved(false)
+              setSaveError('')
+            }}
+            placeholder="0.00"
+            disabled={customRowsSubtotal > 0}
+            aria-label="Custom section value-based total"
+          />
+        </div>
+        {customRowsSubtotal > 0 ? (
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.45, paddingBottom: 8 }}>
+            Total is from scope line prices (${customRowsSubtotal.toFixed(2)}).
+          </div>
+        ) : (
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.45, paddingBottom: 8 }}>
+            Enter a fixed total when not pricing per scope line.
+          </div>
+        )}
+      </div>
+
+      <SectionObservedContentsField
+        terms={customSectionTerms}
+        onChange={(field, value) => patchSectionTerms(setCustomSectionTerms, field, value)}
+      />
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 22 }}>
+        <div className="field" style={{ marginBottom: 0 }}>
+          <label>Inclusions (this section)</label>
+          <AutoGrow
+            value={(customSectionTerms.included ?? []).join('\n')}
+            onChange={v => patchSectionTerms(setCustomSectionTerms, 'included', v)}
+            placeholder="One per line"
+            rows={2}
+          />
+        </div>
+        <div className="field" style={{ marginBottom: 0 }}>
+          <label>Exclusions</label>
+          <AutoGrow
+            value={(customSectionTerms.excluded ?? []).join('\n')}
+            onChange={v => patchSectionTerms(setCustomSectionTerms, 'excluded', v)}
+            placeholder="One per line"
+            rows={2}
+          />
+        </div>
+        <div className="field" style={{ marginBottom: 0 }}>
+          <label>Assumptions</label>
+          <AutoGrow
+            value={(customSectionTerms.assumptions ?? []).join('\n')}
+            onChange={v => patchSectionTerms(setCustomSectionTerms, 'assumptions', v)}
+            placeholder="One per line"
+            rows={2}
+          />
+        </div>
+      </div>
+      </>
+      )}
+
       {/* ── Totals + GST treatment (syncs quote_line_item_runs for print/composer) ── */}
       <div
         style={{
@@ -2171,7 +2453,7 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
             {gstError}
           </div>
         )}
-        {(pricingLayout.outcomes_enabled || pricingLayout.per_m3_enabled || pricingLayout.per_sqm_enabled) && (
+        {(pricingLayout.outcomes_enabled || pricingLayout.per_m3_enabled || pricingLayout.per_sqm_enabled || pricingLayout.custom_enabled) && (
           <div
             style={{
               marginBottom: 12,
@@ -2196,6 +2478,14 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                 <span style={{ color: 'var(--text-muted)' }}>3. Remediation &amp; cleaning</span>
                 <span>${areaPricingSubtotal.toFixed(2)}</span>
+              </div>
+            )}
+            {pricingLayout.custom_enabled && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                <span style={{ color: 'var(--text-muted)' }}>
+                  {customSectionTitle.trim() || '4. Other / custom'}
+                </span>
+                <span>${customSubtotal.toFixed(2)}</span>
               </div>
             )}
           </div>

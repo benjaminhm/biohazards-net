@@ -13,7 +13,7 @@
 
 import { useEffect, useState, useRef, Suspense } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
-import type { AreaPricingRow, CompanyProfile, DocType, Job, OutcomeQuoteRow, Photo, ProgressNote, ProgressRoomNote, QuoteContent, QuoteLineItemRow, QuotePricingLayout, SectionTerms, VolumeDisposalFeeMode, VolumePricingBlock } from '@/lib/types'
+import type { AreaPricingRow, CompanyProfile, CustomPricingRow, DocType, Job, OutcomeQuoteRow, Photo, ProgressNote, ProgressRoomNote, QuoteContent, QuoteLineItemRow, QuotePricingLayout, SectionTerms, VolumeDisposalFeeMode, VolumePricingBlock } from '@/lib/types'
 import { DOC_TYPE_LABELS } from '@/lib/types'
 import { composeDocumentContent, buildComposedPreviewHtml, type ComposeDocumentOptions } from '@/lib/composeDocument'
 import { mergeQuoteLineItemsIntoDocContent } from '@/lib/quoteLineItemsForDocuments'
@@ -153,6 +153,10 @@ function DocViewerInner() {
             const volume_pricing_section_total = Number(quoteRes.volume_pricing_section_total ?? 0)
             const volume_disposal_fee_mode = quoteRes.volume_disposal_fee_mode as VolumeDisposalFeeMode | undefined
             const volume_disposal_fee_per_tonne = Number(quoteRes.volume_disposal_fee_per_tonne ?? 0)
+            const custom_section_title = (quoteRes.custom_section_title as string | undefined)?.trim() || undefined
+            const custom_section_rows = quoteRes.custom_section_rows as CustomPricingRow[] | undefined
+            const custom_section_total = Number(quoteRes.custom_section_total ?? 0)
+            const custom_section_terms = quoteRes.custom_section_terms as SectionTerms | undefined
             const outcomes_section_terms = quoteRes.outcomes_section_terms as SectionTerms | undefined
             next = mergeQuoteLineItemsIntoDocContent(docType, next, rows, {
               gst_mode, add_gst_to_total, outcome_rows, outcome_mode,
@@ -161,6 +165,10 @@ function DocViewerInner() {
               volume_pricing_section_total: volume_pricing_section_total > 0 ? volume_pricing_section_total : undefined,
               volume_disposal_fee_mode,
               volume_disposal_fee_per_tonne: volume_disposal_fee_per_tonne > 0 ? volume_disposal_fee_per_tonne : undefined,
+              custom_section_title,
+              custom_section_rows,
+              custom_section_total: custom_section_total > 0 ? custom_section_total : undefined,
+              custom_section_terms,
               outcomes_section_terms,
               volume_pricing, volume_pricing_terms,
               pricing_layout,
@@ -239,6 +247,10 @@ function DocViewerInner() {
           const volume_pricing_section_total = Number(quoteRes.volume_pricing_section_total ?? 0)
           const volume_disposal_fee_mode = quoteRes.volume_disposal_fee_mode as VolumeDisposalFeeMode | undefined
           const volume_disposal_fee_per_tonne = Number(quoteRes.volume_disposal_fee_per_tonne ?? 0)
+          const custom_section_title = (quoteRes.custom_section_title as string | undefined)?.trim() || undefined
+          const custom_section_rows = quoteRes.custom_section_rows as CustomPricingRow[] | undefined
+          const custom_section_total = Number(quoteRes.custom_section_total ?? 0)
+          const custom_section_terms = quoteRes.custom_section_terms as SectionTerms | undefined
           const outcomes_section_terms = quoteRes.outcomes_section_terms as SectionTerms | undefined
           finalComposed = mergeQuoteLineItemsIntoDocContent(docType, composed, rows, {
             gst_mode, add_gst_to_total, outcome_rows, outcome_mode,
@@ -247,6 +259,10 @@ function DocViewerInner() {
             volume_pricing_section_total: volume_pricing_section_total > 0 ? volume_pricing_section_total : undefined,
             volume_disposal_fee_mode,
             volume_disposal_fee_per_tonne: volume_disposal_fee_per_tonne > 0 ? volume_disposal_fee_per_tonne : undefined,
+            custom_section_title,
+            custom_section_rows,
+            custom_section_total: custom_section_total > 0 ? custom_section_total : undefined,
+            custom_section_terms,
             outcomes_section_terms,
             volume_pricing, volume_pricing_terms,
             pricing_layout,
