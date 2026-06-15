@@ -33,7 +33,7 @@ import { filterGroupedStages, groupPhotosByRoomAndStage, type RoomPhotoGroup } f
 import { photosForComposedReports } from '@/lib/photosForComposedReports'
 import { SURFACE_LABELS } from '@/lib/areaSurfaces'
 import { effectiveAreaDimensions } from '@/lib/areaSubzones'
-import { OUTCOME_KIND_LABELS, groupRowsByKind } from '@/lib/quoteSections'
+import { OUTCOME_KIND_LABELS, groupRowsByKind, volumePricingSectionSubtotal, volumePricingSubtotal } from '@/lib/quoteSections'
 import type { SectionTerms, VolumePricingBlock } from '@/lib/types'
 
 /** Matches the navy header when `company` is missing (meta grid used to show "—" while header showed this name). */
@@ -1056,13 +1056,55 @@ function hasSectionTerms(t: SectionTerms | undefined): boolean {
 }
 
 /** Section 2 — Contents Removal: volume table + estimate caveat + section terms. */
-function renderVolumeSection(block: VolumePricingBlock | undefined, terms: SectionTerms | undefined): string {
-  if (!block) return ''
-  const rows = (block.rows ?? []).filter(r => Number(r.estimated_volume_m3 || 0) > 0 || (r.description ?? '').trim())
-  if (rows.length === 0 && Number(block.unit_price_per_m3 || 0) === 0) return ''
+function renderVolumeSection(
+  block: VolumePricingBlock | undefined,
+  terms: SectionTerms | undefined,
+  sectionTotal = 0,
+): string {
+  const pricedTotal = volumePricingSectionSubtotal(block, sectionTotal)
+  if (pricedTotal <= 0 && !hasSectionTerms(terms)) return ''
+
+  const rows = (block?.rows ?? []).filter(r => Number(r.estimated_volume_m3 || 0) > 0 || (r.description ?? '').trim())
+  const fromVolume = volumePricingSubtotal(block)
+
+  if (fromVolume <= 0 && sectionTotal > 0) {
+    return `
+    <div class="label" style="margin-top:18px">2. Contents Removal</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Description</th>
+          <th class="r">Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Contents removal</td>
+          <td class="r">${fmtMoney(sectionTotal)}</td>
+        </tr>
+      </tbody>
+    </table>
+    ${renderSectionTerms(terms)}
+  `
+  }
+
+  if (!block) return renderSectionTerms(terms) ? `
+    <div class="label" style="margin-top:18px">2. Contents Removal</div>
+    ${renderSectionTerms(terms)}
+  ` : ''
+
+  if (rows.length === 0 && Number(block.unit_price_per_m3 || 0) === 0) {
+    const termsHtml = renderSectionTerms(terms)
+    if (!termsHtml) return ''
+    return `
+    <div class="label" style="margin-top:18px">2. Contents Removal</div>
+    ${termsHtml}
+  `
+  }
+
   const rate = Math.max(0, Number(block.unit_price_per_m3 || 0))
   const totalM3 = rows.reduce((s, r) => s + Math.max(0, Number(r.estimated_volume_m3 || 0)), 0)
-  const sectionTotal = Math.round(totalM3 * rate * 100) / 100
+  const volumeLineTotal = Math.round(totalM3 * rate * 100) / 100
   const tbody = rows.map(r => {
     const desc = (r.description ?? '').trim() || (r.area_name ?? '').trim() || '—'
     const m3 = Math.max(0, Number(r.estimated_volume_m3 || 0))
@@ -1089,7 +1131,7 @@ function renderVolumeSection(block: VolumePricingBlock | undefined, terms: Secti
         ${tbody}
         <tr>
           <td class="r" style="font-weight:700">Total volume × $${fmtMoney(rate).replace('$','')}/m³</td>
-          <td class="r" style="font-weight:700">${fmtMoney(sectionTotal)}</td>
+          <td class="r" style="font-weight:700">${fmtMoney(volumeLineTotal)}</td>
         </tr>
       </tbody>
     </table>
@@ -1300,7 +1342,10 @@ function buildQuoteMid(
   const showSection3 = (layout?.per_sqm_enabled ?? true)
     && (areaPricing.length > 0 || areaPricingSectionTotal > 0 || hasSectionTerms(c.area_pricing_terms))
   const volumeBlock = c.volume_pricing
-  const showSection2 = (layout?.per_m3_enabled ?? true) && !!volumeBlock && (volumeBlock.rows?.length ?? 0) > 0
+  const volumePricingSectionTotal = Math.max(0, Number(c.volume_pricing_section_total || 0))
+  const showSection2 = (layout?.per_m3_enabled ?? true)
+    && (volumePricingSectionSubtotal(volumeBlock, volumePricingSectionTotal) > 0
+      || hasSectionTerms(c.volume_pricing_terms))
 
   const lineItemsTable = (c.line_items ?? []).length > 0
     ? `<table>
@@ -1334,7 +1379,9 @@ function buildQuoteMid(
   const section1 = showSection1
     ? `<div class="label" style="margin-top:6px">1. Mobilisation, Fees &amp; Fixed-Rate Items</div>${section1Body}${renderSectionTerms(c.outcomes_section_terms)}`
     : ''
-  const section2 = showSection2 ? renderVolumeSection(volumeBlock, c.volume_pricing_terms) : ''
+  const section2 = showSection2
+    ? renderVolumeSection(volumeBlock, c.volume_pricing_terms, volumePricingSectionTotal)
+    : ''
   const section3 = showSection3
     ? renderAreaPricingSection(areaPricing, c.area_pricing_terms, areaPricingSectionTotal)
     : ''

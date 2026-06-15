@@ -15,11 +15,11 @@ import { collectExcludedSurfaces } from '@/lib/areaSurfaces'
 import {
   areaPricingHasContent,
   areaPricingSectionSubtotal,
+  volumePricingSectionSubtotal,
   derivePricingLayoutFromCapture,
   normalizeSectionTerms,
   recomputeVolumePricingTotal,
   volumePricingHasContent,
-  volumePricingSubtotal,
 } from '@/lib/quoteSections'
 
 export interface QuoteCaptureFields {
@@ -57,6 +57,7 @@ export interface QuoteContentPatchInputs {
   areaPricingTerms?: SectionTerms
   areaPricingSectionTotal?: number
   volumePricing?: VolumePricingBlock
+  volumePricingSectionTotal?: number
   volumePricingTerms?: SectionTerms
   pricingLayout?: QuotePricingLayout
   globalMobilisationFee?: number
@@ -78,6 +79,7 @@ export function quoteLineItemsContentPatch(
     areaPricingTerms,
     areaPricingSectionTotal,
     volumePricing,
+    volumePricingSectionTotal,
     volumePricingTerms,
     pricingLayout,
     globalMobilisationFee,
@@ -95,7 +97,7 @@ export function quoteLineItemsContentPatch(
   const pricedOutcomes = (outcomeRows ?? []).filter(row => Number(row.price || 0) > 0)
   const pricedAreaPricing = (areaPricing ?? []).filter(row => Number(row.total || 0) > 0)
   const refreshedVolume = volumePricing ? recomputeVolumePricingTotal(volumePricing) : undefined
-  const volumeIncluded = refreshedVolume && volumePricingHasContent(refreshedVolume)
+  const volumeIncluded = refreshedVolume && volumePricingHasContent(refreshedVolume, volumePricingSectionTotal)
     ? refreshedVolume
     : undefined
   const baseMobilisationFee = Math.max(0, Number(globalMobilisationFee || 0))
@@ -104,7 +106,7 @@ export function quoteLineItemsContentPatch(
   const effectiveLayout: QuotePricingLayout = pricingLayout ?? {
     outcomes_enabled: baseMobilisationFee > 0 || lineItems.length > 0 || pricedOutcomes.length > 0,
     per_sqm_enabled: areaPricingHasContent(areaPricing, areaPricingSectionTotal),
-    per_m3_enabled: !!volumeIncluded,
+    per_m3_enabled: volumePricingHasContent(volumePricing, volumePricingSectionTotal),
   }
 
   // Section sums — disabled sections contribute 0 even if data is present.
@@ -124,13 +126,15 @@ export function quoteLineItemsContentPatch(
   const areaPricingSum = effectiveLayout.per_sqm_enabled
     ? areaPricingSectionSubtotal(areaPricing, areaPricingSectionTotal)
     : 0
-  const volumeSum = effectiveLayout.per_m3_enabled ? volumePricingSubtotal(volumeIncluded) : 0
+  const volumeSum = effectiveLayout.per_m3_enabled
+    ? volumePricingSectionSubtotal(volumeIncluded ?? volumePricing, volumePricingSectionTotal)
+    : 0
 
   const subtotal = Math.round((outcomesSum + areaPricingSum + volumeSum) * 100) / 100
   const noData = !lineItems.length
     && !(outcomeRows?.length)
     && areaPricingSum <= 0
-    && !volumeIncluded
+    && volumeSum <= 0
     && baseMobilisationFee <= 0
   if (noData) return {}
 
@@ -165,6 +169,9 @@ export function quoteLineItemsContentPatch(
   if (effectiveLayout.per_sqm_enabled && Number(areaPricingSectionTotal || 0) > 0) {
     patch.area_pricing_section_total = Math.max(0, Number(areaPricingSectionTotal || 0))
   }
+  if (effectiveLayout.per_m3_enabled && Number(volumePricingSectionTotal || 0) > 0) {
+    patch.volume_pricing_section_total = Math.max(0, Number(volumePricingSectionTotal || 0))
+  }
   if (volumeIncluded && effectiveLayout.per_m3_enabled) patch.volume_pricing = volumeIncluded
   if (cleanVolumeTerms) patch.volume_pricing_terms = cleanVolumeTerms
   if (captureFields?.notes) patch.notes = captureFields.notes
@@ -185,6 +192,7 @@ export interface MergeQuoteLineItemsOptions {
   area_pricing_terms?: SectionTerms
   area_pricing_section_total?: number
   volume_pricing?: VolumePricingBlock
+  volume_pricing_section_total?: number
   volume_pricing_terms?: SectionTerms
   pricing_layout?: QuotePricingLayout
   global_mobilisation_fee?: number
@@ -211,6 +219,7 @@ export function mergeQuoteLineItemsIntoDocContent(
       areaPricingTerms: options?.area_pricing_terms,
       areaPricingSectionTotal: options?.area_pricing_section_total,
       volumePricing: options?.volume_pricing,
+      volumePricingSectionTotal: options?.volume_pricing_section_total,
       volumePricingTerms: options?.volume_pricing_terms,
       pricingLayout: options?.pricing_layout,
       globalMobilisationFee: options?.global_mobilisation_fee,
@@ -254,6 +263,7 @@ export interface QuoteLineItemsMergeContext {
   area_pricing_section_total?: number
   outcomes_section_terms?: SectionTerms
   volume_pricing?: VolumePricingBlock
+  volume_pricing_section_total?: number
   volume_pricing_terms?: SectionTerms
   pricing_layout?: QuotePricingLayout
   global_mobilisation_fee?: number
@@ -311,9 +321,13 @@ export async function fetchQuoteLineItemsMergeContext(
   const area_pricing = (capture?.area_pricing ?? []).filter(r => Number(r.total ?? 0) > 0) as AreaPricingRow[]
   const area_pricing_terms = capture?.area_pricing_terms
   const outcomes_section_terms = capture?.outcomes_section_terms
-  const volume_pricing = capture?.volume_pricing && volumePricingHasContent(capture.volume_pricing)
+  const volume_pricing = capture?.volume_pricing && volumePricingHasContent(
+    capture.volume_pricing,
+    capture.volume_pricing_section_total,
+  )
     ? capture.volume_pricing
     : undefined
+  const volume_pricing_section_total = Math.max(0, Number(capture?.volume_pricing_section_total || 0))
   const volume_pricing_terms = capture?.volume_pricing_terms
   const pricing_layout = derivePricingLayoutFromCapture(capture)
   const global_mobilisation_fee = Math.max(0, Number(capture?.global_mobilisation_fee || 0))
@@ -341,6 +355,7 @@ export async function fetchQuoteLineItemsMergeContext(
     outcomes_section_terms,
     area_pricing_section_total: area_pricing_section_total > 0 ? area_pricing_section_total : undefined,
     volume_pricing,
+    volume_pricing_section_total: volume_pricing_section_total > 0 ? volume_pricing_section_total : undefined,
     volume_pricing_terms,
     pricing_layout,
     global_mobilisation_fee,

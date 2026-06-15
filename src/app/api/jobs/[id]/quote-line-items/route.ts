@@ -45,7 +45,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     )
     const areaPricingTerms = outcomeCapture?.area_pricing_terms
     const outcomesSectionTerms = outcomeCapture?.outcomes_section_terms
-    const volumePricing = outcomeCapture?.volume_pricing && volumePricingHasContent(outcomeCapture.volume_pricing)
+    const volumePricing = outcomeCapture?.volume_pricing && volumePricingHasContent(
+      outcomeCapture.volume_pricing,
+      outcomeCapture.volume_pricing_section_total,
+    )
       ? outcomeCapture.volume_pricing
       : undefined
     const volumePricingTerms = outcomeCapture?.volume_pricing_terms
@@ -54,10 +57,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const globalSurfaceRatePerM2 = Math.max(0, Number(outcomeCapture?.global_surface_rate_per_m2 || 0))
     const globalContentsRatePerM3 = Math.max(0, Number(outcomeCapture?.global_contents_rate_per_m3 || 0))
     const areaPricingSectionTotal = Math.max(0, Number(outcomeCapture?.area_pricing_section_total || 0))
+    const volumePricingSectionTotal = Math.max(0, Number(outcomeCapture?.volume_pricing_section_total || 0))
     const sectionExtras = {
       area_pricing_terms: areaPricingTerms,
       outcomes_section_terms: outcomesSectionTerms,
       ...(areaPricingSectionTotal > 0 ? { area_pricing_section_total: areaPricingSectionTotal } : {}),
+      ...(volumePricingSectionTotal > 0 ? { volume_pricing_section_total: volumePricingSectionTotal } : {}),
       volume_pricing: volumePricing,
       volume_pricing_terms: volumePricingTerms,
       pricing_layout: pricingLayout,

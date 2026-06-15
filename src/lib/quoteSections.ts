@@ -174,10 +174,26 @@ export function volumePricingSubtotal(block: VolumePricingBlock | undefined): nu
   return Math.max(0, Number(block.total) || 0)
 }
 
-/** True when the volume block has at least one row with a positive volume. */
-export function volumePricingHasContent(block: VolumePricingBlock | undefined): boolean {
+/** Section 2 subtotal: m³ × rate when present, otherwise the lump-sum field. */
+export function volumePricingSectionSubtotal(
+  block: VolumePricingBlock | undefined,
+  sectionTotal = 0,
+): number {
+  const fromVolume = volumePricingSubtotal(block)
+  if (fromVolume > 0) return fromVolume
+  return Math.max(0, Number(sectionTotal) || 0)
+}
+
+/** True when Section 2 has priced volume rows or a lump-sum total. */
+export function volumePricingHasContent(
+  block: VolumePricingBlock | undefined,
+  sectionTotal = 0,
+): boolean {
+  if (volumePricingSectionSubtotal(block, sectionTotal) > 0) return true
   if (!block) return false
-  return (block.rows ?? []).some(r => Number(r.estimated_volume_m3 || 0) > 0)
+  return (block.rows ?? []).some(
+    r => Number(r.estimated_volume_m3 || 0) > 0 || (r.description ?? '').trim(),
+  )
 }
 
 /**
@@ -225,6 +241,7 @@ export function computeQuoteCaptureTotals(
   gstMode: QuoteGstMode,
   globalMobilisationFee = 0,
   areaPricingSectionTotal = 0,
+  volumePricingSectionTotal = 0,
   /** When outcome rows are empty, sum legacy line_items instead (printed quote path). */
   lineItemsFallback?: Array<{ total?: number }>,
 ): { subtotal: number; gst: number; total: number } {
@@ -240,7 +257,9 @@ export function computeQuoteCaptureTotals(
   const surfaceSum = layout.per_sqm_enabled
     ? areaPricingSectionSubtotal(areaPricing, areaPricingSectionTotal)
     : 0
-  const volSum = layout.per_m3_enabled ? volumePricingSubtotal(volumePricing ?? undefined) : 0
+  const volSum = layout.per_m3_enabled
+    ? volumePricingSectionSubtotal(volumePricing ?? undefined, volumePricingSectionTotal)
+    : 0
   const lineSum = round2(outcomeSum + surfaceSum + volSum)
   if (gstMode === 'exclusive') {
     const gst = round2(lineSum * 0.1)
@@ -277,7 +296,7 @@ export function derivePricingLayoutFromCapture(
   if (cap?.pricing_layout) return cap.pricing_layout
   const outcomes = outcomesHaveContent(cap?.rows) || Number(cap?.global_mobilisation_fee || 0) > 0
   const perSqm = areaPricingHasContent(cap?.area_pricing, cap?.area_pricing_section_total)
-  const perM3 = volumePricingHasContent(cap?.volume_pricing)
+  const perM3 = volumePricingHasContent(cap?.volume_pricing, cap?.volume_pricing_section_total)
   // Brand-new captures default to outcomes-only (matches the most common case).
   if (!outcomes && !perSqm && !perM3) {
     return { outcomes_enabled: true, per_m3_enabled: false, per_sqm_enabled: false }
@@ -315,6 +334,7 @@ export function applyPricingLayoutToContent(
   if (!layout.per_m3_enabled) {
     next.volume_pricing = undefined
     next.volume_pricing_terms = undefined
+    next.volume_pricing_section_total = undefined
   }
 
   const gstMode = next.gst_mode ?? 'no_gst'
@@ -326,6 +346,7 @@ export function applyPricingLayoutToContent(
     gstMode,
     Math.max(0, Number(next.global_mobilisation_fee || 0)),
     Math.max(0, Number(next.area_pricing_section_total || 0)),
+    Math.max(0, Number(next.volume_pricing_section_total || 0)),
     next.line_items,
   )
   next.subtotal = totals.subtotal

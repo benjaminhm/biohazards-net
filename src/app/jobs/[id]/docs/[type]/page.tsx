@@ -150,11 +150,13 @@ function DocViewerInner() {
             const global_surface_rate_per_m2 = Number(quoteRes.global_surface_rate_per_m2 ?? 0)
             const global_contents_rate_per_m3 = Number(quoteRes.global_contents_rate_per_m3 ?? 0)
             const area_pricing_section_total = Number(quoteRes.area_pricing_section_total ?? 0)
+            const volume_pricing_section_total = Number(quoteRes.volume_pricing_section_total ?? 0)
             const outcomes_section_terms = quoteRes.outcomes_section_terms as SectionTerms | undefined
             next = mergeQuoteLineItemsIntoDocContent(docType, next, rows, {
               gst_mode, add_gst_to_total, outcome_rows, outcome_mode,
               area_pricing, area_pricing_terms,
               area_pricing_section_total: area_pricing_section_total > 0 ? area_pricing_section_total : undefined,
+              volume_pricing_section_total: volume_pricing_section_total > 0 ? volume_pricing_section_total : undefined,
               outcomes_section_terms,
               volume_pricing, volume_pricing_terms,
               pricing_layout,
@@ -230,11 +232,13 @@ function DocViewerInner() {
           const global_surface_rate_per_m2 = Number(quoteRes.global_surface_rate_per_m2 ?? 0)
           const global_contents_rate_per_m3 = Number(quoteRes.global_contents_rate_per_m3 ?? 0)
           const area_pricing_section_total = Number(quoteRes.area_pricing_section_total ?? 0)
+          const volume_pricing_section_total = Number(quoteRes.volume_pricing_section_total ?? 0)
           const outcomes_section_terms = quoteRes.outcomes_section_terms as SectionTerms | undefined
           finalComposed = mergeQuoteLineItemsIntoDocContent(docType, composed, rows, {
             gst_mode, add_gst_to_total, outcome_rows, outcome_mode,
             area_pricing, area_pricing_terms,
             area_pricing_section_total: area_pricing_section_total > 0 ? area_pricing_section_total : undefined,
+            volume_pricing_section_total: volume_pricing_section_total > 0 ? volume_pricing_section_total : undefined,
             outcomes_section_terms,
             volume_pricing, volume_pricing_terms,
             pricing_layout,

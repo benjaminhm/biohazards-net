@@ -502,8 +502,9 @@ function composeQuote(job: Job, quoteId?: string): ComposeDocumentResult {
   const auth = cap?.authorisation
   const areaPricing = (cap?.area_pricing ?? []).filter(r => Number(r.total ?? 0) > 0)
   const areaPricingSectionTotal = Math.max(0, Number(cap?.area_pricing_section_total || 0))
+  const volumePricingSectionTotal = Math.max(0, Number(cap?.volume_pricing_section_total || 0))
   const autoExcludedSurfaces = collectExcludedSurfaces(areaPricing)
-  const volumePricing = cap?.volume_pricing && volumePricingHasContent(cap.volume_pricing)
+  const volumePricing = cap?.volume_pricing && volumePricingHasContent(cap.volume_pricing, volumePricingSectionTotal)
     ? cap.volume_pricing
     : undefined
   const layout = derivePricingLayoutFromCapture(cap)
@@ -514,6 +515,7 @@ function composeQuote(job: Job, quoteId?: string): ComposeDocumentResult {
   const hasCapture = hasOutcomes
     || areaPricing.length > 0
     || areaPricingSectionTotal > 0
+    || volumePricingSectionTotal > 0
     || !!volumePricing
   const raw: QuoteContent = {
     // Unified doc identity — every Quote-type document prints as
@@ -534,6 +536,7 @@ function composeQuote(job: Job, quoteId?: string): ComposeDocumentResult {
     area_pricing_terms: areaTerms,
     ...(areaPricingSectionTotal > 0 ? { area_pricing_section_total: areaPricingSectionTotal } : {}),
     volume_pricing: volumePricing,
+    ...(volumePricingSectionTotal > 0 ? { volume_pricing_section_total: volumePricingSectionTotal } : {}),
     volume_pricing_terms: volumeTerms,
     pricing_layout: layout,
     global_mobilisation_fee: Math.max(0, Number(cap?.global_mobilisation_fee || 0)),

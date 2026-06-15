@@ -39,6 +39,7 @@ import {
   areaPricingSectionSubtotal,
   areaPricingSurfaceSum,
   computeQuoteCaptureTotals,
+  volumePricingSectionSubtotal,
   derivePricingLayoutFromCapture,
   normalizeSectionTerms,
   quoteContentIsEstimate,
@@ -122,6 +123,7 @@ function computeTotals(
   gstMode: QuoteGstMode,
   globalMobilisationFee = 0,
   areaPricingSectionTotal = 0,
+  volumePricingSectionTotal = 0,
 ) {
   return computeQuoteCaptureTotals(
     rows,
@@ -131,6 +133,7 @@ function computeTotals(
     gstMode,
     globalMobilisationFee,
     areaPricingSectionTotal,
+    volumePricingSectionTotal,
   )
 }
 
@@ -447,6 +450,9 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
   const [areaPricingSectionTotal, setAreaPricingSectionTotal] = useState<number>(
     Math.max(0, Number(existing?.area_pricing_section_total ?? 0)),
   )
+  const [volumePricingSectionTotal, setVolumePricingSectionTotal] = useState<number>(
+    Math.max(0, Number(existing?.volume_pricing_section_total ?? 0)),
+  )
   const [paymentTerms, setPaymentTerms] = useState(ad?.payment_terms ?? '')
   const [validity, setValidity] = useState(existing?.validity ?? '')
   const [notes, setNotes] = useState(existing?.notes ?? '')
@@ -506,6 +512,7 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
     setGlobalSurfaceRatePerM2(Math.max(0, Number(cap?.global_surface_rate_per_m2 ?? 0)))
     setGlobalContentsRatePerM3(Math.max(0, Number(cap?.global_contents_rate_per_m3 ?? 0)))
     setAreaPricingSectionTotal(Math.max(0, Number(cap?.area_pricing_section_total ?? 0)))
+    setVolumePricingSectionTotal(Math.max(0, Number(cap?.volume_pricing_section_total ?? 0)))
     setGstMode(cap?.gst_mode ?? 'no_gst')
     setValidity(cap?.validity ?? '')
     setNotes(cap?.notes ?? '')
@@ -543,8 +550,9 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
         gstMode,
         globalMobilisationFee,
         areaPricingSectionTotal,
+        volumePricingSectionTotal,
       ),
-    [rows, areaPricing, volumePricing, pricingLayout, gstMode, globalMobilisationFee, areaPricingSectionTotal],
+    [rows, areaPricing, volumePricing, pricingLayout, gstMode, globalMobilisationFee, areaPricingSectionTotal, volumePricingSectionTotal],
   )
   const areaPricingSurfaceSubtotal = useMemo(
     () => areaPricingSurfaceSum(areaPricing),
@@ -554,7 +562,11 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
     () => areaPricingSectionSubtotal(areaPricing, areaPricingSectionTotal),
     [areaPricing, areaPricingSectionTotal],
   )
-  const volumeSubtotal = useMemo(() => volumePricingSubtotal(volumePricing), [volumePricing])
+  const volumeVolumeSubtotal = useMemo(() => volumePricingSubtotal(volumePricing), [volumePricing])
+  const volumeSubtotal = useMemo(
+    () => volumePricingSectionSubtotal(volumePricing, volumePricingSectionTotal),
+    [volumePricing, volumePricingSectionTotal],
+  )
   const outcomesSubtotal = useMemo(
     () => toMoney(Math.max(0, Number(globalMobilisationFee || 0)) + rows.reduce((s, r) => s + Math.max(0, Number(r.price || 0)), 0)),
     [rows, globalMobilisationFee],
@@ -828,6 +840,7 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
       ...(areaPricingSectionTotal > 0 ? { area_pricing_section_total: areaPricingSectionTotal } : {}),
       ...(cleanAreaTerms ? { area_pricing_terms: cleanAreaTerms } : {}),
       ...(persistedVolume ? { volume_pricing: persistedVolume } : {}),
+      ...(volumePricingSectionTotal > 0 ? { volume_pricing_section_total: volumePricingSectionTotal } : {}),
       ...(cleanVolumeTerms ? { volume_pricing_terms: cleanVolumeTerms } : {}),
       pricing_layout: pricingLayout,
       global_mobilisation_fee: globalMobilisationFee,
@@ -842,6 +855,7 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
         gstMode,
         globalMobilisationFee,
         areaPricingSectionTotal,
+        volumePricingSectionTotal,
       ),
       target_pricing: {},
       validity,
@@ -1577,11 +1591,9 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
       <div style={{ marginBottom: 8 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
           <div style={SECTION}>2. Contents Removal</div>
-          {volumeSubtotal > 0 && (
-            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-              Subtotal: <strong style={{ color: 'var(--text)' }}>${volumeSubtotal.toFixed(2)}</strong>
-            </div>
-          )}
+          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+            Subtotal: <strong style={{ color: 'var(--text)' }}>${volumeSubtotal.toFixed(2)}</strong>
+          </div>
         </div>
         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: -6, marginBottom: 12, lineHeight: 1.5 }}>
           Estimated cubic-metre volume per room. Final volume measured at uplift; variance billed/credited at the same rate.
@@ -1736,6 +1748,37 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
           />
           Estimate (final measured at uplift)
         </label>
+      </div>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end', marginBottom: 14 }}>
+        <div className="field" style={{ marginBottom: 0, flex: '0 0 200px' }}>
+          <label>Section total ($)</label>
+          <input
+            type="number"
+            inputMode="decimal"
+            min="0"
+            step="1"
+            value={volumePricingSectionTotal > 0 ? volumePricingSectionTotal : ''}
+            onChange={e => {
+              const n = parseFloat(e.target.value)
+              setVolumePricingSectionTotal(isNaN(n) ? 0 : Math.max(0, n))
+              setSaved(false)
+              setSaveError('')
+            }}
+            placeholder="0.00"
+            disabled={volumeVolumeSubtotal > 0}
+            aria-label="Section 2 value-based total"
+          />
+        </div>
+        {volumeVolumeSubtotal > 0 ? (
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.45, paddingBottom: 8 }}>
+            Total is from estimated m³ × $/m³ (${volumeVolumeSubtotal.toFixed(2)}).
+          </div>
+        ) : (
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.45, paddingBottom: 8 }}>
+            Enter a fixed total when not pricing per m³, or add volume lines and a $/m³ rate above.
+          </div>
+        )}
       </div>
 
       <SectionObservedContentsField
