@@ -52,6 +52,7 @@ import {
   volumePricingSubtotal,
 } from '@/lib/quoteSections'
 import RichTextEditor from '@/components/RichTextEditor'
+import { tradingAuthReplyEmail } from '@/lib/tradingNames'
 
 interface Props {
   job: Job
@@ -2625,7 +2626,7 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
           <ol style={{ margin: 0, paddingLeft: 18 }}>
             <li>With pen and paper, write out the authorisation text exactly as shown below.</li>
             <li>Sign and date the handwritten authorisation.</li>
-            <li>Take a clear photo and email it to <strong style={{ color: 'var(--text)' }}>admin@brisbanebiohazardcleaning.com.au</strong>.</li>
+            <li>Take a clear photo and email it to <strong style={{ color: 'var(--text)' }}>{tradingAuthReplyEmail(job.trading_name)}</strong>.</li>
           </ol>
         </div>
         <RichTextEditor

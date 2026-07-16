@@ -1476,12 +1476,15 @@ function buildQuoteMid(
   photos: Photo[],
   groups: RoomPhotoGroup[],
   areas: Area[],
-  _company: CompanyProfile | null,
+  company: CompanyProfile | null,
   _jobId: string,
   _appUrl: string,
   client: ClientInfo | undefined,
 ): string {
   const siteLine = (client?.site_address ?? '').trim()
+  // Print routes pass applyTradingBrand(company), so FCQ gets its brand email.
+  const authReplyEmail =
+    (company?.email || '').trim() || 'admin@brisbanebiohazardcleaning.com.au'
   const layout = c.pricing_layout
   const outcomeRows = (c.outcome_rows ?? []).filter(Boolean)
   const globalMobilisationFee = Math.max(0, Number(c.global_mobilisation_fee || 0))
@@ -1633,7 +1636,7 @@ function buildQuoteMid(
             <ol>
               <li>With pen and paper, write out the authorisation text exactly as shown below.</li>
               <li>Sign and date the handwritten authorisation.</li>
-              <li>Take a clear photo and email it to <strong>admin@brisbanebiohazardcleaning.com.au</strong>.</li>
+              <li>Take a clear photo and email it to <strong>${esc(authReplyEmail)}</strong>.</li>
             </ol>
           </div>
           <div style="margin-top:18px;padding:16px;border:1px solid var(--sow-rule);border-radius:8px;background:var(--sow-blue-xs);">
