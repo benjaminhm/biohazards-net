@@ -64,6 +64,8 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 },
   companyLogo: { width: 100, height: 40, objectFit: 'contain' },
   companyName: { fontSize: 14, fontFamily: 'Helvetica-Bold', color: BLACK },
+  wordmarkLine: { fontSize: 13, fontFamily: 'Helvetica-Bold', color: BLACK, letterSpacing: 0.4, textTransform: 'uppercase' },
+  wordmarkAccent: { fontSize: 9, fontFamily: 'Helvetica-Bold', color: MUTED, letterSpacing: 2, marginTop: 2, textTransform: 'uppercase' },
   companyTagline: { fontSize: 8, color: MUTED, marginTop: 2 },
   companyContact: { fontSize: 7, color: MUTED, marginTop: 3 },
   headerRight: { alignItems: 'flex-end' },
@@ -174,10 +176,17 @@ interface HeaderProps {
   company: CompanyProfile | null
 }
 
+function splitWordmark(name: string): { line: string; accent: string | null } {
+  const m = name.trim().match(/^(.*?)[\s]+(QLD|NSW|VIC|WA|SA|TAS|ACT|NT)$/i)
+  if (m) return { line: m[1], accent: m[2].toUpperCase() }
+  return { line: name, accent: null }
+}
+
 function Header({ reference, date, company }: HeaderProps) {
   const name = company?.name || 'Brisbane Biohazard Cleaning'
   const tagline = company?.tagline || 'Professional services'
   const contact = [company?.phone, company?.email, company?.abn ? `ABN: ${company.abn}` : ''].filter(Boolean).join('  ·  ')
+  const wordmark = splitWordmark(name)
 
   return (
     <>
@@ -187,7 +196,8 @@ function Header({ reference, date, company }: HeaderProps) {
             <Image src={company.logo_url} style={styles.companyLogo} />
           ) : (
             <>
-              <Text style={styles.companyName}>{name}</Text>
+              <Text style={styles.wordmarkLine}>{wordmark.line}</Text>
+              {wordmark.accent ? <Text style={styles.wordmarkAccent}>{wordmark.accent}</Text> : null}
               <Text style={styles.companyTagline}>{tagline}</Text>
             </>
           )}

@@ -34,6 +34,7 @@ import { groupPhotosByRoomAndStage } from '@/lib/photoGroups'
 import { effectiveAreaDimensions } from '@/lib/areaSubzones'
 import { getDocumentRulesForBuild } from '@/lib/documentRules'
 import { fetchPlatformDocumentRules, type PlatformDocumentRulesMap } from '@/lib/platformDocumentRules'
+import { applyTradingBrand } from '@/lib/tradingNames'
 import {
   documentDriverInstructions,
   hitlSelectionsBlock,
@@ -451,6 +452,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
+    const brandedCompany = applyTradingBrand(company, job.trading_name)
+
     if (type === 'iaq_multi') {
       return NextResponse.json(
         {
@@ -468,7 +471,7 @@ export async function POST(req: Request) {
 
     const platformDbRules = await fetchPlatformDocumentRules()
     const composedPhotos = photosForComposedReports(photos ?? [])
-    const prompt = buildPrompt(type, job, composedPhotos, company, platformDbRules)
+    const prompt = buildPrompt(type, job, composedPhotos, brandedCompany, platformDbRules)
 
     // Optionally prepend a style guide PDF as a Claude document block.
     // document_rules[type + '_pdf'] stores the public URL of an example

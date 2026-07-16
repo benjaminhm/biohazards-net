@@ -15,6 +15,7 @@ import { getOrgId } from '@/lib/org'
 import { normalizeOptionalPhoneField } from '@/lib/phone'
 import { ensureJobInboundEmailToken } from '@/lib/jobInboundEmail'
 import { verifyImpersonationFromRequest } from '@/lib/impersonation'
+import { isTradingNameId } from '@/lib/tradingNames'
 
 type ServiceClient = ReturnType<typeof createServiceClient>
 
@@ -111,6 +112,16 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       if (!pr.ok) return NextResponse.json({ error: pr.error }, { status: 400 })
       if (pr.value === undefined) delete body.client_phone
       else body.client_phone = pr.value
+    }
+    if ('trading_name' in body) {
+      if (body.trading_name === null || body.trading_name === '') {
+        body.trading_name = null
+      } else if (!isTradingNameId(body.trading_name)) {
+        return NextResponse.json(
+          { error: 'Invalid trading_name. Use brisbane_biohazard_cleaning or forensic_cleaning_qld.' },
+          { status: 400 },
+        )
+      }
     }
     const { data, error } = await supabase
       .from('jobs')

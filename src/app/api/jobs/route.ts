@@ -14,6 +14,7 @@ import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import { normalizeOptionalPhoneField } from '@/lib/phone'
 import { ensureJobInboundEmailToken } from '@/lib/jobInboundEmail'
+import { isTradingNameId } from '@/lib/tradingNames'
 
 export async function GET(req: Request) {
   try {
@@ -148,6 +149,17 @@ export async function POST(req: Request) {
     const str = (k: string) => (typeof body[k] === 'string' ? (body[k] as string) : '')
     const num = (k: string) => (typeof body[k] === 'number' ? (body[k] as number) : null)
 
+    let trading_name: string | null = null
+    if (body.trading_name != null && body.trading_name !== '') {
+      if (!isTradingNameId(body.trading_name)) {
+        return NextResponse.json(
+          { error: 'Invalid trading_name. Use brisbane_biohazard_cleaning or forensic_cleaning_qld.' },
+          { status: 400 },
+        )
+      }
+      trading_name = body.trading_name
+    }
+
     const supabase = createServiceClient()
     const { data, error } = await supabase
       .from('jobs')
@@ -157,6 +169,7 @@ export async function POST(req: Request) {
         client_contact_role: str('client_contact_role'),
         client_contact_relationship: str('client_contact_relationship'),
         insurance_claim_ref: str('insurance_claim_ref'),
+        trading_name,
         client_phone: clientPhoneOut,
         client_email: client_email ?? '',
         site_address,

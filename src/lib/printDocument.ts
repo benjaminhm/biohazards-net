@@ -51,6 +51,19 @@ const todayStr = () =>
 const esc = (s: unknown): string =>
   String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
 
+/**
+ * Typographic wordmark for trading names without an image logo (e.g. Forensic Cleaning QLD).
+ * Splits a trailing region token (QLD / NSW / …) onto a second line when present.
+ */
+function brandWordmarkHtml(name: string): string {
+  const trimmed = name.trim() || DEFAULT_PRINT_ORG_NAME
+  const m = trimmed.match(/^(.*?)[\s]+(QLD|NSW|VIC|WA|SA|TAS|ACT|NT)$/i)
+  if (m) {
+    return `<div class="sow-wordmark" role="img" aria-label="${esc(trimmed)}"><span class="sow-wordmark-line">${esc(m[1])}</span><span class="sow-wordmark-accent">${esc(m[2].toUpperCase())}</span></div>`
+  }
+  return `<div class="sow-wordmark" role="img" aria-label="${esc(trimmed)}"><span class="sow-wordmark-line">${esc(trimmed)}</span></div>`
+}
+
 /** Print CSS: navy SOW shell (cssSowPrint) — all DocTypes use this layout. */
 function cssSowPrint(): string {
   return `
@@ -93,6 +106,18 @@ function cssSowPrint(): string {
     }
     .sow-root .sow-top-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
     .sow-root .sow-logo { max-height: 40px; max-width: 120px; object-fit: contain; display: block; }
+    .sow-root .sow-wordmark {
+      display: flex; flex-direction: column; justify-content: center;
+      line-height: 1.05; max-width: 200px;
+    }
+    .sow-root .sow-wordmark-line {
+      font-size: 11pt; font-weight: 700; letter-spacing: 0.02em;
+      color: #fff; text-transform: uppercase;
+    }
+    .sow-root .sow-wordmark-accent {
+      font-size: 8pt; font-weight: 600; letter-spacing: 0.18em;
+      color: var(--sow-muted); text-transform: uppercase; margin-top: 3px;
+    }
     .sow-root .sow-co-name { font-size: 12pt; font-weight: 600; letter-spacing: -0.3px; color: #fff; }
     .sow-root .sow-co-sub { font-size: 7.5pt; color: var(--sow-muted); margin-top: 2px; font-weight: 400; }
     .sow-root .sow-doc-info { text-align: right; font-size: 8pt; color: var(--sow-muted); line-height: 1.9; }
@@ -659,9 +684,11 @@ function wrapBranded(
 ): string {
   const coName = company?.name || DEFAULT_PRINT_ORG_NAME
   const coTag = company?.tagline || 'Biohazard & Forensic Remediation Services'
+  // Image logo when present; otherwise a typographic wordmark (used by FCQ trading name).
   const logo = company?.logo_url
     ? `<img class="sow-logo" src="${esc(company.logo_url)}" alt="${esc(coName)}">`
-    : ''
+    : brandWordmarkHtml(coName)
+  const showNameBesideLogo = !!company?.logo_url
   const bundleParts = printOptions?.bundlePartCount ?? 0
   const footerRef =
     printOptions?.composedBundle && bundleParts > 0
@@ -675,7 +702,7 @@ function wrapBranded(
         <div class="sow-top-left">
           ${logo}
           <div class="sow-co-block">
-            <div class="sow-co-name">${esc(coName)}</div>
+            ${showNameBesideLogo ? `<div class="sow-co-name">${esc(coName)}</div>` : ''}
             <div class="sow-co-sub">${esc(coTag)}</div>
           </div>
         </div>

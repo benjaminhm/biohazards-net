@@ -61,6 +61,8 @@ import PostRemediationEvaluationTab from '@/components/tabs/PostRemediationEvalu
 import PerExecuteCapturePanel from '@/components/tabs/PerExecuteCapturePanel'
 import CompanyLetterTab from '@/components/tabs/CompanyLetterTab'
 import PreStartBriefingTab from '@/components/tabs/PreStartBriefingTab'
+import TradingNameModal from '@/components/TradingNameModal'
+import { isTradingNameId, type TradingNameId } from '@/lib/tradingNames'
 import { useUser } from '@/lib/userContext'
 import {
   UnsavedChangesProvider,
@@ -624,6 +626,24 @@ export default function JobPage() {
   const [loading,     setLoading]     = useState(true)
   const [unreadSms,   setUnreadSms]   = useState(0)
   const [canInvoice,  setCanInvoice]  = useState(false)
+  /** Re-open trading-name picker from Client Details (first-time prompt is blocking). */
+  const [tradingNamePickerOpen, setTradingNamePickerOpen] = useState(false)
+
+  const needsTradingName = !!job && !isTradingNameId(job.trading_name)
+
+  async function saveTradingName(tradingName: TradingNameId) {
+    const res = await fetch(`/api/jobs/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ trading_name: tradingName }),
+    })
+    const data = (await res.json()) as { job?: Job; error?: string }
+    if (!res.ok || !data.job) {
+      throw new Error(data.error || 'Could not save trading name')
+    }
+    setJob(data.job)
+    setTradingNamePickerOpen(false)
+  }
 
   const initialTabParam = searchParams.get('tab')
   const initialTab = initialTabParam === 'documents'
@@ -1424,7 +1444,12 @@ export default function JobPage() {
           />
         )}
         {showDetails && (
-          <ClientDetailsTab job={job} onJobUpdate={setJob} readOnly={!isAdmin && !caps.edit_job_details} />
+          <ClientDetailsTab
+            job={job}
+            onJobUpdate={setJob}
+            readOnly={!isAdmin && !caps.edit_job_details}
+            onChangeTradingName={() => setTradingNamePickerOpen(true)}
+          />
         )}
         {showTimeline && (
           <TimelineTab job={job} onJobUpdate={setJob} readOnly={!isAdmin && !caps.edit_job_details} />
@@ -1847,6 +1872,16 @@ export default function JobPage() {
           <CompanyLetterTab job={job} />
         )}
       </div>
+
+      {(needsTradingName || tradingNamePickerOpen) && (
+        <TradingNameModal
+          clientLabel={job.client_name || job.client_organization_name || undefined}
+          initialValue={isTradingNameId(job.trading_name) ? job.trading_name : null}
+          allowDismiss={!needsTradingName}
+          onSave={saveTradingName}
+          onCancel={() => setTradingNamePickerOpen(false)}
+        />
+      )}
     </div>
         )}
       </UnsavedNavigationGuard>

@@ -24,6 +24,7 @@ import {
   fetchQuoteLineItemsMergeContext,
   mergeQuoteLineItemsIntoDocContent,
 } from '@/lib/quoteLineItemsForDocuments'
+import { applyTradingBrand, isTradingNameId } from '@/lib/tradingNames'
 import type { DocType } from '@/lib/types'
 
 export const runtime = 'nodejs'
@@ -83,15 +84,18 @@ export async function POST(req: Request) {
         : Promise.resolve({ data: [] }),
       supabase.from('company_profile').select('*').limit(1).maybeSingle(),
       jobId
-        ? supabase.from('jobs').select('assessment_data,site_address').eq('id', jobId).maybeSingle()
+        ? supabase.from('jobs').select('assessment_data,site_address,trading_name').eq('id', jobId).maybeSingle()
         : Promise.resolve({ data: null }),
     ])
+
+    const tradingName = isTradingNameId(jobRes.data?.trading_name) ? jobRes.data.trading_name : null
+    const company = applyTradingBrand(companyRes.data ?? null, tradingName)
 
     const buffer: Buffer = await renderToBuffer(createElement(JobPDFDocument, {
       type,
       content: mergedContent,
       photos: photosRes.data ?? [],
-      company: companyRes.data ?? null,
+      company,
       jobId,
       areas: jobRes.data?.assessment_data?.areas ?? [],
       siteAddress: jobRes.data?.site_address ?? undefined,

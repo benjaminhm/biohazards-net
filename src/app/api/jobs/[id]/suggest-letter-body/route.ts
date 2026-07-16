@@ -22,6 +22,8 @@ import { auth } from '@clerk/nextjs/server'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import { getAnthropicApiKey } from '@/lib/loadAnthropicEnvFallback'
+import { applyTradingBrand, isTradingNameId } from '@/lib/tradingNames'
+import type { CompanyProfile } from '@/lib/types'
 
 const SYSTEM = `You draft the BODY of a professional business letter for an Australian biohazard remediation company.
 
@@ -76,7 +78,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const [{ data: jobRow, error: jobErr }, { data: companyRow }] = await Promise.all([
       supabase
         .from('jobs')
-        .select('id, job_type, site_address, client_name, client_email, client_phone, client_organization_name, client_contact_role, insurance_claim_ref, notes')
+        .select('id, job_type, site_address, client_name, client_email, client_phone, client_organization_name, client_contact_role, insurance_claim_ref, notes, trading_name')
         .eq('id', jobId)
         .eq('org_id', orgId)
         .maybeSingle(),
@@ -90,13 +92,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (!jobRow) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
 
     const client = new Anthropic({ apiKey })
+    const tradingName = isTradingNameId(jobRow.trading_name) ? jobRow.trading_name : null
+    const companyContext = applyTradingBrand(
+      (companyRow as CompanyProfile | null) ?? null,
+      tradingName,
+    )
 
     const userPayload = {
       user_brief: prompt,
       tone: body.tone ?? 'professional',
       existing_body: body.existing_body ?? null,
       job_context: jobRow,
-      company_context: companyRow ?? null,
+      company_context: companyContext,
     }
 
     const message = await client.messages.create({

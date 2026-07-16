@@ -17,11 +17,14 @@
 import { useEffect, useState } from 'react'
 import type { Job, PhoneEntry } from '@/lib/types'
 import AddressAutocomplete from '@/components/AddressAutocomplete'
+import { tradingNameLabel } from '@/lib/tradingNames'
 
 interface Props {
   job: Job
   onJobUpdate: (job: Job) => void
   readOnly?: boolean
+  /** Opens the trading-name picker so brand on documents can be changed. */
+  onChangeTradingName?: () => void
 }
 
 // Helpers (mirrored from DetailsTab/InitialContactTab).
@@ -185,12 +188,18 @@ function EditableField({
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-export default function ClientDetailsTab({ job, onJobUpdate, readOnly = false }: Props) {
+export default function ClientDetailsTab({
+  job,
+  onJobUpdate,
+  readOnly = false,
+  onChangeTradingName,
+}: Props) {
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
 
   const canEdit = !readOnly
+  const tradingLabel = tradingNameLabel(job.trading_name)
 
   async function patchField(patch: Record<string, unknown>) {
     setSaving(true)
@@ -359,6 +368,41 @@ export default function ClientDetailsTab({ job, onJobUpdate, readOnly = false }:
               style={{ padding: '8px 14px', fontSize: 13 }}
             >
               {editing ? 'Done' : 'Edit'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Trading name — brand on composed documents for this job */}
+      <div style={cardStyle}>
+        <div
+          style={{
+            fontSize: 12,
+            fontWeight: 700,
+            letterSpacing: '0.08em',
+            textTransform: 'uppercase',
+            color: 'var(--text-muted)',
+            marginBottom: 4,
+          }}
+        >
+          Trading as
+        </div>
+        <div style={{ ...rowStyle, borderBottom: 'none' }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={tradingLabel ? valueStyle : mutedValueStyle}>
+              {tradingLabel || 'Not selected'}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+              Letterhead and contractor name on quotes and letters. Same ABN and address.
+            </div>
+          </div>
+          {canEdit && onChangeTradingName && (
+            <button
+              type="button"
+              onClick={onChangeTradingName}
+              style={{ ...actionBtn, padding: '8px 12px', fontSize: 13, minWidth: 'auto' }}
+            >
+              {tradingLabel ? 'Change' : 'Select'}
             </button>
           )}
         </div>

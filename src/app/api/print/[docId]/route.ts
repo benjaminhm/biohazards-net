@@ -15,6 +15,7 @@
  */
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
+import { applyTradingBrand, isTradingNameId } from '@/lib/tradingNames'
 import { buildPrintHTML } from '@/lib/printDocument'
 import {
   fetchQuoteLineItemsMergeContext,
@@ -96,7 +97,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ docId: s
     supabase
       .from('jobs')
       .select(
-        'client_name,client_organization_name,client_email,client_phone,site_address,assessment_data',
+        'client_name,client_organization_name,client_email,client_phone,site_address,assessment_data,trading_name',
       )
       .eq('id', doc.job_id)
       .single(),
@@ -104,6 +105,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ docId: s
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.biohazards.net'
   const printUrl = `${appUrl}/api/print/${docId}`
+  const tradingName = isTradingNameId(jobRes.data?.trading_name) ? jobRes.data.trading_name : null
+  const company = applyTradingBrand(companyRes.data ?? null, tradingName)
 
   let docContent: Record<string, unknown> = (doc.content ?? {}) as Record<string, unknown>
   const docType = doc.type as DocType
@@ -159,7 +162,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ docId: s
     docContent,
     photosRes.data ?? [],
     jobRes.data?.assessment_data?.areas ?? [],
-    companyRes.data ?? null,
+    company,
     doc.job_id,
     appUrl,
     { ...jobRes.data, site_address: jobRes.data?.site_address, printUrl, photoToggleSupported, photosOn },

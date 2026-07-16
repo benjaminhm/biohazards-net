@@ -21,6 +21,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import type { CompanyProfile, Job, RecommendationItem } from '@/lib/types'
+import { applyTradingBrand } from '@/lib/tradingNames'
 
 interface Props {
   job: Job
@@ -51,9 +52,9 @@ export default function CompanyLetterTab({ job }: Props) {
   useEffect(() => {
     fetch('/api/company')
       .then(r => r.json())
-      .then(d => setCompany(d.company ?? null))
+      .then(d => setCompany(applyTradingBrand(d.company ?? null, job.trading_name)))
       .catch(() => {})
-  }, [])
+  }, [job.trading_name])
 
   const today = useMemo(
     () => new Date().toLocaleDateString('en-AU', { day: '2-digit', month: 'long', year: 'numeric' }),

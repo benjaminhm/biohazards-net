@@ -5,6 +5,7 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import { buildComposedBundleHTML } from '@/lib/printDocument'
+import { applyTradingBrand, isTradingNameId } from '@/lib/tradingNames'
 import type { DocType } from '@/lib/types'
 
 export async function GET(_req: Request, { params }: { params: Promise<{ bundleId: string }> }) {
@@ -39,7 +40,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ bundleI
     supabase
       .from('jobs')
       .select(
-        'client_name,client_organization_name,client_email,client_phone,assessment_data',
+        'client_name,client_organization_name,client_email,client_phone,assessment_data,trading_name',
       )
       .eq('id', jobId)
       .single(),
@@ -61,13 +62,15 @@ export async function GET(_req: Request, { params }: { params: Promise<{ bundleI
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.biohazards.net'
   const printUrl = `${appUrl}/api/print/bundle/${bundleId}`
+  const tradingName = isTradingNameId(jobRes.data?.trading_name) ? jobRes.data.trading_name : null
+  const company = applyTradingBrand(companyRes.data ?? null, tradingName)
 
   const html = buildComposedBundleHTML(
     parts,
     (bundle.title as string) || 'Composed document',
     photosRes.data ?? [],
     jobRes.data?.assessment_data?.areas ?? [],
-    companyRes.data ?? null,
+    company,
     jobId,
     appUrl,
     { ...jobRes.data, printUrl },

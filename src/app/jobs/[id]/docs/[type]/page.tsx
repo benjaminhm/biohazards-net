@@ -17,6 +17,7 @@ import type { AreaPricingRow, CompanyProfile, CustomPricingRow, DocType, Job, Ou
 import { DOC_TYPE_LABELS } from '@/lib/types'
 import { composeDocumentContent, buildComposedPreviewHtml, type ComposeDocumentOptions } from '@/lib/composeDocument'
 import { mergeQuoteLineItemsIntoDocContent } from '@/lib/quoteLineItemsForDocuments'
+import { applyTradingBrand } from '@/lib/tradingNames'
 
 /** True when a quote/iaq_multi doc carries a spoke quote_id (frozen snapshot). */
 function contentHasQuoteId(docType: DocType, content: Record<string, unknown>): boolean {
@@ -128,7 +129,7 @@ function DocViewerInner() {
       ])
       const j = jobRes.job as Job | null
       const ph = jobRes.photos ?? []
-      const co = companyRes.company ?? null
+      const co = applyTradingBrand(companyRes.company ?? null, j?.trading_name)
       setJob(j); setPhotos(ph); setCompany(co)
       if (docId) {
         const d = await fetch(`/api/documents/${docId}`).then(r => r.json())

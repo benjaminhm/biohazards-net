@@ -1107,6 +1107,9 @@ export interface PhoneEntry {
   number: string
 }
 
+/** Trading name used on this job's client-facing documents (same ABN). */
+export type JobTradingName = 'brisbane_biohazard_cleaning' | 'forensic_cleaning_qld'
+
 export interface Job {
   id: string
   /** Present when job payload is scoped to an org (API validation). */
@@ -1123,6 +1126,11 @@ export interface Job {
   client_contact_relationship?: string
   /** Insurer claim or reference number if applicable. */
   insurance_claim_ref?: string
+  /**
+   * Operating trading name for composed documents on this job.
+   * Null until chosen via the trading-name prompt.
+   */
+  trading_name?: JobTradingName | null
   client_phone: string
   client_phones: PhoneEntry[]   // additional numbers beyond primary
   client_email: string
