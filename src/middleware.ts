@@ -25,15 +25,23 @@
  *   Sets x-org-host header — used by layout.tsx to configure Clerk
  *   as a satellite domain so auth session is shared from app.biohazards.net.
  *
+ *   accounts.<brand>.com.au — commercial trade account portal.
+ *   Matched before the custom-domain branch and deliberately does NOT set
+ *   x-org-host: these contacts are not Clerk users, so there is no satellite
+ *   session to share, and getOrgId must not look the host up as a custom domain.
+ *   Only /portal and /api/portal are reachable on this host.
+ *
  * Public routes (no auth required):
  *   - All [slug].biohazards.net requests (public websites)
  *   - /login, /invite/:token, /accept/:id
  *   - /api/print, /api/sms/inbound, /api/public/*
+ *   - /portal/*, /api/portal/* (own magic-link session, see lib/portalSession.ts)
  */
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { getImpersonationReadOnlyFromRequest } from '@/lib/impersonation'
+import { accountsHostTradingName } from '@/lib/tradingNames'
 
 const isPublicRoute = createRouteMatcher([
   '/login(.*)',
@@ -50,10 +58,27 @@ const isPublicRoute = createRouteMatcher([
   '/api/webhooks/inbound-email(.*)',
   '/api/public/(.*)',  // public company profile data for website template
   '/site(.*)',         // public website pages
+  '/portal(.*)',       // commercial accounts portal — guarded by its own session
+  '/api/portal/(.*)',  // portal API — guarded by requirePortalContext()
 ])
 
 // Reserved subdomains that are not company slugs
-const RESERVED_SUBDOMAINS = new Set(['www', 'app', 'platform', 'admin'])
+const RESERVED_SUBDOMAINS = new Set(['www', 'app', 'platform', 'admin', 'accounts'])
+
+/*
+ * Framework and root-level assets the accounts host still needs to serve.
+ * The matcher already excludes /_next/static, /_next/image, favicon.ico and
+ * image extensions; this covers what is left (HMR in dev, the PWA manifest and
+ * service worker referenced by the root layout's metadata).
+ */
+function isSharedAsset(pathname: string): boolean {
+  return (
+    pathname.startsWith('/_next/') ||
+    pathname === '/manifest.json' ||
+    pathname === '/sw.js' ||
+    pathname === '/robots.txt'
+  )
+}
 
 export default clerkMiddleware(async (auth, request: NextRequest) => {
   const host = request.headers.get('host') ?? ''
@@ -84,8 +109,47 @@ export default clerkMiddleware(async (auth, request: NextRequest) => {
   const isCustomDomain =
     !isLocalDev && !host.endsWith('.biohazards.net') && host !== 'biohazards.net'
 
+  const isPortalPath =
+    pathname === '/portal' || pathname.startsWith('/portal/') || pathname.startsWith('/api/portal')
+
+  // Localhost and preview deployments have no accounts host, so the portal is
+  // reachable at /portal on the deployment origin — otherwise the flow could not
+  // be tested until DNS was already pointed at production.
+  const portalOnAppOrigin = isLocalDev || process.env.VERCEL_ENV === 'preview'
+  const accountsBrand =
+    accountsHostTradingName(host) ??
+    (portalOnAppOrigin && isPortalPath
+      ? process.env.ACCOUNTS_PORTAL_DEV_TRADING_NAME || 'forensic_cleaning_qld'
+      : null)
+
+  // ── accounts.<brand>.com.au — commercial trade account portal ──
+  // Checked before isCustomDomain: this host must not set x-org-host, because
+  // trade contacts are not Clerk users and the host is not an orgs.custom_domain.
+  if (accountsBrand) {
+    requestHeaders.set('x-subdomain', 'accounts')
+    requestHeaders.set('x-portal-trading-name', accountsBrand)
+
+    if (!portalOnAppOrigin) {
+      if (pathname === '/') {
+        const url = request.nextUrl.clone()
+        url.pathname = '/portal'
+        return NextResponse.rewrite(url, { request: { headers: requestHeaders } })
+      }
+      // The staff app must be unreachable on the accounts host.
+      if (!isPortalPath && !isSharedAsset(pathname)) {
+        return new NextResponse('Not found', { status: 404 })
+      }
+    }
+  }
+
+  // In production the portal exists only on its own host. Serving it from
+  // app.biohazards.net would render it under ClerkProvider to no purpose.
+  else if (isPortalPath) {
+    return new NextResponse('Not found', { status: 404 })
+  }
+
   // ── Custom domain (e.g. app.brisbanebiohazardcleaning.com.au) ──
-  if (isCustomDomain) {
+  else if (isCustomDomain) {
     requestHeaders.set('x-org-host', host)
   }
 
@@ -138,7 +202,13 @@ export default clerkMiddleware(async (auth, request: NextRequest) => {
   }
 
   // ── Read-only impersonation: block mutating /api/* (session endpoints exempt) ──
-  if (pathname.startsWith('/api/') && !pathname.startsWith('/api/admin/impersonate')) {
+  // Portal routes are exempt: a trade contact is never a Clerk user, so there is
+  // no impersonation session to check and no reason to ask Clerk on every write.
+  if (
+    pathname.startsWith('/api/') &&
+    !pathname.startsWith('/api/admin/impersonate') &&
+    !pathname.startsWith('/api/portal')
+  ) {
     const m = request.method
     if (m !== 'GET' && m !== 'HEAD' && m !== 'OPTIONS') {
       const { userId } = await auth()

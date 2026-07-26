@@ -124,19 +124,26 @@ interface Props {
    * When set, overrides showCreateSection/showSavedSection.
    */
   mode?: 'compose' | 'history' | 'legacy'
+  /** When the job is linked to a trade account, each saved document can be
+   *  released to that client's accounts portal. */
+  tradeAccountLinked?: boolean
   /** @deprecated use mode='compose' | 'history' instead. */
   showCreateSection?: boolean
   /** @deprecated use mode='compose' | 'history' instead. */
   showSavedSection?: boolean
 }
 
-function DocRow({ doc, jobId, clientName, clientEmail, onDeleted }: {
+function DocRow({ doc, jobId, clientName, clientEmail, onDeleted, tradeAccountLinked = false }: {
   doc: Document; jobId: string; clientName: string; clientEmail: string; onDeleted: (id: string) => void
+  tradeAccountLinked?: boolean
 }) {
   const router = useRouter()
   const [copied,        setCopied]        = useState(false)
   const [deleting,      setDeleting]      = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [releasedAt,    setReleasedAt]    = useState(doc.released_to_portal_at ?? null)
+  const [releasing,     setReleasing]     = useState(false)
+  const [releaseError,  setReleaseError]  = useState('')
 
   const printUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/api/print/${doc.id}`
   const label    = DOC_TYPE_LABELS[doc.type as DocType] ?? doc.type
@@ -151,6 +158,25 @@ function DocRow({ doc, jobId, clientName, clientEmail, onDeleted }: {
       await fetch(`/api/documents/${doc.id}`, { method: 'DELETE' })
       onDeleted(doc.id)
     } finally { setDeleting(false); setConfirmDelete(false) }
+  }
+
+  async function toggleRelease(released: boolean) {
+    setReleasing(true)
+    setReleaseError('')
+    try {
+      const res = await fetch(`/api/documents/${doc.id}/release`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ released }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error ?? 'Could not update')
+      setReleasedAt(data.document?.released_to_portal_at ?? null)
+    } catch (err) {
+      setReleaseError(err instanceof Error ? err.message : 'Could not update')
+    } finally {
+      setReleasing(false)
+    }
   }
 
   return (
@@ -199,6 +225,29 @@ function DocRow({ doc, jobId, clientName, clientEmail, onDeleted }: {
         style={{ fontSize: 11, color: 'var(--text-muted)', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 10px', wordBreak: 'break-all', cursor: 'pointer', userSelect: 'all' }}>
         {printUrl}
       </div>
+
+      {/* Portal release — only meaningful once the job has a trade account */}
+      {tradeAccountLinked && (
+        <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, textTransform: 'none', letterSpacing: 0, fontSize: 12, fontWeight: 400, color: 'var(--text)', marginBottom: 0 }}>
+            <input
+              type="checkbox"
+              checked={!!releasedAt}
+              disabled={releasing}
+              onChange={e => toggleRelease(e.target.checked)}
+            />
+            Visible in client’s trade account portal
+            {releasedAt && (
+              <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>
+                · released {new Date(releasedAt).toLocaleDateString('en-AU', { day: '2-digit', month: 'short' })}
+              </span>
+            )}
+          </label>
+          {releaseError && (
+            <div style={{ fontSize: 11, color: '#F87171', marginTop: 4 }}>{releaseError}</div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -571,6 +620,7 @@ function HistoryView({
   clientName,
   clientEmail,
   onDocumentDeleted,
+  tradeAccountLinked = false,
 }: {
   jobId: string
   documents: Document[]
@@ -580,6 +630,7 @@ function HistoryView({
   clientName: string
   clientEmail: string
   onDocumentDeleted: (id: string) => void
+  tradeAccountLinked?: boolean
 }) {
   if (documents.length === 0) {
     return (
@@ -601,6 +652,7 @@ function HistoryView({
           clientName={clientName}
           clientEmail={clientEmail}
           onDeleted={onDocumentDeleted}
+          tradeAccountLinked={tradeAccountLinked}
         />
       ))}
       {(onBundlesRefresh || documentBundles.length > 0 || canComposeBundles) && (
@@ -630,6 +682,7 @@ export default function DocumentsTab({
   onDocumentDeleted,
   onNavigate,
   mode,
+  tradeAccountLinked = false,
   showCreateSection = true,
   showSavedSection = true,
 }: Props) {
@@ -663,6 +716,7 @@ export default function DocumentsTab({
         clientName={clientName}
         clientEmail={clientEmail}
         onDocumentDeleted={onDocumentDeleted}
+        tradeAccountLinked={tradeAccountLinked}
       />
     )
   }
@@ -934,6 +988,7 @@ export default function DocumentsTab({
               clientName={clientName}
               clientEmail={clientEmail}
               onDeleted={onDocumentDeleted}
+              tradeAccountLinked={tradeAccountLinked}
             />
           ))}
           {(onBundlesRefresh || documentBundles.length > 0 || canComposeBundles) && (
