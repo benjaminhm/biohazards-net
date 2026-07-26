@@ -66,7 +66,14 @@ export async function requireAccountsAdmin(
   return { supabase, orgId, userId }
 }
 
-/** Fields staff may write on an account. Everything else is derived or audit. */
+/**
+ * Fields staff may write on an account. Everything else is derived or audit.
+ *
+ * The application columns are included so staff can correct a typo the client
+ * made without reopening the whole form and asking them to submit again. The
+ * submission stamps themselves stay out: those are set by the client submitting
+ * and cleared only by the reopen route, so they remain a truthful record.
+ */
 export const EDITABLE_ACCOUNT_FIELDS = [
   'legal_name',
   'trading_as',
@@ -76,6 +83,26 @@ export const EDITABLE_ACCOUNT_FIELDS = [
   'phone',
   'notes',
   'status',
+  'head_office_address',
+  'director_name',
+  'director_email',
+  'director_phone',
+  'finance_contact_name',
+  'finance_contact_title',
+  'finance_contact_email',
+  'finance_contact_phone',
+  'payment_terms',
+  'payment_run_days',
+  'payment_method',
+  'purchase_order_required',
+  'reference1_company',
+  'reference1_contact',
+  'reference1_phone',
+  'reference1_email',
+  'reference2_company',
+  'reference2_contact',
+  'reference2_phone',
+  'reference2_email',
 ] as const
 
 /** Fields staff may write on a contact. */

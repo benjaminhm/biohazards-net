@@ -9,13 +9,31 @@
  * these are strictly transactional loops, not composed client comms.
  *
  * The sending domain must be verified in Resend for the brand address to work.
- * RESEND_FROM_ACCOUNTS is the fallback while a brand domain is unverified.
+ * RESEND_FROM_ACCOUNTS overrides it while a brand domain is unverified.
  */
 import { Resend } from 'resend'
 import { tradingNameOption } from '@/lib/tradingNames'
 import type { TradingNameId } from '@/lib/tradingNames'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
+
+/**
+ * The Resend SDK reports failures in the returned `error` rather than throwing,
+ * so awaiting `emails.send` alone silently swallows a rejected send — a magic
+ * link is the only way into the portal, so "sent" must mean sent. Callers here
+ * all catch, so throwing turns a rejection into a visible 502 or a logged error.
+ */
+async function send(payload: {
+  from: string
+  to: string
+  subject: string
+  html: string
+}): Promise<void> {
+  const { error } = await resend.emails.send(payload)
+  if (error) {
+    throw new Error(`${error.name ?? 'Resend error'}: ${error.message ?? 'send rejected'}`)
+  }
+}
 
 function esc(s: string): string {
   return s
@@ -25,11 +43,18 @@ function esc(s: string): string {
     .replace(/"/g, '&quot;')
 }
 
+/*
+ * RESEND_FROM_ACCOUNTS wins over the brand address on purpose: Resend rejects a
+ * send outright from an unverified domain, so while a brand's domain is still
+ * pending this is the only way portal mail goes out at all. Unset it once the
+ * domain verifies and the brand address takes over. The visible display name
+ * stays the brand's either way.
+ */
 function fromAddress(tradingName: TradingNameId): string {
   const option = tradingNameOption(tradingName)
   const address =
-    option?.email ||
     process.env.RESEND_FROM_ACCOUNTS ||
+    option?.email ||
     process.env.RESEND_FROM_EMAIL ||
     'onboarding@resend.dev'
   return `${option?.label ?? 'Accounts'} <${address}>`
@@ -89,7 +114,7 @@ export async function sendPortalMagicLinkEmail(data: PortalMagicLinkEmail) {
     `
   )
 
-  await resend.emails.send({
+  await send({
     from: fromAddress(data.tradingName),
     to: data.to,
     subject: `Your ${brandLabel} sign-in link`,
@@ -132,7 +157,7 @@ export async function sendPortalInviteEmail(data: PortalInviteEmail) {
     `
   )
 
-  await resend.emails.send({
+  await send({
     from: fromAddress(data.tradingName),
     to: data.to,
     subject: `Your ${brandLabel} trade account`,
@@ -199,10 +224,72 @@ export async function sendPortalQuoteAcceptedEmail(data: PortalQuoteAcceptedNoti
     `
   )
 
-  await resend.emails.send({
+  await send({
     from: fromAddress(data.tradingName),
     to,
     subject: `Quote accepted — ${data.accountName} — ${data.reference}`,
+    html,
+  })
+}
+
+export interface AccountApplicationSubmittedNotification {
+  tradingName: TradingNameId
+  accountId: string
+  accountName: string
+  contactName: string
+  contactEmail: string
+  submittedAt: string
+}
+
+/**
+ * Internal alert when a trade account submits its application. Goes to staff
+ * only: nothing happens for the client until someone runs the credit check, so
+ * this is the trigger for that work rather than a courtesy notice.
+ */
+export async function sendAccountApplicationSubmittedEmail(
+  data: AccountApplicationSubmittedNotification
+) {
+  const to = process.env.ACCOUNTS_EMAIL || process.env.NOTIFY_EMAIL
+  if (!to) return
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.biohazards.net'
+  const option = tradingNameOption(data.tradingName)
+  const brandLabel = option?.label ?? 'Accounts'
+  const submitted = new Date(data.submittedAt).toLocaleString('en-AU', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone: 'Australia/Brisbane',
+  })
+
+  const row = (label: string, value: string) => `
+    <div style="margin-bottom: 12px;">
+      <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #888; margin-bottom: 2px;">${esc(label)}</div>
+      <div style="font-size: 14px; color: #333;">${esc(value)}</div>
+    </div>
+  `
+
+  const html = shell(
+    brandLabel,
+    'Trade account application submitted',
+    `
+      <div style="background: #f9f9f9; border-radius: 10px; padding: 20px 24px; margin-bottom: 24px;">
+        ${row('Account', data.accountName)}
+        ${row('Submitted by', `${data.contactName} (${data.contactEmail})`)}
+        ${row('Submitted', submitted)}
+      </div>
+      <p style="font-size: 14px; color: #555; line-height: 1.6; margin: 0 0 24px;">
+        Company details, directors, accounts payable and two trade references are
+        ready to review. The form is now locked to the client &mdash; reopen it from
+        the account page if anything needs correcting.
+      </p>
+      ${button(`${appUrl}/accounts/${data.accountId}`, 'Review application')}
+    `
+  )
+
+  await send({
+    from: fromAddress(data.tradingName),
+    to,
+    subject: `Trade account application — ${data.accountName}`,
     html,
   })
 }

@@ -154,6 +154,11 @@ function AccountCard({ account }: { account: AccountRow }) {
               {account.status}
             </span>
           )}
+          {account.application_submitted_at && (
+            <span className="badge" style={{ background: 'rgba(245,158,11,0.12)', color: '#F59E0B' }}>
+              Awaiting review
+            </span>
+          )}
           <span
             className="badge"
             style={

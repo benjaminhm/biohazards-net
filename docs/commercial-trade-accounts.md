@@ -68,6 +68,37 @@ then reads as "terms out of date" and is prompted to re-accept before approving
 another quote. Jobs already accepted stay under the version in force at the time,
 which is why `quote_acceptances.terms_version` is copied onto each acceptance.
 
+## The trade account application
+
+A new account's details are gathered from the client rather than re-keyed by
+staff. Migration 048 adds the entity, director, accounts-payable, payment and
+two trade-reference columns to `client_accounts`, and the portal's Company
+profile page is the form for them.
+
+The state machine is one column, `application_submitted_at`:
+
+- **Null** — the client edits freely. `PATCH /api/portal/company` accepts writes,
+  the form shows what is still blank, and **Submit for review** is disabled until
+  the required set (`REQUIRED_APPLICATION_FIELDS` in
+  `src/lib/portal/application.ts`) is answered.
+- **Set** — `POST /api/portal/company/submit` stamped it along with the contact
+  who pressed the button, emailed `ACCOUNTS_EMAIL`, and the portal is read-only.
+  Both the check and the update are guarded with `.is('application_submitted_at',
+  null)`, so a double click cannot rewrite who submitted.
+- **Reopened** — `POST /api/accounts/[id]/reopen` clears it and stamps
+  `application_reopened_at`. Only staff can unlock, because staff may be part way
+  through a credit check against exactly those values.
+
+Which fields exist, which are required and how they group is defined once in
+`src/lib/portal/application.ts` and shared by the portal form, the submit
+endpoint and the staff review card — a client being told they are done while
+staff see gaps is the failure mode that module exists to prevent.
+
+Staff can still correct a typo directly (the columns are in
+`EDITABLE_ACCOUNT_FIELDS`) without bouncing the whole form back. Submitting does
+not gate anything else: an account can accept quotes with the application half
+finished, since the credit check informs terms rather than blocking work.
+
 ## Why acceptances survive deletion
 
 `quote_acceptances` is the evidence a named person committed their company to a
@@ -88,8 +119,10 @@ Resend access.
 
 ### 1. Database
 
-Run `supabase-migration-047-commercial-accounts.sql` in the Supabase SQL editor.
-Safe to re-run.
+Run `supabase-migration-047-commercial-accounts.sql`, then
+`supabase-migration-048-account-application.sql`, in the Supabase SQL editor.
+Both are safe to re-run. 048 only adds nullable columns, so the SQL editor's
+"destructive operations" warning on it is a false positive from keyword scanning.
 
 ### 2. Environment variables
 
@@ -100,8 +133,8 @@ Set in Vercel (Production and Preview) and in local `.env.local` — see
 |---|---|
 | `PORTAL_SESSION_SECRET` | Signs the `bh_portal` cookie. Min 32 chars: `openssl rand -base64 32`. The portal throws without it. |
 | `ACCOUNTS_PORTAL_ORG_SLUG` | `orgs.slug` owning the trade accounts, e.g. `brisbanebiohazardcleaning`. Portal returns 404 without it. |
-| `RESEND_FROM_ACCOUNTS` | Fallback sender, used only while a brand domain is unverified. |
-| `ACCOUNTS_EMAIL` | Receives the staff alert when a quote is accepted. Falls back to `NOTIFY_EMAIL`. |
+| `RESEND_FROM_ACCOUNTS` | Overrides the brand sender. Set it to an address on an already-verified domain while a brand domain is pending, and **unset it once that domain verifies**. |
+| `ACCOUNTS_EMAIL` | Receives the staff alerts when a quote is accepted and when an account application is submitted. Falls back to `NOTIFY_EMAIL`. |
 | `ACCOUNTS_PORTAL_DEV_TRADING_NAME` | Local dev only — which brand `/portal` renders on localhost. |
 
 There is no `NEXT_PUBLIC_ACCOUNTS_URL`: the portal URL is derived per brand from
@@ -152,9 +185,18 @@ Wait for Vercel to report the domain as Valid before inviting anyone.
 
 Verify `forensiccleaningqld.com.au` in Resend so magic links send from
 `admin@forensiccleaningqld.com.au` (the address in `TRADING_NAME_OPTIONS`). Add the
-DKIM and SPF records Resend provides. Until this is done, invites either fail or
-fall back to `RESEND_FROM_ACCOUNTS`, and deliverability of a login link matters
-more than usual — it is the only way in.
+DKIM and SPF records Resend provides. Deliverability of a login link matters more
+than usual — it is the only way in.
+
+**Until the domain shows Verified, every portal email is rejected**, because
+Resend refuses any send from an unverified domain. Set `RESEND_FROM_ACCOUNTS` to
+an address on a domain that is already verified to keep invites working in the
+meantime, and remove it afterwards.
+
+Resend's SDK returns failures in the response rather than throwing, so
+`lib/portal/email.ts` checks the returned `error` and throws. Without that the
+invite route reports success on a rejected send — if portal email ever goes
+quiet, that check is the thing to confirm is still in place.
 
 Note the domain currently publishes **no live SPF or DMARC**: both records exist
 only in the stale SiteGround zone, so receivers see nothing. Recreate them in the
@@ -167,8 +209,12 @@ is sent.
 1. Staff: Dashboard → **Trade Accounts** → create an account under Forensic
    Cleaning QLD → add yourself as a contact → **Send invite**.
 2. Open the emailed link, press **Continue**, accept the terms.
-3. Staff: open a job, set its trade account, release a quote document to the portal.
-4. Client: the quote appears under "Awaiting your approval"; approve it and confirm
+3. Client: **Company profile** → fill the four sections → **Submit for review**.
+   Confirm the form goes read-only, the alert reaches `ACCOUNTS_EMAIL`, and the
+   account shows **Awaiting review** in Trade Accounts. **Reopen for editing** on
+   the account page should unlock it again.
+4. Staff: open a job, set its trade account, release a quote document to the portal.
+5. Client: the quote appears under "Awaiting your approval"; approve it and confirm
    the job moves to `accepted` and the alert reaches `ACCOUNTS_EMAIL`.
 
 ## Adding another brand's portal
@@ -187,3 +233,5 @@ data-driven, so no other code changes are needed.
   shows quotes and completion documents only.
 - **No client-managed contacts.** Adding or removing who can sign in stays with
   staff, since it controls who can commit the account to spend.
+- **No document uploads on the application.** Insurance certificates and the like
+  are still emailed; storing client-supplied files needs a retention answer first.

@@ -109,6 +109,16 @@ export default function PortalDashboard() {
 
       {error && <Notice tone="error">{error}</Notice>}
 
+      {me && !me.account.application_submitted_at && (
+        <Notice tone="warn">
+          Your account details are not complete yet.{' '}
+          <Link href="/portal/company" style={{ color: 'inherit', fontWeight: 700 }}>
+            Finish your trade account application
+          </Link>{' '}
+          so we can set up your terms. You can still approve quotes in the meantime.
+        </Notice>
+      )}
+
       {loading ? (
         <p style={meta}>Loading your jobs…</p>
       ) : jobs.length === 0 ? (

@@ -13,6 +13,11 @@ import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { TRADING_NAME_OPTIONS } from '@/lib/tradingNames'
+import {
+  APPLICATION_SECTIONS,
+  missingApplicationFields,
+  type ApplicationField,
+} from '@/lib/portal/application'
 import type { ClientAccount, ClientAccountContact, QuoteAcceptance } from '@/lib/types'
 
 interface LinkedJob {
@@ -106,6 +111,7 @@ export default function AccountDetailPage() {
         </div>
 
         <TermsCard detail={data} />
+        <ApplicationCard account={account} onChanged={load} />
         <AccountDetailsCard account={account} onSaved={load} />
         <ContactsCard accountId={account.id} contacts={data.contacts} onChanged={load} />
         <LinkedJobsCard jobs={data.jobs} />
@@ -154,6 +160,103 @@ function TermsCard({ detail }: { detail: AccountDetail }) {
       )}
     </div>
   )
+}
+
+/**
+ * The application as the client filled it in. Read back in their order rather
+ * than as an editable form: this card exists to be checked against a credit
+ * report, and the Company details card below is where corrections are made.
+ */
+function ApplicationCard({ account, onChanged }: { account: ClientAccount; onChanged: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const submitted = account.application_submitted_at
+  const missing = missingApplicationFields(account)
+
+  async function reopen() {
+    if (busy) return
+    if (!confirm('Reopen this application so the client can edit and resubmit it?')) return
+    setBusy(true)
+    setError('')
+    try {
+      const res = await fetch(`/api/accounts/${account.id}/reopen`, { method: 'POST' })
+      const body = await res.json()
+      if (!res.ok) throw new Error(body?.error ?? 'Could not reopen the application')
+      onChanged()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not reopen the application')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="card" style={{ marginTop: 14 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+        <SectionHeading
+          title="Trade account application"
+          hint="Completed by the client in their portal. Locked once submitted."
+        />
+        {submitted && (
+          <button className="btn btn-secondary" onClick={reopen} disabled={busy} style={{ flexShrink: 0 }}>
+            {busy ? 'Reopening…' : 'Reopen for editing'}
+          </button>
+        )}
+      </div>
+
+      {error && <div style={{ color: '#F87171', fontSize: 13, marginBottom: 12 }}>{error}</div>}
+
+      <div style={{ fontSize: 14, lineHeight: 1.7, marginBottom: submitted ? 18 : 0 }}>
+        {submitted ? (
+          <>
+            <span className="badge" style={{ background: 'rgba(245,158,11,0.12)', color: '#F59E0B', marginRight: 8 }}>
+              Awaiting review
+            </span>
+            Submitted {fmtDateTime(submitted)}
+          </>
+        ) : (
+          <>
+            <span className="badge" style={{ background: 'rgba(148,163,184,0.14)', color: 'var(--text-muted)', marginRight: 8 }}>
+              Not submitted
+            </span>
+            {account.application_reopened_at
+              ? `Reopened ${fmtDateTime(account.application_reopened_at)} — waiting on the client to resubmit.`
+              : 'The client has not submitted their details yet.'}
+            {missing.length > 0 && (
+              <div style={{ fontSize: 13, color: 'var(--text-dim)', marginTop: 6 }}>
+                Still blank: {missing.join(', ')}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {submitted && (
+        <div style={{ display: 'grid', gap: 18, gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
+          {APPLICATION_SECTIONS.map(group => (
+            <div key={group.title}>
+              <div className="eyebrow" style={{ marginBottom: 10 }}>{group.title}</div>
+              {group.fields.map(([field, text]) => (
+                <div key={field} style={{ marginBottom: 8 }}>
+                  <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>{text}</div>
+                  <div style={{ fontSize: 14, whiteSpace: 'pre-wrap' }}>
+                    {applicationValue(account, field) || (
+                      <span style={{ color: 'var(--text-dim)' }}>—</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function applicationValue(account: ClientAccount, field: ApplicationField): string {
+  if (field === 'purchase_order_required') return account.purchase_order_required ? 'Yes' : 'No'
+  return account[field] ?? ''
 }
 
 function AccountDetailsCard({ account, onSaved }: { account: ClientAccount; onSaved: () => void }) {

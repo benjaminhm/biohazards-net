@@ -2002,6 +2002,40 @@ export interface ClientAccount {
   billing_email: string
   billing_address: string
   phone: string
+
+  /*
+   * Trade account application (048). The client's admin officer fills these in
+   * themselves; they are what a credit check and personalised terms are built
+   * from. All nullable — accounts created before 048 read as unsubmitted.
+   */
+  /** Registered head office, distinct from billing_address. */
+  head_office_address: string | null
+  director_name: string | null
+  director_email: string | null
+  director_phone: string | null
+  /** Whoever actually releases payment. Not necessarily a portal login. */
+  finance_contact_name: string | null
+  finance_contact_title: string | null
+  finance_contact_email: string | null
+  finance_contact_phone: string | null
+  payment_terms: string | null
+  payment_run_days: string | null
+  payment_method: string | null
+  purchase_order_required: boolean
+  reference1_company: string | null
+  reference1_contact: string | null
+  reference1_phone: string | null
+  reference1_email: string | null
+  reference2_company: string | null
+  reference2_contact: string | null
+  reference2_phone: string | null
+  reference2_email: string | null
+  /** Set on Submit for review. While set, the portal refuses profile writes. */
+  application_submitted_at: string | null
+  application_submitted_by_contact_id: string | null
+  application_reopened_at: string | null
+  application_reopened_by_user_id: string | null
+
   /** Internal staff notes — never returned by portal routes. */
   notes: string
   status: ClientAccountStatus
@@ -2074,6 +2108,27 @@ export interface PortalMe {
     | 'status'
     | 'terms_version'
     | 'terms_accepted_at'
+    | 'head_office_address'
+    | 'director_name'
+    | 'director_email'
+    | 'director_phone'
+    | 'finance_contact_name'
+    | 'finance_contact_title'
+    | 'finance_contact_email'
+    | 'finance_contact_phone'
+    | 'payment_terms'
+    | 'payment_run_days'
+    | 'payment_method'
+    | 'purchase_order_required'
+    | 'reference1_company'
+    | 'reference1_contact'
+    | 'reference1_phone'
+    | 'reference1_email'
+    | 'reference2_company'
+    | 'reference2_contact'
+    | 'reference2_phone'
+    | 'reference2_email'
+    | 'application_submitted_at'
   >
   brand: { label: string; email: string }
   /** True when terms_version matches the current published version. */

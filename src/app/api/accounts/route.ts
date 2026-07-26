@@ -17,12 +17,13 @@ import {
   pickFields,
   requireAccountsAdmin,
 } from '@/lib/accountsAdmin'
+import { ACCOUNT_APPLICATION_COLUMNS } from '@/lib/portal/application'
 import { areTermsCurrent } from '@/lib/portal/terms'
 import { isTradingNameId } from '@/lib/tradingNames'
 import type { TradingNameId } from '@/lib/tradingNames'
 
 const ACCOUNT_COLUMNS =
-  'id, org_id, trading_name, legal_name, trading_as, abn, billing_email, billing_address, phone, notes, status, terms_version, terms_accepted_at, terms_accepted_by_contact_id, created_at, updated_at'
+  `id, org_id, trading_name, legal_name, trading_as, abn, billing_email, billing_address, phone, notes, status, terms_version, terms_accepted_at, terms_accepted_by_contact_id, created_at, updated_at, ${ACCOUNT_APPLICATION_COLUMNS}` as const
 
 export async function GET(req: Request) {
   const ctx = await requireAccountsAdmin(req)

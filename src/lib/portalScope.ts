@@ -15,6 +15,7 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import { getPortalSessionFromRequest } from '@/lib/portalSession'
+import { ACCOUNT_APPLICATION_COLUMNS } from '@/lib/portal/application'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ClientAccount, ClientAccountContact } from '@/lib/types'
 
@@ -32,6 +33,27 @@ export type PortalAccount = Pick<
   | 'status'
   | 'terms_version'
   | 'terms_accepted_at'
+  | 'head_office_address'
+  | 'director_name'
+  | 'director_email'
+  | 'director_phone'
+  | 'finance_contact_name'
+  | 'finance_contact_title'
+  | 'finance_contact_email'
+  | 'finance_contact_phone'
+  | 'payment_terms'
+  | 'payment_run_days'
+  | 'payment_method'
+  | 'purchase_order_required'
+  | 'reference1_company'
+  | 'reference1_contact'
+  | 'reference1_phone'
+  | 'reference1_email'
+  | 'reference2_company'
+  | 'reference2_contact'
+  | 'reference2_phone'
+  | 'reference2_email'
+  | 'application_submitted_at'
 >
 
 export type PortalContact = Pick<
@@ -48,7 +70,7 @@ export interface PortalContext {
 }
 
 const ACCOUNT_COLUMNS =
-  'id, org_id, trading_name, legal_name, trading_as, abn, billing_email, billing_address, phone, status, terms_version, terms_accepted_at'
+  `id, org_id, trading_name, legal_name, trading_as, abn, billing_email, billing_address, phone, status, terms_version, terms_accepted_at, ${ACCOUNT_APPLICATION_COLUMNS}` as const
 
 const CONTACT_COLUMNS = 'id, org_id, account_id, name, email, title, can_accept_quotes, status'
 
