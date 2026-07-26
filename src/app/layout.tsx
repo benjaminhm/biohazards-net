@@ -34,22 +34,43 @@ import ServiceWorkerRegistration from '@/components/ServiceWorkerRegistration'
 import { UserProvider } from '@/lib/userContext'
 import PreviewBanner from '@/components/PreviewBanner'
 import ImpersonationBanner from '@/components/ImpersonationBanner'
+import { isTradingNameId, tradingNameOption } from '@/lib/tradingNames'
 
 const PRIMARY_SIGN_IN_URL = 'https://app.biohazards.net/login'
 
-export const metadata: Metadata = {
-  title: 'Brisbane Biohazard Cleaning',
-  description: 'Job management for Brisbane Biohazard Cleaning',
-  manifest: '/manifest.json',
-  appleWebApp: {
-    capable: true,
-    statusBarStyle: 'black-translucent',
-    title: 'BioHazard',
-  },
-  icons: {
-    icon: '/icon-192.png',
-    apple: '/apple-touch-icon.png',
-  },
+/*
+ * Per-host metadata. The accounts portal is client-facing and may be a different
+ * trading brand, so it must not inherit the staff app's title, PWA manifest or
+ * icons — a Forensic Cleaning QLD client should never see "Brisbane Biohazard
+ * Cleaning" in their tab. It is also noindex: the portal is private.
+ */
+export async function generateMetadata(): Promise<Metadata> {
+  const headersList = await headers()
+
+  if (headersList.get('x-subdomain') === 'accounts') {
+    const id = headersList.get('x-portal-trading-name')
+    const brand = (isTradingNameId(id) ? tradingNameOption(id)?.label : null) ?? 'Accounts'
+    return {
+      title: `${brand} — Trade Accounts`,
+      description: `Trade account portal for ${brand}`,
+      robots: { index: false, follow: false },
+    }
+  }
+
+  return {
+    title: 'Brisbane Biohazard Cleaning',
+    description: 'Job management for Brisbane Biohazard Cleaning',
+    manifest: '/manifest.json',
+    appleWebApp: {
+      capable: true,
+      statusBarStyle: 'black-translucent',
+      title: 'BioHazard',
+    },
+    icons: {
+      icon: '/icon-192.png',
+      apple: '/apple-touch-icon.png',
+    },
+  }
 }
 
 export const viewport: Viewport = {
@@ -77,19 +98,6 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const platformSatelliteHost = headersList.get('x-clerk-satellite-host')
   const satelliteDomain = orgHost ?? platformSatelliteHost
   const isSatellite = !!satelliteDomain
-
-  // #region agent log — verify Clerk provider config per request in prod via Vercel runtime logs
-  // Remove once we have confirmed isSatellite=false on app.biohazards.net in prod.
-  console.log('[clerk-provider-config]', {
-    host: headersList.get('host'),
-    subdomain: headersList.get('x-subdomain'),
-    orgHost,
-    platformSatelliteHost,
-    isSatellite,
-    satelliteDomain: isSatellite ? satelliteDomain : null,
-    signInUrl: isSatellite ? PRIMARY_SIGN_IN_URL : '(primary — no override)',
-  })
-  // #endregion
 
   return (
     <ClerkProvider

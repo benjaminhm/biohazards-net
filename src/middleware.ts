@@ -130,13 +130,18 @@ export default clerkMiddleware(async (auth, request: NextRequest) => {
     requestHeaders.set('x-portal-trading-name', accountsBrand)
 
     if (!portalOnAppOrigin) {
+      // Return before the Clerk gate below: these are not public routes, so
+      // auth() would bounce them to /login, which this host then 404s.
+      if (isSharedAsset(pathname)) {
+        return NextResponse.next({ request: { headers: requestHeaders } })
+      }
       if (pathname === '/') {
         const url = request.nextUrl.clone()
         url.pathname = '/portal'
         return NextResponse.rewrite(url, { request: { headers: requestHeaders } })
       }
       // The staff app must be unreachable on the accounts host.
-      if (!isPortalPath && !isSharedAsset(pathname)) {
+      if (!isPortalPath) {
         return new NextResponse('Not found', { status: 404 })
       }
     }
