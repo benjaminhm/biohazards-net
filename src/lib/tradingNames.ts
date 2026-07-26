@@ -25,6 +25,12 @@ export interface TradingNameOption {
    * by setting logo_url on the option or uploading a brand logo.
    */
   useWordmark?: boolean
+  /**
+   * Host serving this brand's commercial accounts portal. Middleware matches on
+   * it to route the request to /portal; omit until the domain is live in Vercel
+   * and DNS, otherwise the host resolves to nothing.
+   */
+  accountsHost?: string
 }
 
 /** Default reply-to on Authorisation to Proceed when Settings email is empty. */
@@ -42,11 +48,39 @@ export const TRADING_NAME_OPTIONS: TradingNameOption[] = [
     label: 'Forensic Cleaning QLD',
     email: 'admin@forensiccleaningqld.com.au',
     useWordmark: true,
+    accountsHost: 'accounts.forensiccleaningqld.com.au',
   },
 ]
 
 export function isTradingNameId(value: unknown): value is TradingNameId {
   return typeof value === 'string' && (TRADING_NAME_IDS as readonly string[]).includes(value)
+}
+
+export function tradingNameOption(id: TradingNameId | null | undefined): TradingNameOption | null {
+  if (!id) return null
+  return TRADING_NAME_OPTIONS.find(o => o.id === id) ?? null
+}
+
+/**
+ * Map a request host to the trading brand whose accounts portal it serves.
+ * Returns null for every other host, which is what keeps the portal off the
+ * staff app and the public websites.
+ */
+export function accountsHostTradingName(host: string | null | undefined): TradingNameId | null {
+  const normalised = (host ?? '').split(':')[0].trim().toLowerCase()
+  if (!normalised) return null
+  const match = TRADING_NAME_OPTIONS.find(o => o.accountsHost?.toLowerCase() === normalised)
+  return match?.id ?? null
+}
+
+/** Absolute base URL of a brand's accounts portal, for links in emails. */
+export function accountsPortalBaseUrl(id: TradingNameId | null | undefined): string | null {
+  const host = tradingNameOption(id)?.accountsHost
+  if (host) return `https://${host}`
+  // Local dev serves the portal from the app origin at /portal.
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL
+  if (appUrl && /localhost|127\.0\.0\.1/.test(appUrl)) return appUrl
+  return null
 }
 
 export function tradingNameLabel(id: TradingNameId | null | undefined): string | null {

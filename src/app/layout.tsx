@@ -16,6 +16,13 @@
  *   This runs server-side (via headers()) so Clerk is configured before any
  *   client JS runs — fixing the "Production Keys are only allowed for domain" error.
  *
+ * Commercial accounts portal (x-subdomain: accounts):
+ *   Rendered without ClerkProvider at all. Trade contacts authenticate with the
+ *   portal's own magic-link cookie, and mounting Clerk on a host that is neither
+ *   the primary domain nor a configured satellite throws "Production Keys are
+ *   only allowed for domain". Skipping UserProvider also keeps /api/me and the
+ *   staff banners out of a client-facing surface.
+ *
  * PWA metadata enables "Add to Home Screen" on iOS/Android with correct
  * theme colour and full-screen display.
  */
@@ -55,6 +62,17 @@ export const viewport: Viewport = {
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const headersList = await headers()
+
+  if (headersList.get('x-subdomain') === 'accounts') {
+    // globals.css is a dark staff theme; the portal is light and client-facing,
+    // so override the body tokens rather than leaking black behind the page.
+    return (
+      <html lang="en">
+        <body style={{ background: '#F5F5F5', color: '#111111' }}>{children}</body>
+      </html>
+    )
+  }
+
   const orgHost = headersList.get('x-org-host')
   const platformSatelliteHost = headersList.get('x-clerk-satellite-host')
   const satelliteDomain = orgHost ?? platformSatelliteHost

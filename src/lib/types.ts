@@ -1160,6 +1160,9 @@ export interface Job {
   inbound_email_token?: string | null
   /** Populated by GET /api/jobs/[id] when pilot org; not a DB column. */
   inbound_email_address?: string | null
+  /** Commercial trade account this job belongs to. NULL for one-off clients.
+   *  Set by staff on the job file; drives accounts-portal visibility. */
+  client_account_id?: string | null
 }
 
 export interface Photo {
@@ -1260,6 +1263,10 @@ export interface Document {
   content: Record<string, unknown>
   file_url: string | null
   created_at: string
+  /** Set when staff release this document to the commercial accounts portal.
+   *  NULL means internal-only — the portal never lists unreleased documents. */
+  released_to_portal_at?: string | null
+  released_by_user_id?: string | null
 }
 
 /** Ordered saved documents → one composed print (/api/print/bundle/[id]). */
@@ -1974,4 +1981,102 @@ export interface OrgUser {
   person_id: string | null
   is_active: boolean
   created_at: string
+}
+
+/* ─────────────────────────── Commercial trade accounts ───────────────────────
+   Client-side counterpart to org_users: a company we invoice repeatedly, whose
+   contacts log in at accounts.<brand>.com.au via magic link (no Clerk).
+   Tables created in supabase-migration-047-commercial-accounts.sql.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+export type ClientAccountStatus = 'active' | 'suspended' | 'closed'
+
+export interface ClientAccount {
+  id: string
+  org_id: string
+  /** Which trading brand's accounts area this account belongs to. */
+  trading_name: JobTradingName
+  legal_name: string
+  trading_as: string
+  abn: string
+  billing_email: string
+  billing_address: string
+  phone: string
+  /** Internal staff notes — never returned by portal routes. */
+  notes: string
+  status: ClientAccountStatus
+  /** Version string from lib/portal/terms.ts; NULL until T&Cs are accepted. */
+  terms_version: string | null
+  terms_accepted_at: string | null
+  terms_accepted_by_contact_id: string | null
+  terms_accepted_ip: string | null
+  terms_accepted_user_agent: string | null
+  created_at: string
+  updated_at: string
+  created_by_user_id: string
+  updated_by_user_id: string
+}
+
+export interface ClientAccountContact {
+  id: string
+  org_id: string
+  account_id: string
+  name: string
+  email: string
+  phone: string
+  title: string
+  is_primary: boolean
+  /** Gates quote acceptance — not every contact can commit the company. */
+  can_accept_quotes: boolean
+  status: 'active' | 'disabled'
+  last_login_at: string | null
+  invited_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** Append-only evidence that a contact accepted a quote under given T&Cs. */
+export interface QuoteAcceptance {
+  id: string
+  org_id: string
+  account_id: string
+  /**
+   * Null once the referenced record is deleted — the acceptance row outlives the
+   * contact, job and document it points at, and the denormalised contact_name /
+   * quote_reference / quote_total below carry the evidence.
+   */
+  contact_id: string | null
+  job_id: string | null
+  document_id: string | null
+  contact_name: string
+  contact_email: string
+  quote_total: number | null
+  quote_reference: string
+  terms_version: string
+  accepted_at: string
+  ip: string
+  user_agent: string
+}
+
+/** Shape returned by GET /api/portal/me — the portal's own session context. */
+export interface PortalMe {
+  contact: Pick<ClientAccountContact, 'id' | 'name' | 'email' | 'title' | 'can_accept_quotes'>
+  account: Pick<
+    ClientAccount,
+    | 'id'
+    | 'trading_name'
+    | 'legal_name'
+    | 'trading_as'
+    | 'abn'
+    | 'billing_email'
+    | 'billing_address'
+    | 'phone'
+    | 'status'
+    | 'terms_version'
+    | 'terms_accepted_at'
+  >
+  brand: { label: string; email: string }
+  /** True when terms_version matches the current published version. */
+  terms_current: boolean
+  terms_version_required: string
 }

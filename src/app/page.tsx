@@ -58,7 +58,7 @@ export default function HomePage() {
   const [time, setTime]         = useState('')
   const [upcoming, setUpcoming] = useState<Job[]>([])
   const { signOut } = useClerk()
-  const { caps, isAdmin, loading: userLoading, previewMode, org: ctxOrg } = useUser()
+  const { caps, isAdmin, isManager, loading: userLoading, previewMode, org: ctxOrg } = useUser()
   const [actions, setActions] = useState<{
     type: string; title: string; description: string; href: string; severity: string
     person_id?: string; person_email?: string | null; person_phone?: string | null; missing?: string[]
@@ -203,6 +203,15 @@ export default function HomePage() {
           label: 'Consultation',
           sub: 'Client consultations',
           color: '#A855F7',
+        }]
+      : []),
+    ...(isAdmin || isManager
+      ? [{
+          href: '/accounts',
+          icon: '🏢',
+          label: 'Trade Accounts',
+          sub: 'Commercial accounts & client portal access',
+          color: '#8B5CF6',
         }]
       : []),
     ...(isAdmin

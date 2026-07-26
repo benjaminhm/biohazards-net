@@ -1858,6 +1858,7 @@ export default function JobPage() {
                 clientEmail={job.client_email ?? ''}
                 onDocumentDeleted={docId => setDocuments(prev => prev.filter(d => d.id !== docId))}
                 mode="history"
+                tradeAccountLinked={!!job.client_account_id}
               />
             )}
           </>

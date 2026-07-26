@@ -17,6 +17,7 @@
 import { useEffect, useState } from 'react'
 import type { Job, PhoneEntry } from '@/lib/types'
 import AddressAutocomplete from '@/components/AddressAutocomplete'
+import TradeAccountPicker from '@/components/TradeAccountPicker'
 import { tradingNameLabel } from '@/lib/tradingNames'
 
 interface Props {
@@ -407,6 +408,9 @@ export default function ClientDetailsTab({
           )}
         </div>
       </div>
+
+      {/* Commercial account this job belongs to — drives client portal visibility */}
+      <TradeAccountPicker job={job} onPatch={patchField} readOnly={!canEdit} />
 
       {/* ─────────────────────────── Caller card ─────────────────────────── */}
       <div style={cardStyle}>

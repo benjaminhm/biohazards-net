@@ -123,6 +123,26 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         )
       }
     }
+    // The foreign key only proves the account exists, not that it is ours.
+    // Without this check a job could be linked to another tenant's trade account
+    // and would then appear in that tenant's client portal.
+    if ('client_account_id' in body) {
+      if (body.client_account_id === null || body.client_account_id === '') {
+        body.client_account_id = null
+      } else if (typeof body.client_account_id !== 'string') {
+        return NextResponse.json({ error: 'Invalid client_account_id' }, { status: 400 })
+      } else {
+        const { data: account } = await supabase
+          .from('client_accounts')
+          .select('id')
+          .eq('id', body.client_account_id)
+          .eq('org_id', orgId)
+          .maybeSingle()
+        if (!account) {
+          return NextResponse.json({ error: 'Trade account not found' }, { status: 400 })
+        }
+      }
+    }
     const { data, error } = await supabase
       .from('jobs')
       .update({ ...body, updated_at: new Date().toISOString() })
