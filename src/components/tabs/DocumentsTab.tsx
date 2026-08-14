@@ -393,74 +393,17 @@ function DataCaptureForPhase({
       )
     case 'execute':
       return (
-        <>
-          <button
-            type="button"
-            onClick={() => n?.('progress_capture')}
-            style={{
-              padding: '9px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600,
-              background: 'rgba(139,92,246,0.18)', border: '1px solid rgba(167,139,250,0.55)',
-              color: '#DDD6FE', cursor: 'pointer',
-            }}
-          >
-            Progress Photos
-          </button>
-          <button
-            type="button"
-            onClick={() => n?.('progress_notes_capture')}
-            style={{
-              padding: '9px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600,
-              background: 'rgba(14,165,233,0.18)', border: '1px solid rgba(56,189,248,0.55)',
-              color: '#BAE6FD', cursor: 'pointer',
-            }}
-          >
-            Progress Notes
-          </button>
-          <button
-            type="button"
-            onClick={() => n?.('quality_checks_capture')}
-            style={{
-              padding: '9px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600,
-              background: 'rgba(34,197,94,0.18)', border: '1px solid rgba(74,222,128,0.55)',
-              color: '#BBF7D0', cursor: 'pointer',
-            }}
-          >
-            Quality Control Checks
-          </button>
-          <button
-            type="button"
-            onClick={() => n?.('recommendations_capture')}
-            style={{
-              padding: '9px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600,
-              background: 'rgba(249,115,22,0.18)', border: '1px solid rgba(251,146,60,0.55)',
-              color: '#FED7AA', cursor: 'pointer',
-            }}
-          >
-            Recommendations
-          </button>
-          <button
-            type="button"
-            onClick={() => n?.('waste_disposal_manifest_capture')}
-            style={{
-              padding: '9px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600,
-              background: 'rgba(100,116,139,0.22)', border: '1px solid rgba(148,163,184,0.45)',
-              color: '#E2E8F0', cursor: 'pointer',
-            }}
-          >
-            {DOC_TYPE_LABELS.waste_disposal_manifest}
-          </button>
-          <button
-            type="button"
-            onClick={() => n?.('progress_report_generate')}
-            style={{
-              padding: '9px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600,
-              background: 'rgba(20,184,166,0.18)', border: '1px solid rgba(45,212,191,0.5)',
-              color: '#99F6E4', cursor: 'pointer',
-            }}
-          >
-            Post Remediation Evaluation
-          </button>
-        </>
+        <button
+          type="button"
+          onClick={() => n?.('waste_disposal_manifest_capture')}
+          style={{
+            padding: '9px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600,
+            background: 'rgba(100,116,139,0.22)', border: '1px solid rgba(148,163,184,0.45)',
+            color: '#E2E8F0', cursor: 'pointer',
+          }}
+        >
+          {DOC_TYPE_LABELS.waste_disposal_manifest}
+        </button>
       )
     case 'verify':
       return null

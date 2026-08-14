@@ -31,6 +31,7 @@ import type {
 import { DOC_TYPE_LABELS } from './types'
 import { filterGroupedStages, groupPhotosByRoomAndStage, type RoomPhotoGroup } from './photoGroups'
 import { photosForComposedReports } from '@/lib/photosForComposedReports'
+import { formatAud, formatKg } from '@/lib/disposalManifest'
 import { SURFACE_LABELS } from '@/lib/areaSurfaces'
 import { effectiveAreaDimensions } from '@/lib/areaSubzones'
 import { OUTCOME_KIND_LABELS, groupRowsByKind, volumePricingSectionSubtotal, volumePricingSubtotal, customSectionSubtotal, customSectionRowsSum } from '@/lib/quoteSections'
@@ -1069,6 +1070,47 @@ function wasteTable(items: WasteItem[]): string {
   `
 }
 
+function wdmLoadCards(c: WasteDisposalManifestContent): string {
+  const loads = c.loads ?? []
+  if (!loads.length) return ''
+  return loads.map(l => {
+    const photos = [
+      l.trailer_photo_url ? `<div class="photo-card"><img src="${esc(l.trailer_photo_url)}" alt="Trailer / skip"><div class="photo-meta"><div class="photo-cap">Trailer / skip</div></div></div>` : '',
+      l.docket_photo_url ? `<div class="photo-card"><img src="${esc(l.docket_photo_url)}" alt="Dump docket"><div class="photo-meta"><div class="photo-cap">Dump docket</div></div></div>` : '',
+    ].filter(Boolean).join('')
+    const photoBlock = photos ? `<div class="photos-grid" style="margin-top:8px">${photos}</div>` : ''
+    const rows = [
+      l.contents ? `<div><div class="label">Contents</div><div class="body-text">${esc(l.contents)}</div></div>` : '',
+      l.size ? `<div><div class="label">Size</div><div class="body-text">${esc(l.size)}</div></div>` : '',
+      l.date ? `<div><div class="label">Date</div><div class="body-text">${esc(l.date)}</div></div>` : '',
+      l.location ? `<div><div class="label">Load location</div><div class="body-text">${esc(l.location)}</div></div>` : '',
+      l.facility ? `<div><div class="label">Facility</div><div class="body-text">${esc(l.facility)}</div></div>` : '',
+      l.weight_kg != null ? `<div><div class="label">Weight</div><div class="body-text">${esc(formatKg(l.weight_kg))}</div></div>` : '',
+      l.dump_fee != null ? `<div><div class="label">Dump fee</div><div class="body-text">${esc(formatAud(l.dump_fee))}</div></div>` : '',
+      l.distance_km != null ? `<div><div class="label">Distance</div><div class="body-text">${esc(String(l.distance_km))} km</div></div>` : '',
+    ].filter(Boolean).join('')
+    return `
+      <div class="sow-muted-box" style="margin-top:14px">
+        <div class="label" style="margin-top:0">Load ${l.load_number}</div>
+        <div class="sow-ra-meta">${rows}</div>
+        ${photoBlock}
+      </div>`
+  }).join('')
+}
+
+function wdmTotalsBox(c: WasteDisposalManifestContent): string {
+  const t = c.totals
+  if (!t || t.load_count < 1) return ''
+  return `
+    <div class="sow-muted-box" style="margin-top:22px">
+      <div class="label" style="margin-top:0">Disposal totals</div>
+      <div class="body-text"><strong>Loads:</strong> ${t.load_count}</div>
+      <div class="body-text"><strong>Weight:</strong> ${esc(formatKg(t.weight_kg))}</div>
+      <div class="body-text"><strong>Distance:</strong> ${t.distance_km} km</div>
+      <div class="body-text"><strong>Dump fees:</strong> ${esc(formatAud(t.dump_fees))}</div>
+    </div>`
+}
+
 // ── 1. Quote ──────────────────────────────────────────────────────────────────
 
 /** Render section-level Inclusions / Exclusions / Assumptions (Sections 2 & 3).
@@ -2087,11 +2129,12 @@ function buildCODHTML(c: CertificateOfDecontaminationContent, company: CompanyPr
 // ── 8. Waste Disposal Manifest ────────────────────────────────────────────────
 
 function buildWDMMid(c: WasteDisposalManifestContent): string {
+  const loadCards = wdmLoadCards(c)
   return `
     <div class="label">Collection Date</div><div class="body-text">${esc(c.collection_date)}</div>
-    <div class="label">Waste Items</div>
-    ${wasteTable(c.waste_items)}
+    ${loadCards || `<div class="label">Waste Items</div>${wasteTable(c.waste_items)}`}
     ${section('Transport Details', c.transport_details)}
+    ${wdmTotalsBox(c)}
     <div class="sow-muted-box" style="margin-top:22px"><strong>Declaration:</strong> ${esc(c.declaration)}</div>
   `
 }

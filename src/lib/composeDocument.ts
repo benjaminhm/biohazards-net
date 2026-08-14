@@ -43,6 +43,13 @@ import {
 } from '@/lib/perCompletionAssembly'
 import { assessmentDocumentHasContent, mergedAssessmentDocumentCapture } from '@/lib/assessmentDocumentCapture'
 import { getSpokeById } from '@/lib/quoteSpokes'
+import {
+  computeDisposalTotals,
+  contentsLabel,
+  formatAud,
+  loadHasContent,
+  mergedDisposalManifestCapture,
+} from '@/lib/disposalManifest'
 import { collectExcludedSurfaces } from '@/lib/areaSurfaces'
 import { effectiveAreaDimensions } from '@/lib/areaSubzones'
 import {
@@ -811,16 +818,64 @@ function composeCod(job: Job): ComposeDocumentResult {
 }
 
 function composeWdm(job: Job): ComposeDocumentResult {
+  const capture = mergedDisposalManifestCapture(job.assessment_data)
+  const loads = capture.loads.filter(loadHasContent)
+  const totals = computeDisposalTotals(loads)
+  const dates = loads.map(l => l.date).filter(Boolean).sort()
+  const collection_date = dates[0]
+    ? new Date(`${dates[0]}T00:00:00`).toLocaleDateString('en-AU')
+    : new Date().toLocaleDateString('en-AU')
+
+  const waste_items = loads.map(l => ({
+    description: [contentsLabel(l), l.size.trim()].filter(Boolean).join(' — ') || `Load`,
+    quantity: l.weight_kg != null ? String(l.weight_kg) : '',
+    unit: l.weight_kg != null ? 'kg' : '',
+    disposal_method: l.dump_fee != null ? `Weighbridge / dump fee ${formatAud(l.dump_fee)}` : 'Licensed facility',
+    facility: (l.facility || l.dump_location).trim() || '—',
+  }))
+
+  const snapshots = loads.map((l, i) => ({
+    load_number: i + 1,
+    size: l.size.trim(),
+    contents: contentsLabel(l),
+    date: l.date,
+    location: l.location.trim(),
+    facility: (l.facility || l.dump_location).trim(),
+    weight_kg: l.weight_kg,
+    dump_fee: l.dump_fee,
+    distance_km: l.distance_km,
+    trailer_photo_url: l.trailer_photo_url,
+    docket_photo_url: l.docket_photo_url,
+  }))
+
+  const transport = loads
+    .map((l, i) => {
+      const from = l.location.trim()
+      const to = (l.facility || l.dump_location).trim()
+      const km = l.distance_km != null ? `${l.distance_km} km` : ''
+      const parts = [`Load ${i + 1}`, km, from ? `from ${from}` : '', to ? `to ${to}` : ''].filter(Boolean)
+      return parts.join(' — ')
+    })
+    .join('\n')
+
   const c: WasteDisposalManifestContent = {
     title: 'Waste Disposal Manifest',
     reference: refPrefix('waste_disposal_manifest', job.id),
-    collection_date: new Date().toLocaleDateString('en-AU'),
-    waste_items: [],
-    transport_details: '—',
-    declaration: '—',
+    collection_date,
+    waste_items,
+    loads: snapshots,
+    totals: {
+      load_count: totals.load_count,
+      weight_kg: totals.weight_kg,
+      distance_km: totals.distance_km,
+      dump_fees: totals.dump_fees,
+    },
+    transport_details: transport || '—',
+    declaration:
+      'I declare that the waste described in this manifest was collected, transported and disposed of in accordance with the Environmental Protection Act 1994 (Qld) and relevant waste management legislation.',
     completed_by: '',
   }
-  return { content: { ...c }, source: 'skeleton' }
+  return { content: { ...c }, source: loads.length > 0 ? 'assessment_capture' : 'skeleton' }
 }
 
 function composeJsa(

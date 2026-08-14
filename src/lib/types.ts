@@ -143,12 +143,12 @@ export const DOC_TYPE_GROUPS: DocTypeGroup[] = [
   {
     id: 'execute',
     label: '8. Execute',
-    types: ['report', 'certificate_of_decontamination', 'waste_disposal_manifest'],
+    types: ['waste_disposal_manifest'],
   },
   {
     id: 'verify',
     label: '9. Verify',
-    types: [],
+    types: ['report', 'certificate_of_decontamination'],
   },
   {
     id: 'review',
@@ -1049,6 +1049,8 @@ export interface AssessmentData {
    * Aggregated into the completion report when staff completion_report_capture fields are left blank.
    */
   per_execute_capture?: PerExecuteCapture
+  /** Execute → Disposal Manifest: one record per dump load (photos + weighbridge). */
+  disposal_manifest_capture?: DisposalManifestCapture
   /**
    * @deprecated Legacy single quote. Retained for backward-compatible reads and
    * mirrored to the currently-active spoke on save. New code reads/writes
@@ -1177,6 +1179,10 @@ export interface Photo {
   /** When false, omitted from composed quote/SOW/report/PDF outputs (default true). */
   include_in_composed_reports?: boolean
   uploaded_at: string
+  taken_at?: string | null
+  location_lat?: number | null
+  location_lng?: number | null
+  location_label?: string | null
 }
 
 /** Job-scoped progress notes (DB table `progress_notes`). */
@@ -1518,6 +1524,73 @@ export interface PerExecuteCapture {
   waste_manifest_notes: string
 }
 
+export type DisposalContentsTypeId =
+  | 'clinical'
+  | 'asbestos'
+  | 'mixed_cd'
+  | 'general'
+  | 'sharps'
+  | 'other'
+  | ''
+
+/** One trailer/skip run from site to facility. */
+export interface DisposalLoad {
+  id: string
+  trailer_skipped: boolean
+  trailer_photo_id: string | null
+  trailer_photo_url: string | null
+  size: string
+  contents_type: DisposalContentsTypeId
+  contents_other: string
+  date: string
+  location: string
+  location_lat: number | null
+  location_lng: number | null
+  date_from_photo: boolean
+  location_from_photo: boolean
+  docket_skipped: boolean
+  docket_photo_id: string | null
+  docket_photo_url: string | null
+  dump_location: string
+  dump_lat: number | null
+  dump_lng: number | null
+  dump_location_from_photo: boolean
+  weight_kg: number | null
+  dump_fee: number | null
+  distance_km: number | null
+  distance_from_geo: boolean
+  facility: string
+  notes: string
+}
+
+export interface DisposalManifestCapture {
+  loads: DisposalLoad[]
+}
+
+export interface DisposalManifestTotals {
+  load_count: number
+  weight_kg: number
+  distance_km: number
+  dump_fees: number
+  weight_recorded: number
+  distance_recorded: number
+  fees_recorded: number
+}
+
+export interface WasteDisposalManifestLoadSnapshot {
+  load_number: number
+  size: string
+  contents: string
+  date: string
+  location: string
+  facility: string
+  weight_kg: number | null
+  dump_fee: number | null
+  distance_km: number | null
+  trailer_photo_url: string | null
+  docket_photo_url: string | null
+}
+
 /** Completion Report field capture — aligns with ReportContent narrative sections. */
 export interface CompletionReportCapture {
   executive_summary: string
@@ -1763,6 +1836,8 @@ export interface WasteDisposalManifestContent {
   transport_details: string
   declaration: string
   completed_by?: string
+  loads?: WasteDisposalManifestLoadSnapshot[]
+  totals?: Pick<DisposalManifestTotals, 'load_count' | 'weight_kg' | 'distance_km' | 'dump_fees'>
 }
 
 export interface JSAContent {

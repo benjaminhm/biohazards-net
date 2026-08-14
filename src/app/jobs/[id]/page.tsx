@@ -59,6 +59,7 @@ import ProgressNotesTab from '@/components/tabs/ProgressNotesTab'
 import ProgressPhotosTab from '@/components/tabs/ProgressPhotosTab'
 import PostRemediationEvaluationTab from '@/components/tabs/PostRemediationEvaluationTab'
 import PerExecuteCapturePanel from '@/components/tabs/PerExecuteCapturePanel'
+import DisposalManifestCaptureTab from '@/components/tabs/DisposalManifestCaptureTab'
 import CompanyLetterTab from '@/components/tabs/CompanyLetterTab'
 import PreStartBriefingTab from '@/components/tabs/PreStartBriefingTab'
 import TradingNameModal from '@/components/TradingNameModal'
@@ -143,8 +144,9 @@ const HOME_SECTION_TO_CAP: Record<HomeSection, keyof TeamCapabilities> = {
  * Open state: the button remains as the trigger, followed by a vertical list of
  * all phases with a numbered circle; tapping a row selects + auto-closes.
  *
- * Lower-level sub-tabs (Assessment, Legal, Safety, Execute, Verify, Review) stay
- * on SubTabStrip — they are shallower and benefit from the horizontal layout.
+ * Lower-level sub-tabs (Assessment, Legal, Safety, Review) stay on SubTabStrip —
+ * they are shallower and benefit from the horizontal layout. Execute is Disposal
+ * Manifest only (no inner strip).
  */
 function HomeWorkflowDrawer<T extends string>({
   sections,
@@ -369,13 +371,6 @@ const SAFETY_SECTIONS: { id: SafetySection; label: string }[] = [
   { id: 'swms', label: 'SWMS' },
   { id: 'jsa', label: 'Job Safety Analysis' },
   { id: 'risk_assessment', label: 'Risk Assessment' },
-]
-
-type ExecuteSection = 'progress_photos' | 'progress_notes' | 'waste_manifest'
-const EXECUTE_SECTIONS: { id: ExecuteSection; label: string }[] = [
-  { id: 'progress_photos', label: 'Progress Photos' },
-  { id: 'progress_notes', label: 'Progress Notes' },
-  { id: 'waste_manifest', label: 'Waste Disposal Manifest' },
 ]
 
 type ReviewSection = 'client_feedback' | 'team_feedback'
@@ -683,7 +678,6 @@ export default function JobPage() {
    */
   const [legalSection,   setLegalSection]   = useState<LegalSection>('engagement_agreement')
   const [safetySection,  setSafetySection]  = useState<SafetySection>('authority_to_proceed')
-  const [executeSection, setExecuteSection] = useState<ExecuteSection>('progress_photos')
   const [reviewSection,  setReviewSection]  = useState<ReviewSection>('client_feedback')
   /** Secondary tabs when viewing Assessment (Presentation → Health Hazards → Risks → Recommendations → Equipment → Document) */
   const [assessmentSection, setAssessmentSection] = useState<'presentation' | 'hazards' | 'risks' | 'pathogens' | 'contents' | 'structure' | 'recommendations' | 'chemicals' | 'equipment' | 'document'>('presentation')
@@ -869,10 +863,6 @@ export default function JobPage() {
   }, [activeTab, homeSection])
 
   useEffect(() => {
-    if (!(activeTab === 'home' && homeSection === 'execute')) setExecuteSection('progress_photos')
-  }, [activeTab, homeSection])
-
-  useEffect(() => {
     if (!(activeTab === 'home' && homeSection === 'review')) setReviewSection('client_feedback')
   }, [activeTab, homeSection])
 
@@ -996,7 +986,9 @@ export default function JobPage() {
     { id: 'invoice',        label: 'Invoice',        show: canInvoice },
   ]
   const tabs = allTabs.filter(t => t.show)
-  const pageTitle = pageTitleForTab(activeTab, job)
+  const pageTitle = activeTab === 'home' && homeSection === 'execute'
+    ? DOC_TYPE_LABELS.waste_disposal_manifest
+    : pageTitleForTab(activeTab, job)
   const emptyRoomStyle: React.CSSProperties = {
     minHeight: 360,
     border: '1px dashed var(--border)',
@@ -1031,9 +1023,9 @@ export default function JobPage() {
   const showSwms           = activeTab === 'swms_capture' || (inHome('safety_compliance') && safetySection === 'swms')
   const showJsa            = activeTab === 'jsa_capture' || (inHome('safety_compliance') && safetySection === 'jsa')
   const showRiskAssessment = activeTab === 'risk_assessment_capture' || (inHome('safety_compliance') && safetySection === 'risk_assessment')
-  const showProgressPhotos = activeTab === 'progress_capture' || (inHome('execute') && executeSection === 'progress_photos')
-  const showProgressNotes  = activeTab === 'progress_notes_capture' || (inHome('execute') && executeSection === 'progress_notes')
-  const showWasteManifest  = activeTab === 'waste_disposal_manifest_capture' || (inHome('execute') && executeSection === 'waste_manifest')
+  const showProgressPhotos = activeTab === 'progress_capture'
+  const showProgressNotes  = activeTab === 'progress_notes_capture'
+  const showWasteManifest  = activeTab === 'waste_disposal_manifest_capture' || inHome('execute')
   const showQualityChecks  = activeTab === 'quality_checks_capture'
   const showRecommendations= activeTab === 'recommendations_capture'
   const showCompletionRpt  = activeTab === 'progress_report_generate' || inHome('verify')
@@ -1293,10 +1285,11 @@ export default function JobPage() {
         {/*
          * Strip ordering is deliberate: the Home primary strip (10 phases)
          * renders first, then every sub-sub strip (Assessment / Legal /
-         * Safety / Execute / Verify / Review) sits directly beneath its
-         * parent phase so the visual hierarchy reads parent → child.
-         * Assessment's strip also shows on the legacy /?tab=assessment
-         * deep link, in which case the Home primary strip is hidden.
+         * Safety / Review) sits directly beneath its parent phase so the
+         * visual hierarchy reads parent → child. Execute has no sub-strip —
+         * it is Disposal Manifest only. Assessment's strip also shows on the
+         * legacy /?tab=assessment deep link, in which case the Home primary
+         * strip is hidden.
          */}
         {activeTab === 'home' && visibleHomeSections.length > 0 && (
           <HomeWorkflowDrawer
@@ -1425,14 +1418,6 @@ export default function JobPage() {
             active={safetySection}
             onChange={setSafetySection}
             ariaLabel="Safety and compliance document sections"
-          />
-        )}
-        {inHome('execute') && (
-          <SubTabStrip
-            sections={EXECUTE_SECTIONS}
-            active={executeSection}
-            onChange={setExecuteSection}
-            ariaLabel="Execute sub-sections"
           />
         )}
         {inHome('review') && (
@@ -1808,7 +1793,12 @@ export default function JobPage() {
           <div style={emptyRoomStyle}>{DOC_TYPE_LABELS.risk_assessment} (empty room)</div>
         )}
         {showWasteManifest && (
-          <PerExecuteCapturePanel job={job} onJobUpdate={setJob} emphasis="waste_manifest_notes" />
+          <DisposalManifestCaptureTab
+            job={job}
+            photos={photos}
+            onJobUpdate={setJob}
+            onPhotosUpdate={setPhotos}
+          />
         )}
         {activeTab === 'iaq_multi_capture' && (
           <IaqBundleCaptureTab job={job} documents={documents} onJobUpdate={setJob} />

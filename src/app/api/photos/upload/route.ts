@@ -13,6 +13,24 @@ import { insertPhotoRow } from '@/lib/photoRowInsert'
 const PHOTO_CATEGORIES = ['before', 'during', 'after', 'assessment'] as const
 const PHOTO_PHASES = ['assessment', 'progress'] as const
 
+function optionalText(value: FormDataEntryValue | null): string | null {
+  const s = typeof value === 'string' ? value.trim() : ''
+  return s || null
+}
+
+function optionalIso(value: FormDataEntryValue | null): string | null {
+  const s = optionalText(value)
+  if (!s) return null
+  const t = Date.parse(s)
+  return Number.isFinite(t) ? new Date(t).toISOString() : null
+}
+
+function optionalNumber(value: FormDataEntryValue | null): number | null {
+  if (value == null || value === '') return null
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
 export async function POST(req: Request) {
   try {
     const { userId } = await auth()
@@ -85,6 +103,10 @@ export async function POST(req: Request) {
       capture_phase: nextPhase,
       org_id: orgId,
       include_in_composed_reports: true,
+      taken_at: optionalIso(form.get('taken_at')),
+      location_lat: optionalNumber(form.get('location_lat')),
+      location_lng: optionalNumber(form.get('location_lng')),
+      location_label: optionalText(form.get('location_label')),
     })
     const { data: photo, error: insErr } = ins
     if (insErr) throw insErr
