@@ -4,136 +4,121 @@
  */
 'use client'
 
-import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type PointerEvent } from 'react'
 import type { Photo } from '@/lib/types'
 import { enrichExifWithDevice, formatCoordLabel, readPhotoExif, type PhotoExif } from '@/lib/photoExif'
 
-const TOOL_BTN: CSSProperties = {
-  minWidth: 40,
-  height: 40,
-  borderRadius: 10,
-  border: '1px solid rgba(255,255,255,0.25)',
-  background: 'rgba(16,16,16,0.88)',
+const ZOOM_BTN: CSSProperties = {
+  width: 32,
+  height: 32,
+  borderRadius: 8,
+  border: '1px solid rgba(255,255,255,0.28)',
+  background: 'rgba(16,16,16,0.82)',
   color: '#fff',
-  fontSize: 18,
+  fontSize: 16,
   fontWeight: 700,
   cursor: 'pointer',
+  padding: 0,
 }
 
 export function ZoomablePhoto({
   src,
   alt,
-  maxHeight = 140,
+  maxHeight = 260,
 }: {
   src: string
   alt: string
   maxHeight?: number
 }) {
-  const [open, setOpen] = useState(false)
   const [scale, setScale] = useState(1)
+  const stageRef = useRef<HTMLDivElement>(null)
+  const drag = useRef<{ x: number; y: number; sl: number; st: number } | null>(null)
 
   useEffect(() => {
-    if (!open) {
-      setScale(1)
-      return
+    setScale(1)
+  }, [src])
+
+  useEffect(() => {
+    const el = stageRef.current
+    if (!el) return
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return
+      e.preventDefault()
+      setScale(s => Math.min(4, Math.max(1, Math.round((s + (e.deltaY > 0 ? -0.25 : 0.25)) * 10) / 10)))
     }
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false)
-      if (e.key === '+' || e.key === '=') setScale(s => Math.min(4, s + 0.5))
-      if (e.key === '-' || e.key === '_') setScale(s => Math.max(1, s - 0.5))
-    }
-    window.addEventListener('keydown', onKey)
-    return () => {
-      document.body.style.overflow = prev
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [open])
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [])
+
+  function setZoom(next: number) {
+    setScale(Math.min(4, Math.max(1, Math.round(next * 10) / 10)))
+  }
+
+  function onPointerDown(e: PointerEvent<HTMLDivElement>) {
+    if (scale <= 1) return
+    const el = stageRef.current
+    if (!el) return
+    el.setPointerCapture(e.pointerId)
+    drag.current = { x: e.clientX, y: e.clientY, sl: el.scrollLeft, st: el.scrollTop }
+  }
+
+  function onPointerMove(e: PointerEvent<HTMLDivElement>) {
+    const d = drag.current
+    const el = stageRef.current
+    if (!d || !el) return
+    el.scrollLeft = d.sl - (e.clientX - d.x)
+    el.scrollTop = d.st - (e.clientY - d.y)
+  }
+
+  function onPointerUp() {
+    drag.current = null
+  }
 
   return (
-    <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        title="Tap to zoom"
+    <div style={{ position: 'relative' }}>
+      <div
+        ref={stageRef}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
         style={{
-          display: 'block',
-          width: '100%',
-          padding: 0,
-          border: 'none',
-          background: 'transparent',
-          cursor: 'zoom-in',
+          height: maxHeight,
+          overflow: 'auto',
+          WebkitOverflowScrolling: 'touch',
+          background: 'var(--surface-2)',
+          cursor: scale > 1 ? 'grab' : 'default',
+          touchAction: scale > 1 ? 'none' : 'pan-x pan-y',
         }}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={src}
           alt={alt}
+          draggable={false}
           style={{
-            width: '100%',
+            width: scale === 1 ? '100%' : `${scale * 100}%`,
+            maxWidth: scale === 1 ? '100%' : 'none',
             height: 'auto',
-            maxHeight,
-            objectFit: 'contain',
-            objectPosition: 'center',
             display: 'block',
+            userSelect: 'none',
           }}
         />
-      </button>
-      {open && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label={alt || 'Photo'}
-          onClick={() => setOpen(false)}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 80,
-            background: 'rgba(0,0,0,0.92)',
-            display: 'flex',
-            flexDirection: 'column',
-          }}
-        >
-          <div
-            style={{
-              flexShrink: 0,
-              display: 'flex',
-              justifyContent: 'flex-end',
-              gap: 8,
-              padding: '12px 12px 8px',
-            }}
-            onClick={e => e.stopPropagation()}
-          >
-            <button type="button" style={TOOL_BTN} onClick={() => setScale(s => Math.max(1, s - 0.5))} aria-label="Zoom out">−</button>
-            <button type="button" style={TOOL_BTN} onClick={() => setScale(s => Math.min(4, s + 0.5))} aria-label="Zoom in">+</button>
-            <button type="button" style={{ ...TOOL_BTN, fontSize: 13, minWidth: 64 }} onClick={() => setOpen(false)}>Close</button>
-          </div>
-          <div
-            onClick={e => e.stopPropagation()}
-            style={{
-              flex: 1,
-              overflow: 'auto',
-              WebkitOverflowScrolling: 'touch',
-              padding: 12,
-            }}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={src}
-              alt={alt}
-              style={{
-                width: scale === 1 ? '100%' : `${scale * 100}%`,
-                maxWidth: scale === 1 ? '100%' : 'none',
-                height: 'auto',
-                display: 'block',
-                margin: '0 auto',
-              }}
-            />
-          </div>
-        </div>
-      )}
-    </>
+      </div>
+      <div
+        style={{
+          position: 'absolute',
+          top: 8,
+          right: 8,
+          display: 'flex',
+          gap: 6,
+          zIndex: 1,
+        }}
+      >
+        <button type="button" style={ZOOM_BTN} onClick={() => setZoom(scale - 0.5)} aria-label="Zoom out">−</button>
+        <button type="button" style={ZOOM_BTN} onClick={() => setZoom(scale + 0.5)} aria-label="Zoom in">+</button>
+      </div>
+    </div>
   )
 }
 
@@ -293,7 +278,7 @@ export default function DisposalPhotoSlot({
             background: 'var(--surface-2)',
           }}
         >
-          <ZoomablePhoto src={photoUrl} alt={caption} maxHeight={140} />
+          <ZoomablePhoto src={photoUrl} alt={caption} maxHeight={280} />
         </div>
         {onNoteChange && (
           <PhotoNoteField value={note ?? ''} onChange={onNoteChange} />

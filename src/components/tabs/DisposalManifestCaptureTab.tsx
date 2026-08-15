@@ -711,7 +711,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                                         background: 'var(--surface)',
                                       }}
                                     >
-                                      <ZoomablePhoto src={p.url} alt={p.note || `Extra ${pIndex + 1}`} maxHeight={140} />
+                                      <ZoomablePhoto src={p.url} alt={p.note || `Extra ${pIndex + 1}`} maxHeight={180} />
                                     </div>
                                     <PhotoNoteField
                                       value={p.note ?? ''}
@@ -1136,7 +1136,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                                   background: 'var(--surface)',
                                 }}
                               >
-                                <ZoomablePhoto src={p.url} alt={p.note || `Facility ${pIndex + 1}`} maxHeight={140} />
+                                <ZoomablePhoto src={p.url} alt={p.note || `Facility ${pIndex + 1}`} maxHeight={180} />
                               </div>
                               <PhotoNoteField
                                 value={p.note ?? ''}
