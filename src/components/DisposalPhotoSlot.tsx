@@ -4,9 +4,138 @@
  */
 'use client'
 
-import { useRef, useState, type ChangeEvent } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties } from 'react'
 import type { Photo } from '@/lib/types'
 import { formatCoordLabel, readPhotoExif, type PhotoExif } from '@/lib/photoExif'
+
+const TOOL_BTN: CSSProperties = {
+  minWidth: 40,
+  height: 40,
+  borderRadius: 10,
+  border: '1px solid rgba(255,255,255,0.25)',
+  background: 'rgba(16,16,16,0.88)',
+  color: '#fff',
+  fontSize: 18,
+  fontWeight: 700,
+  cursor: 'pointer',
+}
+
+export function ZoomablePhoto({
+  src,
+  alt,
+  maxHeight = 140,
+}: {
+  src: string
+  alt: string
+  maxHeight?: number
+}) {
+  const [open, setOpen] = useState(false)
+  const [scale, setScale] = useState(1)
+
+  useEffect(() => {
+    if (!open) {
+      setScale(1)
+      return
+    }
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+      if (e.key === '+' || e.key === '=') setScale(s => Math.min(4, s + 0.5))
+      if (e.key === '-' || e.key === '_') setScale(s => Math.max(1, s - 0.5))
+    }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.body.style.overflow = prev
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        title="Tap to zoom"
+        style={{
+          display: 'block',
+          width: '100%',
+          padding: 0,
+          border: 'none',
+          background: 'transparent',
+          cursor: 'zoom-in',
+        }}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={src}
+          alt={alt}
+          style={{
+            width: '100%',
+            height: 'auto',
+            maxHeight,
+            objectFit: 'contain',
+            objectPosition: 'center',
+            display: 'block',
+          }}
+        />
+      </button>
+      {open && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={alt || 'Photo'}
+          onClick={() => setOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 80,
+            background: 'rgba(0,0,0,0.92)',
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
+          <div
+            style={{
+              flexShrink: 0,
+              display: 'flex',
+              justifyContent: 'flex-end',
+              gap: 8,
+              padding: '12px 12px 8px',
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <button type="button" style={TOOL_BTN} onClick={() => setScale(s => Math.max(1, s - 0.5))} aria-label="Zoom out">−</button>
+            <button type="button" style={TOOL_BTN} onClick={() => setScale(s => Math.min(4, s + 0.5))} aria-label="Zoom in">+</button>
+            <button type="button" style={{ ...TOOL_BTN, fontSize: 13, minWidth: 64 }} onClick={() => setOpen(false)}>Close</button>
+          </div>
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              flex: 1,
+              overflow: 'auto',
+              WebkitOverflowScrolling: 'touch',
+              padding: 12,
+            }}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={src}
+              alt={alt}
+              style={{
+                width: scale === 1 ? '100%' : `${scale * 100}%`,
+                maxWidth: scale === 1 ? '100%' : 'none',
+                height: 'auto',
+                display: 'block',
+                margin: '0 auto',
+              }}
+            />
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
 
 interface Props {
   jobId: string
@@ -149,12 +278,7 @@ export default function DisposalPhotoSlot({
             background: 'var(--surface-2)',
           }}
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={photoUrl}
-            alt={caption}
-            style={{ width: '100%', height: 'auto', maxHeight: 280, objectFit: 'contain', objectPosition: 'center', display: 'block' }}
-          />
+          <ZoomablePhoto src={photoUrl} alt={caption} maxHeight={140} />
         </div>
         <button
           type="button"

@@ -9,7 +9,7 @@ import { useRouter } from 'next/navigation'
 import type { DisposalLoad, DisposalVehicle, Job, Photo } from '@/lib/types'
 import { mergeAssessmentData } from '@/lib/riskDerivation'
 import { useRegisterUnsavedChanges } from '@/lib/unsavedChangesContext'
-import DisposalPhotoSlot from '@/components/DisposalPhotoSlot'
+import DisposalPhotoSlot, { ZoomablePhoto } from '@/components/DisposalPhotoSlot'
 import { formatCoordLabel, timeFromTakenAt, type PhotoExif } from '@/lib/photoExif'
 import {
   DISPOSAL_CONTENTS_TYPES,
@@ -63,11 +63,21 @@ const LABEL: CSSProperties = {
 const CHECK: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
+  alignSelf: 'flex-start',
   gap: 10,
   fontSize: 14,
   fontWeight: 600,
   color: 'var(--text)',
   cursor: 'pointer',
+  margin: 0,
+}
+
+const CHECKBOX: CSSProperties = {
+  width: 18,
+  height: 18,
+  minWidth: 18,
+  flexShrink: 0,
+  alignSelf: 'center',
   margin: 0,
 }
 
@@ -662,12 +672,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                                         background: 'var(--surface)',
                                       }}
                                     >
-                                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                                      <img
-                                        src={p.url}
-                                        alt={`Extra ${pIndex + 1}`}
-                                        style={{ width: '100%', height: 'auto', maxHeight: 220, objectFit: 'contain', objectPosition: 'center', display: 'block' }}
-                                      />
+                                      <ZoomablePhoto src={p.url} alt={`Extra ${pIndex + 1}`} maxHeight={140} />
                                     </div>
                                     <button
                                       type="button"
@@ -883,6 +888,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                         <input
                           type="checkbox"
                           checked={load.docket_skipped}
+                          style={CHECKBOX}
                           onChange={e => {
                             const on = e.target.checked
                             patchLoad(load.id, {
@@ -911,6 +917,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                           <input
                             type="checkbox"
                             checked={load.docket_lost}
+                            style={CHECKBOX}
                             onChange={e => patchLoad(load.id, { docket_lost: e.target.checked })}
                           />
                           Lost
@@ -919,6 +926,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                           <input
                             type="checkbox"
                             checked={load.recycling}
+                            style={CHECKBOX}
                             onChange={e => patchLoad(load.id, { recycling: e.target.checked })}
                           />
                           Recycling
@@ -1077,12 +1085,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                                   background: 'var(--surface)',
                                 }}
                               >
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
-                                  src={p.url}
-                                  alt={`Facility ${pIndex + 1}`}
-                                  style={{ width: '100%', height: 'auto', maxHeight: 220, objectFit: 'contain', objectPosition: 'center', display: 'block' }}
-                                />
+                                <ZoomablePhoto src={p.url} alt={`Facility ${pIndex + 1}`} maxHeight={140} />
                               </div>
                               <button
                                 type="button"

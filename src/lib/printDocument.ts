@@ -205,8 +205,45 @@ function cssSowPrint(): string {
     .sow-root .photos-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 8px; }
     .sow-root .photos-grid-single { grid-template-columns: 1fr; }
     .sow-root .photo-card { border: 1px solid var(--sow-rule); border-radius: 7px; overflow: hidden; background: #f5f5f5; }
-    .sow-root .photo-card img { width: 100%; height: auto; max-height: 520px; object-fit: contain; object-position: center; display: block; background: #f5f5f5; }
-    .sow-root .photos-grid-single .photo-card img { max-height: 640px; }
+    .sow-root .photo-card img { width: 100%; height: auto; max-height: 240px; object-fit: contain; object-position: center; display: block; background: #f5f5f5; }
+    .sow-root .photos-grid-single .photo-card img { max-height: 320px; }
+    @media screen {
+      .sow-root .photo-card img { cursor: zoom-in; }
+      .sow-photo-zoom {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 80;
+        background: rgba(8,16,32,0.94);
+        flex-direction: column;
+      }
+      .sow-photo-zoom.open { display: flex; }
+      .sow-photo-zoom-bar {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        padding: 12px;
+        flex-shrink: 0;
+      }
+      .sow-photo-zoom-bar button {
+        min-width: 40px;
+        height: 40px;
+        border-radius: 8px;
+        border: 1px solid rgba(255,255,255,0.28);
+        background: #1a3a6b;
+        color: #fff;
+        font-size: 18px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .sow-photo-zoom-stage { flex: 1; overflow: auto; padding: 12px; }
+      .sow-photo-zoom-stage img { width: 100%; height: auto; max-width: 100%; display: block; margin: 0 auto; }
+    }
+    @media print {
+      .sow-photo-zoom { display: none !important; }
+      .sow-root .photo-card img { max-height: 420px; }
+      .sow-root .photos-grid-single .photo-card img { max-height: 520px; }
+    }
     .sow-root .photo-meta { padding: 10px 12px; }
     .sow-root .photo-area { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--sow-blue); }
     .sow-root .photo-cap { font-size: 12px; color: var(--sow-mid); margin-top: 3px; }
@@ -612,6 +649,50 @@ function wrapSow(body: string, title: string, client: ClientInfo | undefined, sh
 <body class="sow-print-body">
   ${showActionBar ? actionBar(title, client) : ''}
   ${body}
+  <div class="sow-photo-zoom" id="sow-photo-zoom">
+    <div class="sow-photo-zoom-bar">
+      <button type="button" data-z="-">−</button>
+      <button type="button" data-z="+">+</button>
+      <button type="button" data-close style="font-size:13px;min-width:64px">Close</button>
+    </div>
+    <div class="sow-photo-zoom-stage"><img alt=""></div>
+  </div>
+  <script>
+    (function () {
+      var overlay = document.getElementById('sow-photo-zoom');
+      if (!overlay) return;
+      var img = overlay.querySelector('img');
+      var scale = 1;
+      function apply() {
+        img.style.width = (scale * 100) + '%';
+        img.style.maxWidth = scale === 1 ? '100%' : 'none';
+      }
+      function close() {
+        overlay.classList.remove('open');
+        img.removeAttribute('src');
+        scale = 1;
+        apply();
+      }
+      function openZoom(src, alt) {
+        img.src = src;
+        img.alt = alt || '';
+        scale = 1;
+        apply();
+        overlay.classList.add('open');
+      }
+      document.addEventListener('click', function (e) {
+        var t = e.target;
+        if (!t) return;
+        if (t === overlay || (t.classList && t.classList.contains('sow-photo-zoom-stage')) || (t.getAttribute && t.getAttribute('data-close') != null)) { close(); return; }
+        if (t.getAttribute && t.getAttribute('data-z') === '+') { scale = Math.min(4, +(scale + 0.5).toFixed(1)); apply(); return; }
+        if (t.getAttribute && t.getAttribute('data-z') === '-') { scale = Math.max(1, +(scale - 0.5).toFixed(1)); apply(); return; }
+        if (t.tagName === 'IMG' && t.closest && t.closest('.photo-card') && !overlay.contains(t)) {
+          openZoom(t.currentSrc || t.src, t.alt);
+        }
+      });
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
+    })();
+  </script>
 </body>
 </html>`
 }
