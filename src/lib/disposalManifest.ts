@@ -1,4 +1,12 @@
-import type { AssessmentData, DisposalLoad, DisposalManifestCapture, DisposalManifestTotals } from '@/lib/types'
+import type {
+  AssessmentData,
+  DisposalContentsTypeId,
+  DisposalLoad,
+  DisposalManifestCapture,
+  DisposalManifestTotals,
+  DisposalVehicle,
+  DisposalVehicleTypeId,
+} from '@/lib/types'
 
 export const DISPOSAL_CONTENTS_TYPES = [
   { id: 'clinical', label: 'Clinical / biomedical' },
@@ -9,11 +17,37 @@ export const DISPOSAL_CONTENTS_TYPES = [
   { id: 'other', label: 'Other' },
 ] as const
 
-export type DisposalContentsTypeId = (typeof DISPOSAL_CONTENTS_TYPES)[number]['id']
+export const DISPOSAL_VEHICLE_TYPES = [
+  { id: 'trailer', label: 'Trailer' },
+  { id: 'ute', label: 'Ute' },
+  { id: 'skip', label: 'Skip' },
+  { id: 'other', label: 'Other' },
+] as const
+
+export type { DisposalContentsTypeId, DisposalVehicleTypeId }
+
+export function emptyDisposalVehicle(type: DisposalVehicleTypeId = 'trailer'): DisposalVehicle {
+  return {
+    id: `veh_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+    type,
+    size: '',
+    length_m: null,
+    width_m: null,
+    height_m: null,
+    contents_type: '',
+    contents_other: '',
+    contents_description: '',
+    photo_skipped: false,
+    photo_id: null,
+    photo_url: null,
+  }
+}
 
 export function emptyDisposalLoad(): DisposalLoad {
+  const vehicle = emptyDisposalVehicle('trailer')
   return {
     id: `load_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+    vehicles: [vehicle],
     trailer_skipped: false,
     trailer_photo_id: null,
     trailer_photo_url: null,
@@ -96,21 +130,81 @@ function bool(v: unknown): boolean {
 }
 
 const CONTENTS_IDS = new Set<string>(DISPOSAL_CONTENTS_TYPES.map(t => t.id))
+const VEHICLE_IDS = new Set<string>(DISPOSAL_VEHICLE_TYPES.map(t => t.id))
 
-function normalizeLoad(raw: unknown): DisposalLoad {
+function contentsTypeOf(raw: unknown): DisposalContentsTypeId {
+  const contents = str(raw)
+  return CONTENTS_IDS.has(contents) ? (contents as DisposalContentsTypeId) : ''
+}
+
+function vehicleTypeOf(raw: unknown): DisposalVehicleTypeId {
+  const t = str(raw)
+  return VEHICLE_IDS.has(t) ? (t as DisposalVehicleTypeId) : ''
+}
+
+function normalizeVehicle(raw: unknown): DisposalVehicle {
   const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
-  const contents = str(o.contents_type)
-  const base = emptyDisposalLoad()
+  const base = emptyDisposalVehicle()
   return {
     ...base,
     id: str(o.id) || base.id,
-    trailer_skipped: bool(o.trailer_skipped),
-    trailer_photo_id: str(o.trailer_photo_id) || null,
-    trailer_photo_url: str(o.trailer_photo_url) || null,
+    type: vehicleTypeOf(o.type) || 'trailer',
     size: str(o.size),
-    contents_type: CONTENTS_IDS.has(contents) ? (contents as DisposalContentsTypeId) : '',
+    length_m: numOrNull(o.length_m),
+    width_m: numOrNull(o.width_m),
+    height_m: numOrNull(o.height_m),
+    contents_type: contentsTypeOf(o.contents_type),
     contents_other: str(o.contents_other),
     contents_description: str(o.contents_description),
+    photo_skipped: bool(o.photo_skipped),
+    photo_id: str(o.photo_id) || null,
+    photo_url: str(o.photo_url) || null,
+  }
+}
+
+function vehicleFromLegacyLoad(o: Record<string, unknown>): DisposalVehicle {
+  const base = emptyDisposalVehicle('trailer')
+  return {
+    ...base,
+    type: 'trailer',
+    size: str(o.size),
+    contents_type: contentsTypeOf(o.contents_type),
+    contents_other: str(o.contents_other),
+    contents_description: str(o.contents_description),
+    photo_skipped: bool(o.trailer_skipped),
+    photo_id: str(o.trailer_photo_id) || null,
+    photo_url: str(o.trailer_photo_url) || null,
+  }
+}
+
+function firstVehicle(load: DisposalLoad): DisposalVehicle | undefined {
+  return load.vehicles[0]
+}
+
+function withLegacyMirrors(load: DisposalLoad): DisposalLoad {
+  const v = firstVehicle(load)
+  if (!v) return load
+  return {
+    ...load,
+    trailer_skipped: v.photo_skipped,
+    trailer_photo_id: v.photo_id,
+    trailer_photo_url: v.photo_url,
+    size: v.size,
+    contents_type: v.contents_type,
+    contents_other: v.contents_other,
+    contents_description: v.contents_description,
+  }
+}
+
+function normalizeLoad(raw: unknown): DisposalLoad {
+  const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
+  const base = emptyDisposalLoad()
+  const rawVehicles = Array.isArray(o.vehicles) ? o.vehicles.map(normalizeVehicle) : []
+  const vehicles = rawVehicles.length ? rawVehicles : [vehicleFromLegacyLoad(o)]
+  return withLegacyMirrors({
+    ...base,
+    id: str(o.id) || base.id,
+    vehicles,
     date: str(o.date),
     location: str(o.location),
     location_lat: numOrNull(o.location_lat),
@@ -130,17 +224,58 @@ function normalizeLoad(raw: unknown): DisposalLoad {
     distance_from_geo: bool(o.distance_from_geo),
     facility: str(o.facility),
     notes: str(o.notes),
-  }
+  })
 }
 
 export function disposalManifestEqual(a: DisposalManifestCapture, b: DisposalManifestCapture): boolean {
   return JSON.stringify(a) === JSON.stringify(b)
 }
 
+export function vehicleTypeLabel(type: DisposalVehicleTypeId | string): string {
+  const row = DISPOSAL_VEHICLE_TYPES.find(t => t.id === type)
+  return row?.label ?? (type ? String(type) : 'Vehicle')
+}
+
+export function vehicleContentsLabel(vehicle: DisposalVehicle): string {
+  if (vehicle.contents_type === 'other') return vehicle.contents_other.trim() || 'Other'
+  const row = DISPOSAL_CONTENTS_TYPES.find(t => t.id === vehicle.contents_type)
+  return row?.label ?? ''
+}
+
 export function contentsLabel(load: DisposalLoad): string {
+  const labels = load.vehicles.map(vehicleContentsLabel).filter(Boolean)
+  if (labels.length) return [...new Set(labels)].join(', ')
   if (load.contents_type === 'other') return load.contents_other.trim() || 'Other'
   const row = DISPOSAL_CONTENTS_TYPES.find(t => t.id === load.contents_type)
   return row?.label ?? ''
+}
+
+export function vehicleVolumeM3(vehicle: DisposalVehicle): number | null {
+  const l = vehicle.length_m
+  const w = vehicle.width_m
+  const h = vehicle.height_m
+  if (l == null || w == null || h == null) return null
+  if (!Number.isFinite(l) || !Number.isFinite(w) || !Number.isFinite(h)) return null
+  if (l <= 0 || w <= 0 || h <= 0) return null
+  return Math.round(l * w * h * 100) / 100
+}
+
+export function loadVolumeM3(load: DisposalLoad): number | null {
+  let sum = 0
+  let n = 0
+  for (const v of load.vehicles) {
+    const vol = vehicleVolumeM3(v)
+    if (vol != null) {
+      sum += vol
+      n += 1
+    }
+  }
+  if (!n) return null
+  return Math.round(sum * 100) / 100
+}
+
+export function formatM3(m3: number): string {
+  return `${m3.toFixed(m3 % 1 === 0 ? 0 : 2)} m³`
 }
 
 export function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -177,9 +312,11 @@ export function computeDisposalTotals(loads: DisposalLoad[]): DisposalManifestTo
   let weight_kg = 0
   let distance_km = 0
   let dump_fees = 0
+  let volume_m3 = 0
   let weight_n = 0
   let distance_n = 0
   let fee_n = 0
+  let volume_n = 0
   for (const load of loads) {
     if (load.weight_kg != null) {
       weight_kg += load.weight_kg
@@ -193,12 +330,21 @@ export function computeDisposalTotals(loads: DisposalLoad[]): DisposalManifestTo
       dump_fees += load.dump_fee
       fee_n += 1
     }
+    for (const v of load.vehicles) {
+      const vol = vehicleVolumeM3(v)
+      if (vol != null) {
+        volume_m3 += vol
+        volume_n += 1
+      }
+    }
   }
   return {
     load_count: loads.length,
+    volume_m3: Math.round(volume_m3 * 100) / 100,
     weight_kg: Math.round(weight_kg * 10) / 10,
     distance_km: Math.round(distance_km * 10) / 10,
     dump_fees: Math.round(dump_fees * 100) / 100,
+    volume_recorded: volume_n,
     weight_recorded: weight_n,
     distance_recorded: distance_n,
     fees_recorded: fee_n,
@@ -214,8 +360,20 @@ export function formatAud(n: number): string {
   return n.toLocaleString('en-AU', { style: 'currency', currency: 'AUD' })
 }
 
+function vehicleHasContent(v: DisposalVehicle): boolean {
+  return Boolean(
+    v.size.trim() ||
+    vehicleContentsLabel(v) ||
+    v.contents_description.trim() ||
+    vehicleVolumeM3(v) != null ||
+    v.photo_url ||
+    v.photo_skipped,
+  )
+}
+
 export function loadHasContent(load: DisposalLoad): boolean {
   return Boolean(
+    load.vehicles.some(vehicleHasContent) ||
     load.size.trim() ||
     contentsLabel(load) ||
     load.contents_description.trim() ||
@@ -229,15 +387,27 @@ export function loadHasContent(load: DisposalLoad): boolean {
   )
 }
 
+export function anyVehicleReady(load: DisposalLoad): boolean {
+  return load.vehicles.some(v => v.photo_url || v.photo_skipped)
+}
+
 export function formatWasteDisposalNarrative(capture: DisposalManifestCapture): string {
   const loads = capture.loads.filter(loadHasContent)
   if (!loads.length) return ''
   const totals = computeDisposalTotals(loads)
   const lines = loads.map((l, i) => {
+    const vehicleBits = l.vehicles.map(v => {
+      const vol = vehicleVolumeM3(v)
+      return [
+        vehicleTypeLabel(v.type),
+        vehicleContentsLabel(v) || null,
+        v.contents_description.trim() || null,
+        v.size.trim() || null,
+        vol != null ? formatM3(vol) : null,
+      ].filter(Boolean).join(' ')
+    }).filter(Boolean)
     const bits = [
-      contentsLabel(l) || 'Waste',
-      l.contents_description.trim() || null,
-      l.size.trim() ? l.size.trim() : null,
+      vehicleBits.join('; ') || contentsLabel(l) || 'Waste',
       l.weight_kg != null ? formatKg(l.weight_kg) : null,
       l.dump_fee != null ? formatAud(l.dump_fee) : null,
       l.distance_km != null ? `${l.distance_km} km` : null,
@@ -245,11 +415,12 @@ export function formatWasteDisposalNarrative(capture: DisposalManifestCapture): 
     ].filter(Boolean)
     return `${i + 1}. ${bits.join(' · ')}`
   })
+  const volumeBit = totals.volume_recorded ? `${formatM3(totals.volume_m3)}, ` : ''
   return [
     `Disposal loads (${totals.load_count})`,
     '',
     ...lines,
     '',
-    `Totals — ${formatKg(totals.weight_kg)}, ${totals.distance_km} km, ${formatAud(totals.dump_fees)} dump fees.`,
+    `Totals — ${volumeBit}${formatKg(totals.weight_kg)}, ${totals.distance_km} km, ${formatAud(totals.dump_fees)} dump fees.`,
   ].join('\n')
 }

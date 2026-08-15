@@ -1533,15 +1533,41 @@ export type DisposalContentsTypeId =
   | 'other'
   | ''
 
-/** One trailer/skip run from site to facility. */
-export interface DisposalLoad {
+export type DisposalVehicleTypeId = 'trailer' | 'ute' | 'skip' | 'other' | ''
+
+/** One vehicle on a dump trip (trailer, ute, skip, …). */
+export interface DisposalVehicle {
   id: string
-  trailer_skipped: boolean
-  trailer_photo_id: string | null
-  trailer_photo_url: string | null
+  type: DisposalVehicleTypeId
   size: string
+  length_m: number | null
+  width_m: number | null
+  height_m: number | null
   contents_type: DisposalContentsTypeId
   contents_other: string
+  contents_description: string
+  photo_skipped: boolean
+  photo_id: string | null
+  photo_url: string | null
+}
+
+/** One dump run from site to facility (shared docket / fee). */
+export interface DisposalLoad {
+  id: string
+  vehicles: DisposalVehicle[]
+  /** @deprecated Flattened onto vehicles[0] for older saved JSON. */
+  trailer_skipped: boolean
+  /** @deprecated Flattened onto vehicles[0] for older saved JSON. */
+  trailer_photo_id: string | null
+  /** @deprecated Flattened onto vehicles[0] for older saved JSON. */
+  trailer_photo_url: string | null
+  /** @deprecated Flattened onto vehicles[0] for older saved JSON. */
+  size: string
+  /** @deprecated Flattened onto vehicles[0] for older saved JSON. */
+  contents_type: DisposalContentsTypeId
+  /** @deprecated Flattened onto vehicles[0] for older saved JSON. */
+  contents_other: string
+  /** @deprecated Flattened onto vehicles[0] for older saved JSON. */
   contents_description: string
   date: string
   location: string
@@ -1570,12 +1596,26 @@ export interface DisposalManifestCapture {
 
 export interface DisposalManifestTotals {
   load_count: number
+  volume_m3: number
   weight_kg: number
   distance_km: number
   dump_fees: number
+  volume_recorded: number
   weight_recorded: number
   distance_recorded: number
   fees_recorded: number
+}
+
+export interface WasteDisposalManifestVehicleSnapshot {
+  type: string
+  size: string
+  contents: string
+  contents_description?: string
+  length_m: number | null
+  width_m: number | null
+  height_m: number | null
+  volume_m3: number | null
+  photo_url: string | null
 }
 
 export interface WasteDisposalManifestLoadSnapshot {
@@ -1583,12 +1623,14 @@ export interface WasteDisposalManifestLoadSnapshot {
   size: string
   contents: string
   contents_description?: string
+  vehicles?: WasteDisposalManifestVehicleSnapshot[]
   date: string
   location: string
   facility: string
   weight_kg: number | null
   dump_fee: number | null
   distance_km: number | null
+  volume_m3?: number | null
   trailer_photo_url: string | null
   docket_photo_url: string | null
 }
@@ -1839,7 +1881,7 @@ export interface WasteDisposalManifestContent {
   declaration: string
   completed_by?: string
   loads?: WasteDisposalManifestLoadSnapshot[]
-  totals?: Pick<DisposalManifestTotals, 'load_count' | 'weight_kg' | 'distance_km' | 'dump_fees'>
+  totals?: Pick<DisposalManifestTotals, 'load_count' | 'volume_m3' | 'weight_kg' | 'distance_km' | 'dump_fees'>
 }
 
 export interface JSAContent {

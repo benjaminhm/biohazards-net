@@ -48,8 +48,13 @@ import {
   computeDisposalTotals,
   contentsLabel,
   formatAud,
+  formatM3,
   loadHasContent,
+  loadVolumeM3,
   mergedDisposalManifestCapture,
+  vehicleContentsLabel,
+  vehicleTypeLabel,
+  vehicleVolumeM3,
 } from '@/lib/disposalManifest'
 import { collectExcludedSurfaces } from '@/lib/areaSurfaces'
 import { effectiveAreaDimensions } from '@/lib/areaSubzones'
@@ -827,28 +832,56 @@ function composeWdm(job: Job): ComposeDocumentResult {
     ? new Date(`${dates[0]}T00:00:00`).toLocaleDateString('en-AU')
     : new Date().toLocaleDateString('en-AU')
 
-  const waste_items = loads.map(l => ({
-    description: [contentsLabel(l), l.contents_description.trim(), l.size.trim()].filter(Boolean).join(' — ') || `Load`,
-    quantity: l.weight_kg != null ? String(l.weight_kg) : '',
-    unit: l.weight_kg != null ? 'kg' : '',
-    disposal_method: l.dump_fee != null ? `Weighbridge / dump fee ${formatAud(l.dump_fee)}` : 'Licensed facility',
-    facility: (l.facility || l.dump_location).trim() || '—',
-  }))
+  const waste_items = loads.map(l => {
+    const vehicleDesc = l.vehicles.map(v => {
+      const vol = vehicleVolumeM3(v)
+      return [
+        vehicleTypeLabel(v.type),
+        vehicleContentsLabel(v) || v.contents_description.trim() || null,
+        v.size.trim() || null,
+        vol != null ? formatM3(vol) : null,
+      ].filter(Boolean).join(' — ')
+    }).filter(Boolean)
+    return {
+      description: vehicleDesc.join('; ')
+        || [contentsLabel(l), l.contents_description.trim(), l.size.trim()].filter(Boolean).join(' — ')
+        || 'Load',
+      quantity: l.weight_kg != null ? String(l.weight_kg) : '',
+      unit: l.weight_kg != null ? 'kg' : '',
+      disposal_method: l.dump_fee != null ? `Weighbridge / dump fee ${formatAud(l.dump_fee)}` : 'Licensed facility',
+      facility: (l.facility || l.dump_location).trim() || '—',
+    }
+  })
 
-  const snapshots = loads.map((l, i) => ({
-    load_number: i + 1,
-    size: l.size.trim(),
-    contents: contentsLabel(l),
-    contents_description: l.contents_description.trim(),
-    date: l.date,
-    location: l.location.trim(),
-    facility: (l.facility || l.dump_location).trim(),
-    weight_kg: l.weight_kg,
-    dump_fee: l.dump_fee,
-    distance_km: l.distance_km,
-    trailer_photo_url: l.trailer_photo_url,
-    docket_photo_url: l.docket_photo_url,
-  }))
+  const snapshots = loads.map((l, i) => {
+    const first = l.vehicles[0]
+    return {
+      load_number: i + 1,
+      size: first?.size.trim() || l.size.trim(),
+      contents: contentsLabel(l),
+      contents_description: first?.contents_description.trim() || l.contents_description.trim(),
+      vehicles: l.vehicles.map(v => ({
+        type: vehicleTypeLabel(v.type),
+        size: v.size.trim(),
+        contents: vehicleContentsLabel(v),
+        contents_description: v.contents_description.trim(),
+        length_m: v.length_m,
+        width_m: v.width_m,
+        height_m: v.height_m,
+        volume_m3: vehicleVolumeM3(v),
+        photo_url: v.photo_url,
+      })),
+      date: l.date,
+      location: l.location.trim(),
+      facility: (l.facility || l.dump_location).trim(),
+      weight_kg: l.weight_kg,
+      dump_fee: l.dump_fee,
+      distance_km: l.distance_km,
+      volume_m3: loadVolumeM3(l),
+      trailer_photo_url: first?.photo_url || l.trailer_photo_url,
+      docket_photo_url: l.docket_photo_url,
+    }
+  })
 
   const transport = loads
     .map((l, i) => {
@@ -868,6 +901,7 @@ function composeWdm(job: Job): ComposeDocumentResult {
     loads: snapshots,
     totals: {
       load_count: totals.load_count,
+      volume_m3: totals.volume_m3,
       weight_kg: totals.weight_kg,
       distance_km: totals.distance_km,
       dump_fees: totals.dump_fees,

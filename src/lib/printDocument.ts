@@ -31,7 +31,7 @@ import type {
 import { DOC_TYPE_LABELS } from './types'
 import { filterGroupedStages, groupPhotosByRoomAndStage, type RoomPhotoGroup } from './photoGroups'
 import { photosForComposedReports } from '@/lib/photosForComposedReports'
-import { formatAud, formatKg } from '@/lib/disposalManifest'
+import { formatAud, formatKg, formatM3 } from '@/lib/disposalManifest'
 import { SURFACE_LABELS } from '@/lib/areaSurfaces'
 import { effectiveAreaDimensions } from '@/lib/areaSubzones'
 import { OUTCOME_KIND_LABELS, groupRowsByKind, volumePricingSectionSubtotal, volumePricingSubtotal, customSectionSubtotal, customSectionRowsSum } from '@/lib/quoteSections'
@@ -1074,18 +1074,48 @@ function wdmLoadCards(c: WasteDisposalManifestContent): string {
   const loads = c.loads ?? []
   if (!loads.length) return ''
   return loads.map(l => {
-    const photos = [
-      l.trailer_photo_url ? `<div class="photo-card"><img src="${esc(l.trailer_photo_url)}" alt="Trailer / skip"><div class="photo-meta"><div class="photo-cap">Trailer / skip</div></div></div>` : '',
-      l.docket_photo_url ? `<div class="photo-card"><img src="${esc(l.docket_photo_url)}" alt="Dump docket"><div class="photo-meta"><div class="photo-cap">Dump docket</div></div></div>` : '',
-    ].filter(Boolean).join('')
-    const photoBlock = photos ? `<div class="photos-grid" style="margin-top:8px">${photos}</div>` : ''
-    const rows = [
-      l.contents ? `<div><div class="label">Contents</div><div class="body-text">${esc(l.contents)}</div></div>` : '',
-      l.contents_description ? `<div><div class="label">Content description</div><div class="body-text">${esc(l.contents_description)}</div></div>` : '',
-      l.size ? `<div><div class="label">Size</div><div class="body-text">${esc(l.size)}</div></div>` : '',
+    const vehicles = l.vehicles ?? []
+    const vehicleBlocks = vehicles.map((v, i) => {
+      const photo = v.photo_url
+        ? `<div class="photos-grid" style="margin-top:8px"><div class="photo-card"><img src="${esc(v.photo_url)}" alt="${esc(v.type || 'Vehicle')}"><div class="photo-meta"><div class="photo-cap">${esc(v.type || 'Vehicle')}</div></div></div></div>`
+        : ''
+      const dims = [v.length_m, v.width_m, v.height_m].every(n => n != null)
+        ? `${v.length_m} × ${v.width_m} × ${v.height_m} m`
+        : ''
+      const rows = [
+        v.type ? `<div><div class="label">Type</div><div class="body-text">${esc(v.type)}</div></div>` : '',
+        v.contents ? `<div><div class="label">Contents</div><div class="body-text">${esc(v.contents)}</div></div>` : '',
+        v.contents_description ? `<div><div class="label">Content description</div><div class="body-text">${esc(v.contents_description)}</div></div>` : '',
+        v.size ? `<div><div class="label">Size</div><div class="body-text">${esc(v.size)}</div></div>` : '',
+        dims ? `<div><div class="label">Measurements</div><div class="body-text">${esc(dims)}</div></div>` : '',
+        v.volume_m3 != null ? `<div><div class="label">Volume</div><div class="body-text">${esc(formatM3(v.volume_m3))}</div></div>` : '',
+      ].filter(Boolean).join('')
+      return `
+        <div class="sow-muted-box" style="margin-top:10px">
+          <div class="label" style="margin-top:0">Vehicle ${i + 1}${v.type ? ` — ${esc(v.type)}` : ''}</div>
+          <div class="sow-ra-meta">${rows}</div>
+          ${photo}
+        </div>`
+    }).join('')
+
+    const docketPhoto = l.docket_photo_url
+      ? `<div class="photos-grid" style="margin-top:8px"><div class="photo-card"><img src="${esc(l.docket_photo_url)}" alt="Dump docket"><div class="photo-meta"><div class="photo-cap">Dump docket</div></div></div></div>`
+      : ''
+    const legacyPhotos = !vehicles.length
+      ? [
+          l.trailer_photo_url ? `<div class="photo-card"><img src="${esc(l.trailer_photo_url)}" alt="Trailer / skip"><div class="photo-meta"><div class="photo-cap">Trailer / skip</div></div></div>` : '',
+          l.docket_photo_url ? `<div class="photo-card"><img src="${esc(l.docket_photo_url)}" alt="Dump docket"><div class="photo-meta"><div class="photo-cap">Dump docket</div></div></div>` : '',
+        ].filter(Boolean).join('')
+      : ''
+    const legacyPhotoBlock = legacyPhotos ? `<div class="photos-grid" style="margin-top:8px">${legacyPhotos}</div>` : ''
+    const tripRows = [
+      !vehicles.length && l.contents ? `<div><div class="label">Contents</div><div class="body-text">${esc(l.contents)}</div></div>` : '',
+      !vehicles.length && l.contents_description ? `<div><div class="label">Content description</div><div class="body-text">${esc(l.contents_description)}</div></div>` : '',
+      !vehicles.length && l.size ? `<div><div class="label">Size</div><div class="body-text">${esc(l.size)}</div></div>` : '',
       l.date ? `<div><div class="label">Date</div><div class="body-text">${esc(l.date)}</div></div>` : '',
       l.location ? `<div><div class="label">Load location</div><div class="body-text">${esc(l.location)}</div></div>` : '',
       l.facility ? `<div><div class="label">Facility</div><div class="body-text">${esc(l.facility)}</div></div>` : '',
+      l.volume_m3 != null ? `<div><div class="label">Volume</div><div class="body-text">${esc(formatM3(l.volume_m3))}</div></div>` : '',
       l.weight_kg != null ? `<div><div class="label">Weight</div><div class="body-text">${esc(formatKg(l.weight_kg))}</div></div>` : '',
       l.dump_fee != null ? `<div><div class="label">Dump fee</div><div class="body-text">${esc(formatAud(l.dump_fee))}</div></div>` : '',
       l.distance_km != null ? `<div><div class="label">Distance</div><div class="body-text">${esc(String(l.distance_km))} km</div></div>` : '',
@@ -1093,8 +1123,9 @@ function wdmLoadCards(c: WasteDisposalManifestContent): string {
     return `
       <div class="sow-muted-box" style="margin-top:14px">
         <div class="label" style="margin-top:0">Load ${l.load_number}</div>
-        <div class="sow-ra-meta">${rows}</div>
-        ${photoBlock}
+        <div class="sow-ra-meta">${tripRows}</div>
+        ${vehicleBlocks}
+        ${vehicles.length ? docketPhoto : legacyPhotoBlock}
       </div>`
   }).join('')
 }
@@ -1102,10 +1133,14 @@ function wdmLoadCards(c: WasteDisposalManifestContent): string {
 function wdmTotalsBox(c: WasteDisposalManifestContent): string {
   const t = c.totals
   if (!t || t.load_count < 1) return ''
+  const volumeLine = t.volume_m3 != null && t.volume_m3 > 0
+    ? `<div class="body-text"><strong>Volume:</strong> ${esc(formatM3(t.volume_m3))}</div>`
+    : ''
   return `
     <div class="sow-muted-box" style="margin-top:22px">
       <div class="label" style="margin-top:0">Disposal totals</div>
       <div class="body-text"><strong>Loads:</strong> ${t.load_count}</div>
+      ${volumeLine}
       <div class="body-text"><strong>Weight:</strong> ${esc(formatKg(t.weight_kg))}</div>
       <div class="body-text"><strong>Distance:</strong> ${t.distance_km} km</div>
       <div class="body-text"><strong>Dump fees:</strong> ${esc(formatAud(t.dump_fees))}</div>

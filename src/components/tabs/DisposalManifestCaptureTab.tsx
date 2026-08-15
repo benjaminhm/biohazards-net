@@ -1,19 +1,20 @@
 /*
- * Execute-phase Disposal Manifest: repeating dump-load capture.
- * Trailer/skip photo (or skip) → size/contents/date/location, then docket photo
- * (or skip) → weight/fee/distance. Totals roll up into a quote-style summary card.
+ * Execute-phase Disposal Manifest: one card per dump trip.
+ * Vehicles (trailer / ute / skip) with size + L×W×H, then a shared weighbridge docket.
  */
 'use client'
 
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
-import type { DisposalLoad, Job, Photo } from '@/lib/types'
+import type { DisposalLoad, DisposalVehicle, Job, Photo } from '@/lib/types'
 import { mergeAssessmentData } from '@/lib/riskDerivation'
 import { useRegisterUnsavedChanges } from '@/lib/unsavedChangesContext'
 import DisposalPhotoSlot from '@/components/DisposalPhotoSlot'
 import { formatCoordLabel, type PhotoExif } from '@/lib/photoExif'
 import {
   DISPOSAL_CONTENTS_TYPES,
+  DISPOSAL_VEHICLE_TYPES,
+  anyVehicleReady,
   applyJobSiteToCapture,
   applyJobSiteToLoad,
   computeDisposalTotals,
@@ -21,9 +22,14 @@ import {
   disposalManifestEqual,
   distanceFromSiteKm,
   emptyDisposalLoad,
+  emptyDisposalVehicle,
   formatAud,
   formatKg,
+  formatM3,
   mergedDisposalManifestCapture,
+  vehicleContentsLabel,
+  vehicleTypeLabel,
+  vehicleVolumeM3,
 } from '@/lib/disposalManifest'
 
 interface Props {
@@ -73,6 +79,37 @@ function MetaChip({ show }: { show: boolean }) {
   return <span style={CHIP}>From photo</span>
 }
 
+function withMirrors(load: DisposalLoad): DisposalLoad {
+  const v = load.vehicles[0]
+  if (!v) return load
+  return {
+    ...load,
+    trailer_skipped: v.photo_skipped,
+    trailer_photo_id: v.photo_id,
+    trailer_photo_url: v.photo_url,
+    size: v.size,
+    contents_type: v.contents_type,
+    contents_other: v.contents_other,
+    contents_description: v.contents_description,
+  }
+}
+
+function sizePlaceholder(type: DisposalVehicle['type']): string {
+  if (type === 'ute') return 'e.g. dual cab tray'
+  if (type === 'skip') return 'e.g. 6 m³ skip'
+  if (type === 'other') return 'e.g. truck body'
+  return 'e.g. 6×4 tandem trailer'
+}
+
+function photoLabels(type: DisposalVehicle['type']): { camera: string; skip: string; area: string } {
+  const name = vehicleTypeLabel(type)
+  return {
+    camera: `📷 ${name}`,
+    skip: 'Skip photo',
+    area: name,
+  }
+}
+
 export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, onPhotosUpdate }: Props) {
   const router = useRouter()
   const persisted = useMemo(
@@ -94,24 +131,46 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
 
   const totals = useMemo(() => computeDisposalTotals(capture.loads), [capture.loads])
 
-  function patchLoad(id: string, patch: Partial<DisposalLoad>) {
-    setCapture(prev => ({
-      loads: prev.loads.map(l => (l.id === id ? { ...l, ...patch } : l)),
-    }))
+  function touch() {
     setSavedFlash(false)
     setSaveError('')
   }
 
-  function applyTrailerExif(id: string, photo: Photo, exif: PhotoExif) {
+  function patchLoad(id: string, patch: Partial<DisposalLoad>) {
+    setCapture(prev => ({
+      loads: prev.loads.map(l => (l.id === id ? withMirrors({ ...l, ...patch }) : l)),
+    }))
+    touch()
+  }
+
+  function patchVehicle(loadId: string, vehicleId: string, patch: Partial<DisposalVehicle>) {
+    setCapture(prev => ({
+      loads: prev.loads.map(l => {
+        if (l.id !== loadId) return l
+        return withMirrors({
+          ...l,
+          vehicles: l.vehicles.map(v => (v.id === vehicleId ? { ...v, ...patch } : v)),
+        })
+      }),
+    }))
+    touch()
+  }
+
+  function applyVehicleExif(loadId: string, vehicleId: string, photo: Photo, exif: PhotoExif) {
     setCapture(prev => ({
       loads: prev.loads.map(load => {
-        if (load.id !== id) return load
-        const next: DisposalLoad = {
-          ...load,
-          trailer_skipped: false,
-          trailer_photo_id: photo.id,
-          trailer_photo_url: photo.file_url,
-        }
+        if (load.id !== loadId) return load
+        const vehicles = load.vehicles.map(v =>
+          v.id !== vehicleId
+            ? v
+            : {
+                ...v,
+                photo_skipped: false,
+                photo_id: photo.id,
+                photo_url: photo.file_url,
+              },
+        )
+        let next: DisposalLoad = { ...load, vehicles }
         if (!load.date.trim() && exif.date) {
           next.date = exif.date
           next.date_from_photo = true
@@ -120,11 +179,10 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
           next.location_lat = exif.lat
           next.location_lng = exif.lng
         }
-        return applyJobSiteToLoad(next, job)
+        return applyJobSiteToLoad(withMirrors(next), job)
       }),
     }))
-    setSavedFlash(false)
-    setSaveError('')
+    touch()
     onPhotosUpdate([photo, ...photos])
   }
 
@@ -153,11 +211,10 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
             }
           }
         }
-        return next
+        return withMirrors(next)
       }),
     }))
-    setSavedFlash(false)
-    setSaveError('')
+    touch()
     onPhotosUpdate([photo, ...photos])
   }
 
@@ -191,7 +248,34 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
     const load = applyJobSiteToLoad(emptyDisposalLoad(), job)
     setCapture(prev => ({ loads: [...prev.loads, load] }))
     setOpenId(load.id)
-    setSavedFlash(false)
+    touch()
+  }
+
+  function addVehicle(loadId: string) {
+    const vehicle = emptyDisposalVehicle('ute')
+    setCapture(prev => ({
+      loads: prev.loads.map(l => {
+        if (l.id !== loadId) return l
+        return withMirrors({ ...l, vehicles: [...l.vehicles, vehicle] })
+      }),
+    }))
+    touch()
+  }
+
+  function removeVehicle(loadId: string, vehicleId: string) {
+    const load = capture.loads.find(l => l.id === loadId)
+    if (!load) return
+    if (load.vehicles.length > 1 && !window.confirm('Remove this vehicle?')) return
+    setCapture(prev => ({
+      loads: prev.loads.map(l => {
+        if (l.id !== loadId) return l
+        if (l.vehicles.length <= 1) {
+          return withMirrors({ ...l, vehicles: [emptyDisposalVehicle('trailer')] })
+        }
+        return withMirrors({ ...l, vehicles: l.vehicles.filter(v => v.id !== vehicleId) })
+      }),
+    }))
+    touch()
   }
 
   function removeLoad(id: string) {
@@ -199,12 +283,14 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
       const fresh = applyJobSiteToLoad(emptyDisposalLoad(), job)
       setCapture({ loads: [fresh] })
       setOpenId(fresh.id)
+      touch()
       return
     }
     if (!window.confirm('Remove this load?')) return
     const next = capture.loads.filter(l => l.id !== id)
     setCapture({ loads: next })
     if (openId === id) setOpenId(next[next.length - 1]?.id ?? null)
+    touch()
   }
 
   async function saveAndCompose() {
@@ -215,17 +301,22 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
   return (
     <div style={{ maxWidth: 720, paddingBottom: 48 }}>
       <p style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.55, marginBottom: 16 }}>
-        One card per dump load. Photo the trailer or skip (or skip), add size and contents, then the
-        weighbridge / dump-fee docket with weight, cost, and distance. Totals roll up below.
+        One card per dump trip. Classify each vehicle (trailer, ute, skip), add size and
+        measurements, then the shared weighbridge docket. Volumes and fees roll up below.
       </p>
 
       {capture.loads.map((load, index) => {
         const open = openId === load.id
+        const typeBits = load.vehicles.map(v => vehicleTypeLabel(v.type)).filter(Boolean)
+        const vol = load.vehicles.reduce((n, v) => n + (vehicleVolumeM3(v) ?? 0), 0)
+        const volRecorded = load.vehicles.some(v => vehicleVolumeM3(v) != null)
         const titleBits = [
+          typeBits.length ? typeBits.join(' + ') : null,
           contentsLabel(load) || null,
-          load.size.trim() || null,
+          volRecorded ? formatM3(Math.round(vol * 100) / 100) : null,
           load.weight_kg != null ? formatKg(load.weight_kg) : null,
         ].filter(Boolean)
+        const docketOpen = anyVehicleReady(load)
         return (
           <div
             key={load.id}
@@ -273,7 +364,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
               <span style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 700, fontSize: 14 }}>Load {index + 1}</div>
                 <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                  {titleBits.join(' · ') || 'Trailer photo → details → docket'}
+                  {titleBits.join(' · ') || 'Vehicles → measurements → docket'}
                 </div>
               </span>
               <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{open ? '▾' : '▸'}</span>
@@ -281,106 +372,234 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
 
             {open && (
               <div style={{ padding: '0 14px 16px', borderTop: '1px solid var(--border)' }}>
-                <div style={{ ...LABEL, marginTop: 14 }}>1. Trailer or skip</div>
-                <DisposalPhotoSlot
-                  jobId={job.id}
-                  areaRef={`Disposal load ${index + 1} — trailer`}
-                  caption={`Load ${index + 1} trailer / skip`}
-                  photoUrl={load.trailer_photo_url}
-                  skipped={load.trailer_skipped}
-                  skipLabel="Skip photo"
-                  cameraLabel="📷 Trailer"
-                  galleryLabel="🖼 Gallery"
-                  onUploaded={(photo, exif) => applyTrailerExif(load.id, photo, exif)}
-                  onSkip={() => patchLoad(load.id, { trailer_skipped: true })}
-                  onClear={() =>
-                    patchLoad(load.id, {
-                      trailer_skipped: false,
-                      trailer_photo_id: null,
-                      trailer_photo_url: null,
-                      date_from_photo: false,
-                      location_from_photo: false,
-                    })
-                  }
-                />
+                <div style={{ display: 'grid', gap: 12, marginTop: 14 }}>
+                  <div>
+                    <label style={LABEL}>
+                      Date
+                      <MetaChip show={load.date_from_photo} />
+                    </label>
+                    <input
+                      type="date"
+                      value={load.date}
+                      onChange={e => patchLoad(load.id, { date: e.target.value, date_from_photo: false })}
+                      style={INPUT}
+                    />
+                  </div>
+                  <div>
+                    <label style={LABEL}>
+                      Location
+                      <MetaChip show={load.location_from_photo} />
+                    </label>
+                    <input
+                      value={load.location}
+                      onChange={e => patchLoad(load.id, { location: e.target.value, location_from_photo: false })}
+                      placeholder="Pickup / load location"
+                      style={INPUT}
+                    />
+                  </div>
+                </div>
 
-                {(load.trailer_photo_url || load.trailer_skipped) && (
-                  <div style={{ display: 'grid', gap: 12, marginTop: 14 }}>
-                    <div>
-                      <label style={LABEL}>Size</label>
-                      <input
-                        value={load.size}
-                        onChange={e => patchLoad(load.id, { size: e.target.value })}
-                        placeholder="e.g. 6 m³ skip, 6×4 tandem trailer"
-                        style={INPUT}
-                      />
-                    </div>
-                    <div>
-                      <label style={LABEL}>Contents type</label>
-                      <select
-                        value={load.contents_type}
-                        onChange={e =>
-                          patchLoad(load.id, { contents_type: e.target.value as DisposalLoad['contents_type'] })
-                        }
-                        style={{ ...INPUT, cursor: 'pointer' }}
-                      >
-                        <option value="">Select…</option>
-                        {DISPOSAL_CONTENTS_TYPES.map(t => (
-                          <option key={t.id} value={t.id}>{t.label}</option>
-                        ))}
-                      </select>
-                    </div>
-                    {load.contents_type === 'other' && (
+                {load.vehicles.map((vehicle, vIndex) => {
+                  const labels = photoLabels(vehicle.type)
+                  const volM3 = vehicleVolumeM3(vehicle)
+                  const detailsOpen = Boolean(vehicle.photo_url || vehicle.photo_skipped)
+                  return (
+                    <div
+                      key={vehicle.id}
+                      style={{
+                        marginTop: 16,
+                        padding: 12,
+                        borderRadius: 10,
+                        border: '1px solid var(--border)',
+                        background: 'var(--surface-2)',
+                      }}
+                    >
+                      <div style={{ ...LABEL, marginTop: 0 }}>
+                        Vehicle {vIndex + 1}
+                      </div>
                       <div>
-                        <label style={LABEL}>Other contents</label>
-                        <input
-                          value={load.contents_other}
-                          onChange={e => patchLoad(load.id, { contents_other: e.target.value })}
-                          placeholder="Name the waste type"
-                          style={INPUT}
+                        <label style={LABEL}>Type</label>
+                        <select
+                          value={vehicle.type}
+                          onChange={e =>
+                            patchVehicle(load.id, vehicle.id, {
+                              type: e.target.value as DisposalVehicle['type'],
+                            })
+                          }
+                          style={{ ...INPUT, cursor: 'pointer' }}
+                        >
+                          <option value="">Select…</option>
+                          {DISPOSAL_VEHICLE_TYPES.map(t => (
+                            <option key={t.id} value={t.id}>{t.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div style={{ marginTop: 12 }}>
+                        <DisposalPhotoSlot
+                          jobId={job.id}
+                          areaRef={`Disposal load ${index + 1} — ${labels.area} ${vIndex + 1}`}
+                          caption={`Load ${index + 1} ${labels.area}`}
+                          photoUrl={vehicle.photo_url}
+                          skipped={vehicle.photo_skipped}
+                          skipLabel={labels.skip}
+                          cameraLabel={labels.camera}
+                          galleryLabel="🖼 Gallery"
+                          onUploaded={(photo, exif) => applyVehicleExif(load.id, vehicle.id, photo, exif)}
+                          onSkip={() => patchVehicle(load.id, vehicle.id, { photo_skipped: true })}
+                          onClear={() =>
+                            patchVehicle(load.id, vehicle.id, {
+                              photo_skipped: false,
+                              photo_id: null,
+                              photo_url: null,
+                            })
+                          }
                         />
                       </div>
-                    )}
-                    <div>
-                      <label style={LABEL}>Content description</label>
-                      <textarea
-                        value={load.contents_description}
-                        onChange={e => patchLoad(load.id, { contents_description: e.target.value })}
-                        rows={2}
-                        placeholder="e.g. sofas, mattresses, mixed household from dwelling"
-                        style={{ ...INPUT, resize: 'vertical', minHeight: 64 }}
-                      />
-                    </div>
-                    <div>
-                      <label style={LABEL}>
-                        Date
-                        <MetaChip show={load.date_from_photo} />
-                      </label>
-                      <input
-                        type="date"
-                        value={load.date}
-                        onChange={e => patchLoad(load.id, { date: e.target.value, date_from_photo: false })}
-                        style={INPUT}
-                      />
-                    </div>
-                    <div>
-                      <label style={LABEL}>
-                        Location
-                        <MetaChip show={load.location_from_photo} />
-                      </label>
-                      <input
-                        value={load.location}
-                        onChange={e => patchLoad(load.id, { location: e.target.value, location_from_photo: false })}
-                        placeholder="Pickup / load location"
-                        style={INPUT}
-                      />
-                    </div>
-                  </div>
-                )}
 
-                {(load.trailer_photo_url || load.trailer_skipped) && (
+                      {detailsOpen && (
+                        <div style={{ display: 'grid', gap: 12, marginTop: 14 }}>
+                          <div>
+                            <label style={LABEL}>Size</label>
+                            <input
+                              value={vehicle.size}
+                              onChange={e => patchVehicle(load.id, vehicle.id, { size: e.target.value })}
+                              placeholder={sizePlaceholder(vehicle.type)}
+                              style={INPUT}
+                            />
+                          </div>
+                          <div>
+                            <label style={LABEL}>Load measurements (m)</label>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                              <div>
+                                <label style={{ ...LABEL, fontSize: 10 }}>Length</label>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step="0.01"
+                                  value={vehicle.length_m ?? ''}
+                                  onChange={e =>
+                                    patchVehicle(load.id, vehicle.id, {
+                                      length_m: e.target.value === '' ? null : Number(e.target.value),
+                                    })
+                                  }
+                                  placeholder="L"
+                                  style={INPUT}
+                                />
+                              </div>
+                              <div>
+                                <label style={{ ...LABEL, fontSize: 10 }}>Width</label>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step="0.01"
+                                  value={vehicle.width_m ?? ''}
+                                  onChange={e =>
+                                    patchVehicle(load.id, vehicle.id, {
+                                      width_m: e.target.value === '' ? null : Number(e.target.value),
+                                    })
+                                  }
+                                  placeholder="W"
+                                  style={INPUT}
+                                />
+                              </div>
+                              <div>
+                                <label style={{ ...LABEL, fontSize: 10 }}>Height</label>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step="0.01"
+                                  value={vehicle.height_m ?? ''}
+                                  onChange={e =>
+                                    patchVehicle(load.id, vehicle.id, {
+                                      height_m: e.target.value === '' ? null : Number(e.target.value),
+                                    })
+                                  }
+                                  placeholder="H"
+                                  style={INPUT}
+                                />
+                              </div>
+                            </div>
+                            <div style={{ marginTop: 8, fontSize: 13, color: 'var(--text-muted)' }}>
+                              Volume: {volM3 != null ? formatM3(volM3) : '—'}
+                            </div>
+                          </div>
+                          <div>
+                            <label style={LABEL}>Contents type</label>
+                            <select
+                              value={vehicle.contents_type}
+                              onChange={e =>
+                                patchVehicle(load.id, vehicle.id, {
+                                  contents_type: e.target.value as DisposalVehicle['contents_type'],
+                                })
+                              }
+                              style={{ ...INPUT, cursor: 'pointer' }}
+                            >
+                              <option value="">Select…</option>
+                              {DISPOSAL_CONTENTS_TYPES.map(t => (
+                                <option key={t.id} value={t.id}>{t.label}</option>
+                              ))}
+                            </select>
+                          </div>
+                          {vehicle.contents_type === 'other' && (
+                            <div>
+                              <label style={LABEL}>Other contents</label>
+                              <input
+                                value={vehicle.contents_other}
+                                onChange={e =>
+                                  patchVehicle(load.id, vehicle.id, { contents_other: e.target.value })
+                                }
+                                placeholder="Name the waste type"
+                                style={INPUT}
+                              />
+                            </div>
+                          )}
+                          <div>
+                            <label style={LABEL}>Content description</label>
+                            <textarea
+                              value={vehicle.contents_description}
+                              onChange={e =>
+                                patchVehicle(load.id, vehicle.id, { contents_description: e.target.value })
+                              }
+                              rows={2}
+                              placeholder="e.g. sofas, mattresses, mixed household from dwelling"
+                              style={{ ...INPUT, resize: 'vertical', minHeight: 64 }}
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
+                        <button
+                          type="button"
+                          onClick={() => removeVehicle(load.id, vehicle.id)}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            color: '#F87171',
+                            fontSize: 12,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Remove vehicle
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => addVehicle(load.id)}
+                  style={{ width: '100%', marginTop: 12, padding: 10, fontWeight: 700 }}
+                >
+                  + Add vehicle
+                </button>
+
+                {docketOpen && (
                   <>
-                    <div style={{ ...LABEL, marginTop: 22 }}>2. Dump fee / skip docket</div>
+                    <div style={{ ...LABEL, marginTop: 22 }}>Dump fee / skip docket</div>
                     <DisposalPhotoSlot
                       jobId={job.id}
                       areaRef={`Disposal load ${index + 1} — docket`}
@@ -539,6 +758,10 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
           <span style={{ color: 'var(--text-muted)' }}>Loads</span>
           <span>{totals.load_count}</span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+          <span style={{ color: 'var(--text-muted)' }}>Volume</span>
+          <span>{totals.volume_recorded ? formatM3(totals.volume_m3) : '—'}</span>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
           <span style={{ color: 'var(--text-muted)' }}>Weight</span>
