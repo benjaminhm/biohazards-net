@@ -4,7 +4,7 @@
  */
 'use client'
 
-import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type PointerEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type CSSProperties, type PointerEvent } from 'react'
 import type { Photo } from '@/lib/types'
 import { enrichExifWithDevice, formatCoordLabel, readPhotoExif, type PhotoExif } from '@/lib/photoExif'
 
@@ -33,62 +33,130 @@ export function ZoomablePhoto({
   maxHeight?: number
 }) {
   const [scale, setScale] = useState(1)
-  const [pan, setPan] = useState({ x: 0, y: 0 })
+  const [grabbing, setGrabbing] = useState(false)
   const stageRef = useRef<HTMLDivElement>(null)
   const scaleRef = useRef(1)
-  const panRef = useRef({ x: 0, y: 0 })
-  const drag = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null)
+  const restoreRef = useRef<{ contentX: number; contentY: number; fx: number; fy: number } | null>(null)
   const pinch = useRef<{ dist: number; scale: number } | null>(null)
-  const lastTap = useRef(0)
-  scaleRef.current = scale
-  panRef.current = pan
+  const drag = useRef<{ x: number; y: number; sl: number; st: number } | null>(null)
+  const tap = useRef<{ t: number; x: number; y: number; moved: boolean } | null>(null)
+  const lastTap = useRef<{ t: number; x: number; y: number } | null>(null)
+  const pendingZoom = useRef<{ next: number; fx: number; fy: number } | null>(null)
+  const zoomRaf = useRef(0)
+
+  function zoomAround(next: number, fx: number, fy: number) {
+    pendingZoom.current = { next, fx, fy }
+    if (zoomRaf.current) return
+    zoomRaf.current = requestAnimationFrame(() => {
+      zoomRaf.current = 0
+      const pending = pendingZoom.current
+      const el = stageRef.current
+      if (!pending) return
+      const s = clampZoom(pending.next)
+      if (el) {
+        restoreRef.current = {
+          contentX: (el.scrollLeft + pending.fx) / scaleRef.current,
+          contentY: (el.scrollTop + pending.fy) / scaleRef.current,
+          fx: pending.fx,
+          fy: pending.fy,
+        }
+      }
+      scaleRef.current = s
+      setScale(s)
+    })
+  }
+
+  const zoomAroundRef = useRef(zoomAround)
+  zoomAroundRef.current = zoomAround
 
   useEffect(() => {
+    scaleRef.current = 1
     setScale(1)
-    setPan({ x: 0, y: 0 })
+    const el = stageRef.current
+    if (el) {
+      el.scrollLeft = 0
+      el.scrollTop = 0
+    }
+    return () => {
+      if (zoomRaf.current) cancelAnimationFrame(zoomRaf.current)
+    }
   }, [src])
+
+  useLayoutEffect(() => {
+    const el = stageRef.current
+    const r = restoreRef.current
+    if (!el || !r) return
+    restoreRef.current = null
+    el.scrollLeft = r.contentX * scale - r.fx
+    el.scrollTop = r.contentY * scale - r.fy
+  }, [scale])
+
+  function zoomCenter(next: number) {
+    const el = stageRef.current
+    zoomAround(next, el ? el.clientWidth / 2 : 0, el ? el.clientHeight / 2 : 0)
+  }
 
   useEffect(() => {
     const el = stageRef.current
     if (!el) return
 
     const touchDist = (a: Touch, b: Touch) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)
+    const localPoint = (clientX: number, clientY: number) => {
+      const rect = el.getBoundingClientRect()
+      return { x: clientX - rect.left, y: clientY - rect.top }
+    }
 
     const onWheel = (e: WheelEvent) => {
       if (!e.ctrlKey && !e.metaKey) return
       e.preventDefault()
-      applyScale(scaleRef.current + (e.deltaY > 0 ? -0.25 : 0.25))
+      const p = localPoint(e.clientX, e.clientY)
+      zoomAroundRef.current(scaleRef.current + (e.deltaY > 0 ? -0.2 : 0.2), p.x, p.y)
     }
     const onTouchStart = (e: TouchEvent) => {
       if (e.touches.length === 2) {
-        drag.current = null
+        tap.current = null
         pinch.current = { dist: touchDist(e.touches[0], e.touches[1]), scale: scaleRef.current }
         return
       }
-      if (e.touches.length === 1 && scaleRef.current > 1) {
+      if (e.touches.length === 1) {
         const t = e.touches[0]
-        drag.current = { x: t.clientX, y: t.clientY, panX: panRef.current.x, panY: panRef.current.y }
+        tap.current = { t: Date.now(), x: t.clientX, y: t.clientY, moved: false }
       }
     }
     const onTouchMove = (e: TouchEvent) => {
       if (e.touches.length === 2 && pinch.current) {
         e.preventDefault()
-        applyScale(pinch.current.scale * (touchDist(e.touches[0], e.touches[1]) / pinch.current.dist))
+        const a = e.touches[0]
+        const b = e.touches[1]
+        const mid = localPoint((a.clientX + b.clientX) / 2, (a.clientY + b.clientY) / 2)
+        zoomAroundRef.current(
+          pinch.current.scale * (touchDist(a, b) / pinch.current.dist),
+          mid.x,
+          mid.y,
+        )
         return
       }
-      if (e.touches.length === 1 && drag.current && scaleRef.current > 1) {
-        e.preventDefault()
+      const start = tap.current
+      if (start && e.touches.length === 1) {
         const t = e.touches[0]
-        setPan(clampPan(
-          drag.current.panX + (t.clientX - drag.current.x),
-          drag.current.panY + (t.clientY - drag.current.y),
-          scaleRef.current,
-        ))
+        if (Math.hypot(t.clientX - start.x, t.clientY - start.y) > 8) start.moved = true
       }
     }
     const onTouchEnd = (e: TouchEvent) => {
       if (e.touches.length < 2) pinch.current = null
-      if (e.touches.length === 0) drag.current = null
+      if (e.touches.length !== 0) return
+      const start = tap.current
+      tap.current = null
+      if (!start || start.moved || Date.now() - start.t > 280) return
+      const prev = lastTap.current
+      const now = Date.now()
+      if (prev && now - prev.t < 280 && Math.hypot(start.x - prev.x, start.y - prev.y) < 40) {
+        const p = localPoint(start.x, start.y)
+        zoomAroundRef.current(scaleRef.current > 1 ? 1 : 2.5, p.x, p.y)
+        lastTap.current = null
+      } else {
+        lastTap.current = { t: now, x: start.x, y: start.y }
+      }
     }
 
     el.addEventListener('wheel', onWheel, { passive: false })
@@ -105,51 +173,30 @@ export function ZoomablePhoto({
     }
   }, [])
 
-  function applyScale(next: number) {
-    const s = clampZoom(next)
-    setScale(s)
-    if (s <= 1) setPan({ x: 0, y: 0 })
-    else setPan(p => clampPan(p.x, p.y, s))
-  }
-
-  function clampPan(x: number, y: number, s: number) {
-    const el = stageRef.current
-    if (!el) return { x: 0, y: 0 }
-    const maxX = (el.clientWidth * (s - 1)) / 2
-    const maxY = (el.clientHeight * (s - 1)) / 2
-    return {
-      x: Math.max(-maxX, Math.min(maxX, x)),
-      y: Math.max(-maxY, Math.min(maxY, y)),
-    }
-  }
-
   function onPointerDown(e: PointerEvent<HTMLDivElement>) {
     if (e.pointerType === 'touch') return
-    if (scale <= 1) return
-    e.currentTarget.setPointerCapture(e.pointerId)
-    drag.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y }
+    const el = stageRef.current
+    if (!el) return
+    el.setPointerCapture(e.pointerId)
+    drag.current = { x: e.clientX, y: e.clientY, sl: el.scrollLeft, st: el.scrollTop }
+    setGrabbing(true)
   }
 
   function onPointerMove(e: PointerEvent<HTMLDivElement>) {
     if (e.pointerType === 'touch') return
     const d = drag.current
-    if (!d) return
-    setPan(clampPan(d.panX + (e.clientX - d.x), d.panY + (e.clientY - d.y), scale))
+    const el = stageRef.current
+    if (!d || !el) return
+    el.scrollLeft = d.sl - (e.clientX - d.x)
+    el.scrollTop = d.st - (e.clientY - d.y)
   }
 
   function onPointerUp(e: PointerEvent<HTMLDivElement>) {
     drag.current = null
+    setGrabbing(false)
     if (e.pointerType === 'mouse' && e.detail === 2) {
-      applyScale(scale > 1 ? 1 : 2)
-      return
-    }
-    if (e.pointerType !== 'touch' || pinch.current) return
-    const now = Date.now()
-    if (now - lastTap.current < 280) {
-      applyScale(scale > 1 ? 1 : 2.5)
-      lastTap.current = 0
-    } else {
-      lastTap.current = now
+      const rect = e.currentTarget.getBoundingClientRect()
+      zoomAround(scaleRef.current > 1 ? 1 : 2, e.clientX - rect.left, e.clientY - rect.top)
     }
   }
 
@@ -160,31 +207,34 @@ export function ZoomablePhoto({
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        onPointerCancel={() => { drag.current = null }}
-        onDoubleClick={() => applyScale(scale > 1 ? 1 : 2)}
+        onPointerCancel={() => { drag.current = null; setGrabbing(false) }}
         style={{
           height: maxHeight,
-          overflow: 'hidden',
+          overflow: 'auto',
+          WebkitOverflowScrolling: 'touch',
+          overscrollBehavior: 'contain',
           background: 'var(--surface-2)',
-          cursor: scale > 1 ? 'grab' : 'zoom-in',
-          touchAction: 'none',
+          cursor: grabbing ? 'grabbing' : 'grab',
+          touchAction: 'pan-x pan-y',
+          borderRadius: 10,
         }}
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={src}
-          alt={alt}
-          draggable={false}
-          style={{
-            width: '100%',
-            height: 'auto',
-            display: 'block',
-            userSelect: 'none',
-            pointerEvents: 'none',
-            transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
-            transformOrigin: 'center center',
-          }}
-        />
+        <div style={{ width: `${scale * 100}%` }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={src}
+            alt={alt}
+            draggable={false}
+            style={{
+              width: '100%',
+              height: 'auto',
+              display: 'block',
+              userSelect: 'none',
+              WebkitUserSelect: 'none',
+              pointerEvents: 'none',
+            }}
+          />
+        </div>
       </div>
       <div
         style={{
@@ -195,18 +245,18 @@ export function ZoomablePhoto({
           marginTop: 6,
         }}
       >
-        <button type="button" style={ZOOM_BTN} onClick={() => applyScale(scale - 0.5)} aria-label="Zoom out">−</button>
+        <button type="button" style={ZOOM_BTN} onClick={() => zoomCenter(scale - 0.5)} aria-label="Zoom out">−</button>
         <span style={{ fontSize: 12, color: 'var(--text-muted)', minWidth: 40, textAlign: 'center' }}>
           {Math.round(scale * 100)}%
         </span>
-        <button type="button" style={ZOOM_BTN} onClick={() => applyScale(scale + 0.5)} aria-label="Zoom in">+</button>
+        <button type="button" style={ZOOM_BTN} onClick={() => zoomCenter(scale + 0.5)} aria-label="Zoom in">+</button>
       </div>
     </div>
   )
 }
 
 function clampZoom(n: number) {
-  return Math.min(4, Math.max(1, Math.round(n * 10) / 10))
+  return Math.min(4, Math.max(1, n))
 }
 
 const NOTE_INPUT: CSSProperties = {
@@ -360,7 +410,7 @@ export default function DisposalPhotoSlot({
           style={{
             position: 'relative',
             borderRadius: 10,
-            overflow: 'hidden',
+            overflow: 'visible',
             border: '1px solid var(--border)',
             background: 'var(--surface-2)',
           }}

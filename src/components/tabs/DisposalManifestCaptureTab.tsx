@@ -706,7 +706,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                                     <div
                                       style={{
                                         borderRadius: 10,
-                                        overflow: 'hidden',
+                                        overflow: 'visible',
                                         border: '1px solid var(--border)',
                                         background: 'var(--surface)',
                                       }}
@@ -1130,10 +1130,10 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                             <div key={p.id} style={{ position: 'relative' }}>
                               <div
                                 style={{
-                                  borderRadius: 10,
-                                  overflow: 'hidden',
-                                  border: '1px solid var(--border)',
-                                  background: 'var(--surface)',
+                                borderRadius: 10,
+                                overflow: 'visible',
+                                border: '1px solid var(--border)',
+                                background: 'var(--surface)',
                                 }}
                               >
                                 <ZoomablePhoto src={p.url} alt={p.note || `Facility ${pIndex + 1}`} maxHeight={180} />
