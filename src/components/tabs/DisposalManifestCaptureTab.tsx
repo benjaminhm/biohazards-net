@@ -80,6 +80,23 @@ function MetaChip({ show }: { show: boolean }) {
   return <span style={CHIP}>From photo</span>
 }
 
+function LockGlyph({ open }: { open: boolean }) {
+  if (open) {
+    return (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden>
+        <rect x="5" y="11" width="14" height="10" rx="2" />
+        <path d="M8 11V7a4 4 0 0 1 7.4-2" />
+      </svg>
+    )
+  }
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden>
+      <rect x="5" y="11" width="14" height="10" rx="2" />
+      <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+    </svg>
+  )
+}
+
 function withMirrors(load: DisposalLoad): DisposalLoad {
   const v = load.vehicles[0]
   if (!v) return load
@@ -122,6 +139,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
   const [savedFlash, setSavedFlash] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [openId, setOpenId] = useState<string | null>(persisted.loads[0]?.id ?? null)
+  const [unlockedLoadId, setUnlockedLoadId] = useState<string | null>(null)
 
   const isDirty = !disposalManifestEqual(capture, persisted)
   useRegisterUnsavedChanges('disposal-manifest-capture', isDirty)
@@ -246,8 +264,12 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
   }
 
   function moveLoad(index: number, direction: -1 | 1) {
-    setCapture(prev => ({ loads: moveArrayItem(prev.loads, index, direction) }))
-    touch()
+    const load = capture.loads[index]
+    if (!load || unlockedLoadId !== load.id) return
+    const next = { loads: moveArrayItem(capture.loads, index, direction) }
+    setCapture(next)
+    setUnlockedLoadId(null)
+    void save(next)
   }
 
   function addLoad() {
@@ -421,8 +443,33 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
               </button>
               <button
                 type="button"
+                aria-label={unlockedLoadId === load.id ? 'Lock load order' : 'Unlock load order'}
+                title={unlockedLoadId === load.id ? 'Unlocked — move, then it saves and locks' : 'Locked — tap to unlock and reorder'}
+                onClick={() => setUnlockedLoadId(unlockedLoadId === load.id ? null : load.id)}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 8,
+                  border: unlockedLoadId === load.id
+                    ? '1px solid rgba(52,211,153,0.55)'
+                    : '1px solid rgba(248,113,113,0.55)',
+                  background: unlockedLoadId === load.id
+                    ? 'rgba(16,185,129,0.16)'
+                    : 'rgba(248,113,113,0.16)',
+                  color: unlockedLoadId === load.id ? '#34D399' : '#F87171',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <LockGlyph open={unlockedLoadId === load.id} />
+              </button>
+              <button
+                type="button"
                 aria-label="Move load up"
-                disabled={index === 0}
+                disabled={unlockedLoadId !== load.id || index === 0 || saving}
                 onClick={() => moveLoad(index, -1)}
                 style={{
                   width: 32,
@@ -431,8 +478,8 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                   border: '1px solid var(--border)',
                   background: 'var(--surface-2)',
                   color: 'var(--text)',
-                  cursor: index === 0 ? 'not-allowed' : 'pointer',
-                  opacity: index === 0 ? 0.35 : 1,
+                  cursor: unlockedLoadId !== load.id || index === 0 || saving ? 'not-allowed' : 'pointer',
+                  opacity: unlockedLoadId !== load.id || index === 0 || saving ? 0.35 : 1,
                   fontSize: 14,
                   fontWeight: 800,
                   flexShrink: 0,
@@ -443,7 +490,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
               <button
                 type="button"
                 aria-label="Move load down"
-                disabled={index === capture.loads.length - 1}
+                disabled={unlockedLoadId !== load.id || index === capture.loads.length - 1 || saving}
                 onClick={() => moveLoad(index, 1)}
                 style={{
                   width: 32,
@@ -452,8 +499,8 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                   border: '1px solid var(--border)',
                   background: 'var(--surface-2)',
                   color: 'var(--text)',
-                  cursor: index === capture.loads.length - 1 ? 'not-allowed' : 'pointer',
-                  opacity: index === capture.loads.length - 1 ? 0.35 : 1,
+                  cursor: unlockedLoadId !== load.id || index === capture.loads.length - 1 || saving ? 'not-allowed' : 'pointer',
+                  opacity: unlockedLoadId !== load.id || index === capture.loads.length - 1 || saving ? 0.35 : 1,
                   fontSize: 14,
                   fontWeight: 800,
                   flexShrink: 0,
