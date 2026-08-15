@@ -9,16 +9,18 @@ import type { Photo } from '@/lib/types'
 import { enrichExifWithDevice, formatCoordLabel, readPhotoExif, type PhotoExif } from '@/lib/photoExif'
 
 const ZOOM_BTN: CSSProperties = {
-  width: 32,
-  height: 32,
+  minWidth: 44,
+  height: 36,
   borderRadius: 8,
-  border: '1px solid rgba(255,255,255,0.28)',
-  background: 'rgba(16,16,16,0.82)',
-  color: '#fff',
-  fontSize: 16,
+  border: '1px solid var(--border)',
+  background: 'var(--surface)',
+  color: 'var(--text)',
+  fontSize: 18,
   fontWeight: 700,
   cursor: 'pointer',
-  padding: 0,
+  padding: '0 12px',
+  lineHeight: 1,
+  touchAction: 'manipulation',
 }
 
 export function ZoomablePhoto({
@@ -31,64 +33,141 @@ export function ZoomablePhoto({
   maxHeight?: number
 }) {
   const [scale, setScale] = useState(1)
+  const [pan, setPan] = useState({ x: 0, y: 0 })
   const stageRef = useRef<HTMLDivElement>(null)
-  const drag = useRef<{ x: number; y: number; sl: number; st: number } | null>(null)
+  const scaleRef = useRef(1)
+  const panRef = useRef({ x: 0, y: 0 })
+  const drag = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null)
+  const pinch = useRef<{ dist: number; scale: number } | null>(null)
+  const lastTap = useRef(0)
+  scaleRef.current = scale
+  panRef.current = pan
 
   useEffect(() => {
     setScale(1)
+    setPan({ x: 0, y: 0 })
   }, [src])
 
   useEffect(() => {
     const el = stageRef.current
     if (!el) return
+
+    const touchDist = (a: Touch, b: Touch) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)
+
     const onWheel = (e: WheelEvent) => {
       if (!e.ctrlKey && !e.metaKey) return
       e.preventDefault()
-      setScale(s => Math.min(4, Math.max(1, Math.round((s + (e.deltaY > 0 ? -0.25 : 0.25)) * 10) / 10)))
+      applyScale(scaleRef.current + (e.deltaY > 0 ? -0.25 : 0.25))
     }
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        drag.current = null
+        pinch.current = { dist: touchDist(e.touches[0], e.touches[1]), scale: scaleRef.current }
+        return
+      }
+      if (e.touches.length === 1 && scaleRef.current > 1) {
+        const t = e.touches[0]
+        drag.current = { x: t.clientX, y: t.clientY, panX: panRef.current.x, panY: panRef.current.y }
+      }
+    }
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 2 && pinch.current) {
+        e.preventDefault()
+        applyScale(pinch.current.scale * (touchDist(e.touches[0], e.touches[1]) / pinch.current.dist))
+        return
+      }
+      if (e.touches.length === 1 && drag.current && scaleRef.current > 1) {
+        e.preventDefault()
+        const t = e.touches[0]
+        setPan(clampPan(
+          drag.current.panX + (t.clientX - drag.current.x),
+          drag.current.panY + (t.clientY - drag.current.y),
+          scaleRef.current,
+        ))
+      }
+    }
+    const onTouchEnd = (e: TouchEvent) => {
+      if (e.touches.length < 2) pinch.current = null
+      if (e.touches.length === 0) drag.current = null
+    }
+
     el.addEventListener('wheel', onWheel, { passive: false })
-    return () => el.removeEventListener('wheel', onWheel)
+    el.addEventListener('touchstart', onTouchStart, { passive: true })
+    el.addEventListener('touchmove', onTouchMove, { passive: false })
+    el.addEventListener('touchend', onTouchEnd)
+    el.addEventListener('touchcancel', onTouchEnd)
+    return () => {
+      el.removeEventListener('wheel', onWheel)
+      el.removeEventListener('touchstart', onTouchStart)
+      el.removeEventListener('touchmove', onTouchMove)
+      el.removeEventListener('touchend', onTouchEnd)
+      el.removeEventListener('touchcancel', onTouchEnd)
+    }
   }, [])
 
-  function setZoom(next: number) {
-    setScale(Math.min(4, Math.max(1, Math.round(next * 10) / 10)))
+  function applyScale(next: number) {
+    const s = clampZoom(next)
+    setScale(s)
+    if (s <= 1) setPan({ x: 0, y: 0 })
+    else setPan(p => clampPan(p.x, p.y, s))
+  }
+
+  function clampPan(x: number, y: number, s: number) {
+    const el = stageRef.current
+    if (!el) return { x: 0, y: 0 }
+    const maxX = (el.clientWidth * (s - 1)) / 2
+    const maxY = (el.clientHeight * (s - 1)) / 2
+    return {
+      x: Math.max(-maxX, Math.min(maxX, x)),
+      y: Math.max(-maxY, Math.min(maxY, y)),
+    }
   }
 
   function onPointerDown(e: PointerEvent<HTMLDivElement>) {
+    if (e.pointerType === 'touch') return
     if (scale <= 1) return
-    const el = stageRef.current
-    if (!el) return
-    el.setPointerCapture(e.pointerId)
-    drag.current = { x: e.clientX, y: e.clientY, sl: el.scrollLeft, st: el.scrollTop }
+    e.currentTarget.setPointerCapture(e.pointerId)
+    drag.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y }
   }
 
   function onPointerMove(e: PointerEvent<HTMLDivElement>) {
+    if (e.pointerType === 'touch') return
     const d = drag.current
-    const el = stageRef.current
-    if (!d || !el) return
-    el.scrollLeft = d.sl - (e.clientX - d.x)
-    el.scrollTop = d.st - (e.clientY - d.y)
+    if (!d) return
+    setPan(clampPan(d.panX + (e.clientX - d.x), d.panY + (e.clientY - d.y), scale))
   }
 
-  function onPointerUp() {
+  function onPointerUp(e: PointerEvent<HTMLDivElement>) {
     drag.current = null
+    if (e.pointerType === 'mouse' && e.detail === 2) {
+      applyScale(scale > 1 ? 1 : 2)
+      return
+    }
+    if (e.pointerType !== 'touch' || pinch.current) return
+    const now = Date.now()
+    if (now - lastTap.current < 280) {
+      applyScale(scale > 1 ? 1 : 2.5)
+      lastTap.current = 0
+    } else {
+      lastTap.current = now
+    }
   }
 
   return (
-    <div style={{ position: 'relative' }}>
+    <div>
       <div
         ref={stageRef}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
+        onPointerCancel={() => { drag.current = null }}
+        onDoubleClick={() => applyScale(scale > 1 ? 1 : 2)}
         style={{
           height: maxHeight,
-          overflow: 'auto',
-          WebkitOverflowScrolling: 'touch',
+          overflow: 'hidden',
           background: 'var(--surface-2)',
-          cursor: scale > 1 ? 'grab' : 'default',
-          touchAction: scale > 1 ? 'none' : 'pan-x pan-y',
+          cursor: scale > 1 ? 'grab' : 'zoom-in',
+          touchAction: 'none',
         }}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -97,29 +176,37 @@ export function ZoomablePhoto({
           alt={alt}
           draggable={false}
           style={{
-            width: scale === 1 ? '100%' : `${scale * 100}%`,
-            maxWidth: scale === 1 ? '100%' : 'none',
+            width: '100%',
             height: 'auto',
             display: 'block',
             userSelect: 'none',
+            pointerEvents: 'none',
+            transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
+            transformOrigin: 'center center',
           }}
         />
       </div>
       <div
         style={{
-          position: 'absolute',
-          top: 8,
-          right: 8,
           display: 'flex',
-          gap: 6,
-          zIndex: 1,
+          alignItems: 'center',
+          justifyContent: 'flex-end',
+          gap: 8,
+          marginTop: 6,
         }}
       >
-        <button type="button" style={ZOOM_BTN} onClick={() => setZoom(scale - 0.5)} aria-label="Zoom out">−</button>
-        <button type="button" style={ZOOM_BTN} onClick={() => setZoom(scale + 0.5)} aria-label="Zoom in">+</button>
+        <button type="button" style={ZOOM_BTN} onClick={() => applyScale(scale - 0.5)} aria-label="Zoom out">−</button>
+        <span style={{ fontSize: 12, color: 'var(--text-muted)', minWidth: 40, textAlign: 'center' }}>
+          {Math.round(scale * 100)}%
+        </span>
+        <button type="button" style={ZOOM_BTN} onClick={() => applyScale(scale + 0.5)} aria-label="Zoom in">+</button>
       </div>
     </div>
   )
+}
+
+function clampZoom(n: number) {
+  return Math.min(4, Math.max(1, Math.round(n * 10) / 10))
 }
 
 const NOTE_INPUT: CSSProperties = {
