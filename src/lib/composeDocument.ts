@@ -848,7 +848,9 @@ function composeWdm(job: Job): ComposeDocumentResult {
         || 'Load',
       quantity: l.weight_kg != null ? String(l.weight_kg) : '',
       unit: l.weight_kg != null ? 'kg' : '',
-      disposal_method: l.dump_fee != null ? `Weighbridge / dump fee ${formatAud(l.dump_fee)}` : 'Licensed facility',
+      disposal_method: l.recycling
+        ? `Recycling${l.recycling_type.trim() ? ` — ${l.recycling_type.trim()}` : ''}`
+        : l.dump_fee != null ? `Weighbridge / dump fee ${formatAud(l.dump_fee)}` : 'Licensed facility',
       facility: (l.facility || l.dump_location).trim() || '—',
     }
   })
@@ -884,6 +886,10 @@ function composeWdm(job: Job): ComposeDocumentResult {
       trailer_photo_url: first?.photo_url || l.trailer_photo_url,
       docket_photo_url: l.docket_photo_url,
       facility_photo_urls: (l.facility_photos ?? []).map(p => p.url),
+      docket_unavailable: Boolean(l.docket_skipped && !l.docket_photo_url),
+      docket_lost: l.docket_lost,
+      recycling: l.recycling,
+      recycling_type: l.recycling_type.trim() || undefined,
     }
   })
 

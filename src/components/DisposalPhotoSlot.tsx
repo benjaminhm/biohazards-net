@@ -147,11 +147,14 @@ export default function DisposalPhotoSlot({
             overflow: 'hidden',
             border: '1px solid var(--border)',
             background: 'var(--surface-2)',
-            aspectRatio: '16 / 10',
           }}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={photoUrl} alt={caption} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          <img
+            src={photoUrl}
+            alt={caption}
+            style={{ width: '100%', height: 'auto', maxHeight: 280, objectFit: 'contain', objectPosition: 'center', display: 'block' }}
+          />
         </div>
         <button
           type="button"

@@ -65,6 +65,9 @@ export function emptyDisposalLoad(): DisposalLoad {
     docket_skipped: false,
     docket_photo_id: null,
     docket_photo_url: null,
+    docket_lost: false,
+    recycling: false,
+    recycling_type: '',
     dump_date: '',
     dump_time: '',
     dump_datetime_from_photo: false,
@@ -232,6 +235,9 @@ function normalizeLoad(raw: unknown): DisposalLoad {
     docket_skipped: bool(o.docket_skipped),
     docket_photo_id: str(o.docket_photo_id) || null,
     docket_photo_url: str(o.docket_photo_url) || null,
+    docket_lost: bool(o.docket_lost),
+    recycling: bool(o.recycling),
+    recycling_type: str(o.recycling_type),
     dump_date: str(o.dump_date),
     dump_time: str(o.dump_time),
     dump_datetime_from_photo: bool(o.dump_datetime_from_photo),
@@ -419,12 +425,35 @@ export function loadHasContent(load: DisposalLoad): boolean {
     load.dump_time.trim() ||
     load.trailer_photo_url ||
     load.docket_photo_url ||
+    load.docket_skipped ||
+    load.docket_lost ||
+    load.recycling ||
+    load.recycling_type.trim() ||
     load.facility_photos?.length > 0,
   )
 }
 
 export function anyVehicleReady(load: DisposalLoad): boolean {
   return load.vehicles.some(v => v.photo_url || v.photo_skipped)
+}
+
+export function docketStatusLabel(load: {
+  docket_photo_url?: string | null
+  docket_skipped?: boolean
+  docket_unavailable?: boolean
+  docket_lost?: boolean
+  recycling?: boolean
+  recycling_type?: string
+}): string {
+  const bits: string[] = []
+  const noDocket = Boolean((load.docket_skipped || load.docket_unavailable) && !load.docket_photo_url)
+  if (noDocket) bits.push('No docket available')
+  if (load.docket_lost) bits.push('Lost')
+  if (load.recycling) {
+    const kind = load.recycling_type?.trim()
+    bits.push(kind ? `Recycling — ${kind}` : 'Recycling')
+  }
+  return bits.join(' · ')
 }
 
 export function formatWasteDisposalNarrative(capture: DisposalManifestCapture): string {
@@ -449,6 +478,12 @@ export function formatWasteDisposalNarrative(capture: DisposalManifestCapture): 
       l.distance_km != null ? `${l.distance_km} km` : null,
       l.dump_date.trim()
         ? `dumped ${l.dump_date}${l.dump_time.trim() ? ` ${l.dump_time}` : ''}`
+        : null,
+      l.recycling
+        ? `recycling${l.recycling_type.trim() ? ` (${l.recycling_type.trim()})` : ''}`
+        : null,
+      l.docket_skipped && !l.docket_photo_url
+        ? l.docket_lost ? 'no docket (lost)' : 'no docket'
         : null,
       l.facility.trim() || l.dump_location.trim() || null,
     ].filter(Boolean)

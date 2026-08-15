@@ -60,6 +60,17 @@ const LABEL: CSSProperties = {
   marginBottom: 6,
 }
 
+const CHECK: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 10,
+  fontSize: 14,
+  fontWeight: 600,
+  color: 'var(--text)',
+  cursor: 'pointer',
+  margin: 0,
+}
+
 const CHIP: CSSProperties = {
   display: 'inline-block',
   marginLeft: 8,
@@ -212,6 +223,8 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
         const next: DisposalLoad = {
           ...load,
           docket_skipped: false,
+          docket_lost: false,
+          recycling: false,
           docket_photo_id: photo.id,
           docket_photo_url: photo.file_url,
         }
@@ -646,12 +659,15 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                                         borderRadius: 10,
                                         overflow: 'hidden',
                                         border: '1px solid var(--border)',
-                                        aspectRatio: '16 / 10',
                                         background: 'var(--surface)',
                                       }}
                                     >
                                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                                      <img src={p.url} alt={`Extra ${pIndex + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                      <img
+                                        src={p.url}
+                                        alt={`Extra ${pIndex + 1}`}
+                                        style={{ width: '100%', height: 'auto', maxHeight: 220, objectFit: 'contain', objectPosition: 'center', display: 'block' }}
+                                      />
                                     </div>
                                     <button
                                       type="button"
@@ -835,20 +851,24 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                 {docketOpen && (
                   <>
                     <div style={{ ...LABEL, marginTop: 22 }}>Dump fee / skip docket</div>
+                    {(!load.docket_skipped || load.docket_photo_url) && (
                     <DisposalPhotoSlot
                       jobId={job.id}
                       areaRef={`Disposal load ${index + 1} — docket`}
                       caption={`Load ${index + 1} dump docket`}
                       photoUrl={load.docket_photo_url}
-                      skipped={load.docket_skipped}
-                      skipLabel="Skip docket photo"
+                      skipped={false}
+                      hideSkip
+                      skipLabel=""
                       cameraLabel="📷 Docket"
                       galleryLabel="🖼 Gallery"
                       onUploaded={(photo, exif) => applyDocketExif(load.id, photo, exif)}
-                      onSkip={() => patchLoad(load.id, { docket_skipped: true })}
+                      onSkip={() => undefined}
                       onClear={() =>
                         patchLoad(load.id, {
                           docket_skipped: false,
+                          docket_lost: false,
+                          recycling: false,
                           docket_photo_id: null,
                           docket_photo_url: null,
                           dump_location_from_photo: false,
@@ -857,66 +877,65 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                         })
                       }
                     />
-                    <div style={{ marginTop: 12 }}>
-                      <label style={LABEL}>Facility photos</label>
-                      {((load.facility_photos ?? []).length > 0) && (
-                        <div
-                          style={{
-                            display: 'grid',
-                            gridTemplateColumns: '1fr 1fr',
-                            gap: 8,
-                            marginBottom: 8,
+                    )}
+                    {!load.docket_photo_url && (
+                      <label style={{ ...CHECK, marginTop: load.docket_skipped ? 0 : 12, marginBottom: 12 }}>
+                        <input
+                          type="checkbox"
+                          checked={load.docket_skipped}
+                          onChange={e => {
+                            const on = e.target.checked
+                            patchLoad(load.id, {
+                              docket_skipped: on,
+                              docket_lost: on ? load.docket_lost : false,
+                              recycling: on ? load.recycling : false,
+                            })
                           }}
-                        >
-                          {(load.facility_photos ?? []).map((p, pIndex) => (
-                            <div key={p.id} style={{ position: 'relative' }}>
-                              <div
-                                style={{
-                                  borderRadius: 10,
-                                  overflow: 'hidden',
-                                  border: '1px solid var(--border)',
-                                  aspectRatio: '16 / 10',
-                                  background: 'var(--surface)',
-                                }}
-                              >
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img src={p.url} alt={`Facility ${pIndex + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => removeFacilityPhoto(load.id, p.id)}
-                                style={{
-                                  marginTop: 6,
-                                  background: 'none',
-                                  border: 'none',
-                                  color: '#F87171',
-                                  fontSize: 12,
-                                  fontWeight: 600,
-                                  cursor: 'pointer',
-                                  padding: 0,
-                                }}
-                              >
-                                Remove
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      <DisposalPhotoSlot
-                        jobId={job.id}
-                        areaRef={`Disposal load ${index + 1} — facility extra`}
-                        caption={`Load ${index + 1} facility extra`}
-                        photoUrl={null}
-                        skipped={false}
-                        skipLabel=""
-                        hideSkip
-                        cameraLabel="📷 More"
-                        galleryLabel="🖼 Gallery"
-                        onUploaded={photo => addFacilityPhoto(load.id, photo)}
-                        onSkip={() => undefined}
-                        onClear={() => undefined}
-                      />
-                    </div>
+                        />
+                        No docket available
+                      </label>
+                    )}
+                    {load.docket_skipped && !load.docket_photo_url && (
+                      <div
+                        style={{
+                          display: 'grid',
+                          gap: 10,
+                          marginBottom: 12,
+                          padding: '12px 12px 14px',
+                          borderRadius: 10,
+                          border: '1px solid var(--border)',
+                          background: 'var(--surface-2)',
+                        }}
+                      >
+                        <label style={CHECK}>
+                          <input
+                            type="checkbox"
+                            checked={load.docket_lost}
+                            onChange={e => patchLoad(load.id, { docket_lost: e.target.checked })}
+                          />
+                          Lost
+                        </label>
+                        <label style={CHECK}>
+                          <input
+                            type="checkbox"
+                            checked={load.recycling}
+                            onChange={e => patchLoad(load.id, { recycling: e.target.checked })}
+                          />
+                          Recycling
+                        </label>
+                        {load.recycling && (
+                          <div>
+                            <label style={LABEL}>Type of recycle</label>
+                            <input
+                              value={load.recycling_type ?? ''}
+                              onChange={e => patchLoad(load.id, { recycling_type: e.target.value })}
+                              placeholder="e.g. metal, cardboard, green waste"
+                              style={INPUT}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </>
                 )}
 
@@ -1035,6 +1054,69 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                         rows={2}
                         placeholder="Rego, docket number, containment…"
                         style={{ ...INPUT, resize: 'vertical', minHeight: 64 }}
+                      />
+                    </div>
+                    <div>
+                      <label style={LABEL}>Facility photos</label>
+                      {((load.facility_photos ?? []).length > 0) && (
+                        <div
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: '1fr 1fr',
+                            gap: 8,
+                            marginBottom: 8,
+                          }}
+                        >
+                          {(load.facility_photos ?? []).map((p, pIndex) => (
+                            <div key={p.id} style={{ position: 'relative' }}>
+                              <div
+                                style={{
+                                  borderRadius: 10,
+                                  overflow: 'hidden',
+                                  border: '1px solid var(--border)',
+                                  background: 'var(--surface)',
+                                }}
+                              >
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={p.url}
+                                  alt={`Facility ${pIndex + 1}`}
+                                  style={{ width: '100%', height: 'auto', maxHeight: 220, objectFit: 'contain', objectPosition: 'center', display: 'block' }}
+                                />
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => removeFacilityPhoto(load.id, p.id)}
+                                style={{
+                                  marginTop: 6,
+                                  background: 'none',
+                                  border: 'none',
+                                  color: '#F87171',
+                                  fontSize: 12,
+                                  fontWeight: 600,
+                                  cursor: 'pointer',
+                                  padding: 0,
+                                }}
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <DisposalPhotoSlot
+                        jobId={job.id}
+                        areaRef={`Disposal load ${index + 1} — facility extra`}
+                        caption={`Load ${index + 1} facility extra`}
+                        photoUrl={null}
+                        skipped={false}
+                        skipLabel=""
+                        hideSkip
+                        cameraLabel="📷 More"
+                        galleryLabel="🖼 Gallery"
+                        onUploaded={photo => addFacilityPhoto(load.id, photo)}
+                        onSkip={() => undefined}
+                        onClear={() => undefined}
                       />
                     </div>
                   </div>

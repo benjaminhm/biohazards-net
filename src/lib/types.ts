@@ -1579,6 +1579,9 @@ export interface DisposalLoad {
   docket_skipped: boolean
   docket_photo_id: string | null
   docket_photo_url: string | null
+  docket_lost: boolean
+  recycling: boolean
+  recycling_type: string
   dump_date: string
   dump_time: string
   dump_datetime_from_photo: boolean
@@ -1642,6 +1645,10 @@ export interface WasteDisposalManifestLoadSnapshot {
   trailer_photo_url: string | null
   docket_photo_url: string | null
   facility_photo_urls?: string[]
+  docket_unavailable?: boolean
+  docket_lost?: boolean
+  recycling?: boolean
+  recycling_type?: string
 }
 
 /** Completion Report field capture — aligns with ReportContent narrative sections. */

@@ -31,7 +31,7 @@ import type {
 import { DOC_TYPE_LABELS } from './types'
 import { filterGroupedStages, groupPhotosByRoomAndStage, type RoomPhotoGroup } from './photoGroups'
 import { photosForComposedReports } from '@/lib/photosForComposedReports'
-import { formatAud, formatKg, formatM3 } from '@/lib/disposalManifest'
+import { docketStatusLabel, formatAud, formatKg, formatM3 } from '@/lib/disposalManifest'
 import { SURFACE_LABELS } from '@/lib/areaSurfaces'
 import { effectiveAreaDimensions } from '@/lib/areaSubzones'
 import { OUTCOME_KIND_LABELS, groupRowsByKind, volumePricingSectionSubtotal, volumePricingSubtotal, customSectionSubtotal, customSectionRowsSum } from '@/lib/quoteSections'
@@ -204,9 +204,9 @@ function cssSowPrint(): string {
     .sow-root .sow-photo-block .body-text { font-size: 9.5pt; color: var(--sow-mid); line-height: 1.6; }
     .sow-root .photos-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 8px; }
     .sow-root .photos-grid-single { grid-template-columns: 1fr; }
-    .sow-root .photo-card { border: 1px solid var(--sow-rule); border-radius: 7px; overflow: hidden; }
-    .sow-root .photo-card img { width: 100%; height: 210px; object-fit: cover; display: block; background: #f5f5f5; }
-    .sow-root .photos-grid-single .photo-card img { height: auto; object-fit: contain; }
+    .sow-root .photo-card { border: 1px solid var(--sow-rule); border-radius: 7px; overflow: hidden; background: #f5f5f5; }
+    .sow-root .photo-card img { width: 100%; height: auto; max-height: 520px; object-fit: contain; object-position: center; display: block; background: #f5f5f5; }
+    .sow-root .photos-grid-single .photo-card img { max-height: 640px; }
     .sow-root .photo-meta { padding: 10px 12px; }
     .sow-root .photo-area { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--sow-blue); }
     .sow-root .photo-cap { font-size: 12px; color: var(--sow-mid); margin-top: 3px; }
@@ -1131,6 +1131,7 @@ function wdmLoadCards(c: WasteDisposalManifestContent): string {
         : '',
       l.location ? `<div><div class="label">Load location</div><div class="body-text">${esc(l.location)}</div></div>` : '',
       l.facility ? `<div><div class="label">Facility</div><div class="body-text">${esc(l.facility)}</div></div>` : '',
+      docketStatusLabel(l) ? `<div><div class="label">Docket</div><div class="body-text">${esc(docketStatusLabel(l))}</div></div>` : '',
       l.volume_m3 != null ? `<div><div class="label">Volume</div><div class="body-text">${esc(formatM3(l.volume_m3))}</div></div>` : '',
       l.weight_kg != null ? `<div><div class="label">Weight</div><div class="body-text">${esc(formatKg(l.weight_kg))}</div></div>` : '',
       l.dump_fee != null ? `<div><div class="label">Dump fee</div><div class="body-text">${esc(formatAud(l.dump_fee))}</div></div>` : '',
