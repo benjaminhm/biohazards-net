@@ -870,6 +870,7 @@ function composeWdm(job: Job): ComposeDocumentResult {
         height_m: v.height_m,
         volume_m3: vehicleVolumeM3(v),
         photo_url: v.photo_url,
+        extra_photo_urls: (v.extra_photos ?? []).map(p => p.url),
       })),
       date: l.date,
       location: l.location.trim(),

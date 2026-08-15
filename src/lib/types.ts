@@ -1549,6 +1549,7 @@ export interface DisposalVehicle {
   photo_skipped: boolean
   photo_id: string | null
   photo_url: string | null
+  extra_photos: { id: string; url: string }[]
 }
 
 /** One dump run from site to facility (shared docket / fee). */
@@ -1616,6 +1617,7 @@ export interface WasteDisposalManifestVehicleSnapshot {
   height_m: number | null
   volume_m3: number | null
   photo_url: string | null
+  extra_photo_urls?: string[]
 }
 
 export interface WasteDisposalManifestLoadSnapshot {

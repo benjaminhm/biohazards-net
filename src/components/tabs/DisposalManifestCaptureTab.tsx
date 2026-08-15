@@ -27,6 +27,7 @@ import {
   formatKg,
   formatM3,
   mergedDisposalManifestCapture,
+  moveArrayItem,
   vehicleContentsLabel,
   vehicleTypeLabel,
   vehicleVolumeM3,
@@ -244,10 +245,50 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
     }
   }
 
+  function moveLoad(index: number, direction: -1 | 1) {
+    setCapture(prev => ({ loads: moveArrayItem(prev.loads, index, direction) }))
+    touch()
+  }
+
   function addLoad() {
     const load = applyJobSiteToLoad(emptyDisposalLoad(), job)
     setCapture(prev => ({ loads: [...prev.loads, load] }))
     setOpenId(load.id)
+    touch()
+  }
+
+  function addExtraPhoto(loadId: string, vehicleId: string, photo: Photo) {
+    setCapture(prev => ({
+      loads: prev.loads.map(l => {
+        if (l.id !== loadId) return l
+        return withMirrors({
+          ...l,
+          vehicles: l.vehicles.map(v =>
+            v.id !== vehicleId
+              ? v
+              : { ...v, extra_photos: [...(v.extra_photos ?? []), { id: photo.id, url: photo.file_url }] },
+          ),
+        })
+      }),
+    }))
+    touch()
+    onPhotosUpdate([photo, ...photos])
+  }
+
+  function removeExtraPhoto(loadId: string, vehicleId: string, photoId: string) {
+    setCapture(prev => ({
+      loads: prev.loads.map(l => {
+        if (l.id !== loadId) return l
+        return withMirrors({
+          ...l,
+          vehicles: l.vehicles.map(v =>
+            v.id !== vehicleId
+              ? v
+              : { ...v, extra_photos: (v.extra_photos ?? []).filter(p => p.id !== photoId) },
+          ),
+        })
+      }),
+    }))
     touch()
   }
 
@@ -328,22 +369,31 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
               overflow: 'hidden',
             }}
           >
-            <button
-              type="button"
-              onClick={() => setOpenId(open ? null : load.id)}
+            <div
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: 10,
-                width: '100%',
-                textAlign: 'left',
-                padding: '12px 14px',
-                border: 'none',
-                background: 'transparent',
-                color: 'var(--text)',
-                cursor: 'pointer',
+                gap: 6,
+                paddingRight: 8,
               }}
             >
+              <button
+                type="button"
+                onClick={() => setOpenId(open ? null : load.id)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  flex: 1,
+                  minWidth: 0,
+                  textAlign: 'left',
+                  padding: '12px 6px 12px 14px',
+                  border: 'none',
+                  background: 'transparent',
+                  color: 'var(--text)',
+                  cursor: 'pointer',
+                }}
+              >
               <span
                 style={{
                   width: 28,
@@ -368,7 +418,50 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                 </div>
               </span>
               <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{open ? '▾' : '▸'}</span>
-            </button>
+              </button>
+              <button
+                type="button"
+                aria-label="Move load up"
+                disabled={index === 0}
+                onClick={() => moveLoad(index, -1)}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 8,
+                  border: '1px solid var(--border)',
+                  background: 'var(--surface-2)',
+                  color: 'var(--text)',
+                  cursor: index === 0 ? 'not-allowed' : 'pointer',
+                  opacity: index === 0 ? 0.35 : 1,
+                  fontSize: 14,
+                  fontWeight: 800,
+                  flexShrink: 0,
+                }}
+              >
+                ↑
+              </button>
+              <button
+                type="button"
+                aria-label="Move load down"
+                disabled={index === capture.loads.length - 1}
+                onClick={() => moveLoad(index, 1)}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 8,
+                  border: '1px solid var(--border)',
+                  background: 'var(--surface-2)',
+                  color: 'var(--text)',
+                  cursor: index === capture.loads.length - 1 ? 'not-allowed' : 'pointer',
+                  opacity: index === capture.loads.length - 1 ? 0.35 : 1,
+                  fontSize: 14,
+                  fontWeight: 800,
+                  flexShrink: 0,
+                }}
+              >
+                ↓
+              </button>
+            </div>
 
             {open && (
               <div style={{ padding: '0 14px 16px', borderTop: '1px solid var(--border)' }}>
@@ -454,6 +547,68 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                             })
                           }
                         />
+                        {((vehicle.extra_photos ?? []).length > 0 || vehicle.photo_url || vehicle.photo_skipped) && (
+                          <div style={{ marginTop: 12 }}>
+                            <label style={LABEL}>More photos</label>
+                            {((vehicle.extra_photos ?? []).length > 0) && (
+                              <div
+                                style={{
+                                  display: 'grid',
+                                  gridTemplateColumns: '1fr 1fr',
+                                  gap: 8,
+                                  marginBottom: 8,
+                                }}
+                              >
+                                {(vehicle.extra_photos ?? []).map((p, pIndex) => (
+                                  <div key={p.id} style={{ position: 'relative' }}>
+                                    <div
+                                      style={{
+                                        borderRadius: 10,
+                                        overflow: 'hidden',
+                                        border: '1px solid var(--border)',
+                                        aspectRatio: '16 / 10',
+                                        background: 'var(--surface)',
+                                      }}
+                                    >
+                                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                                      <img src={p.url} alt={`Extra ${pIndex + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => removeExtraPhoto(load.id, vehicle.id, p.id)}
+                                      style={{
+                                        marginTop: 6,
+                                        background: 'none',
+                                        border: 'none',
+                                        color: '#F87171',
+                                        fontSize: 12,
+                                        fontWeight: 600,
+                                        cursor: 'pointer',
+                                        padding: 0,
+                                      }}
+                                    >
+                                      Remove
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            <DisposalPhotoSlot
+                              jobId={job.id}
+                              areaRef={`Disposal load ${index + 1} — ${labels.area} ${vIndex + 1} extra`}
+                              caption={`Load ${index + 1} ${labels.area} extra`}
+                              photoUrl={null}
+                              skipped={false}
+                              skipLabel=""
+                              hideSkip
+                              cameraLabel="📷 More"
+                              galleryLabel="🖼 Gallery"
+                              onUploaded={(photo) => addExtraPhoto(load.id, vehicle.id, photo)}
+                              onSkip={() => undefined}
+                              onClear={() => undefined}
+                            />
+                          </div>
+                        )}
                       </div>
 
                       {detailsOpen && (

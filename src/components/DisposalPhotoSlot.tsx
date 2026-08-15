@@ -20,6 +20,7 @@ interface Props {
   onUploaded: (photo: Photo, exif: PhotoExif) => void
   onSkip: () => void
   onClear: () => void
+  hideSkip?: boolean
 }
 
 async function compressImage(file: File, maxDim = 1920, quality = 0.82): Promise<Blob> {
@@ -84,6 +85,7 @@ export default function DisposalPhotoSlot({
   onUploaded,
   onSkip,
   onClear,
+  hideSkip = false,
 }: Props) {
   const cameraRef = useRef<HTMLInputElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -222,6 +224,7 @@ export default function DisposalPhotoSlot({
           {galleryLabel}
         </button>
       </div>
+      {!hideSkip && (
       <button
         type="button"
         onClick={onSkip}
@@ -238,6 +241,7 @@ export default function DisposalPhotoSlot({
       >
         {skipLabel}
       </button>
+      )}
       {error && <div style={{ color: '#F87171', fontSize: 12, marginTop: 8 }}>{error}</div>}
     </div>
   )

@@ -1076,8 +1076,12 @@ function wdmLoadCards(c: WasteDisposalManifestContent): string {
   return loads.map(l => {
     const vehicles = l.vehicles ?? []
     const vehicleBlocks = vehicles.map((v, i) => {
-      const photo = v.photo_url
-        ? `<div class="photos-grid" style="margin-top:8px"><div class="photo-card"><img src="${esc(v.photo_url)}" alt="${esc(v.type || 'Vehicle')}"><div class="photo-meta"><div class="photo-cap">${esc(v.type || 'Vehicle')}</div></div></div></div>`
+      const extra = (v.extra_photo_urls ?? []).filter(url => url && url !== v.photo_url)
+      const urls = [v.photo_url, ...extra].filter((url): url is string => Boolean(url))
+      const photo = urls.length
+        ? `<div class="photos-grid" style="margin-top:8px">${urls.map((url, pi) =>
+            `<div class="photo-card"><img src="${esc(url)}" alt="${esc(v.type || 'Vehicle')}"><div class="photo-meta"><div class="photo-cap">${esc(pi === 0 ? (v.type || 'Vehicle') : `Extra ${pi}`)}</div></div></div>`,
+          ).join('')}</div>`
         : ''
       const dims = [v.length_m, v.width_m, v.height_m].every(n => n != null)
         ? `${v.length_m} × ${v.width_m} × ${v.height_m} m`

@@ -40,6 +40,7 @@ export function emptyDisposalVehicle(type: DisposalVehicleTypeId = 'trailer'): D
     photo_skipped: false,
     photo_id: null,
     photo_url: null,
+    extra_photos: [],
   }
 }
 
@@ -159,6 +160,16 @@ function normalizeVehicle(raw: unknown): DisposalVehicle {
     photo_skipped: bool(o.photo_skipped),
     photo_id: str(o.photo_id) || null,
     photo_url: str(o.photo_url) || null,
+    extra_photos: Array.isArray(o.extra_photos)
+      ? o.extra_photos
+          .map(p => {
+            const row = p && typeof p === 'object' ? (p as Record<string, unknown>) : {}
+            const id = str(row.id)
+            const url = str(row.url)
+            return id && url ? { id, url } : null
+          })
+          .filter((p): p is { id: string; url: string } => p != null)
+      : [],
   }
 }
 
@@ -225,6 +236,16 @@ function normalizeLoad(raw: unknown): DisposalLoad {
     facility: str(o.facility),
     notes: str(o.notes),
   })
+}
+
+export function moveArrayItem<T>(items: T[], index: number, direction: -1 | 1): T[] {
+  const nextIndex = index + direction
+  if (nextIndex < 0 || nextIndex >= items.length) return items
+  const next = [...items]
+  const tmp = next[index]
+  next[index] = next[nextIndex]
+  next[nextIndex] = tmp
+  return next
 }
 
 export function disposalManifestEqual(a: DisposalManifestCapture, b: DisposalManifestCapture): boolean {
@@ -367,6 +388,7 @@ function vehicleHasContent(v: DisposalVehicle): boolean {
     v.contents_description.trim() ||
     vehicleVolumeM3(v) != null ||
     v.photo_url ||
+    v.extra_photos?.length > 0 ||
     v.photo_skipped,
   )
 }
