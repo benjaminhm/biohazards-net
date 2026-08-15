@@ -9,7 +9,7 @@ import { useRouter } from 'next/navigation'
 import type { DisposalLoad, DisposalVehicle, Job, Photo } from '@/lib/types'
 import { mergeAssessmentData } from '@/lib/riskDerivation'
 import { useRegisterUnsavedChanges } from '@/lib/unsavedChangesContext'
-import DisposalPhotoSlot, { ZoomablePhoto } from '@/components/DisposalPhotoSlot'
+import DisposalPhotoSlot, { PhotoNoteField, ZoomablePhoto } from '@/components/DisposalPhotoSlot'
 import { formatCoordLabel, timeFromTakenAt, type PhotoExif } from '@/lib/photoExif'
 import {
   DISPOSAL_CONTENTS_TYPES,
@@ -96,9 +96,9 @@ const CHIP: CSSProperties = {
   verticalAlign: 'middle',
 }
 
-function MetaChip({ show }: { show: boolean }) {
+function MetaChip({ show, fromDevice }: { show: boolean; fromDevice?: boolean }) {
   if (!show) return null
-  return <span style={CHIP}>From photo</span>
+  return <span style={CHIP}>{fromDevice ? 'From phone' : 'From photo'}</span>
 }
 
 function LockGlyph({ open }: { open: boolean }) {
@@ -214,6 +214,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
         if (!load.date.trim() && exif.date) {
           next.date = exif.date
           next.date_from_photo = true
+          next.date_from_device = Boolean(exif.timeFromDevice)
         }
         if (exif.lat != null && exif.lng != null) {
           next.location_lat = exif.lat
@@ -243,6 +244,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
           const time = timeFromTakenAt(exif.takenAt)
           if (time) next.dump_time = time
           next.dump_datetime_from_photo = true
+          next.dump_datetime_from_device = Boolean(exif.timeFromDevice)
         }
         if (exif.lat != null && exif.lng != null) {
           next.dump_lat = exif.lat
@@ -250,6 +252,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
           if (!load.dump_location.trim()) {
             next.dump_location = formatCoordLabel(exif.lat, exif.lng)
             next.dump_location_from_photo = true
+            next.dump_location_from_device = Boolean(exif.geoFromDevice)
           }
           if (load.distance_km == null) {
             const km = distanceFromSiteKm(job.site_lat, job.site_lng, exif.lat, exif.lng)
@@ -317,7 +320,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
           vehicles: l.vehicles.map(v =>
             v.id !== vehicleId
               ? v
-              : { ...v, extra_photos: [...(v.extra_photos ?? []), { id: photo.id, url: photo.file_url }] },
+              : { ...v, extra_photos: [...(v.extra_photos ?? []), { id: photo.id, url: photo.file_url, note: '' }] },
           ),
         })
       }),
@@ -343,13 +346,33 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
     touch()
   }
 
+  function patchExtraPhotoNote(loadId: string, vehicleId: string, photoId: string, note: string) {
+    setCapture(prev => ({
+      loads: prev.loads.map(l => {
+        if (l.id !== loadId) return l
+        return withMirrors({
+          ...l,
+          vehicles: l.vehicles.map(v =>
+            v.id !== vehicleId
+              ? v
+              : {
+                  ...v,
+                  extra_photos: (v.extra_photos ?? []).map(p => (p.id === photoId ? { ...p, note } : p)),
+                },
+          ),
+        })
+      }),
+    }))
+    touch()
+  }
+
   function addFacilityPhoto(loadId: string, photo: Photo) {
     setCapture(prev => ({
       loads: prev.loads.map(l => {
         if (l.id !== loadId) return l
         return withMirrors({
           ...l,
-          facility_photos: [...(l.facility_photos ?? []), { id: photo.id, url: photo.file_url }],
+          facility_photos: [...(l.facility_photos ?? []), { id: photo.id, url: photo.file_url, note: '' }],
         })
       }),
     }))
@@ -364,6 +387,19 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
         return withMirrors({
           ...l,
           facility_photos: (l.facility_photos ?? []).filter(p => p.id !== photoId),
+        })
+      }),
+    }))
+    touch()
+  }
+
+  function patchFacilityPhotoNote(loadId: string, photoId: string, note: string) {
+    setCapture(prev => ({
+      loads: prev.loads.map(l => {
+        if (l.id !== loadId) return l
+        return withMirrors({
+          ...l,
+          facility_photos: (l.facility_photos ?? []).map(p => (p.id === photoId ? { ...p, note } : p)),
         })
       }),
     }))
@@ -572,12 +608,12 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                   <div>
                     <label style={LABEL}>
                       Load date
-                      <MetaChip show={load.date_from_photo} />
+                      <MetaChip show={load.date_from_photo} fromDevice={load.date_from_device} />
                     </label>
                     <input
                       type="date"
                       value={load.date}
-                      onChange={e => patchLoad(load.id, { date: e.target.value, date_from_photo: false })}
+                      onChange={e => patchLoad(load.id, { date: e.target.value, date_from_photo: false, date_from_device: false })}
                       style={INPUT}
                     />
                   </div>
@@ -642,11 +678,14 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                           galleryLabel="🖼 Gallery"
                           onUploaded={(photo, exif) => applyVehicleExif(load.id, vehicle.id, photo, exif)}
                           onSkip={() => patchVehicle(load.id, vehicle.id, { photo_skipped: true })}
+                          note={vehicle.photo_note}
+                          onNoteChange={value => patchVehicle(load.id, vehicle.id, { photo_note: value })}
                           onClear={() =>
                             patchVehicle(load.id, vehicle.id, {
                               photo_skipped: false,
                               photo_id: null,
                               photo_url: null,
+                              photo_note: '',
                             })
                           }
                         />
@@ -672,8 +711,12 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                                         background: 'var(--surface)',
                                       }}
                                     >
-                                      <ZoomablePhoto src={p.url} alt={`Extra ${pIndex + 1}`} maxHeight={140} />
+                                      <ZoomablePhoto src={p.url} alt={p.note || `Extra ${pIndex + 1}`} maxHeight={140} />
                                     </div>
+                                    <PhotoNoteField
+                                      value={p.note ?? ''}
+                                      onChange={value => patchExtraPhotoNote(load.id, vehicle.id, p.id, value)}
+                                    />
                                     <button
                                       type="button"
                                       onClick={() => removeExtraPhoto(load.id, vehicle.id, p.id)}
@@ -868,6 +911,8 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                       cameraLabel="📷 Docket"
                       galleryLabel="🖼 Gallery"
                       onUploaded={(photo, exif) => applyDocketExif(load.id, photo, exif)}
+                      note={load.docket_photo_note}
+                      onNoteChange={value => patchLoad(load.id, { docket_photo_note: value })}
                       onSkip={() => undefined}
                       onClear={() =>
                         patchLoad(load.id, {
@@ -876,8 +921,11 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                           recycling: false,
                           docket_photo_id: null,
                           docket_photo_url: null,
+                          docket_photo_note: '',
                           dump_location_from_photo: false,
+                          dump_location_from_device: false,
                           dump_datetime_from_photo: false,
+                          dump_datetime_from_device: false,
                           distance_from_geo: false,
                         })
                       }
@@ -953,7 +1001,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                       <div>
                         <label style={LABEL}>
                           Dump date
-                          <MetaChip show={load.dump_datetime_from_photo} />
+                          <MetaChip show={load.dump_datetime_from_photo} fromDevice={load.dump_datetime_from_device} />
                         </label>
                         <input
                           type="date"
@@ -962,6 +1010,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                             patchLoad(load.id, {
                               dump_date: e.target.value,
                               dump_datetime_from_photo: false,
+                              dump_datetime_from_device: false,
                             })
                           }
                           style={INPUT}
@@ -976,6 +1025,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                             patchLoad(load.id, {
                               dump_time: e.target.value,
                               dump_datetime_from_photo: false,
+                              dump_datetime_from_device: false,
                             })
                           }
                           style={INPUT}
@@ -1039,7 +1089,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                     <div>
                       <label style={LABEL}>
                         Facility / dump location
-                        <MetaChip show={load.dump_location_from_photo} />
+                        <MetaChip show={load.dump_location_from_photo} fromDevice={load.dump_location_from_device} />
                       </label>
                       <input
                         value={load.facility || load.dump_location}
@@ -1048,6 +1098,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                             facility: e.target.value,
                             dump_location: e.target.value,
                             dump_location_from_photo: false,
+                            dump_location_from_device: false,
                           })
                         }
                         placeholder="Tip / facility name"
@@ -1085,8 +1136,12 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                                   background: 'var(--surface)',
                                 }}
                               >
-                                <ZoomablePhoto src={p.url} alt={`Facility ${pIndex + 1}`} maxHeight={140} />
+                                <ZoomablePhoto src={p.url} alt={p.note || `Facility ${pIndex + 1}`} maxHeight={140} />
                               </div>
+                              <PhotoNoteField
+                                value={p.note ?? ''}
+                                onChange={value => patchFacilityPhotoNote(load.id, p.id, value)}
+                              />
                               <button
                                 type="button"
                                 onClick={() => removeFacilityPhoto(load.id, p.id)}

@@ -1157,11 +1157,17 @@ function wdmLoadCards(c: WasteDisposalManifestContent): string {
   return loads.map(l => {
     const vehicles = l.vehicles ?? []
     const vehicleBlocks = vehicles.map((v, i) => {
-      const extra = (v.extra_photo_urls ?? []).filter(url => url && url !== v.photo_url)
-      const urls = [v.photo_url, ...extra].filter((url): url is string => Boolean(url))
-      const photo = urls.length
-        ? `<div class="photos-grid" style="margin-top:8px">${urls.map((url, pi) =>
-            `<div class="photo-card"><img src="${esc(url)}" alt="${esc(v.type || 'Vehicle')}"><div class="photo-meta"><div class="photo-cap">${esc(pi === 0 ? (v.type || 'Vehicle') : `Extra ${pi}`)}</div></div></div>`,
+      const extras = ((v.extra_photos && v.extra_photos.length)
+      ? v.extra_photos
+      : (v.extra_photo_urls ?? []).map(url => ({ url, note: undefined }))
+    ).filter(p => p.url && p.url !== v.photo_url)
+      const shots = [
+        v.photo_url ? { url: v.photo_url, note: v.photo_note, fallback: v.type || 'Vehicle' } : null,
+        ...extras.map((p, pi) => ({ url: p.url, note: p.note, fallback: `Extra ${pi + 1}` })),
+      ].filter((p): p is { url: string; note?: string; fallback: string } => p != null)
+      const photo = shots.length
+        ? `<div class="photos-grid" style="margin-top:8px">${shots.map(p =>
+            `<div class="photo-card"><img src="${esc(p.url)}" alt="${esc(p.note?.trim() || p.fallback)}"><div class="photo-meta"><div class="photo-cap">${esc(p.note?.trim() || p.fallback)}</div></div></div>`,
           ).join('')}</div>`
         : ''
       const dims = [v.length_m, v.width_m, v.height_m].every(n => n != null)
@@ -1183,13 +1189,16 @@ function wdmLoadCards(c: WasteDisposalManifestContent): string {
         </div>`
     }).join('')
 
-    const facilityUrls = (l.facility_photo_urls ?? []).filter(url => url && url !== l.docket_photo_url)
+    const facilityShots = ((l.facility_photos && l.facility_photos.length)
+      ? l.facility_photos
+      : (l.facility_photo_urls ?? []).map(url => ({ url, note: undefined }))
+    ).filter(p => p.url && p.url !== l.docket_photo_url)
     const dumpPhotos = [
       l.docket_photo_url
-        ? `<div class="photo-card"><img src="${esc(l.docket_photo_url)}" alt="Dump docket"><div class="photo-meta"><div class="photo-cap">Dump docket</div></div></div>`
+        ? `<div class="photo-card"><img src="${esc(l.docket_photo_url)}" alt="${esc((l.docket_photo_note || '').trim() || 'Dump docket')}"><div class="photo-meta"><div class="photo-cap">${esc((l.docket_photo_note || '').trim() || 'Dump docket')}</div></div></div>`
         : '',
-      ...facilityUrls.map((url, pi) =>
-        `<div class="photo-card"><img src="${esc(url)}" alt="Facility ${pi + 1}"><div class="photo-meta"><div class="photo-cap">Facility ${pi + 1}</div></div></div>`,
+      ...facilityShots.map((p, pi) =>
+        `<div class="photo-card"><img src="${esc(p.url)}" alt="${esc((p.note || '').trim() || `Facility ${pi + 1}`)}"><div class="photo-meta"><div class="photo-cap">${esc((p.note || '').trim() || `Facility ${pi + 1}`)}</div></div></div>`,
       ),
     ].filter(Boolean).join('')
     const docketPhoto = dumpPhotos

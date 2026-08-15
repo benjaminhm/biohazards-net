@@ -1535,6 +1535,12 @@ export type DisposalContentsTypeId =
 
 export type DisposalVehicleTypeId = 'trailer' | 'ute' | 'skip' | 'other' | ''
 
+export interface DisposalPhotoRef {
+  id: string
+  url: string
+  note: string
+}
+
 /** One vehicle on a dump trip (trailer, ute, skip, …). */
 export interface DisposalVehicle {
   id: string
@@ -1549,7 +1555,8 @@ export interface DisposalVehicle {
   photo_skipped: boolean
   photo_id: string | null
   photo_url: string | null
-  extra_photos: { id: string; url: string }[]
+  photo_note: string
+  extra_photos: DisposalPhotoRef[]
 }
 
 /** One dump run from site to facility (shared docket / fee). */
@@ -1576,26 +1583,30 @@ export interface DisposalLoad {
   location_lng: number | null
   date_from_photo: boolean
   location_from_photo: boolean
+  date_from_device: boolean
   docket_skipped: boolean
   docket_photo_id: string | null
   docket_photo_url: string | null
+  docket_photo_note: string
   docket_lost: boolean
   recycling: boolean
   recycling_type: string
   dump_date: string
   dump_time: string
   dump_datetime_from_photo: boolean
+  dump_datetime_from_device: boolean
   dump_location: string
   dump_lat: number | null
   dump_lng: number | null
   dump_location_from_photo: boolean
+  dump_location_from_device: boolean
   weight_kg: number | null
   dump_fee: number | null
   distance_km: number | null
   distance_from_geo: boolean
   facility: string
   notes: string
-  facility_photos: { id: string; url: string }[]
+  facility_photos: DisposalPhotoRef[]
 }
 
 export interface DisposalManifestCapture {
@@ -1624,7 +1635,9 @@ export interface WasteDisposalManifestVehicleSnapshot {
   height_m: number | null
   volume_m3: number | null
   photo_url: string | null
+  photo_note?: string
   extra_photo_urls?: string[]
+  extra_photos?: { url: string; note?: string }[]
 }
 
 export interface WasteDisposalManifestLoadSnapshot {
@@ -1644,7 +1657,9 @@ export interface WasteDisposalManifestLoadSnapshot {
   volume_m3?: number | null
   trailer_photo_url: string | null
   docket_photo_url: string | null
+  docket_photo_note?: string
   facility_photo_urls?: string[]
+  facility_photos?: { url: string; note?: string }[]
   docket_unavailable?: boolean
   docket_lost?: boolean
   recycling?: boolean

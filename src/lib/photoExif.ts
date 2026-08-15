@@ -9,6 +9,8 @@ export interface PhotoExif {
   date: string | null
   lat: number | null
   lng: number | null
+  timeFromDevice?: boolean
+  geoFromDevice?: boolean
 }
 
 const EMPTY: PhotoExif = { takenAt: null, date: null, lat: null, lng: null }
@@ -16,9 +18,9 @@ const EMPTY: PhotoExif = { takenAt: null, date: null, lat: null, lng: null }
 export async function readPhotoExif(file: File): Promise<PhotoExif> {
   try {
     const buf = await file.arrayBuffer()
-    return parseJpegExif(buf)
+    return { ...parseJpegExif(buf) }
   } catch {
-    return EMPTY
+    return { ...EMPTY }
   }
 }
 
@@ -178,6 +180,44 @@ export function timeFromTakenAt(takenAt: string | null | undefined): string {
   // Date-only EXIF is stored as T00:00:00 — don't treat that as a dump time.
   if (m[1] === '00' && m[2] === '00' && (m[3] == null || m[3] === '00')) return ''
   return `${m[1]}:${m[2]}`
+}
+
+/** Phone clock at capture — used when the image has no EXIF (HEIC / camera via Safari). */
+export function localStampNow(): { takenAt: string; date: string } {
+  const d = new Date()
+  const p = (n: number) => String(n).padStart(2, '0')
+  const date = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+  return { date, takenAt: `${date}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}` }
+}
+
+export function readDeviceLocation(): Promise<{ lat: number; lng: number } | null> {
+  if (typeof navigator === 'undefined' || !navigator.geolocation) return Promise.resolve(null)
+  return new Promise(resolve => {
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => resolve(null),
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 30_000 },
+    )
+  })
+}
+
+export async function enrichExifWithDevice(exif: PhotoExif): Promise<PhotoExif> {
+  const next: PhotoExif = { ...exif }
+  if (!next.date || !next.takenAt) {
+    const stamp = localStampNow()
+    if (!next.date) next.date = stamp.date
+    if (!next.takenAt) next.takenAt = stamp.takenAt
+    next.timeFromDevice = true
+  }
+  if (next.lat == null || next.lng == null) {
+    const geo = await readDeviceLocation()
+    if (geo) {
+      next.lat = geo.lat
+      next.lng = geo.lng
+      next.geoFromDevice = true
+    }
+  }
+  return next
 }
 
 export function formatCoordLabel(lat: number, lng: number): string {

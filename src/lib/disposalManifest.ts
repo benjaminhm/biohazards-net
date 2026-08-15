@@ -40,6 +40,7 @@ export function emptyDisposalVehicle(type: DisposalVehicleTypeId = 'trailer'): D
     photo_skipped: false,
     photo_id: null,
     photo_url: null,
+    photo_note: '',
     extra_photos: [],
   }
 }
@@ -62,19 +63,23 @@ export function emptyDisposalLoad(): DisposalLoad {
     location_lng: null,
     date_from_photo: false,
     location_from_photo: false,
+    date_from_device: false,
     docket_skipped: false,
     docket_photo_id: null,
     docket_photo_url: null,
+    docket_photo_note: '',
     docket_lost: false,
     recycling: false,
     recycling_type: '',
     dump_date: '',
     dump_time: '',
     dump_datetime_from_photo: false,
+    dump_datetime_from_device: false,
     dump_location: '',
     dump_lat: null,
     dump_lng: null,
     dump_location_from_photo: false,
+    dump_location_from_device: false,
     weight_kg: null,
     dump_fee: null,
     distance_km: null,
@@ -150,16 +155,16 @@ function vehicleTypeOf(raw: unknown): DisposalVehicleTypeId {
   return VEHICLE_IDS.has(t) ? (t as DisposalVehicleTypeId) : ''
 }
 
-function normalizePhotoList(raw: unknown): { id: string; url: string }[] {
+function normalizePhotoList(raw: unknown): { id: string; url: string; note: string }[] {
   if (!Array.isArray(raw)) return []
   return raw
     .map(p => {
       const row = p && typeof p === 'object' ? (p as Record<string, unknown>) : {}
       const id = str(row.id)
       const url = str(row.url)
-      return id && url ? { id, url } : null
+      return id && url ? { id, url, note: str(row.note) } : null
     })
-    .filter((p): p is { id: string; url: string } => p != null)
+    .filter((p): p is { id: string; url: string; note: string } => p != null)
 }
 
 function normalizeVehicle(raw: unknown): DisposalVehicle {
@@ -179,6 +184,7 @@ function normalizeVehicle(raw: unknown): DisposalVehicle {
     photo_skipped: bool(o.photo_skipped),
     photo_id: str(o.photo_id) || null,
     photo_url: str(o.photo_url) || null,
+    photo_note: str(o.photo_note),
     extra_photos: normalizePhotoList(o.extra_photos),
   }
 }
@@ -232,19 +238,23 @@ function normalizeLoad(raw: unknown): DisposalLoad {
     location_lng: numOrNull(o.location_lng),
     date_from_photo: bool(o.date_from_photo),
     location_from_photo: bool(o.location_from_photo),
+    date_from_device: bool(o.date_from_device),
     docket_skipped: bool(o.docket_skipped),
     docket_photo_id: str(o.docket_photo_id) || null,
     docket_photo_url: str(o.docket_photo_url) || null,
+    docket_photo_note: str(o.docket_photo_note),
     docket_lost: bool(o.docket_lost),
     recycling: bool(o.recycling),
     recycling_type: str(o.recycling_type),
     dump_date: str(o.dump_date),
     dump_time: str(o.dump_time),
     dump_datetime_from_photo: bool(o.dump_datetime_from_photo),
+    dump_datetime_from_device: bool(o.dump_datetime_from_device),
     dump_location: str(o.dump_location),
     dump_lat: numOrNull(o.dump_lat),
     dump_lng: numOrNull(o.dump_lng),
     dump_location_from_photo: bool(o.dump_location_from_photo),
+    dump_location_from_device: bool(o.dump_location_from_device),
     weight_kg: numOrNull(o.weight_kg),
     dump_fee: numOrNull(o.dump_fee),
     distance_km: numOrNull(o.distance_km),

@@ -6,7 +6,7 @@
 
 import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties } from 'react'
 import type { Photo } from '@/lib/types'
-import { formatCoordLabel, readPhotoExif, type PhotoExif } from '@/lib/photoExif'
+import { enrichExifWithDevice, formatCoordLabel, readPhotoExif, type PhotoExif } from '@/lib/photoExif'
 
 const TOOL_BTN: CSSProperties = {
   minWidth: 40,
@@ -137,6 +137,35 @@ export function ZoomablePhoto({
   )
 }
 
+const NOTE_INPUT: CSSProperties = {
+  width: '100%',
+  marginTop: 6,
+  fontSize: 12,
+  fontWeight: 500,
+  padding: '5px 8px',
+  borderRadius: 8,
+  border: '1px solid var(--border)',
+  background: 'transparent',
+  color: 'var(--text-muted)',
+}
+
+export function PhotoNoteField({
+  value,
+  onChange,
+}: {
+  value: string
+  onChange: (note: string) => void
+}) {
+  return (
+    <input
+      value={value}
+      onChange={e => onChange(e.target.value)}
+      placeholder="Note…"
+      style={NOTE_INPUT}
+    />
+  )
+}
+
 interface Props {
   jobId: string
   areaRef: string
@@ -150,6 +179,8 @@ interface Props {
   onSkip: () => void
   onClear: () => void
   hideSkip?: boolean
+  note?: string
+  onNoteChange?: (note: string) => void
 }
 
 async function compressImage(file: File, maxDim = 1920, quality = 0.82): Promise<Blob> {
@@ -191,17 +222,6 @@ async function compressImage(file: File, maxDim = 1920, quality = 0.82): Promise
   })
 }
 
-function readDeviceLocation(): Promise<{ lat: number; lng: number } | null> {
-  if (typeof navigator === 'undefined' || !navigator.geolocation) return Promise.resolve(null)
-  return new Promise(resolve => {
-    navigator.geolocation.getCurrentPosition(
-      pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      () => resolve(null),
-      { enableHighAccuracy: true, timeout: 4000, maximumAge: 60_000 },
-    )
-  })
-}
-
 export default function DisposalPhotoSlot({
   jobId,
   areaRef,
@@ -215,24 +235,19 @@ export default function DisposalPhotoSlot({
   onSkip,
   onClear,
   hideSkip = false,
+  note,
+  onNoteChange,
 }: Props) {
   const cameraRef = useRef<HTMLInputElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
 
-  async function handleFile(file: File, fromCamera: boolean) {
+  async function handleFile(file: File) {
     setUploading(true)
     setError('')
     try {
-      const exif = await readPhotoExif(file)
-      if ((exif.lat == null || exif.lng == null) && fromCamera) {
-        const geo = await readDeviceLocation()
-        if (geo) {
-          exif.lat = geo.lat
-          exif.lng = geo.lng
-        }
-      }
+      const exif = await enrichExifWithDevice(await readPhotoExif(file))
       const compressed = await compressImage(file)
       const fd = new FormData()
       fd.append('job_id', jobId)
@@ -261,9 +276,9 @@ export default function DisposalPhotoSlot({
     }
   }
 
-  function onSelect(e: ChangeEvent<HTMLInputElement>, fromCamera: boolean) {
+  function onSelect(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
-    if (file) void handleFile(file, fromCamera)
+    if (file) void handleFile(file)
   }
 
   if (photoUrl) {
@@ -280,6 +295,9 @@ export default function DisposalPhotoSlot({
         >
           <ZoomablePhoto src={photoUrl} alt={caption} maxHeight={140} />
         </div>
+        {onNoteChange && (
+          <PhotoNoteField value={note ?? ''} onChange={onNoteChange} />
+        )}
         <button
           type="button"
           className="btn btn-secondary"
@@ -321,14 +339,14 @@ export default function DisposalPhotoSlot({
         ref={cameraRef}
         accept="image/*"
         capture="environment"
-        onChange={e => onSelect(e, true)}
+        onChange={onSelect}
         style={{ display: 'none' }}
       />
       <input
         type="file"
         ref={fileRef}
         accept="image/*"
-        onChange={e => onSelect(e, false)}
+        onChange={onSelect}
         style={{ display: 'none' }}
       />
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
