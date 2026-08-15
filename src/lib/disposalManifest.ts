@@ -20,6 +20,7 @@ export function emptyDisposalLoad(): DisposalLoad {
     size: '',
     contents_type: '',
     contents_other: '',
+    contents_description: '',
     date: '',
     location: '',
     location_lat: null,
@@ -52,6 +53,34 @@ export function mergedDisposalManifestCapture(ad: AssessmentData | null | undefi
   return { loads: loads.length ? loads : [emptyDisposalLoad()] }
 }
 
+/** Matches formatCoordLabel() — GPS text, not a street address. */
+function looksLikeCoordLabel(s: string): boolean {
+  return /^\d+\.\d+° [NS], \d+\.\d+° [EW]$/.test(s.trim())
+}
+
+export function applyJobSiteToLoad(
+  load: DisposalLoad,
+  job: { site_address?: string | null; site_lat?: number | null; site_lng?: number | null },
+): DisposalLoad {
+  const address = job.site_address?.trim() || ''
+  const next = { ...load }
+  const locationBlank = !next.location.trim() || looksLikeCoordLabel(next.location)
+  if (locationBlank && address) {
+    next.location = address
+    next.location_from_photo = false
+  }
+  if (next.location_lat == null && job.site_lat != null) next.location_lat = job.site_lat
+  if (next.location_lng == null && job.site_lng != null) next.location_lng = job.site_lng
+  return next
+}
+
+export function applyJobSiteToCapture(
+  capture: DisposalManifestCapture,
+  job: { site_address?: string | null; site_lat?: number | null; site_lng?: number | null },
+): DisposalManifestCapture {
+  return { loads: capture.loads.map(l => applyJobSiteToLoad(l, job)) }
+}
+
 function str(v: unknown): string {
   return typeof v === 'string' ? v : ''
 }
@@ -81,6 +110,7 @@ function normalizeLoad(raw: unknown): DisposalLoad {
     size: str(o.size),
     contents_type: CONTENTS_IDS.has(contents) ? (contents as DisposalContentsTypeId) : '',
     contents_other: str(o.contents_other),
+    contents_description: str(o.contents_description),
     date: str(o.date),
     location: str(o.location),
     location_lat: numOrNull(o.location_lat),
@@ -188,6 +218,7 @@ export function loadHasContent(load: DisposalLoad): boolean {
   return Boolean(
     load.size.trim() ||
     contentsLabel(load) ||
+    load.contents_description.trim() ||
     load.weight_kg != null ||
     load.dump_fee != null ||
     load.distance_km != null ||
@@ -205,6 +236,7 @@ export function formatWasteDisposalNarrative(capture: DisposalManifestCapture): 
   const lines = loads.map((l, i) => {
     const bits = [
       contentsLabel(l) || 'Waste',
+      l.contents_description.trim() || null,
       l.size.trim() ? l.size.trim() : null,
       l.weight_kg != null ? formatKg(l.weight_kg) : null,
       l.dump_fee != null ? formatAud(l.dump_fee) : null,

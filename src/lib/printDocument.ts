@@ -1081,6 +1081,7 @@ function wdmLoadCards(c: WasteDisposalManifestContent): string {
     const photoBlock = photos ? `<div class="photos-grid" style="margin-top:8px">${photos}</div>` : ''
     const rows = [
       l.contents ? `<div><div class="label">Contents</div><div class="body-text">${esc(l.contents)}</div></div>` : '',
+      l.contents_description ? `<div><div class="label">Content description</div><div class="body-text">${esc(l.contents_description)}</div></div>` : '',
       l.size ? `<div><div class="label">Size</div><div class="body-text">${esc(l.size)}</div></div>` : '',
       l.date ? `<div><div class="label">Date</div><div class="body-text">${esc(l.date)}</div></div>` : '',
       l.location ? `<div><div class="label">Load location</div><div class="body-text">${esc(l.location)}</div></div>` : '',

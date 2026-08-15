@@ -44,6 +44,7 @@ import {
 import { assessmentDocumentHasContent, mergedAssessmentDocumentCapture } from '@/lib/assessmentDocumentCapture'
 import { getSpokeById } from '@/lib/quoteSpokes'
 import {
+  applyJobSiteToCapture,
   computeDisposalTotals,
   contentsLabel,
   formatAud,
@@ -818,7 +819,7 @@ function composeCod(job: Job): ComposeDocumentResult {
 }
 
 function composeWdm(job: Job): ComposeDocumentResult {
-  const capture = mergedDisposalManifestCapture(job.assessment_data)
+  const capture = applyJobSiteToCapture(mergedDisposalManifestCapture(job.assessment_data), job)
   const loads = capture.loads.filter(loadHasContent)
   const totals = computeDisposalTotals(loads)
   const dates = loads.map(l => l.date).filter(Boolean).sort()
@@ -827,7 +828,7 @@ function composeWdm(job: Job): ComposeDocumentResult {
     : new Date().toLocaleDateString('en-AU')
 
   const waste_items = loads.map(l => ({
-    description: [contentsLabel(l), l.size.trim()].filter(Boolean).join(' — ') || `Load`,
+    description: [contentsLabel(l), l.contents_description.trim(), l.size.trim()].filter(Boolean).join(' — ') || `Load`,
     quantity: l.weight_kg != null ? String(l.weight_kg) : '',
     unit: l.weight_kg != null ? 'kg' : '',
     disposal_method: l.dump_fee != null ? `Weighbridge / dump fee ${formatAud(l.dump_fee)}` : 'Licensed facility',
@@ -838,6 +839,7 @@ function composeWdm(job: Job): ComposeDocumentResult {
     load_number: i + 1,
     size: l.size.trim(),
     contents: contentsLabel(l),
+    contents_description: l.contents_description.trim(),
     date: l.date,
     location: l.location.trim(),
     facility: (l.facility || l.dump_location).trim(),

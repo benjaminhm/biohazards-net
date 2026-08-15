@@ -1542,6 +1542,7 @@ export interface DisposalLoad {
   size: string
   contents_type: DisposalContentsTypeId
   contents_other: string
+  contents_description: string
   date: string
   location: string
   location_lat: number | null
@@ -1581,6 +1582,7 @@ export interface WasteDisposalManifestLoadSnapshot {
   load_number: number
   size: string
   contents: string
+  contents_description?: string
   date: string
   location: string
   facility: string

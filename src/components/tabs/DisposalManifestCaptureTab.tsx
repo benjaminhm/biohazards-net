@@ -14,6 +14,8 @@ import DisposalPhotoSlot from '@/components/DisposalPhotoSlot'
 import { formatCoordLabel, type PhotoExif } from '@/lib/photoExif'
 import {
   DISPOSAL_CONTENTS_TYPES,
+  applyJobSiteToCapture,
+  applyJobSiteToLoad,
   computeDisposalTotals,
   contentsLabel,
   disposalManifestEqual,
@@ -74,8 +76,8 @@ function MetaChip({ show }: { show: boolean }) {
 export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, onPhotosUpdate }: Props) {
   const router = useRouter()
   const persisted = useMemo(
-    () => mergedDisposalManifestCapture(job.assessment_data),
-    [job.assessment_data, job.updated_at],
+    () => applyJobSiteToCapture(mergedDisposalManifestCapture(job.assessment_data), job),
+    [job.assessment_data, job.updated_at, job.site_address, job.site_lat, job.site_lng],
   )
   const [capture, setCapture] = useState(persisted)
   const [saving, setSaving] = useState(false)
@@ -87,8 +89,8 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
   useRegisterUnsavedChanges('disposal-manifest-capture', isDirty)
 
   useEffect(() => {
-    setCapture(mergedDisposalManifestCapture(job.assessment_data))
-  }, [job.id, job.updated_at])
+    setCapture(applyJobSiteToCapture(mergedDisposalManifestCapture(job.assessment_data), job))
+  }, [job.id, job.updated_at, job.site_address, job.site_lat, job.site_lng])
 
   const totals = useMemo(() => computeDisposalTotals(capture.loads), [capture.loads])
 
@@ -117,12 +119,8 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
         if (exif.lat != null && exif.lng != null) {
           next.location_lat = exif.lat
           next.location_lng = exif.lng
-          if (!load.location.trim()) {
-            next.location = job.site_address?.trim() || formatCoordLabel(exif.lat, exif.lng)
-            next.location_from_photo = true
-          }
         }
-        return next
+        return applyJobSiteToLoad(next, job)
       }),
     }))
     setSavedFlash(false)
@@ -172,7 +170,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          assessment_data: { ...merged, disposal_manifest_capture: nextCapture },
+          assessment_data: { ...merged, disposal_manifest_capture: applyJobSiteToCapture(nextCapture, job) },
         }),
       })
       const data = (await res.json()) as { job?: Job; error?: string }
@@ -190,7 +188,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
   }
 
   function addLoad() {
-    const load = emptyDisposalLoad()
+    const load = applyJobSiteToLoad(emptyDisposalLoad(), job)
     setCapture(prev => ({ loads: [...prev.loads, load] }))
     setOpenId(load.id)
     setSavedFlash(false)
@@ -198,7 +196,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
 
   function removeLoad(id: string) {
     if (capture.loads.length <= 1) {
-      const fresh = emptyDisposalLoad()
+      const fresh = applyJobSiteToLoad(emptyDisposalLoad(), job)
       setCapture({ loads: [fresh] })
       setOpenId(fresh.id)
       return
@@ -338,11 +336,21 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                         <input
                           value={load.contents_other}
                           onChange={e => patchLoad(load.id, { contents_other: e.target.value })}
-                          placeholder="Describe the waste"
+                          placeholder="Name the waste type"
                           style={INPUT}
                         />
                       </div>
                     )}
+                    <div>
+                      <label style={LABEL}>Content description</label>
+                      <textarea
+                        value={load.contents_description}
+                        onChange={e => patchLoad(load.id, { contents_description: e.target.value })}
+                        rows={2}
+                        placeholder="e.g. sofas, mattresses, mixed household from dwelling"
+                        style={{ ...INPUT, resize: 'vertical', minHeight: 64 }}
+                      />
+                    </div>
                     <div>
                       <label style={LABEL}>
                         Date
@@ -363,7 +371,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                       <input
                         value={load.location}
                         onChange={e => patchLoad(load.id, { location: e.target.value, location_from_photo: false })}
-                        placeholder={job.site_address || 'Pickup / load location'}
+                        placeholder="Pickup / load location"
                         style={INPUT}
                       />
                     </div>
