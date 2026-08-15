@@ -65,6 +65,9 @@ export function emptyDisposalLoad(): DisposalLoad {
     docket_skipped: false,
     docket_photo_id: null,
     docket_photo_url: null,
+    dump_date: '',
+    dump_time: '',
+    dump_datetime_from_photo: false,
     dump_location: '',
     dump_lat: null,
     dump_lng: null,
@@ -75,6 +78,7 @@ export function emptyDisposalLoad(): DisposalLoad {
     distance_from_geo: false,
     facility: '',
     notes: '',
+    facility_photos: [],
   }
 }
 
@@ -143,6 +147,18 @@ function vehicleTypeOf(raw: unknown): DisposalVehicleTypeId {
   return VEHICLE_IDS.has(t) ? (t as DisposalVehicleTypeId) : ''
 }
 
+function normalizePhotoList(raw: unknown): { id: string; url: string }[] {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map(p => {
+      const row = p && typeof p === 'object' ? (p as Record<string, unknown>) : {}
+      const id = str(row.id)
+      const url = str(row.url)
+      return id && url ? { id, url } : null
+    })
+    .filter((p): p is { id: string; url: string } => p != null)
+}
+
 function normalizeVehicle(raw: unknown): DisposalVehicle {
   const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
   const base = emptyDisposalVehicle()
@@ -160,16 +176,7 @@ function normalizeVehicle(raw: unknown): DisposalVehicle {
     photo_skipped: bool(o.photo_skipped),
     photo_id: str(o.photo_id) || null,
     photo_url: str(o.photo_url) || null,
-    extra_photos: Array.isArray(o.extra_photos)
-      ? o.extra_photos
-          .map(p => {
-            const row = p && typeof p === 'object' ? (p as Record<string, unknown>) : {}
-            const id = str(row.id)
-            const url = str(row.url)
-            return id && url ? { id, url } : null
-          })
-          .filter((p): p is { id: string; url: string } => p != null)
-      : [],
+    extra_photos: normalizePhotoList(o.extra_photos),
   }
 }
 
@@ -225,6 +232,9 @@ function normalizeLoad(raw: unknown): DisposalLoad {
     docket_skipped: bool(o.docket_skipped),
     docket_photo_id: str(o.docket_photo_id) || null,
     docket_photo_url: str(o.docket_photo_url) || null,
+    dump_date: str(o.dump_date),
+    dump_time: str(o.dump_time),
+    dump_datetime_from_photo: bool(o.dump_datetime_from_photo),
     dump_location: str(o.dump_location),
     dump_lat: numOrNull(o.dump_lat),
     dump_lng: numOrNull(o.dump_lng),
@@ -235,6 +245,7 @@ function normalizeLoad(raw: unknown): DisposalLoad {
     distance_from_geo: bool(o.distance_from_geo),
     facility: str(o.facility),
     notes: str(o.notes),
+    facility_photos: normalizePhotoList(o.facility_photos),
   })
 }
 
@@ -404,8 +415,11 @@ export function loadHasContent(load: DisposalLoad): boolean {
     load.distance_km != null ||
     load.facility.trim() ||
     load.dump_location.trim() ||
+    load.dump_date.trim() ||
+    load.dump_time.trim() ||
     load.trailer_photo_url ||
-    load.docket_photo_url,
+    load.docket_photo_url ||
+    load.facility_photos?.length > 0,
   )
 }
 
@@ -433,6 +447,9 @@ export function formatWasteDisposalNarrative(capture: DisposalManifestCapture): 
       l.weight_kg != null ? formatKg(l.weight_kg) : null,
       l.dump_fee != null ? formatAud(l.dump_fee) : null,
       l.distance_km != null ? `${l.distance_km} km` : null,
+      l.dump_date.trim()
+        ? `dumped ${l.dump_date}${l.dump_time.trim() ? ` ${l.dump_time}` : ''}`
+        : null,
       l.facility.trim() || l.dump_location.trim() || null,
     ].filter(Boolean)
     return `${i + 1}. ${bits.join(' · ')}`

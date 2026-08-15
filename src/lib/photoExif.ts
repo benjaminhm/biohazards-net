@@ -171,6 +171,15 @@ function parseExifDate(raw: string | null): { takenAt: string | null; date: stri
   return { takenAt, date }
 }
 
+export function timeFromTakenAt(takenAt: string | null | undefined): string {
+  if (!takenAt) return ''
+  const m = takenAt.match(/T(\d{2}):(\d{2})(?::(\d{2}))?/)
+  if (!m) return ''
+  // Date-only EXIF is stored as T00:00:00 — don't treat that as a dump time.
+  if (m[1] === '00' && m[2] === '00' && (m[3] == null || m[3] === '00')) return ''
+  return `${m[1]}:${m[2]}`
+}
+
 export function formatCoordLabel(lat: number, lng: number): string {
   const ns = lat >= 0 ? 'N' : 'S'
   const ew = lng >= 0 ? 'E' : 'W'

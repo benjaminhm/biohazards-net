@@ -1102,13 +1102,22 @@ function wdmLoadCards(c: WasteDisposalManifestContent): string {
         </div>`
     }).join('')
 
-    const docketPhoto = l.docket_photo_url
-      ? `<div class="photos-grid" style="margin-top:8px"><div class="photo-card"><img src="${esc(l.docket_photo_url)}" alt="Dump docket"><div class="photo-meta"><div class="photo-cap">Dump docket</div></div></div></div>`
+    const facilityUrls = (l.facility_photo_urls ?? []).filter(url => url && url !== l.docket_photo_url)
+    const dumpPhotos = [
+      l.docket_photo_url
+        ? `<div class="photo-card"><img src="${esc(l.docket_photo_url)}" alt="Dump docket"><div class="photo-meta"><div class="photo-cap">Dump docket</div></div></div>`
+        : '',
+      ...facilityUrls.map((url, pi) =>
+        `<div class="photo-card"><img src="${esc(url)}" alt="Facility ${pi + 1}"><div class="photo-meta"><div class="photo-cap">Facility ${pi + 1}</div></div></div>`,
+      ),
+    ].filter(Boolean).join('')
+    const docketPhoto = dumpPhotos
+      ? `<div class="photos-grid" style="margin-top:8px">${dumpPhotos}</div>`
       : ''
     const legacyPhotos = !vehicles.length
       ? [
           l.trailer_photo_url ? `<div class="photo-card"><img src="${esc(l.trailer_photo_url)}" alt="Trailer / skip"><div class="photo-meta"><div class="photo-cap">Trailer / skip</div></div></div>` : '',
-          l.docket_photo_url ? `<div class="photo-card"><img src="${esc(l.docket_photo_url)}" alt="Dump docket"><div class="photo-meta"><div class="photo-cap">Dump docket</div></div></div>` : '',
+          dumpPhotos,
         ].filter(Boolean).join('')
       : ''
     const legacyPhotoBlock = legacyPhotos ? `<div class="photos-grid" style="margin-top:8px">${legacyPhotos}</div>` : ''
@@ -1116,7 +1125,10 @@ function wdmLoadCards(c: WasteDisposalManifestContent): string {
       !vehicles.length && l.contents ? `<div><div class="label">Contents</div><div class="body-text">${esc(l.contents)}</div></div>` : '',
       !vehicles.length && l.contents_description ? `<div><div class="label">Content description</div><div class="body-text">${esc(l.contents_description)}</div></div>` : '',
       !vehicles.length && l.size ? `<div><div class="label">Size</div><div class="body-text">${esc(l.size)}</div></div>` : '',
-      l.date ? `<div><div class="label">Date</div><div class="body-text">${esc(l.date)}</div></div>` : '',
+      l.date ? `<div><div class="label">Load date</div><div class="body-text">${esc(l.date)}</div></div>` : '',
+      l.dump_date || l.dump_time
+        ? `<div><div class="label">Dump date</div><div class="body-text">${esc([l.dump_date, l.dump_time].filter(Boolean).join(' '))}</div></div>`
+        : '',
       l.location ? `<div><div class="label">Load location</div><div class="body-text">${esc(l.location)}</div></div>` : '',
       l.facility ? `<div><div class="label">Facility</div><div class="body-text">${esc(l.facility)}</div></div>` : '',
       l.volume_m3 != null ? `<div><div class="label">Volume</div><div class="body-text">${esc(formatM3(l.volume_m3))}</div></div>` : '',

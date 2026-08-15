@@ -10,7 +10,7 @@ import type { DisposalLoad, DisposalVehicle, Job, Photo } from '@/lib/types'
 import { mergeAssessmentData } from '@/lib/riskDerivation'
 import { useRegisterUnsavedChanges } from '@/lib/unsavedChangesContext'
 import DisposalPhotoSlot from '@/components/DisposalPhotoSlot'
-import { formatCoordLabel, type PhotoExif } from '@/lib/photoExif'
+import { formatCoordLabel, timeFromTakenAt, type PhotoExif } from '@/lib/photoExif'
 import {
   DISPOSAL_CONTENTS_TYPES,
   DISPOSAL_VEHICLE_TYPES,
@@ -215,6 +215,12 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
           docket_photo_id: photo.id,
           docket_photo_url: photo.file_url,
         }
+        if (!load.dump_date.trim() && (exif.date || timeFromTakenAt(exif.takenAt))) {
+          if (exif.date) next.dump_date = exif.date
+          const time = timeFromTakenAt(exif.takenAt)
+          if (time) next.dump_time = time
+          next.dump_datetime_from_photo = true
+        }
         if (exif.lat != null && exif.lng != null) {
           next.dump_lat = exif.lat
           next.dump_lng = exif.lng
@@ -308,6 +314,33 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
               ? v
               : { ...v, extra_photos: (v.extra_photos ?? []).filter(p => p.id !== photoId) },
           ),
+        })
+      }),
+    }))
+    touch()
+  }
+
+  function addFacilityPhoto(loadId: string, photo: Photo) {
+    setCapture(prev => ({
+      loads: prev.loads.map(l => {
+        if (l.id !== loadId) return l
+        return withMirrors({
+          ...l,
+          facility_photos: [...(l.facility_photos ?? []), { id: photo.id, url: photo.file_url }],
+        })
+      }),
+    }))
+    touch()
+    onPhotosUpdate([photo, ...photos])
+  }
+
+  function removeFacilityPhoto(loadId: string, photoId: string) {
+    setCapture(prev => ({
+      loads: prev.loads.map(l => {
+        if (l.id !== loadId) return l
+        return withMirrors({
+          ...l,
+          facility_photos: (l.facility_photos ?? []).filter(p => p.id !== photoId),
         })
       }),
     }))
@@ -515,7 +548,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                 <div style={{ display: 'grid', gap: 12, marginTop: 14 }}>
                   <div>
                     <label style={LABEL}>
-                      Date
+                      Load date
                       <MetaChip show={load.date_from_photo} />
                     </label>
                     <input
@@ -819,15 +852,109 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                           docket_photo_id: null,
                           docket_photo_url: null,
                           dump_location_from_photo: false,
+                          dump_datetime_from_photo: false,
                           distance_from_geo: false,
                         })
                       }
                     />
+                    <div style={{ marginTop: 12 }}>
+                      <label style={LABEL}>Facility photos</label>
+                      {((load.facility_photos ?? []).length > 0) && (
+                        <div
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: '1fr 1fr',
+                            gap: 8,
+                            marginBottom: 8,
+                          }}
+                        >
+                          {(load.facility_photos ?? []).map((p, pIndex) => (
+                            <div key={p.id} style={{ position: 'relative' }}>
+                              <div
+                                style={{
+                                  borderRadius: 10,
+                                  overflow: 'hidden',
+                                  border: '1px solid var(--border)',
+                                  aspectRatio: '16 / 10',
+                                  background: 'var(--surface)',
+                                }}
+                              >
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src={p.url} alt={`Facility ${pIndex + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => removeFacilityPhoto(load.id, p.id)}
+                                style={{
+                                  marginTop: 6,
+                                  background: 'none',
+                                  border: 'none',
+                                  color: '#F87171',
+                                  fontSize: 12,
+                                  fontWeight: 600,
+                                  cursor: 'pointer',
+                                  padding: 0,
+                                }}
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <DisposalPhotoSlot
+                        jobId={job.id}
+                        areaRef={`Disposal load ${index + 1} — facility extra`}
+                        caption={`Load ${index + 1} facility extra`}
+                        photoUrl={null}
+                        skipped={false}
+                        skipLabel=""
+                        hideSkip
+                        cameraLabel="📷 More"
+                        galleryLabel="🖼 Gallery"
+                        onUploaded={photo => addFacilityPhoto(load.id, photo)}
+                        onSkip={() => undefined}
+                        onClear={() => undefined}
+                      />
+                    </div>
                   </>
                 )}
 
                 {(load.docket_photo_url || load.docket_skipped) && (
                   <div style={{ display: 'grid', gap: 12, marginTop: 14 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                      <div>
+                        <label style={LABEL}>
+                          Dump date
+                          <MetaChip show={load.dump_datetime_from_photo} />
+                        </label>
+                        <input
+                          type="date"
+                          value={load.dump_date ?? ''}
+                          onChange={e =>
+                            patchLoad(load.id, {
+                              dump_date: e.target.value,
+                              dump_datetime_from_photo: false,
+                            })
+                          }
+                          style={INPUT}
+                        />
+                      </div>
+                      <div>
+                        <label style={LABEL}>Dump time</label>
+                        <input
+                          type="time"
+                          value={load.dump_time ?? ''}
+                          onChange={e =>
+                            patchLoad(load.id, {
+                              dump_time: e.target.value,
+                              dump_datetime_from_photo: false,
+                            })
+                          }
+                          style={INPUT}
+                        />
+                      </div>
+                    </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                       <div>
                         <label style={LABEL}>Weight (kg)</label>

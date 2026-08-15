@@ -873,6 +873,8 @@ function composeWdm(job: Job): ComposeDocumentResult {
         extra_photo_urls: (v.extra_photos ?? []).map(p => p.url),
       })),
       date: l.date,
+      dump_date: l.dump_date.trim() || undefined,
+      dump_time: l.dump_time.trim() || undefined,
       location: l.location.trim(),
       facility: (l.facility || l.dump_location).trim(),
       weight_kg: l.weight_kg,
@@ -881,6 +883,7 @@ function composeWdm(job: Job): ComposeDocumentResult {
       volume_m3: loadVolumeM3(l),
       trailer_photo_url: first?.photo_url || l.trailer_photo_url,
       docket_photo_url: l.docket_photo_url,
+      facility_photo_urls: (l.facility_photos ?? []).map(p => p.url),
     }
   })
 

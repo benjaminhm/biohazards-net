@@ -1579,6 +1579,9 @@ export interface DisposalLoad {
   docket_skipped: boolean
   docket_photo_id: string | null
   docket_photo_url: string | null
+  dump_date: string
+  dump_time: string
+  dump_datetime_from_photo: boolean
   dump_location: string
   dump_lat: number | null
   dump_lng: number | null
@@ -1589,6 +1592,7 @@ export interface DisposalLoad {
   distance_from_geo: boolean
   facility: string
   notes: string
+  facility_photos: { id: string; url: string }[]
 }
 
 export interface DisposalManifestCapture {
@@ -1627,6 +1631,8 @@ export interface WasteDisposalManifestLoadSnapshot {
   contents_description?: string
   vehicles?: WasteDisposalManifestVehicleSnapshot[]
   date: string
+  dump_date?: string
+  dump_time?: string
   location: string
   facility: string
   weight_kg: number | null
@@ -1635,6 +1641,7 @@ export interface WasteDisposalManifestLoadSnapshot {
   volume_m3?: number | null
   trailer_photo_url: string | null
   docket_photo_url: string | null
+  facility_photo_urls?: string[]
 }
 
 /** Completion Report field capture — aligns with ReportContent narrative sections. */
