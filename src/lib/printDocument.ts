@@ -1164,7 +1164,7 @@ function wdmLoadCards(c: WasteDisposalManifestContent): string {
       const shots = [
         v.photo_url ? { url: v.photo_url, note: v.photo_note, fallback: v.type || 'Vehicle' } : null,
         ...extras.map((p, pi) => ({ url: p.url, note: p.note, fallback: `Extra ${pi + 1}` })),
-      ].filter((p): p is { url: string; note?: string; fallback: string } => p != null)
+      ].filter((p): p is { url: string; note: string | undefined; fallback: string } => p != null)
       const photo = shots.length
         ? `<div class="photos-grid" style="margin-top:8px">${shots.map(p =>
             `<div class="photo-card"><img src="${esc(p.url)}" alt="${esc(p.note?.trim() || p.fallback)}"><div class="photo-meta"><div class="photo-cap">${esc(p.note?.trim() || p.fallback)}</div></div></div>`,
