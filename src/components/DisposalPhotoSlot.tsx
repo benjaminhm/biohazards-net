@@ -6,7 +6,19 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type CSSProperties, type PointerEvent } from 'react'
 import type { Photo } from '@/lib/types'
-import { enrichExifWithDevice, formatCoordLabel, readPhotoExif, type PhotoExif } from '@/lib/photoExif'
+import {
+  applyGalleryChoice,
+  enrichExifWithDevice,
+  formatCoordLabel,
+  photoHasGps,
+  photoHasTime,
+  readDeviceLocation,
+  readPhotoExif,
+  type GalleryPlace,
+  type GalleryPlaceContext,
+  type GalleryWhen,
+  type PhotoExif,
+} from '@/lib/photoExif'
 
 const ZOOM_BTN: CSSProperties = {
   minWidth: 44,
@@ -298,11 +310,14 @@ interface Props {
   cameraLabel: string
   galleryLabel: string
   onUploaded: (photo: Photo, exif: PhotoExif) => void
+  /** Remaining gallery files after the first fills this slot (extras / facility). */
+  onOverflow?: (photo: Photo, exif: PhotoExif) => void
   onSkip: () => void
   onClear: () => void
   hideSkip?: boolean
   note?: string
   onNoteChange?: (note: string) => void
+  placeContext?: GalleryPlaceContext
 }
 
 async function compressImage(file: File, maxDim = 1920, quality = 0.82): Promise<Blob> {
@@ -354,53 +369,148 @@ export default function DisposalPhotoSlot({
   cameraLabel,
   galleryLabel,
   onUploaded,
+  onOverflow,
   onSkip,
   onClear,
   hideSkip = false,
   note,
   onNoteChange,
+  placeContext,
 }: Props) {
   const cameraRef = useRef<HTMLInputElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
+  const [uploadIndex, setUploadIndex] = useState(0)
+  const [uploadTotal, setUploadTotal] = useState(0)
   const [error, setError] = useState('')
+  const [pending, setPending] = useState<{ file: File; exif: PhotoExif }[] | null>(null)
+  const [place, setPlace] = useState<GalleryPlace>('site')
+  const [when, setWhen] = useState<GalleryWhen>('skip')
+  const [promptError, setPromptError] = useState('')
+  const [needGeo, setNeedGeo] = useState(false)
+  const [needTime, setNeedTime] = useState(false)
 
-  async function handleFile(file: File) {
+  function resetPickers() {
+    if (cameraRef.current) cameraRef.current.value = ''
+    if (fileRef.current) fileRef.current.value = ''
+  }
+
+  async function uploadOne(file: File, exif: PhotoExif, overflow: boolean) {
+    const compressed = await compressImage(file)
+    const fd = new FormData()
+    fd.append('job_id', jobId)
+    fd.append('file', compressed, 'upload.jpg')
+    fd.append('caption', caption)
+    fd.append('area_ref', areaRef)
+    fd.append('category', 'during')
+    fd.append('capture_phase', 'progress')
+    if (exif.takenAt) fd.append('taken_at', exif.takenAt)
+    if (exif.lat != null) fd.append('location_lat', String(exif.lat))
+    if (exif.lng != null) fd.append('location_lng', String(exif.lng))
+    if (exif.lat != null && exif.lng != null) {
+      fd.append('location_label', formatCoordLabel(exif.lat, exif.lng))
+    }
+    const saveRes = await fetch('/api/photos/upload', { method: 'POST', body: fd })
+    const saveJson = (await saveRes.json()) as { photo?: Photo; error?: string }
+    if (!saveRes.ok || !saveJson.photo) throw new Error(saveJson.error || `Upload failed (${saveRes.status})`)
+    if (overflow && onOverflow) onOverflow(saveJson.photo, exif)
+    else onUploaded(saveJson.photo, exif)
+  }
+
+  async function uploadBatch(items: { file: File; exif: PhotoExif }[]) {
     setUploading(true)
     setError('')
+    setUploadTotal(items.length)
     try {
-      const exif = await enrichExifWithDevice(await readPhotoExif(file))
-      const compressed = await compressImage(file)
-      const fd = new FormData()
-      fd.append('job_id', jobId)
-      fd.append('file', compressed, 'upload.jpg')
-      fd.append('caption', caption)
-      fd.append('area_ref', areaRef)
-      fd.append('category', 'during')
-      fd.append('capture_phase', 'progress')
-      if (exif.takenAt) fd.append('taken_at', exif.takenAt)
-      if (exif.lat != null) fd.append('location_lat', String(exif.lat))
-      if (exif.lng != null) fd.append('location_lng', String(exif.lng))
-      if (exif.lat != null && exif.lng != null) {
-        fd.append('location_label', formatCoordLabel(exif.lat, exif.lng))
+      for (let i = 0; i < items.length; i++) {
+        setUploadIndex(i + 1)
+        await uploadOne(items[i].file, items[i].exif, i > 0)
       }
-
-      const saveRes = await fetch('/api/photos/upload', { method: 'POST', body: fd })
-      const saveJson = (await saveRes.json()) as { photo?: Photo; error?: string }
-      if (!saveRes.ok || !saveJson.photo) throw new Error(saveJson.error || `Upload failed (${saveRes.status})`)
-      onUploaded(saveJson.photo, exif)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Upload failed')
     } finally {
       setUploading(false)
-      if (cameraRef.current) cameraRef.current.value = ''
-      if (fileRef.current) fileRef.current.value = ''
+      setUploadIndex(0)
+      setUploadTotal(0)
+      setPending(null)
+      resetPickers()
     }
   }
 
-  function onSelect(e: ChangeEvent<HTMLInputElement>) {
+  async function handleCameraFile(file: File) {
+    setUploading(true)
+    setError('')
+    setUploadTotal(1)
+    setUploadIndex(1)
+    try {
+      const exif = await enrichExifWithDevice(await readPhotoExif(file))
+      await uploadOne(file, exif, false)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Upload failed')
+    } finally {
+      setUploading(false)
+      setUploadIndex(0)
+      setUploadTotal(0)
+      resetPickers()
+    }
+  }
+
+  async function handleGalleryFiles(files: File[]) {
+    if (!files.length) return
+    setError('')
+    const items: { file: File; exif: PhotoExif }[] = []
+    for (const file of files) {
+      items.push({ file, exif: await readPhotoExif(file) })
+    }
+    const geoMissing = items.some(item => !photoHasGps(item.exif))
+    const timeMissing = items.some(item => !photoHasTime(item.exif))
+    if (placeContext && (geoMissing || timeMissing)) {
+      setPending(items)
+      setNeedGeo(geoMissing)
+      setNeedTime(timeMissing)
+      setPlace(placeContext.defaultPlace)
+      setWhen('skip')
+      setPromptError('')
+      return
+    }
+    await uploadBatch(items.map(item => ({
+      ...item,
+      exif: { ...item.exif, geoSource: photoHasGps(item.exif) ? 'exif' : 'skipped' },
+    })))
+  }
+
+  async function confirmGallery() {
+    if (!pending || !placeContext) return
+    setPromptError('')
+    let here: { lat: number; lng: number } | null = null
+    if (needGeo && place === 'here') {
+      here = await readDeviceLocation()
+      if (!here) {
+        setPromptError('Could not read this phone’s location. Pick job site, dump, or skip.')
+        return
+      }
+    }
+    const items = pending.map(item => ({
+      file: item.file,
+      exif: applyGalleryChoice(item.exif, { place: needGeo ? place : 'skip', when: needTime ? when : 'skip' }, {
+        siteLat: placeContext.siteLat,
+        siteLng: placeContext.siteLng,
+        dumpLat: placeContext.dumpLat,
+        dumpLng: placeContext.dumpLng,
+        here,
+      }),
+    }))
+    await uploadBatch(items)
+  }
+
+  function onCameraSelect(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
-    if (file) void handleFile(file)
+    if (file) void handleCameraFile(file)
+  }
+
+  function onGallerySelect(e: ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files ? Array.from(e.target.files) : []
+    if (files.length) void handleGalleryFiles(files)
   }
 
   if (photoUrl) {
@@ -461,41 +571,45 @@ export default function DisposalPhotoSlot({
         ref={cameraRef}
         accept="image/*"
         capture="environment"
-        onChange={onSelect}
+        onChange={onCameraSelect}
         style={{ display: 'none' }}
       />
       <input
         type="file"
         ref={fileRef}
         accept="image/*"
-        onChange={onSelect}
+        multiple
+        onChange={onGallerySelect}
         style={{ display: 'none' }}
       />
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
         <button
           type="button"
           className="btn btn-primary"
-          disabled={uploading}
+          disabled={uploading || Boolean(pending)}
           onClick={() => cameraRef.current?.click()}
           style={{ padding: '12px 8px', fontSize: 14, fontWeight: 700, borderRadius: 12 }}
         >
-          {uploading ? 'Uploading…' : cameraLabel}
+          {uploading ? (uploadTotal > 1 ? `Uploading ${uploadIndex}/${uploadTotal}…` : 'Uploading…') : cameraLabel}
         </button>
         <button
           type="button"
           className="btn btn-secondary"
-          disabled={uploading}
+          disabled={uploading || Boolean(pending)}
           onClick={() => fileRef.current?.click()}
           style={{ padding: '12px 8px', fontSize: 14, fontWeight: 700, borderRadius: 12, borderStyle: 'dashed' }}
         >
           {galleryLabel}
         </button>
       </div>
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: hideSkip ? 0 : 8 }}>
+        Gallery: you can select several photos.
+      </div>
       {!hideSkip && (
       <button
         type="button"
         onClick={onSkip}
-        disabled={uploading}
+        disabled={uploading || Boolean(pending)}
         style={{
           background: 'none',
           border: 'none',
@@ -510,6 +624,155 @@ export default function DisposalPhotoSlot({
       </button>
       )}
       {error && <div style={{ color: '#F87171', fontSize: 12, marginTop: 8 }}>{error}</div>}
+      {pending && placeContext && (
+        <GalleryPlaceSheet
+          count={pending.length}
+          ctx={placeContext}
+          place={place}
+          when={when}
+          needGeo={needGeo}
+          needTime={needTime}
+          error={promptError}
+          busy={uploading}
+          onPlace={setPlace}
+          onWhen={setWhen}
+          onCancel={() => { setPending(null); setPromptError(''); resetPickers() }}
+          onConfirm={() => void confirmGallery()}
+        />
+      )}
+    </div>
+  )
+}
+
+const SHEET_OPT: CSSProperties = {
+  width: '100%',
+  textAlign: 'left',
+  padding: '12px 14px',
+  borderRadius: 10,
+  fontSize: 14,
+  fontWeight: 600,
+  cursor: 'pointer',
+  background: 'var(--bg)',
+  color: 'var(--text)',
+}
+
+function GalleryPlaceSheet({
+  count,
+  ctx,
+  place,
+  when,
+  needGeo,
+  needTime,
+  error,
+  busy,
+  onPlace,
+  onWhen,
+  onCancel,
+  onConfirm,
+}: {
+  count: number
+  ctx: GalleryPlaceContext
+  place: GalleryPlace
+  when: GalleryWhen
+  needGeo: boolean
+  needTime: boolean
+  error: string
+  busy: boolean
+  onPlace: (v: GalleryPlace) => void
+  onWhen: (v: GalleryWhen) => void
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  function optStyle(selected: boolean): CSSProperties {
+    return {
+      ...SHEET_OPT,
+      border: selected ? '2px solid var(--accent)' : '1px solid var(--border)',
+    }
+  }
+  return (
+    <div
+      onClick={e => { if (e.target === e.currentTarget && !busy) onCancel() }}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.6)',
+        zIndex: 200,
+        display: 'flex',
+        alignItems: 'flex-end',
+        justifyContent: 'center',
+      }}
+    >
+      <div
+        style={{
+          background: 'var(--surface)',
+          borderRadius: '20px 20px 0 0',
+          padding: '24px 20px 36px',
+          width: '100%',
+          maxWidth: 480,
+        }}
+      >
+        <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 8 }}>
+          {count === 1 ? 'Where was this photo taken?' : `Where were these ${count} photos taken?`}
+        </div>
+        <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16, lineHeight: 1.5 }}>
+          Camera-roll files often have no location. Don’t use where you are now unless you’re still there.
+        </div>
+        {needGeo && (
+          <div style={{ display: 'grid', gap: 8, marginBottom: 16 }}>
+            <button type="button" style={optStyle(place === 'site')} onClick={() => onPlace('site')}>
+              Job site
+              <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-muted)', marginTop: 2 }}>{ctx.siteLabel}</div>
+            </button>
+            <button type="button" style={optStyle(place === 'dump')} onClick={() => onPlace('dump')}>
+              Dump / facility
+              <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-muted)', marginTop: 2 }}>{ctx.dumpLabel}</div>
+            </button>
+            <button type="button" style={optStyle(place === 'here')} onClick={() => onPlace('here')}>
+              I’m there now
+              <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-muted)', marginTop: 2 }}>Use this phone’s current GPS</div>
+            </button>
+            <button type="button" style={optStyle(place === 'skip')} onClick={() => onPlace('skip')}>
+              Skip — I’ll type it
+            </button>
+          </div>
+        )}
+        {needTime && (
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 8 }}>
+              When were they taken?
+            </div>
+            <div style={{ display: 'grid', gap: 8 }}>
+              <button type="button" style={optStyle(when === 'now')} onClick={() => onWhen('now')}>
+                Use now — I’m uploading at the place
+              </button>
+              <button type="button" style={optStyle(when === 'skip')} onClick={() => onWhen('skip')}>
+                I’ll type the date / time
+              </button>
+            </div>
+          </div>
+        )}
+        {error && <div style={{ color: '#F87171', fontSize: 13, marginBottom: 12 }}>{error}</div>}
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled={busy}
+            onClick={onCancel}
+            style={{ flex: 1, padding: 13, borderRadius: 10, fontWeight: 700 }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={busy}
+            onClick={onConfirm}
+            style={{ flex: 1, padding: 13, borderRadius: 10, fontWeight: 700 }}
+          >
+            {busy ? 'Uploading…' : 'Continue'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

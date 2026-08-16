@@ -4,6 +4,10 @@
  * HEIC / stripped shares (iMessage, WhatsApp) return empty fields.
  */
 
+export type PhotoGeoSource = 'exif' | 'device' | 'site' | 'dump' | 'skipped'
+export type GalleryPlace = 'site' | 'dump' | 'here' | 'skip'
+export type GalleryWhen = 'now' | 'skip'
+
 export interface PhotoExif {
   takenAt: string | null
   date: string | null
@@ -11,6 +15,17 @@ export interface PhotoExif {
   lng: number | null
   timeFromDevice?: boolean
   geoFromDevice?: boolean
+  geoSource?: PhotoGeoSource
+}
+
+export interface GalleryPlaceContext {
+  siteLabel: string
+  siteLat: number | null
+  siteLng: number | null
+  dumpLabel: string
+  dumpLat: number | null
+  dumpLng: number | null
+  defaultPlace: 'site' | 'dump'
 }
 
 const EMPTY: PhotoExif = { takenAt: null, date: null, lat: null, lng: null }
@@ -203,6 +218,7 @@ export function readDeviceLocation(): Promise<{ lat: number; lng: number } | nul
 
 export async function enrichExifWithDevice(exif: PhotoExif): Promise<PhotoExif> {
   const next: PhotoExif = { ...exif }
+  if (next.lat != null && next.lng != null) next.geoSource = 'exif'
   if (!next.date || !next.takenAt) {
     const stamp = localStampNow()
     if (!next.date) next.date = stamp.date
@@ -215,9 +231,61 @@ export async function enrichExifWithDevice(exif: PhotoExif): Promise<PhotoExif> 
       next.lat = geo.lat
       next.lng = geo.lng
       next.geoFromDevice = true
+      next.geoSource = 'device'
     }
   }
   return next
+}
+
+/** Apply a camera-roll place/time choice. Never overwrites GPS or time already in the file. */
+export function applyGalleryChoice(
+  exif: PhotoExif,
+  choice: { place: GalleryPlace; when: GalleryWhen },
+  places: {
+    siteLat: number | null
+    siteLng: number | null
+    dumpLat: number | null
+    dumpLng: number | null
+    here: { lat: number; lng: number } | null
+  },
+): PhotoExif {
+  const next: PhotoExif = { ...exif }
+  if (next.lat != null && next.lng != null) {
+    next.geoSource = next.geoSource ?? 'exif'
+  } else if (choice.place === 'site' && places.siteLat != null && places.siteLng != null) {
+    next.lat = places.siteLat
+    next.lng = places.siteLng
+    next.geoSource = 'site'
+    next.geoFromDevice = false
+  } else if (choice.place === 'dump' && places.dumpLat != null && places.dumpLng != null) {
+    next.lat = places.dumpLat
+    next.lng = places.dumpLng
+    next.geoSource = 'dump'
+    next.geoFromDevice = false
+  } else if (choice.place === 'here' && places.here) {
+    next.lat = places.here.lat
+    next.lng = places.here.lng
+    next.geoSource = 'device'
+    next.geoFromDevice = true
+  } else {
+    next.geoSource = 'skipped'
+  }
+
+  if ((!next.date || !next.takenAt) && choice.when === 'now') {
+    const stamp = localStampNow()
+    if (!next.date) next.date = stamp.date
+    if (!next.takenAt) next.takenAt = stamp.takenAt
+    next.timeFromDevice = true
+  }
+  return next
+}
+
+export function photoHasGps(exif: PhotoExif): boolean {
+  return exif.lat != null && exif.lng != null
+}
+
+export function photoHasTime(exif: PhotoExif): boolean {
+  return Boolean(exif.date && exif.takenAt)
 }
 
 export function formatCoordLabel(lat: number, lng: number): string {

@@ -10,7 +10,7 @@ import type { DisposalLoad, DisposalVehicle, Job, Photo } from '@/lib/types'
 import { mergeAssessmentData } from '@/lib/riskDerivation'
 import { useRegisterUnsavedChanges } from '@/lib/unsavedChangesContext'
 import DisposalPhotoSlot, { PhotoNoteField, ZoomablePhoto } from '@/components/DisposalPhotoSlot'
-import { formatCoordLabel, timeFromTakenAt, type PhotoExif } from '@/lib/photoExif'
+import { formatCoordLabel, timeFromTakenAt, type GalleryPlaceContext, type PhotoExif } from '@/lib/photoExif'
 import {
   DISPOSAL_CONTENTS_TYPES,
   DISPOSAL_VEHICLE_TYPES,
@@ -99,6 +99,23 @@ const CHIP: CSSProperties = {
 function MetaChip({ show, fromDevice }: { show: boolean; fromDevice?: boolean }) {
   if (!show) return null
   return <span style={CHIP}>{fromDevice ? 'From phone' : 'From photo'}</span>
+}
+
+function galleryPlaceFor(
+  job: Job,
+  load: DisposalLoad,
+  defaultPlace: 'site' | 'dump',
+): GalleryPlaceContext {
+  const dumpLabel = (load.facility || load.dump_location).trim()
+  return {
+    siteLabel: job.site_address?.trim() || 'Job site',
+    siteLat: job.site_lat ?? load.location_lat,
+    siteLng: job.site_lng ?? load.location_lng,
+    dumpLabel: dumpLabel || 'Dump / facility',
+    dumpLat: load.dump_lat,
+    dumpLng: load.dump_lng,
+    defaultPlace,
+  }
 }
 
 function LockGlyph({ open }: { open: boolean }) {
@@ -216,7 +233,8 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
           next.date_from_photo = true
           next.date_from_device = Boolean(exif.timeFromDevice)
         }
-        if (exif.lat != null && exif.lng != null) {
+        const geoOk = exif.geoSource === 'exif' || exif.geoSource === 'device' || exif.geoSource === 'site'
+        if (geoOk && exif.lat != null && exif.lng != null) {
           next.location_lat = exif.lat
           next.location_lng = exif.lng
         }
@@ -246,10 +264,11 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
           next.dump_datetime_from_photo = true
           next.dump_datetime_from_device = Boolean(exif.timeFromDevice)
         }
-        if (exif.lat != null && exif.lng != null) {
+        const geoOk = exif.geoSource === 'exif' || exif.geoSource === 'device' || exif.geoSource === 'dump'
+        if (geoOk && exif.lat != null && exif.lng != null) {
           next.dump_lat = exif.lat
           next.dump_lng = exif.lng
-          if (!load.dump_location.trim()) {
+          if (!load.dump_location.trim() && !load.facility.trim()) {
             next.dump_location = formatCoordLabel(exif.lat, exif.lng)
             next.dump_location_from_photo = true
             next.dump_location_from_device = Boolean(exif.geoFromDevice)
@@ -676,7 +695,9 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                           skipLabel={labels.skip}
                           cameraLabel={labels.camera}
                           galleryLabel="🖼 Gallery"
+                          placeContext={galleryPlaceFor(job, load, 'site')}
                           onUploaded={(photo, exif) => applyVehicleExif(load.id, vehicle.id, photo, exif)}
+                          onOverflow={photo => addExtraPhoto(load.id, vehicle.id, photo)}
                           onSkip={() => patchVehicle(load.id, vehicle.id, { photo_skipped: true })}
                           note={vehicle.photo_note}
                           onNoteChange={value => patchVehicle(load.id, vehicle.id, { photo_note: value })}
@@ -747,6 +768,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                               hideSkip
                               cameraLabel="📷 More"
                               galleryLabel="🖼 Gallery"
+                              placeContext={galleryPlaceFor(job, load, 'site')}
                               onUploaded={(photo) => addExtraPhoto(load.id, vehicle.id, photo)}
                               onSkip={() => undefined}
                               onClear={() => undefined}
@@ -910,7 +932,9 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                       skipLabel=""
                       cameraLabel="📷 Docket"
                       galleryLabel="🖼 Gallery"
+                      placeContext={galleryPlaceFor(job, load, 'dump')}
                       onUploaded={(photo, exif) => applyDocketExif(load.id, photo, exif)}
+                      onOverflow={photo => addFacilityPhoto(load.id, photo)}
                       note={load.docket_photo_note}
                       onNoteChange={value => patchLoad(load.id, { docket_photo_note: value })}
                       onSkip={() => undefined}
@@ -1172,6 +1196,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                         hideSkip
                         cameraLabel="📷 More"
                         galleryLabel="🖼 Gallery"
+                        placeContext={galleryPlaceFor(job, load, 'dump')}
                         onUploaded={photo => addFacilityPhoto(load.id, photo)}
                         onSkip={() => undefined}
                         onClear={() => undefined}
