@@ -1064,9 +1064,128 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                   + Add vehicle
                 </button>
 
+                <div style={{ ...LABEL, marginTop: 22 }}>Drop-off</div>
+                <div>
+                  <label style={LABEL}>
+                    Facility / dump location
+                    <MetaChip show={load.dump_location_from_photo} fromDevice={load.dump_location_from_device} />
+                  </label>
+                  <AddressAutocomplete
+                    value={load.facility || load.dump_location}
+                    lat={load.dump_lat}
+                    lng={load.dump_lng}
+                    placeholder="Tip / facility name or address"
+                    style={INPUT}
+                    onChange={next => {
+                      const origin = loadOriginLatLng(load, job)
+                      const km = distanceFromSiteKm(origin.lat, origin.lng, next.lat, next.lng)
+                      const allow = canAutofillDistance(load)
+                      patchLoad(load.id, {
+                        facility: next.address,
+                        dump_location: next.address,
+                        dump_lat: next.lat,
+                        dump_lng: next.lng,
+                        dump_location_from_photo: false,
+                        dump_location_from_device: false,
+                        ...(allow && km != null
+                          ? { distance_km: km, distance_from_geo: true }
+                          : allow
+                            ? { distance_from_geo: false }
+                            : {}),
+                      })
+                      if (allow) {
+                        void applyTripDistance(load.id, origin.lat, origin.lng, next.lat, next.lng)
+                      }
+                    }}
+                  />
+                </div>
+                <div style={{ marginTop: 12 }}>
+                  <label style={LABEL}>
+                    Distance pickup → facility (km)
+                    <MetaChip show={load.distance_from_geo} label="From map" />
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.1"
+                    value={load.distance_km ?? ''}
+                    onChange={e =>
+                      patchLoad(load.id, {
+                        distance_km: e.target.value === '' ? null : Number(e.target.value),
+                        distance_from_geo: false,
+                      })
+                    }
+                    placeholder="km"
+                    style={INPUT}
+                  />
+                </div>
+                <div style={{ marginTop: 12 }}>
+                  <label style={LABEL}>Drop-off photos</label>
+                  {((load.facility_photos ?? []).length > 0) && (
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '1fr 1fr',
+                        gap: 8,
+                        marginBottom: 8,
+                      }}
+                    >
+                      {(load.facility_photos ?? []).map((p, pIndex) => (
+                        <div key={p.id} style={{ position: 'relative' }}>
+                          <div
+                            style={{
+                            borderRadius: 10,
+                            overflow: 'visible',
+                            border: '1px solid var(--border)',
+                            background: 'var(--surface)',
+                            }}
+                          >
+                            <ZoomablePhoto src={p.url} alt={p.note || `Drop-off ${pIndex + 1}`} maxHeight={180} />
+                          </div>
+                          <PhotoNoteField
+                            value={p.note ?? ''}
+                            onChange={value => patchFacilityPhotoNote(load.id, p.id, value)}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => removeFacilityPhoto(load.id, p.id)}
+                            style={{
+                              marginTop: 6,
+                              background: 'none',
+                              border: 'none',
+                              color: '#F87171',
+                              fontSize: 12,
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              padding: 0,
+                            }}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <DisposalPhotoSlot
+                    jobId={job.id}
+                    areaRef={`Disposal load ${index + 1} — drop-off`}
+                    caption={`Load ${index + 1} drop-off`}
+                    photoUrl={null}
+                    skipped={false}
+                    skipLabel=""
+                    hideSkip
+                    cameraLabel="📷 Drop-off"
+                    galleryLabel="🖼 Gallery"
+                    placeContext={galleryPlaceFor(job, load, 'dump')}
+                    onUploaded={(photo, exif) => addFacilityPhoto(load.id, photo, exif)}
+                    onSkip={() => undefined}
+                    onClear={() => undefined}
+                  />
+                </div>
+
                 {docketOpen && (
                   <>
-                    <div style={{ ...LABEL, marginTop: 22 }}>Dump fee / skip docket</div>
+                    <div style={{ ...LABEL, marginTop: 22 }}>Docket</div>
                     {(!load.docket_skipped || load.docket_photo_url) && (
                     <DisposalPhotoSlot
                       jobId={job.id}
@@ -1237,60 +1356,6 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                       </div>
                     </div>
                     <div>
-                      <label style={LABEL}>
-                        Distance pickup → facility (km)
-                        <MetaChip show={load.distance_from_geo} label="From map" />
-                      </label>
-                      <input
-                        type="number"
-                        min={0}
-                        step="0.1"
-                        value={load.distance_km ?? ''}
-                        onChange={e =>
-                          patchLoad(load.id, {
-                            distance_km: e.target.value === '' ? null : Number(e.target.value),
-                            distance_from_geo: false,
-                          })
-                        }
-                        placeholder="km"
-                        style={INPUT}
-                      />
-                    </div>
-                    <div>
-                      <label style={LABEL}>
-                        Facility / dump location
-                        <MetaChip show={load.dump_location_from_photo} fromDevice={load.dump_location_from_device} />
-                      </label>
-                      <AddressAutocomplete
-                        value={load.facility || load.dump_location}
-                        lat={load.dump_lat}
-                        lng={load.dump_lng}
-                        placeholder="Tip / facility name or address"
-                        style={INPUT}
-                        onChange={next => {
-                          const origin = loadOriginLatLng(load, job)
-                          const km = distanceFromSiteKm(origin.lat, origin.lng, next.lat, next.lng)
-                          const allow = canAutofillDistance(load)
-                          patchLoad(load.id, {
-                            facility: next.address,
-                            dump_location: next.address,
-                            dump_lat: next.lat,
-                            dump_lng: next.lng,
-                            dump_location_from_photo: false,
-                            dump_location_from_device: false,
-                            ...(allow && km != null
-                              ? { distance_km: km, distance_from_geo: true }
-                              : allow
-                                ? { distance_from_geo: false }
-                                : {}),
-                          })
-                          if (allow) {
-                            void applyTripDistance(load.id, origin.lat, origin.lng, next.lat, next.lng)
-                          }
-                        }}
-                      />
-                    </div>
-                    <div>
                       <label style={LABEL}>Notes</label>
                       <textarea
                         value={load.notes}
@@ -1298,69 +1363,6 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                         rows={2}
                         placeholder="Rego, docket number, containment…"
                         style={{ ...INPUT, resize: 'vertical', minHeight: 64 }}
-                      />
-                    </div>
-                    <div>
-                      <label style={LABEL}>Facility photos</label>
-                      {((load.facility_photos ?? []).length > 0) && (
-                        <div
-                          style={{
-                            display: 'grid',
-                            gridTemplateColumns: '1fr 1fr',
-                            gap: 8,
-                            marginBottom: 8,
-                          }}
-                        >
-                          {(load.facility_photos ?? []).map((p, pIndex) => (
-                            <div key={p.id} style={{ position: 'relative' }}>
-                              <div
-                                style={{
-                                borderRadius: 10,
-                                overflow: 'visible',
-                                border: '1px solid var(--border)',
-                                background: 'var(--surface)',
-                                }}
-                              >
-                                <ZoomablePhoto src={p.url} alt={p.note || `Facility ${pIndex + 1}`} maxHeight={180} />
-                              </div>
-                              <PhotoNoteField
-                                value={p.note ?? ''}
-                                onChange={value => patchFacilityPhotoNote(load.id, p.id, value)}
-                              />
-                              <button
-                                type="button"
-                                onClick={() => removeFacilityPhoto(load.id, p.id)}
-                                style={{
-                                  marginTop: 6,
-                                  background: 'none',
-                                  border: 'none',
-                                  color: '#F87171',
-                                  fontSize: 12,
-                                  fontWeight: 600,
-                                  cursor: 'pointer',
-                                  padding: 0,
-                                }}
-                              >
-                                Remove
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      <DisposalPhotoSlot
-                        jobId={job.id}
-                        areaRef={`Disposal load ${index + 1} — facility extra`}
-                        caption={`Load ${index + 1} facility extra`}
-                        photoUrl={null}
-                        skipped={false}
-                        skipLabel=""
-                        hideSkip
-                        cameraLabel="📷 More"
-                        galleryLabel="🖼 Gallery"
-                        placeContext={galleryPlaceFor(job, load, 'dump')}
-                        onUploaded={(photo, exif) => addFacilityPhoto(load.id, photo, exif)}
-                        onSkip={() => undefined}
-                        onClear={() => undefined}
                       />
                     </div>
                   </div>
