@@ -98,7 +98,7 @@ const HOME_SECTIONS: { id: HomeSection; label: string }[] = [
   { id: 'legal', label: 'Legal' },
   { id: 'safety_compliance', label: 'Safety and Compliance' },
   { id: 'plan', label: 'Plan' },
-  { id: 'execute', label: 'Execute' },
+  { id: 'execute', label: 'Contents Disposal Record' },
   { id: 'verify', label: 'Post Remediation Evaluation' },
   { id: 'review', label: 'Review' },
 ]
@@ -145,8 +145,8 @@ const HOME_SECTION_TO_CAP: Record<HomeSection, keyof TeamCapabilities> = {
  * all phases with a numbered circle; tapping a row selects + auto-closes.
  *
  * Lower-level sub-tabs (Assessment, Legal, Safety, Review) stay on SubTabStrip —
- * they are shallower and benefit from the horizontal layout. Execute is Disposal
- * Manifest only (no inner strip).
+ * they are shallower and benefit from the horizontal layout. Execute is Contents
+ * Disposal Record only (no inner strip).
  */
 function HomeWorkflowDrawer<T extends string>({
   sections,
@@ -1287,7 +1287,7 @@ export default function JobPage() {
          * renders first, then every sub-sub strip (Assessment / Legal /
          * Safety / Review) sits directly beneath its parent phase so the
          * visual hierarchy reads parent → child. Execute has no sub-strip —
-         * it is Disposal Manifest only. Assessment's strip also shows on the
+         * it is Contents Disposal Record only. Assessment's strip also shows on the
          * legacy /?tab=assessment deep link, in which case the Home primary
          * strip is hidden.
          */}

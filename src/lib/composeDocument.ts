@@ -121,7 +121,7 @@ function refPrefix(type: DocType, jobId: string): string {
     authority_to_proceed: 'ATP',
     engagement_agreement: 'EA',
     certificate_of_decontamination: 'COD',
-    waste_disposal_manifest: 'WDM',
+    waste_disposal_manifest: 'CDR',
     jsa: 'JSA',
     nda: 'NDA',
     risk_assessment: 'RA',
@@ -908,7 +908,7 @@ function composeWdm(job: Job): ComposeDocumentResult {
     .join('\n')
 
   const c: WasteDisposalManifestContent = {
-    title: 'Waste Disposal Manifest',
+    title: 'Contents Disposal Record',
     reference: refPrefix('waste_disposal_manifest', job.id),
     collection_date,
     waste_items,
@@ -922,7 +922,7 @@ function composeWdm(job: Job): ComposeDocumentResult {
     },
     transport_details: transport || '—',
     declaration:
-      'I declare that the waste described in this manifest was collected, transported and disposed of in accordance with the Environmental Protection Act 1994 (Qld) and relevant waste management legislation.',
+      'This record is proof of contents removed from the site: what was taken, where it went, and the disposal costs incurred.',
     completed_by: '',
   }
   return { content: { ...c }, source: loads.length > 0 ? 'assessment_capture' : 'skeleton' }

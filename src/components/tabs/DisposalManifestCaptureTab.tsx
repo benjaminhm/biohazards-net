@@ -1,5 +1,5 @@
 /*
- * Execute-phase Disposal Manifest: one card per dump trip.
+ * Execute-phase Contents Disposal Record: one card per dump trip.
  * Vehicles (trailer / ute / skip) with size + L×W×H, then a shared weighbridge docket.
  */
 'use client'
@@ -607,8 +607,8 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
   return (
     <div style={{ maxWidth: 720, paddingBottom: 48 }}>
       <p style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.55, marginBottom: 16 }}>
-        One card per dump trip. Classify each vehicle (trailer, ute, skip), add size and
-        measurements, then the shared weighbridge docket. Volumes and fees roll up below.
+        One card per dump trip. Record what left the site, where it went, and the
+        dump cost. Photos and the weighbridge docket are the proof for the client.
       </p>
 
       {capture.loads.map((load, index) => {

@@ -1,7 +1,7 @@
 /*
  * Routes document generation to HITL-confirmed Assessment chips:
  * - Presenting risks (Risks tab) → JSA, SWMS, Risk Assessment
- * - Presenting health hazards (Assessment → Health Hazards tab) → SOW, quote, report, ATP, engagement, COD, WDM
+ * - Presenting health hazards (Assessment → Health Hazards tab) → SOW, quote, report, ATP, engagement, COD, CDR
  *
  * Add new DocTypes by extending REQUIRES_* sets and documentDriverInstructions.
  *
@@ -288,7 +288,7 @@ QUOTE GROUNDING: Use EQUIPMENT — IN USE and CHEMICALS — IN USE to inform mat
     if (type === 'report' || type === 'certificate_of_decontamination' || type === 'waste_disposal_manifest') {
       block += `
 
-COMPLETION GROUNDING: Where a CONTENTS item or STRUCTURE element was "discard" / "demolish" / "replace", reflect that disposition in the report/certificate/manifest narrative. The CHEMICALS — IN USE list is the source of truth for what was applied; do not fabricate products.`
+COMPLETION GROUNDING: Where a CONTENTS item or STRUCTURE element was "discard" / "demolish" / "replace", reflect that disposition in the report/certificate/disposal-record narrative. The CHEMICALS — IN USE list is the source of truth for what was applied; do not fabricate products.`
     }
     return block
   }

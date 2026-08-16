@@ -66,7 +66,7 @@ export const DOC_TYPE_LABELS: Record<DocType, string> = {
   engagement_agreement:       'Engagement Agreement',
   report:                     'Post Remediation Evaluation',
   certificate_of_decontamination: 'Certificate of Decontamination',
-  waste_disposal_manifest:    'Waste Disposal Manifest',
+  waste_disposal_manifest:    'Contents Disposal Record',
   jsa:                        'Job Safety Analysis',
   nda:                        'Non-Disclosure Agreement',
   risk_assessment:            'Risk Assessment',
@@ -142,7 +142,7 @@ export const DOC_TYPE_GROUPS: DocTypeGroup[] = [
   },
   {
     id: 'execute',
-    label: '8. Execute',
+    label: '8. Contents Disposal Record',
     types: ['waste_disposal_manifest'],
   },
   {
@@ -1049,7 +1049,7 @@ export interface AssessmentData {
    * Aggregated into the completion report when staff completion_report_capture fields are left blank.
    */
   per_execute_capture?: PerExecuteCapture
-  /** Execute → Disposal Manifest: one record per dump load (photos + weighbridge). */
+  /** Execute → Contents Disposal Record: one record per dump load (photos + weighbridge). */
   disposal_manifest_capture?: DisposalManifestCapture
   /**
    * @deprecated Legacy single quote. Retained for backward-compatible reads and

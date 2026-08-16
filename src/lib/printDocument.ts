@@ -2269,7 +2269,7 @@ function buildCODHTML(c: CertificateOfDecontaminationContent, company: CompanyPr
   return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
-// ── 8. Waste Disposal Manifest ────────────────────────────────────────────────
+// ── 8. Contents Disposal Record ───────────────────────────────────────────────
 
 function buildWDMMid(c: WasteDisposalManifestContent): string {
   const loadCards = wdmLoadCards(c)
@@ -2278,7 +2278,7 @@ function buildWDMMid(c: WasteDisposalManifestContent): string {
     ${loadCards || `<div class="label">Waste Items</div>${wasteTable(c.waste_items)}`}
     ${section('Transport Details', c.transport_details)}
     ${wdmTotalsBox(c)}
-    <div class="sow-muted-box" style="margin-top:22px"><strong>Declaration:</strong> ${esc(c.declaration)}</div>
+    <div class="sow-muted-box" style="margin-top:22px"><strong>About this record:</strong> ${esc(c.declaration)}</div>
   `
 }
 

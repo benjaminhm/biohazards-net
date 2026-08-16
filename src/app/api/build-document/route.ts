@@ -106,7 +106,7 @@ function ref(type: DocType, job: Job): string {
     iaq_multi: 'IAQ',
     quote: 'QTE', sow: 'SOW', assessment_document: 'ASD', swms: 'SWMS', authority_to_proceed: 'ATP',
     engagement_agreement: 'ENG', report: 'RPT', certificate_of_decontamination: 'COD',
-    waste_disposal_manifest: 'WDM', jsa: 'JSA', nda: 'NDA', risk_assessment: 'RA',
+    waste_disposal_manifest: 'CDR', jsa: 'JSA', nda: 'NDA', risk_assessment: 'RA',
     company_letter: 'LTR',
   }
   const d = new Date()
@@ -331,17 +331,17 @@ Include 6–10 realistic steps covering: site assessment, PPE donning, containme
 
     waste_disposal_manifest: `Return ONLY valid JSON:
 {
-  "title": "Waste Disposal Manifest",
+  "title": "Contents Disposal Record",
   "reference": "${r}",
   "collection_date": "${d}",
   "waste_items": [
-    {"description":"waste type","quantity":"0","unit":"kg/L/bags","disposal_method":"method","facility":"facility name"}
+    {"description":"contents type","quantity":"0","unit":"kg/L/bags","disposal_method":"method","facility":"facility name"}
   ],
-  "transport_details": "vehicle registration, transport company, driver name, route, containment method",
-  "declaration": "I declare that the waste described in this manifest was collected, transported and disposed of in accordance with the Environmental Protection Act 1994 (Qld) and relevant waste management legislation.",
+  "transport_details": "from pickup address to facility, distance if known",
+  "declaration": "This record is proof of contents removed from the site: what was taken, where it went, and the disposal costs incurred.",
   "completed_by": ""
 }
-Include realistic waste items based on the job type and assessment data.`,
+Include realistic items based on the job type and assessment data. This is a customer record of what was removed, not a government waste manifest.`,
 
     jsa: `Return ONLY valid JSON:
 {

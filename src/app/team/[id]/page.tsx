@@ -141,7 +141,7 @@ const CAP_GROUPS: { label: string; items: { key: keyof TeamCapabilities; label: 
       { key: 'view_home_legal',             label: 'Legal' },
       { key: 'view_home_safety_compliance', label: 'Safety and Compliance' },
       { key: 'view_home_plan',              label: 'Plan' },
-      { key: 'view_home_execute',           label: 'Execute' },
+      { key: 'view_home_execute',           label: 'Contents Disposal Record' },
       { key: 'view_home_verify',            label: 'Verify' },
       { key: 'view_home_review',            label: 'Review' },
     ],
