@@ -337,7 +337,7 @@ export function haversineKm(lat1: number, lng1: number, lat2: number, lng2: numb
   return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x))
 }
 
-/** Site → dump when both coordinates exist. Returns km rounded to 1 decimal, or null. */
+/** Pickup → dump when both coordinates exist. Returns km rounded to 1 decimal, or null. */
 export function distanceFromSiteKm(
   siteLat: number | null | undefined,
   siteLng: number | null | undefined,
@@ -354,6 +354,17 @@ export function distanceFromSiteKm(
   const km = haversineKm(siteLat, siteLng, dumpLat, dumpLng)
   if (!Number.isFinite(km)) return null
   return Math.round(km * 10) / 10
+}
+
+/** Load location if set, otherwise the job site pin. */
+export function loadOriginLatLng(
+  load: { location_lat?: number | null; location_lng?: number | null },
+  job: { site_lat?: number | null; site_lng?: number | null },
+): { lat: number | null; lng: number | null } {
+  return {
+    lat: load.location_lat ?? job.site_lat ?? null,
+    lng: load.location_lng ?? job.site_lng ?? null,
+  }
 }
 
 export function computeDisposalTotals(loads: DisposalLoad[]): DisposalManifestTotals {

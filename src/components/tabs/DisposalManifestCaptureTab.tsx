@@ -27,6 +27,7 @@ import {
   formatAud,
   formatKg,
   formatM3,
+  loadOriginLatLng,
   looksLikeCoordLabel,
   mergedDisposalManifestCapture,
   moveArrayItem,
@@ -98,9 +99,9 @@ const CHIP: CSSProperties = {
   verticalAlign: 'middle',
 }
 
-function MetaChip({ show, fromDevice }: { show: boolean; fromDevice?: boolean }) {
+function MetaChip({ show, fromDevice, label }: { show: boolean; fromDevice?: boolean; label?: string }) {
   if (!show) return null
-  return <span style={CHIP}>{fromDevice ? 'From phone' : 'From photo'}</span>
+  return <span style={CHIP}>{label ?? (fromDevice ? 'From phone' : 'From photo')}</span>
 }
 
 function galleryPlaceFor(
@@ -181,6 +182,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
   const [openId, setOpenId] = useState<string | null>(persisted.loads[0]?.id ?? null)
   const [unlockedLoadId, setUnlockedLoadId] = useState<string | null>(null)
   const geocodedLoadIds = useRef(new Set<string>())
+  const distanceTried = useRef(new Set<string>())
 
   const isDirty = !disposalManifestEqual(capture, persisted)
   useRegisterUnsavedChanges('disposal-manifest-capture', isDirty)
@@ -199,11 +201,64 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
     }
   }, [capture.loads])
 
+  useEffect(() => {
+    for (const load of capture.loads) {
+      if (load.distance_km != null) continue
+      const origin = loadOriginLatLng(load, job)
+      if (origin.lat == null || origin.lng == null || load.dump_lat == null || load.dump_lng == null) continue
+      const key = `${load.id}:${origin.lat},${origin.lng}:${load.dump_lat},${load.dump_lng}`
+      if (distanceTried.current.has(key)) continue
+      distanceTried.current.add(key)
+      void applyTripDistance(load.id, origin.lat, origin.lng, load.dump_lat, load.dump_lng)
+    }
+  }, [capture.loads, job.site_lat, job.site_lng])
+
   const totals = useMemo(() => computeDisposalTotals(capture.loads), [capture.loads])
 
   function touch() {
     setSavedFlash(false)
     setSaveError('')
+  }
+
+  function canAutofillDistance(load: DisposalLoad): boolean {
+    return load.distance_km == null || load.distance_from_geo
+  }
+
+  async function applyTripDistance(
+    loadId: string,
+    originLat: number | null | undefined,
+    originLng: number | null | undefined,
+    destLat: number | null | undefined,
+    destLng: number | null | undefined,
+  ) {
+    const straight = distanceFromSiteKm(originLat, originLng, destLat, destLng)
+    if (straight == null || originLat == null || originLng == null || destLat == null || destLng == null) return
+
+    let km = straight
+    try {
+      const res = await fetch('/api/geocode/distance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ originLat, originLng, destLat, destLng }),
+      })
+      const data = (await res.json()) as { km?: number | null }
+      if (typeof data.km === 'number' && Number.isFinite(data.km) && data.km >= 0) km = data.km
+    } catch {
+      /* keep straight-line km */
+    }
+
+    setCapture(prev => ({
+      loads: prev.loads.map(l => {
+        if (l.id !== loadId) return l
+        if (!canAutofillDistance(l)) return l
+        const origin = loadOriginLatLng(l, job)
+        if (origin.lat !== originLat || origin.lng !== originLng) return l
+        if (l.dump_lat !== destLat || l.dump_lng !== destLng) return l
+        if (l.distance_km === km && l.distance_from_geo) return l
+        return withMirrors({ ...l, distance_km: km, distance_from_geo: true })
+      }),
+    }))
+    touch()
   }
 
   async function fillDumpAddressFromGps(
@@ -222,7 +277,10 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
       const data = (await res.json()) as { address?: string | null }
       const address = data.address?.trim()
       if (!address) return
-      const km = distanceFromSiteKm(job.site_lat, job.site_lng, lat, lng)
+      const existing = capture.loads.find(l => l.id === loadId)
+      const origin = loadOriginLatLng(existing ?? {}, job)
+      const km = distanceFromSiteKm(origin.lat, origin.lng, lat, lng)
+      const allow = !existing || canAutofillDistance(existing)
       setCapture(prev => ({
         loads: prev.loads.map(l => {
           if (l.id !== loadId) return l
@@ -236,11 +294,12 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
             dump_lng: lng,
             dump_location_from_photo: true,
             dump_location_from_device: fromDevice,
-            ...(km != null && l.distance_km == null ? { distance_km: km, distance_from_geo: true } : {}),
+            ...(allow && km != null ? { distance_km: km, distance_from_geo: true } : {}),
           })
         }),
       }))
       touch()
+      if (allow) void applyTripDistance(loadId, origin.lat, origin.lng, lat, lng)
     } catch {
       /* keep coordinates if geocode is unavailable */
     }
@@ -296,6 +355,13 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
     }))
     touch()
     onPhotosUpdate([photo, ...photos])
+    const geoOk = exif.geoSource === 'exif' || exif.geoSource === 'device' || exif.geoSource === 'site'
+    if (geoOk && exif.lat != null && exif.lng != null) {
+      const current = capture.loads.find(l => l.id === loadId)
+      if (current && canAutofillDistance(current)) {
+        void applyTripDistance(loadId, exif.lat, exif.lng, current.dump_lat, current.dump_lng)
+      }
+    }
   }
 
   function applyDocketExif(id: string, photo: Photo, exif: PhotoExif) {
@@ -327,7 +393,8 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
             next.dump_location_from_device = Boolean(exif.geoFromDevice)
           }
           if (load.distance_km == null) {
-            const km = distanceFromSiteKm(job.site_lat, job.site_lng, exif.lat, exif.lng)
+            const origin = loadOriginLatLng(load, job)
+            const km = distanceFromSiteKm(origin.lat, origin.lng, exif.lat, exif.lng)
             if (km != null) {
               next.distance_km = km
               next.distance_from_geo = true
@@ -342,6 +409,11 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
     const geoOk = exif.geoSource === 'exif' || exif.geoSource === 'device' || exif.geoSource === 'dump'
     if (geoOk && exif.lat != null && exif.lng != null) {
       void fillDumpAddressFromGps(id, exif.lat, exif.lng, Boolean(exif.geoFromDevice))
+      const current = capture.loads.find(l => l.id === id)
+      if (current && canAutofillDistance(current)) {
+        const origin = loadOriginLatLng(current, job)
+        void applyTripDistance(id, origin.lat, origin.lng, exif.lat, exif.lng)
+      }
     }
   }
 
@@ -704,14 +776,22 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                       lng={load.location_lng}
                       placeholder="Pickup / load location"
                       style={INPUT}
-                      onChange={next =>
+                      onChange={next => {
+                        const originLat = next.lat ?? job.site_lat
+                        const originLng = next.lng ?? job.site_lng
+                        const allow = canAutofillDistance(load)
+                        const km = distanceFromSiteKm(originLat, originLng, load.dump_lat, load.dump_lng)
                         patchLoad(load.id, {
                           location: next.address,
                           location_lat: next.lat,
                           location_lng: next.lng,
                           location_from_photo: false,
+                          ...(allow && km != null ? { distance_km: km, distance_from_geo: true } : {}),
                         })
-                      }
+                        if (allow) {
+                          void applyTripDistance(load.id, originLat, originLng, load.dump_lat, load.dump_lng)
+                        }
+                      }}
                     />
                   </div>
                 </div>
@@ -1158,8 +1238,8 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                     </div>
                     <div>
                       <label style={LABEL}>
-                        Distance site → facility (km)
-                        <MetaChip show={load.distance_from_geo} />
+                        Distance pickup → facility (km)
+                        <MetaChip show={load.distance_from_geo} label="From map" />
                       </label>
                       <input
                         type="number"
@@ -1188,7 +1268,9 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                         placeholder="Tip / facility name or address"
                         style={INPUT}
                         onChange={next => {
-                          const km = distanceFromSiteKm(job.site_lat, job.site_lng, next.lat, next.lng)
+                          const origin = loadOriginLatLng(load, job)
+                          const km = distanceFromSiteKm(origin.lat, origin.lng, next.lat, next.lng)
+                          const allow = canAutofillDistance(load)
                           patchLoad(load.id, {
                             facility: next.address,
                             dump_location: next.address,
@@ -1196,10 +1278,15 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                             dump_lng: next.lng,
                             dump_location_from_photo: false,
                             dump_location_from_device: false,
-                            ...(km != null
+                            ...(allow && km != null
                               ? { distance_km: km, distance_from_geo: true }
-                              : { distance_from_geo: false }),
+                              : allow
+                                ? { distance_from_geo: false }
+                                : {}),
                           })
+                          if (allow) {
+                            void applyTripDistance(load.id, origin.lat, origin.lng, next.lat, next.lng)
+                          }
                         }}
                       />
                     </div>
