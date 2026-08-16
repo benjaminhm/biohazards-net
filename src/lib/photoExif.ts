@@ -5,7 +5,7 @@
  */
 
 export type PhotoGeoSource = 'exif' | 'device' | 'site' | 'dump' | 'skipped'
-export type GalleryPlace = 'site' | 'dump' | 'here' | 'skip'
+export type GalleryPlace = 'site' | 'dump' | 'skip'
 export type GalleryWhen = 'now' | 'skip'
 
 export interface PhotoExif {
@@ -16,6 +16,8 @@ export interface PhotoExif {
   timeFromDevice?: boolean
   geoFromDevice?: boolean
   geoSource?: PhotoGeoSource
+  /** Human line for the photo note: which job address this belongs to. */
+  placeNote?: string
 }
 
 export interface GalleryPlaceContext {
@@ -237,7 +239,8 @@ export async function enrichExifWithDevice(exif: PhotoExif): Promise<PhotoExif> 
   return next
 }
 
-/** Apply a camera-roll place/time choice. Never overwrites GPS or time already in the file. */
+/** Apply a pickup / drop-off choice. Uploaded files are not taken at those
+ *  addresses, so file GPS is replaced by the chosen pin (or cleared on skip). */
 export function applyGalleryChoice(
   exif: PhotoExif,
   choice: { place: GalleryPlace; when: GalleryWhen },
@@ -246,29 +249,39 @@ export function applyGalleryChoice(
     siteLng: number | null
     dumpLat: number | null
     dumpLng: number | null
-    here: { lat: number; lng: number } | null
+    siteLabel?: string
+    dumpLabel?: string
   },
 ): PhotoExif {
-  const next: PhotoExif = { ...exif }
-  if (next.lat != null && next.lng != null) {
-    next.geoSource = next.geoSource ?? 'exif'
-  } else if (choice.place === 'site' && places.siteLat != null && places.siteLng != null) {
-    next.lat = places.siteLat
-    next.lng = places.siteLng
-    next.geoSource = 'site'
-    next.geoFromDevice = false
-  } else if (choice.place === 'dump' && places.dumpLat != null && places.dumpLng != null) {
-    next.lat = places.dumpLat
-    next.lng = places.dumpLng
-    next.geoSource = 'dump'
-    next.geoFromDevice = false
-  } else if (choice.place === 'here' && places.here) {
-    next.lat = places.here.lat
-    next.lng = places.here.lng
-    next.geoSource = 'device'
-    next.geoFromDevice = true
+  const next: PhotoExif = { ...exif, geoFromDevice: false }
+
+  if (choice.place === 'site') {
+    next.placeNote = places.siteLabel ? `Pickup — ${places.siteLabel}` : 'Pickup'
+    if (places.siteLat != null && places.siteLng != null) {
+      next.lat = places.siteLat
+      next.lng = places.siteLng
+      next.geoSource = 'site'
+    } else {
+      next.lat = null
+      next.lng = null
+      next.geoSource = 'skipped'
+    }
+  } else if (choice.place === 'dump') {
+    next.placeNote = places.dumpLabel ? `Drop-off — ${places.dumpLabel}` : 'Drop-off'
+    if (places.dumpLat != null && places.dumpLng != null) {
+      next.lat = places.dumpLat
+      next.lng = places.dumpLng
+      next.geoSource = 'dump'
+    } else {
+      next.lat = null
+      next.lng = null
+      next.geoSource = 'skipped'
+    }
   } else {
+    next.lat = null
+    next.lng = null
     next.geoSource = 'skipped'
+    next.placeNote = undefined
   }
 
   if ((!next.date || !next.takenAt) && choice.when === 'now') {
@@ -278,6 +291,17 @@ export function applyGalleryChoice(
     next.timeFromDevice = true
   }
   return next
+}
+
+export function stampTimeIfMissing(exif: PhotoExif): PhotoExif {
+  if (photoHasTime(exif)) return exif
+  const stamp = localStampNow()
+  return {
+    ...exif,
+    date: exif.date || stamp.date,
+    takenAt: exif.takenAt || stamp.takenAt,
+    timeFromDevice: true,
+  }
 }
 
 export function photoHasGps(exif: PhotoExif): boolean {

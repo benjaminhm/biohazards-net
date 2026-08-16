@@ -8,12 +8,10 @@ import { useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type CS
 import type { Photo } from '@/lib/types'
 import {
   applyGalleryChoice,
-  enrichExifWithDevice,
   formatCoordLabel,
-  photoHasGps,
   photoHasTime,
-  readDeviceLocation,
   readPhotoExif,
+  stampTimeIfMissing,
   type GalleryPlace,
   type GalleryPlaceContext,
   type GalleryWhen,
@@ -294,7 +292,7 @@ export function PhotoNoteField({
     <input
       value={value}
       onChange={e => onChange(e.target.value)}
-      placeholder="Note…"
+      placeholder="Which address was this taken at?"
       style={NOTE_INPUT}
     />
   )
@@ -387,7 +385,6 @@ export default function DisposalPhotoSlot({
   const [place, setPlace] = useState<GalleryPlace>('site')
   const [when, setWhen] = useState<GalleryWhen>('skip')
   const [promptError, setPromptError] = useState('')
-  const [needGeo, setNeedGeo] = useState(false)
   const [needTime, setNeedTime] = useState(false)
 
   function resetPickers() {
@@ -408,7 +405,7 @@ export default function DisposalPhotoSlot({
     if (exif.lat != null) fd.append('location_lat', String(exif.lat))
     if (exif.lng != null) fd.append('location_lng', String(exif.lng))
     if (exif.lat != null && exif.lng != null) {
-      fd.append('location_label', formatCoordLabel(exif.lat, exif.lng))
+      fd.append('location_label', exif.placeNote || formatCoordLabel(exif.lat, exif.lng))
     }
     const saveRes = await fetch('/api/photos/upload', { method: 'POST', body: fd })
     const saveJson = (await saveRes.json()) as { photo?: Photo; error?: string }
@@ -438,13 +435,21 @@ export default function DisposalPhotoSlot({
   }
 
   async function handleCameraFile(file: File) {
-    setUploading(true)
     setError('')
+    const exif = stampTimeIfMissing(await readPhotoExif(file))
+    if (placeContext) {
+      setPending([{ file, exif }])
+      setNeedTime(false)
+      setPlace(placeContext.defaultPlace)
+      setWhen('skip')
+      setPromptError('')
+      return
+    }
+    setUploading(true)
     setUploadTotal(1)
     setUploadIndex(1)
     try {
-      const exif = await enrichExifWithDevice(await readPhotoExif(file))
-      await uploadOne(file, exif, false)
+      await uploadOne(file, { ...exif, geoSource: 'skipped', lat: null, lng: null }, false)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Upload failed')
     } finally {
@@ -462,11 +467,9 @@ export default function DisposalPhotoSlot({
     for (const file of files) {
       items.push({ file, exif: await readPhotoExif(file) })
     }
-    const geoMissing = items.some(item => !photoHasGps(item.exif))
     const timeMissing = items.some(item => !photoHasTime(item.exif))
-    if (placeContext && (geoMissing || timeMissing)) {
+    if (placeContext) {
       setPending(items)
-      setNeedGeo(geoMissing)
       setNeedTime(timeMissing)
       setPlace(placeContext.defaultPlace)
       setWhen('skip')
@@ -475,29 +478,22 @@ export default function DisposalPhotoSlot({
     }
     await uploadBatch(items.map(item => ({
       ...item,
-      exif: { ...item.exif, geoSource: photoHasGps(item.exif) ? 'exif' : 'skipped' },
+      exif: { ...item.exif, lat: null, lng: null, geoSource: 'skipped' as const },
     })))
   }
 
   async function confirmGallery() {
     if (!pending || !placeContext) return
     setPromptError('')
-    let here: { lat: number; lng: number } | null = null
-    if (needGeo && place === 'here') {
-      here = await readDeviceLocation()
-      if (!here) {
-        setPromptError('Could not read this phone’s location. Pick job site, dump, or skip.')
-        return
-      }
-    }
     const items = pending.map(item => ({
       file: item.file,
-      exif: applyGalleryChoice(item.exif, { place: needGeo ? place : 'skip', when: needTime ? when : 'skip' }, {
+      exif: applyGalleryChoice(item.exif, { place, when: needTime ? when : 'skip' }, {
         siteLat: placeContext.siteLat,
         siteLng: placeContext.siteLng,
         dumpLat: placeContext.dumpLat,
         dumpLng: placeContext.dumpLng,
-        here,
+        siteLabel: placeContext.siteLabel,
+        dumpLabel: placeContext.dumpLabel,
       }),
     }))
     await uploadBatch(items)
@@ -603,7 +599,7 @@ export default function DisposalPhotoSlot({
         </button>
       </div>
       <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: hideSkip ? 0 : 8 }}>
-        Gallery: you can select several photos.
+        You’ll be asked which address each photo belongs to.
       </div>
       {!hideSkip && (
       <button
@@ -630,7 +626,6 @@ export default function DisposalPhotoSlot({
           ctx={placeContext}
           place={place}
           when={when}
-          needGeo={needGeo}
           needTime={needTime}
           error={promptError}
           busy={uploading}
@@ -661,7 +656,6 @@ function GalleryPlaceSheet({
   ctx,
   place,
   when,
-  needGeo,
   needTime,
   error,
   busy,
@@ -674,7 +668,6 @@ function GalleryPlaceSheet({
   ctx: GalleryPlaceContext
   place: GalleryPlace
   when: GalleryWhen
-  needGeo: boolean
   needTime: boolean
   error: string
   busy: boolean
@@ -712,30 +705,24 @@ function GalleryPlaceSheet({
         }}
       >
         <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 8 }}>
-          {count === 1 ? 'Where was this photo taken?' : `Where were these ${count} photos taken?`}
+          {count === 1 ? 'Which address was this taken at?' : `Which address were these ${count} photos taken at?`}
         </div>
         <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16, lineHeight: 1.5 }}>
-          Camera-roll files often have no location. Don’t use where you are now unless you’re still there.
+          Photos aren’t taken at the job addresses — pick whether this belongs to pickup or drop-off.
         </div>
-        {needGeo && (
-          <div style={{ display: 'grid', gap: 8, marginBottom: 16 }}>
-            <button type="button" style={optStyle(place === 'site')} onClick={() => onPlace('site')}>
-              Job site
-              <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-muted)', marginTop: 2 }}>{ctx.siteLabel}</div>
-            </button>
-            <button type="button" style={optStyle(place === 'dump')} onClick={() => onPlace('dump')}>
-              Dump / facility
-              <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-muted)', marginTop: 2 }}>{ctx.dumpLabel}</div>
-            </button>
-            <button type="button" style={optStyle(place === 'here')} onClick={() => onPlace('here')}>
-              I’m there now
-              <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-muted)', marginTop: 2 }}>Use this phone’s current GPS</div>
-            </button>
-            <button type="button" style={optStyle(place === 'skip')} onClick={() => onPlace('skip')}>
-              Skip — I’ll type it
-            </button>
-          </div>
-        )}
+        <div style={{ display: 'grid', gap: 8, marginBottom: 16 }}>
+          <button type="button" style={optStyle(place === 'site')} onClick={() => onPlace('site')}>
+            Pickup
+            <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-muted)', marginTop: 2 }}>{ctx.siteLabel}</div>
+          </button>
+          <button type="button" style={optStyle(place === 'dump')} onClick={() => onPlace('dump')}>
+            Drop-off
+            <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-muted)', marginTop: 2 }}>{ctx.dumpLabel}</div>
+          </button>
+          <button type="button" style={optStyle(place === 'skip')} onClick={() => onPlace('skip')}>
+            Skip — I’ll type it
+          </button>
+        </div>
         {needTime && (
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 8 }}>
@@ -743,7 +730,7 @@ function GalleryPlaceSheet({
             </div>
             <div style={{ display: 'grid', gap: 8 }}>
               <button type="button" style={optStyle(when === 'now')} onClick={() => onWhen('now')}>
-                Use now — I’m uploading at the place
+                Use the time I’m uploading
               </button>
               <button type="button" style={optStyle(when === 'skip')} onClick={() => onWhen('skip')}>
                 I’ll type the date / time
