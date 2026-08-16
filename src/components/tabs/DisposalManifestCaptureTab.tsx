@@ -4,12 +4,13 @@
  */
 'use client'
 
-import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
 import type { DisposalLoad, DisposalVehicle, Job, Photo } from '@/lib/types'
 import { mergeAssessmentData } from '@/lib/riskDerivation'
 import { useRegisterUnsavedChanges } from '@/lib/unsavedChangesContext'
 import DisposalPhotoSlot, { PhotoNoteField, ZoomablePhoto } from '@/components/DisposalPhotoSlot'
+import AddressAutocomplete from '@/components/AddressAutocomplete'
 import { formatCoordLabel, timeFromTakenAt, type GalleryPlaceContext, type PhotoExif } from '@/lib/photoExif'
 import {
   DISPOSAL_CONTENTS_TYPES,
@@ -26,6 +27,7 @@ import {
   formatAud,
   formatKg,
   formatM3,
+  looksLikeCoordLabel,
   mergedDisposalManifestCapture,
   moveArrayItem,
   vehicleContentsLabel,
@@ -178,6 +180,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
   const [saveError, setSaveError] = useState('')
   const [openId, setOpenId] = useState<string | null>(persisted.loads[0]?.id ?? null)
   const [unlockedLoadId, setUnlockedLoadId] = useState<string | null>(null)
+  const geocodedLoadIds = useRef(new Set<string>())
 
   const isDirty = !disposalManifestEqual(capture, persisted)
   useRegisterUnsavedChanges('disposal-manifest-capture', isDirty)
@@ -186,11 +189,61 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
     setCapture(applyJobSiteToCapture(mergedDisposalManifestCapture(job.assessment_data), job))
   }, [job.id, job.updated_at, job.site_address, job.site_lat, job.site_lng])
 
+  useEffect(() => {
+    for (const load of capture.loads) {
+      if (geocodedLoadIds.current.has(load.id)) continue
+      if (load.dump_lat == null || load.dump_lng == null) continue
+      const label = (load.facility || load.dump_location).trim()
+      if (label && !looksLikeCoordLabel(label)) continue
+      void fillDumpAddressFromGps(load.id, load.dump_lat, load.dump_lng, load.dump_location_from_device)
+    }
+  }, [capture.loads])
+
   const totals = useMemo(() => computeDisposalTotals(capture.loads), [capture.loads])
 
   function touch() {
     setSavedFlash(false)
     setSaveError('')
+  }
+
+  async function fillDumpAddressFromGps(
+    loadId: string,
+    lat: number,
+    lng: number,
+    fromDevice: boolean,
+  ) {
+    geocodedLoadIds.current.add(loadId)
+    try {
+      const res = await fetch('/api/geocode/reverse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lat, lng }),
+      })
+      const data = (await res.json()) as { address?: string | null }
+      const address = data.address?.trim()
+      if (!address) return
+      const km = distanceFromSiteKm(job.site_lat, job.site_lng, lat, lng)
+      setCapture(prev => ({
+        loads: prev.loads.map(l => {
+          if (l.id !== loadId) return l
+          const current = (l.facility || l.dump_location).trim()
+          if (current && !looksLikeCoordLabel(current)) return l
+          return withMirrors({
+            ...l,
+            facility: address,
+            dump_location: address,
+            dump_lat: lat,
+            dump_lng: lng,
+            dump_location_from_photo: true,
+            dump_location_from_device: fromDevice,
+            ...(km != null && l.distance_km == null ? { distance_km: km, distance_from_geo: true } : {}),
+          })
+        }),
+      }))
+      touch()
+    } catch {
+      /* keep coordinates if geocode is unavailable */
+    }
   }
 
   function patchLoad(id: string, patch: Partial<DisposalLoad>) {
@@ -286,6 +339,10 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
     }))
     touch()
     onPhotosUpdate([photo, ...photos])
+    const geoOk = exif.geoSource === 'exif' || exif.geoSource === 'device' || exif.geoSource === 'dump'
+    if (geoOk && exif.lat != null && exif.lng != null) {
+      void fillDumpAddressFromGps(id, exif.lat, exif.lng, Boolean(exif.geoFromDevice))
+    }
   }
 
   async function save(nextCapture = capture): Promise<boolean> {
@@ -1115,18 +1172,26 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                         Facility / dump location
                         <MetaChip show={load.dump_location_from_photo} fromDevice={load.dump_location_from_device} />
                       </label>
-                      <input
+                      <AddressAutocomplete
                         value={load.facility || load.dump_location}
-                        onChange={e =>
+                        lat={load.dump_lat}
+                        lng={load.dump_lng}
+                        placeholder="Tip / facility name or address"
+                        style={INPUT}
+                        onChange={next => {
+                          const km = distanceFromSiteKm(job.site_lat, job.site_lng, next.lat, next.lng)
                           patchLoad(load.id, {
-                            facility: e.target.value,
-                            dump_location: e.target.value,
+                            facility: next.address,
+                            dump_location: next.address,
+                            dump_lat: next.lat,
+                            dump_lng: next.lng,
                             dump_location_from_photo: false,
                             dump_location_from_device: false,
+                            ...(km != null
+                              ? { distance_km: km, distance_from_geo: true }
+                              : { distance_from_geo: false }),
                           })
-                        }
-                        placeholder="Tip / facility name"
-                        style={INPUT}
+                        }}
                       />
                     </div>
                     <div>

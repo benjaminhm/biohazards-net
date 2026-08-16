@@ -101,7 +101,7 @@ export function mergedDisposalManifestCapture(ad: AssessmentData | null | undefi
 }
 
 /** Matches formatCoordLabel() — GPS text, not a street address. */
-function looksLikeCoordLabel(s: string): boolean {
+export function looksLikeCoordLabel(s: string): boolean {
   return /^\d+\.\d+° [NS], \d+\.\d+° [EW]$/.test(s.trim())
 }
 
