@@ -6,7 +6,7 @@
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
-import type { DisposalLoad, DisposalVehicle, Job, Photo } from '@/lib/types'
+import type { DisposalLoad, DisposalPhotoRef, DisposalVehicle, Job, Photo } from '@/lib/types'
 import { mergeAssessmentData } from '@/lib/riskDerivation'
 import { useRegisterUnsavedChanges } from '@/lib/unsavedChangesContext'
 import DisposalPhotoSlot, { PhotoNoteField, ZoomablePhoto } from '@/components/DisposalPhotoSlot'
@@ -120,6 +120,108 @@ function galleryPlaceFor(
     dumpLng: load.dump_lng,
     defaultPlace,
   }
+}
+
+const MOVE_BTN: CSSProperties = {
+  width: 32,
+  height: 32,
+  borderRadius: 8,
+  border: '1px solid var(--border)',
+  background: 'var(--surface-2)',
+  color: 'var(--text)',
+  fontSize: 14,
+  fontWeight: 800,
+  flexShrink: 0,
+  padding: 0,
+}
+
+function PhotoReorderGrid({
+  photos,
+  altPrefix,
+  onMove,
+  onNote,
+  onRemove,
+}: {
+  photos: DisposalPhotoRef[]
+  altPrefix: string
+  onMove: (index: number, direction: -1 | 1) => void
+  onNote: (id: string, note: string) => void
+  onRemove: (id: string) => void
+}) {
+  if (photos.length === 0) return null
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: '1fr 1fr',
+        gap: 8,
+        marginBottom: 8,
+      }}
+    >
+      {photos.map((p, pIndex) => (
+        <div key={p.id} style={{ position: 'relative' }}>
+          <div
+            style={{
+              borderRadius: 10,
+              overflow: 'visible',
+              border: '1px solid var(--border)',
+              background: 'var(--surface)',
+            }}
+          >
+            <ZoomablePhoto src={p.url} alt={p.note || `${altPrefix} ${pIndex + 1}`} maxHeight={180} />
+          </div>
+          <PhotoNoteField value={p.note ?? ''} onChange={value => onNote(p.id, value)} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
+            {photos.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  aria-label={`Move ${altPrefix} photo earlier`}
+                  disabled={pIndex === 0}
+                  onClick={() => onMove(pIndex, -1)}
+                  style={{
+                    ...MOVE_BTN,
+                    cursor: pIndex === 0 ? 'not-allowed' : 'pointer',
+                    opacity: pIndex === 0 ? 0.35 : 1,
+                  }}
+                >
+                  ↑
+                </button>
+                <button
+                  type="button"
+                  aria-label={`Move ${altPrefix} photo later`}
+                  disabled={pIndex === photos.length - 1}
+                  onClick={() => onMove(pIndex, 1)}
+                  style={{
+                    ...MOVE_BTN,
+                    cursor: pIndex === photos.length - 1 ? 'not-allowed' : 'pointer',
+                    opacity: pIndex === photos.length - 1 ? 0.35 : 1,
+                  }}
+                >
+                  ↓
+                </button>
+              </>
+            )}
+            <button
+              type="button"
+              onClick={() => onRemove(p.id)}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#F87171',
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: 'pointer',
+                padding: 0,
+              }}
+            >
+              Remove
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
 }
 
 function LockGlyph({ open }: { open: boolean }) {
@@ -557,6 +659,36 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
     touch()
   }
 
+  function moveExtraPhoto(loadId: string, vehicleId: string, index: number, direction: -1 | 1) {
+    setCapture(prev => ({
+      loads: prev.loads.map(l => {
+        if (l.id !== loadId) return l
+        return withMirrors({
+          ...l,
+          vehicles: l.vehicles.map(v =>
+            v.id !== vehicleId
+              ? v
+              : { ...v, extra_photos: moveArrayItem(v.extra_photos ?? [], index, direction) },
+          ),
+        })
+      }),
+    }))
+    touch()
+  }
+
+  function moveFacilityPhoto(loadId: string, index: number, direction: -1 | 1) {
+    setCapture(prev => ({
+      loads: prev.loads.map(l => {
+        if (l.id !== loadId) return l
+        return withMirrors({
+          ...l,
+          facility_photos: moveArrayItem(l.facility_photos ?? [], index, direction),
+        })
+      }),
+    }))
+    touch()
+  }
+
   function addVehicle(loadId: string) {
     const vehicle = emptyDisposalVehicle('ute')
     setCapture(prev => ({
@@ -605,7 +737,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
   }
 
   return (
-    <div style={{ maxWidth: 720, paddingBottom: 48 }}>
+    <div style={{ maxWidth: 720, paddingBottom: 120 }}>
       <p style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.55, marginBottom: 16 }}>
         One card per dump trip. Record what left the site, where it went, and the
         dump cost. Photos and the weighbridge docket are the proof for the client.
@@ -862,49 +994,13 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                           <div style={{ marginTop: 12 }}>
                             <label style={LABEL}>More photos</label>
                             {((vehicle.extra_photos ?? []).length > 0) && (
-                              <div
-                                style={{
-                                  display: 'grid',
-                                  gridTemplateColumns: '1fr 1fr',
-                                  gap: 8,
-                                  marginBottom: 8,
-                                }}
-                              >
-                                {(vehicle.extra_photos ?? []).map((p, pIndex) => (
-                                  <div key={p.id} style={{ position: 'relative' }}>
-                                    <div
-                                      style={{
-                                        borderRadius: 10,
-                                        overflow: 'visible',
-                                        border: '1px solid var(--border)',
-                                        background: 'var(--surface)',
-                                      }}
-                                    >
-                                      <ZoomablePhoto src={p.url} alt={p.note || `Extra ${pIndex + 1}`} maxHeight={180} />
-                                    </div>
-                                    <PhotoNoteField
-                                      value={p.note ?? ''}
-                                      onChange={value => patchExtraPhotoNote(load.id, vehicle.id, p.id, value)}
-                                    />
-                                    <button
-                                      type="button"
-                                      onClick={() => removeExtraPhoto(load.id, vehicle.id, p.id)}
-                                      style={{
-                                        marginTop: 6,
-                                        background: 'none',
-                                        border: 'none',
-                                        color: '#F87171',
-                                        fontSize: 12,
-                                        fontWeight: 600,
-                                        cursor: 'pointer',
-                                        padding: 0,
-                                      }}
-                                    >
-                                      Remove
-                                    </button>
-                                  </div>
-                                ))}
-                              </div>
+                              <PhotoReorderGrid
+                                photos={vehicle.extra_photos ?? []}
+                                altPrefix="Extra"
+                                onMove={(pIndex, direction) => moveExtraPhoto(load.id, vehicle.id, pIndex, direction)}
+                                onNote={(id, value) => patchExtraPhotoNote(load.id, vehicle.id, id, value)}
+                                onRemove={id => removeExtraPhoto(load.id, vehicle.id, id)}
+                              />
                             )}
                             <DisposalPhotoSlot
                               jobId={job.id}
@@ -1122,49 +1218,13 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                 <div style={{ marginTop: 12 }}>
                   <label style={LABEL}>Drop-off photos</label>
                   {((load.facility_photos ?? []).length > 0) && (
-                    <div
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: '1fr 1fr',
-                        gap: 8,
-                        marginBottom: 8,
-                      }}
-                    >
-                      {(load.facility_photos ?? []).map((p, pIndex) => (
-                        <div key={p.id} style={{ position: 'relative' }}>
-                          <div
-                            style={{
-                            borderRadius: 10,
-                            overflow: 'visible',
-                            border: '1px solid var(--border)',
-                            background: 'var(--surface)',
-                            }}
-                          >
-                            <ZoomablePhoto src={p.url} alt={p.note || `Drop-off ${pIndex + 1}`} maxHeight={180} />
-                          </div>
-                          <PhotoNoteField
-                            value={p.note ?? ''}
-                            onChange={value => patchFacilityPhotoNote(load.id, p.id, value)}
-                          />
-                          <button
-                            type="button"
-                            onClick={() => removeFacilityPhoto(load.id, p.id)}
-                            style={{
-                              marginTop: 6,
-                              background: 'none',
-                              border: 'none',
-                              color: '#F87171',
-                              fontSize: 12,
-                              fontWeight: 600,
-                              cursor: 'pointer',
-                              padding: 0,
-                            }}
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      ))}
-                    </div>
+                    <PhotoReorderGrid
+                      photos={load.facility_photos ?? []}
+                      altPrefix="Drop-off"
+                      onMove={(pIndex, direction) => moveFacilityPhoto(load.id, pIndex, direction)}
+                      onNote={(id, value) => patchFacilityPhotoNote(load.id, id, value)}
+                      onRemove={id => removeFacilityPhoto(load.id, id)}
+                    />
                   )}
                   <DisposalPhotoSlot
                     jobId={job.id}
@@ -1442,30 +1502,45 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
         </div>
       </div>
 
-      {saveError && (
-        <div style={{ color: '#F87171', fontSize: 13, marginBottom: 10 }} role="alert">
-          {saveError}
+      <div
+        style={{
+          position: 'fixed',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 25,
+          background: 'var(--bg)',
+          borderTop: '1px solid var(--border)',
+          padding: '10px 16px max(12px, env(safe-area-inset-bottom, 0px))',
+        }}
+      >
+        <div style={{ maxWidth: 720, margin: '0 auto' }}>
+          {saveError && (
+            <div style={{ color: '#F87171', fontSize: 13, marginBottom: 8 }} role="alert">
+              {saveError}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={saving || !isDirty}
+              onClick={() => void save()}
+              style={{ flex: '1 1 160px', padding: 12, fontWeight: 700 }}
+            >
+              {saving ? 'Saving…' : savedFlash ? 'Saved' : 'Save loads'}
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={saving}
+              onClick={() => void saveAndCompose()}
+              style={{ flex: '1 1 160px', padding: 12, fontWeight: 700 }}
+            >
+              Save as document
+            </button>
+          </div>
         </div>
-      )}
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <button
-          type="button"
-          className="btn btn-primary"
-          disabled={saving || !isDirty}
-          onClick={() => void save()}
-          style={{ flex: '1 1 160px', padding: 12, fontWeight: 700 }}
-        >
-          {saving ? 'Saving…' : savedFlash ? 'Saved' : 'Save loads'}
-        </button>
-        <button
-          type="button"
-          className="btn btn-secondary"
-          disabled={saving}
-          onClick={() => void saveAndCompose()}
-          style={{ flex: '1 1 160px', padding: 12, fontWeight: 700 }}
-        >
-          Save as document
-        </button>
       </div>
     </div>
   )
