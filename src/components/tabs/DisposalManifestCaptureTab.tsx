@@ -802,7 +802,6 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                 {load.vehicles.map((vehicle, vIndex) => {
                   const labels = photoLabels(vehicle.type)
                   const volM3 = vehicleVolumeM3(vehicle)
-                  const detailsOpen = Boolean(vehicle.photo_url || vehicle.photo_skipped)
                   return (
                     <div
                       key={vehicle.id}
@@ -926,117 +925,115 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                         )}
                       </div>
 
-                      {detailsOpen && (
-                        <div style={{ display: 'grid', gap: 12, marginTop: 14 }}>
-                          <div>
-                            <label style={LABEL}>Size</label>
-                            <input
-                              value={vehicle.size}
-                              onChange={e => patchVehicle(load.id, vehicle.id, { size: e.target.value })}
-                              placeholder={sizePlaceholder(vehicle.type)}
-                              style={INPUT}
-                            />
-                          </div>
-                          <div>
-                            <label style={LABEL}>Load measurements (m)</label>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-                              <div>
-                                <label style={{ ...LABEL, fontSize: 10 }}>Length</label>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  step="0.01"
-                                  value={vehicle.length_m ?? ''}
-                                  onChange={e =>
-                                    patchVehicle(load.id, vehicle.id, {
-                                      length_m: e.target.value === '' ? null : Number(e.target.value),
-                                    })
-                                  }
-                                  placeholder="L"
-                                  style={INPUT}
-                                />
-                              </div>
-                              <div>
-                                <label style={{ ...LABEL, fontSize: 10 }}>Width</label>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  step="0.01"
-                                  value={vehicle.width_m ?? ''}
-                                  onChange={e =>
-                                    patchVehicle(load.id, vehicle.id, {
-                                      width_m: e.target.value === '' ? null : Number(e.target.value),
-                                    })
-                                  }
-                                  placeholder="W"
-                                  style={INPUT}
-                                />
-                              </div>
-                              <div>
-                                <label style={{ ...LABEL, fontSize: 10 }}>Height</label>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  step="0.01"
-                                  value={vehicle.height_m ?? ''}
-                                  onChange={e =>
-                                    patchVehicle(load.id, vehicle.id, {
-                                      height_m: e.target.value === '' ? null : Number(e.target.value),
-                                    })
-                                  }
-                                  placeholder="H"
-                                  style={INPUT}
-                                />
-                              </div>
-                            </div>
-                            <div style={{ marginTop: 8, fontSize: 13, color: 'var(--text-muted)' }}>
-                              Volume: {volM3 != null ? formatM3(volM3) : '—'}
-                            </div>
-                          </div>
-                          <div>
-                            <label style={LABEL}>Contents type</label>
-                            <select
-                              value={vehicle.contents_type}
-                              onChange={e =>
-                                patchVehicle(load.id, vehicle.id, {
-                                  contents_type: e.target.value as DisposalVehicle['contents_type'],
-                                })
-                              }
-                              style={{ ...INPUT, cursor: 'pointer' }}
-                            >
-                              <option value="">Select…</option>
-                              {DISPOSAL_CONTENTS_TYPES.map(t => (
-                                <option key={t.id} value={t.id}>{t.label}</option>
-                              ))}
-                            </select>
-                          </div>
-                          {vehicle.contents_type === 'other' && (
+                      <div style={{ display: 'grid', gap: 12, marginTop: 14 }}>
+                        <div>
+                          <label style={LABEL}>Size</label>
+                          <input
+                            value={vehicle.size}
+                            onChange={e => patchVehicle(load.id, vehicle.id, { size: e.target.value })}
+                            placeholder={sizePlaceholder(vehicle.type)}
+                            style={INPUT}
+                          />
+                        </div>
+                        <div>
+                          <label style={LABEL}>Load measurements (m)</label>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
                             <div>
-                              <label style={LABEL}>Other contents</label>
+                              <label style={{ ...LABEL, fontSize: 10 }}>Length</label>
                               <input
-                                value={vehicle.contents_other}
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                value={vehicle.length_m ?? ''}
                                 onChange={e =>
-                                  patchVehicle(load.id, vehicle.id, { contents_other: e.target.value })
+                                  patchVehicle(load.id, vehicle.id, {
+                                    length_m: e.target.value === '' ? null : Number(e.target.value),
+                                  })
                                 }
-                                placeholder="Name the waste type"
+                                placeholder="L"
                                 style={INPUT}
                               />
                             </div>
-                          )}
-                          <div>
-                            <label style={LABEL}>Content description</label>
-                            <textarea
-                              value={vehicle.contents_description}
-                              onChange={e =>
-                                patchVehicle(load.id, vehicle.id, { contents_description: e.target.value })
-                              }
-                              rows={2}
-                              placeholder="e.g. sofas, mattresses, mixed household from dwelling"
-                              style={{ ...INPUT, resize: 'vertical', minHeight: 64 }}
-                            />
+                            <div>
+                              <label style={{ ...LABEL, fontSize: 10 }}>Width</label>
+                              <input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                value={vehicle.width_m ?? ''}
+                                onChange={e =>
+                                  patchVehicle(load.id, vehicle.id, {
+                                    width_m: e.target.value === '' ? null : Number(e.target.value),
+                                  })
+                                }
+                                placeholder="W"
+                                style={INPUT}
+                              />
+                            </div>
+                            <div>
+                              <label style={{ ...LABEL, fontSize: 10 }}>Height</label>
+                              <input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                value={vehicle.height_m ?? ''}
+                                onChange={e =>
+                                  patchVehicle(load.id, vehicle.id, {
+                                    height_m: e.target.value === '' ? null : Number(e.target.value),
+                                  })
+                                }
+                                placeholder="H"
+                                style={INPUT}
+                              />
+                            </div>
+                          </div>
+                          <div style={{ marginTop: 8, fontSize: 13, color: 'var(--text-muted)' }}>
+                            Volume: {volM3 != null ? formatM3(volM3) : '—'}
                           </div>
                         </div>
-                      )}
+                        <div>
+                          <label style={LABEL}>Contents type</label>
+                          <select
+                            value={vehicle.contents_type}
+                            onChange={e =>
+                              patchVehicle(load.id, vehicle.id, {
+                                contents_type: e.target.value as DisposalVehicle['contents_type'],
+                              })
+                            }
+                            style={{ ...INPUT, cursor: 'pointer' }}
+                          >
+                            <option value="">Select…</option>
+                            {DISPOSAL_CONTENTS_TYPES.map(t => (
+                              <option key={t.id} value={t.id}>{t.label}</option>
+                            ))}
+                          </select>
+                        </div>
+                        {vehicle.contents_type === 'other' && (
+                          <div>
+                            <label style={LABEL}>Other contents</label>
+                            <input
+                              value={vehicle.contents_other}
+                              onChange={e =>
+                                patchVehicle(load.id, vehicle.id, { contents_other: e.target.value })
+                              }
+                              placeholder="Name the waste type"
+                              style={INPUT}
+                            />
+                          </div>
+                        )}
+                        <div>
+                          <label style={LABEL}>Content description</label>
+                          <textarea
+                            value={vehicle.contents_description}
+                            onChange={e =>
+                              patchVehicle(load.id, vehicle.id, { contents_description: e.target.value })
+                            }
+                            rows={2}
+                            placeholder="e.g. sofas, mattresses, mixed household from dwelling"
+                            style={{ ...INPUT, resize: 'vertical', minHeight: 64 }}
+                          />
+                        </div>
+                      </div>
 
                       <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
                         <button
