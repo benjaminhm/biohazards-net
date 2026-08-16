@@ -36,6 +36,7 @@ import {
   meta,
   shortDate,
 } from '@/components/portal/portalUi'
+import AddressAutocomplete from '@/components/AddressAutocomplete'
 
 type TextField = Exclude<ApplicationField, 'purchase_order_required'>
 
@@ -261,12 +262,11 @@ export default function PortalCompanyPage() {
             <label htmlFor="head_office_address" style={label}>
               Head office address
             </label>
-            <textarea
-              id="head_office_address"
-              rows={3}
+            <AddressAutocomplete
               value={form.head_office_address}
-              onChange={e => set('head_office_address', e.target.value)}
-              style={{ ...input, resize: 'vertical', fontFamily: 'inherit' }}
+              placeholder="Street, suburb, state, postcode"
+              style={input}
+              onChange={next => set('head_office_address', next.address)}
             />
           </div>
           <Text
@@ -372,12 +372,11 @@ export default function PortalCompanyPage() {
             <label htmlFor="billing_address" style={label}>
               Billing address
             </label>
-            <textarea
-              id="billing_address"
-              rows={3}
+            <AddressAutocomplete
               value={form.billing_address}
-              onChange={e => set('billing_address', e.target.value)}
-              style={{ ...input, resize: 'vertical', fontFamily: 'inherit' }}
+              placeholder="Street, suburb, state, postcode"
+              style={input}
+              onChange={next => set('billing_address', next.address)}
             />
           </div>
           <div style={pair}>

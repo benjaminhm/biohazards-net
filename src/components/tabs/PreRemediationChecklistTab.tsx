@@ -16,6 +16,7 @@ import {
   PREFLIGHT_OPERATIONAL_IDS,
   PREFLIGHT_OPERATIONAL_LABELS,
 } from '@/lib/preRemediationPreflight'
+import AddressAutocomplete from '@/components/AddressAutocomplete'
 
 interface Props {
   job: Job
@@ -172,7 +173,11 @@ export default function PreRemediationChecklistTab({ job, onJobUpdate }: Props) 
         </div>
         <div className="field">
           <label>Site Address</label>
-          <input value={checklist.header.site_address} onChange={e => setHeader('site_address', e.target.value)} />
+          <AddressAutocomplete
+            value={checklist.header.site_address}
+            placeholder="Street, suburb, state, postcode"
+            onChange={next => setHeader('site_address', next.address)}
+          />
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <div className="field">

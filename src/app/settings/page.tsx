@@ -33,6 +33,7 @@ import { DOC_TYPE_LABELS } from '@/lib/types'
 import { useUser } from '@/lib/userContext'
 import { getPublicWebsiteLaunchChecks, isPublicWebsiteLaunchReady } from '@/lib/websiteLaunchReadiness'
 import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
+import AddressAutocomplete from '@/components/AddressAutocomplete'
 import EquipmentCatalogueSection from '@/components/settings/EquipmentCatalogueSection'
 import ChemicalsCatalogueSection from '@/components/settings/ChemicalsCatalogueSection'
 
@@ -342,7 +343,14 @@ export default function SettingsPage() {
           </div>
           {field('Phone', 'phone', '07 xxxx xxxx')}
           {field('Email', 'email', 'info@example.com.au')}
-          {field('Address', 'address', 'Brisbane, QLD')}
+          <div className="field">
+            <label>Address</label>
+            <AddressAutocomplete
+              value={profile.address ?? ''}
+              placeholder="Street, suburb, state, postcode"
+              onChange={next => setProfile(p => ({ ...p, address: next.address }))}
+            />
+          </div>
         </div>
 
         {/* Document Instructions */}

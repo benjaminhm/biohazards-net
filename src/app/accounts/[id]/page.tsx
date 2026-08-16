@@ -19,6 +19,7 @@ import {
   type ApplicationField,
 } from '@/lib/portal/application'
 import type { ClientAccount, ClientAccountContact, QuoteAcceptance } from '@/lib/types'
+import AddressAutocomplete from '@/components/AddressAutocomplete'
 
 interface LinkedJob {
   id: string
@@ -339,7 +340,11 @@ function AccountDetailsCard({ account, onSaved }: { account: ClientAccount; onSa
 
       <div className="field">
         <label htmlFor="d-address">Billing address</label>
-        <textarea id="d-address" rows={2} value={form.billing_address} onChange={e => set('billing_address', e.target.value)} />
+        <AddressAutocomplete
+          value={form.billing_address}
+          placeholder="Street, suburb, state, postcode"
+          onChange={next => set('billing_address', next.address)}
+        />
       </div>
 
       <div className="field">

@@ -25,6 +25,7 @@
 import { useState, useEffect } from 'react'
 import type { Job, JobStatus, JobType, JobUrgency, PhoneEntry } from '@/lib/types'
 import SmartFill from '@/components/SmartFill'
+import AddressAutocomplete from '@/components/AddressAutocomplete'
 
 interface Person { id: string; name: string; role: string; phone?: string | null; email?: string | null; status: string }
 interface Assignment { id: string; person_id: string; app_role?: string; people: Person }
@@ -192,19 +193,23 @@ export default function DetailsTab({ job, onJobUpdate, readOnly, skipBriefing }:
     setEditingNoteText('')
   }
 
-  async function updateField(field: string, value: string) {
+  async function updateJobFields(patch: Record<string, unknown>) {
     setSaving(true)
     try {
       const res = await fetch(`/api/jobs/${job.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ [field]: value }),
+        body: JSON.stringify(patch),
       })
       const data = (await res.json()) as { job?: Job; error?: string }
       commitJobPatchResult(res, data)
     } finally {
       setSaving(false)
     }
+  }
+
+  async function updateField(field: string, value: string) {
+    await updateJobFields({ [field]: value })
   }
 
   async function addNote() {
@@ -490,7 +495,21 @@ export default function DetailsTab({ job, onJobUpdate, readOnly, skipBriefing }:
 
       <div className="field">
         <label>Site Address</label>
-        <EditableField label="" value={job.site_address} onChange={v => updateField('site_address', v)} />
+        <AddressAutocomplete
+          value={job.site_address ?? ''}
+          placeId={job.site_place_id ?? ''}
+          lat={job.site_lat ?? null}
+          lng={job.site_lng ?? null}
+          placeholder="Street, suburb, state, postcode"
+          onChange={next =>
+            void updateJobFields({
+              site_address: next.address,
+              site_place_id: next.placeId,
+              site_lat: next.lat,
+              site_lng: next.lng,
+            })
+          }
+        />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 20px' }}>

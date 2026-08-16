@@ -698,11 +698,20 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                       Location
                       <MetaChip show={load.location_from_photo} />
                     </label>
-                    <input
+                    <AddressAutocomplete
                       value={load.location}
-                      onChange={e => patchLoad(load.id, { location: e.target.value, location_from_photo: false })}
+                      lat={load.location_lat}
+                      lng={load.location_lng}
                       placeholder="Pickup / load location"
                       style={INPUT}
+                      onChange={next =>
+                        patchLoad(load.id, {
+                          location: next.address,
+                          location_lat: next.lat,
+                          location_lng: next.lng,
+                          location_from_photo: false,
+                        })
+                      }
                     />
                   </div>
                 </div>

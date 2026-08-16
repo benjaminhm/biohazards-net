@@ -28,6 +28,7 @@ import { useRouter, useParams } from 'next/navigation'
 import type { TeamCapabilities } from '@/lib/types'
 import { DEFAULT_MEMBER_CAPABILITIES, DEFAULT_MANAGER_CAPABILITIES } from '@/lib/types'
 import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
+import AddressAutocomplete from '@/components/AddressAutocomplete'
 import { useUser } from '@/lib/userContext'
 
 interface PersonDoc { id: string; doc_type: string; label: string; expiry_date?: string; file_url?: string }
@@ -698,7 +699,12 @@ export default function PersonPage() {
               <input value={person.email ?? ''} onChange={e => updateField('email', e.target.value)} type="email" style={inputStyle} />
             </Field>
             <Field label="Address">
-              <input value={person.address ?? ''} onChange={e => updateField('address', e.target.value)} placeholder="Home or postal address" style={inputStyle} />
+              <AddressAutocomplete
+                value={person.address ?? ''}
+                placeholder="Home or postal address"
+                style={inputStyle}
+                onChange={next => updateField('address', next.address)}
+              />
             </Field>
             <Field label="ABN">
               <input value={person.abn ?? ''} onChange={e => updateField('abn', e.target.value)} placeholder="XX XXX XXX XXX" style={inputStyle} />

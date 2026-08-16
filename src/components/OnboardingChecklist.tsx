@@ -21,6 +21,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import AddressAutocomplete from '@/components/AddressAutocomplete'
 
 interface Person {
   id: string
@@ -273,13 +274,22 @@ export default function OnboardingChecklist() {
                 <label style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 6, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                   {f.label}
                 </label>
-                <input
-                  type={f.type}
-                  value={edit[f.key as keyof EditState]}
-                  onChange={e => setEdit(p => ({ ...p, [f.key]: e.target.value }))}
-                  placeholder={f.placeholder}
-                  style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 15, boxSizing: 'border-box' }}
-                />
+                {f.key === 'address' ? (
+                  <AddressAutocomplete
+                    value={edit.address}
+                    placeholder={f.placeholder}
+                    style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 15, boxSizing: 'border-box' }}
+                    onChange={next => setEdit(p => ({ ...p, address: next.address }))}
+                  />
+                ) : (
+                  <input
+                    type={f.type}
+                    value={edit[f.key as keyof EditState]}
+                    onChange={e => setEdit(p => ({ ...p, [f.key]: e.target.value }))}
+                    placeholder={f.placeholder}
+                    style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 15, boxSizing: 'border-box' }}
+                  />
+                )}
               </div>
             ))}
 
