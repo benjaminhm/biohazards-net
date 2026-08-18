@@ -12,6 +12,7 @@ import { useRegisterUnsavedChanges } from '@/lib/unsavedChangesContext'
 import DisposalPhotoSlot, { PhotoNoteField, ZoomablePhoto } from '@/components/DisposalPhotoSlot'
 import AddressAutocomplete from '@/components/AddressAutocomplete'
 import { formatCoordLabel, timeFromTakenAt, type GalleryPlaceContext, type PhotoExif } from '@/lib/photoExif'
+import { browserGeocodeAddress } from '@/lib/geocodeBrowser'
 import {
   DISPOSAL_CONTENTS_TYPES,
   DISPOSAL_VEHICLE_TYPES,
@@ -288,6 +289,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
   const [openId, setOpenId] = useState<string | null>(persisted.loads[0]?.id ?? null)
   const [unlockedLoadId, setUnlockedLoadId] = useState<string | null>(null)
   const [distanceBusyId, setDistanceBusyId] = useState<string | null>(null)
+  const [distanceErrors, setDistanceErrors] = useState<Record<string, string>>({})
   const geocodedLoadIds = useRef(new Set<string>())
   const distanceTried = useRef(new Set<string>())
 
@@ -338,6 +340,8 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
   async function geocodeAddressPin(address: string): Promise<{ lat: number; lng: number } | null> {
     const q = address.trim()
     if (!q || looksLikeCoordLabel(q)) return null
+    const fromBrowser = await browserGeocodeAddress(q)
+    if (fromBrowser) return fromBrowser
     try {
       const res = await fetch('/api/geocode/forward', {
         method: 'POST',
@@ -354,13 +358,17 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
     return null
   }
 
-  async function ensureTripDistance(loadId: string, hint?: Partial<DisposalLoad>, force = false) {
+  async function ensureTripDistance(loadId: string, hint?: Partial<DisposalLoad>, force = false): Promise<{ ok: boolean; error?: string }> {
     const existing = capture.loads.find(l => l.id === loadId)
     const load: DisposalLoad = { ...(existing ?? applyJobSiteToLoad(emptyDisposalLoad(), job)), ...hint, id: loadId }
-    if (!force && !canAutofillDistance(load)) return false
+    if (!force && !canAutofillDistance(load)) return { ok: true }
 
     const pickupText = load.location.trim() || job.site_address?.trim() || ''
     const dropText = (load.facility || load.dump_location).trim()
+    if (!pickupText || !dropText) {
+      return { ok: false, error: 'Add pickup and drop-off addresses first' }
+    }
+
     let originLat = load.location_lat ?? job.site_lat ?? null
     let originLng = load.location_lng ?? job.site_lng ?? null
     let destLat = load.dump_lat
@@ -386,22 +394,40 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
       }
     }
 
-    if (Object.keys(pinPatch).length) {
-      setCapture(prev => ({
-        loads: prev.loads.map(l => (l.id === loadId ? withMirrors({ ...l, ...pinPatch }) : l)),
-      }))
+    if (originLat == null || originLng == null || destLat == null || destLng == null) {
+      return { ok: false, error: 'Could not find pickup or drop-off on the map' }
     }
 
-    if (originLat == null || originLng == null || destLat == null || destLng == null) return false
+    const straight = distanceFromSiteKm(originLat, originLng, destLat, destLng)
+    setCapture(prev => ({
+      loads: prev.loads.map(l => {
+        if (l.id !== loadId) return l
+        if (!force && !canAutofillDistance(l)) return l
+        return withMirrors({
+          ...l,
+          ...pinPatch,
+          location_lat: originLat,
+          location_lng: originLng,
+          dump_lat: destLat,
+          dump_lng: destLng,
+          ...(straight != null ? { distance_km: straight, distance_from_geo: true } : {}),
+        })
+      }),
+    }))
+    touch()
     await applyTripDistance(loadId, originLat, originLng, destLat, destLng, force)
-    return true
+    return { ok: true }
   }
 
   async function reloadTripDistance(loadId: string) {
     if (distanceBusyId) return
     setDistanceBusyId(loadId)
+    setDistanceErrors(prev => ({ ...prev, [loadId]: '' }))
     try {
-      await ensureTripDistance(loadId, undefined, true)
+      const result = await ensureTripDistance(loadId, undefined, true)
+      if (!result.ok) {
+        setDistanceErrors(prev => ({ ...prev, [loadId]: result.error || 'Could not calculate distance' }))
+      }
     } finally {
       setDistanceBusyId(null)
     }
@@ -1347,6 +1373,11 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                       {distanceBusyId === load.id ? '…' : '↻'}
                     </button>
                   </div>
+                  {distanceErrors[load.id] && (
+                    <div style={{ color: '#F87171', fontSize: 12, marginTop: 6 }}>
+                      {distanceErrors[load.id]}
+                    </div>
+                  )}
                 </div>
                 <div style={{ marginTop: 12 }}>
                   <label style={LABEL}>Drop-off photos</label>
