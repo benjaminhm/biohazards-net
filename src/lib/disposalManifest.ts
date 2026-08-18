@@ -4,6 +4,7 @@ import type {
   DisposalLoad,
   DisposalManifestCapture,
   DisposalManifestTotals,
+  DisposalPhotoRef,
   DisposalVehicle,
   DisposalVehicleTypeId,
 } from '@/lib/types'
@@ -41,6 +42,7 @@ export function emptyDisposalVehicle(type: DisposalVehicleTypeId = 'trailer'): D
     photo_id: null,
     photo_url: null,
     photo_note: '',
+    photo_include_in_compose: true,
     extra_photos: [],
   }
 }
@@ -68,6 +70,7 @@ export function emptyDisposalLoad(): DisposalLoad {
     docket_photo_id: null,
     docket_photo_url: null,
     docket_photo_note: '',
+    docket_include_in_compose: true,
     docket_lost: false,
     recycling: false,
     recycling_type: '',
@@ -157,16 +160,30 @@ function vehicleTypeOf(raw: unknown): DisposalVehicleTypeId {
   return VEHICLE_IDS.has(t) ? (t as DisposalVehicleTypeId) : ''
 }
 
-function normalizePhotoList(raw: unknown): { id: string; url: string; note: string }[] {
+function boolDefaultTrue(v: unknown): boolean {
+  return v !== false
+}
+
+export function photoInCompose(flag: boolean | undefined): boolean {
+  return flag !== false
+}
+
+function normalizePhotoList(raw: unknown): DisposalPhotoRef[] {
   if (!Array.isArray(raw)) return []
-  return raw
-    .map(p => {
-      const row = p && typeof p === 'object' ? (p as Record<string, unknown>) : {}
-      const id = str(row.id)
-      const url = str(row.url)
-      return id && url ? { id, url, note: str(row.note) } : null
+  const photos: DisposalPhotoRef[] = []
+  for (const p of raw) {
+    const row = p && typeof p === 'object' ? (p as Record<string, unknown>) : {}
+    const id = str(row.id)
+    const url = str(row.url)
+    if (!id || !url) continue
+    photos.push({
+      id,
+      url,
+      note: str(row.note),
+      include_in_compose: boolDefaultTrue(row.include_in_compose),
     })
-    .filter((p): p is { id: string; url: string; note: string } => p != null)
+  }
+  return photos
 }
 
 function normalizeVehicle(raw: unknown): DisposalVehicle {
@@ -187,6 +204,7 @@ function normalizeVehicle(raw: unknown): DisposalVehicle {
     photo_id: str(o.photo_id) || null,
     photo_url: str(o.photo_url) || null,
     photo_note: str(o.photo_note),
+    photo_include_in_compose: boolDefaultTrue(o.photo_include_in_compose),
     extra_photos: normalizePhotoList(o.extra_photos),
   }
 }
@@ -245,6 +263,7 @@ function normalizeLoad(raw: unknown): DisposalLoad {
     docket_photo_id: str(o.docket_photo_id) || null,
     docket_photo_url: str(o.docket_photo_url) || null,
     docket_photo_note: str(o.docket_photo_note),
+    docket_include_in_compose: boolDefaultTrue(o.docket_include_in_compose),
     docket_lost: bool(o.docket_lost),
     recycling: bool(o.recycling),
     recycling_type: str(o.recycling_type),
@@ -607,6 +626,6 @@ export function formatWasteDisposalNarrative(capture: DisposalManifestCapture): 
     '',
     ...lines,
     '',
-    `Totals — ${volumeBit}${formatKg(totals.weight_kg)}, ${totals.distance_km} km, ${formatAud(totals.dump_fees)} dump fees.`,
+    `Totals — ${volumeBit}${formatKg(totals.weight_kg)}, ${totals.distance_km} km return, ${formatAud(totals.dump_fees)} dump fees. Volume is a close estimate. Weight is from docket weights.`,
   ].join('\n')
 }

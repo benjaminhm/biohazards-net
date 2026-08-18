@@ -1279,8 +1279,8 @@ function wdmLoadCards(c: WasteDisposalManifestContent): string {
       ['Pickup', load.location || ''],
       ['Drop-off', load.facility || ''],
       ['Docket', docketStatusLabel(load) || ''],
-      ['Volume', load.volume_m3 != null ? formatM3(load.volume_m3) : ''],
-      ['Weight', load.weight_kg != null ? formatKg(load.weight_kg) : ''],
+      ['Volume', load.volume_m3 != null ? `${formatM3(load.volume_m3)} (close estimate)` : ''],
+      ['Weight', load.weight_kg != null ? `${formatKg(load.weight_kg)} (from docket)` : ''],
       ['Dump fee', load.dump_fee != null ? formatAud(load.dump_fee) : ''],
       ['Distance', formatDistanceLegs(load.distance_out_km, load.distance_return_km) ?? (load.distance_km != null ? `${load.distance_km} km` : '')],
       ...(!vehicles.length
@@ -1323,11 +1323,14 @@ function wdmSummary(c: WasteDisposalManifestContent): string {
           <td>${t.load_count}</td>
           <td>${esc(volume)}</td>
           <td>${esc(formatKg(t.weight_kg))}</td>
-          <td>${t.distance_km} km</td>
+          <td>${t.distance_km} km return</td>
           <td class="r">${esc(formatAud(t.dump_fees))}</td>
         </tr>
       </tbody>
-    </table>`
+    </table>
+    <div class="body-text" style="margin-top:8px;font-size:8pt;color:var(--sow-muted)">
+      Volume is a close estimate from load measurements. Weight is based on weights on dockets. Distance is the return (round-trip) total.
+    </div>`
     : ''
 
   const indexTable = loads.length

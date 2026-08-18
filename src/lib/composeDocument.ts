@@ -54,6 +54,7 @@ import {
   loadHasContent,
   loadVolumeM3,
   mergedDisposalManifestCapture,
+  photoInCompose,
   vehicleContentsLabel,
   vehicleTypeLabel,
   vehicleVolumeM3,
@@ -859,23 +860,30 @@ function composeWdm(job: Job): ComposeDocumentResult {
 
   const snapshots = loads.map((l, i) => {
     const first = l.vehicles[0]
+    const firstPhoto = first
+      ? (photoInCompose(first.photo_include_in_compose) ? (first.photo_url || l.trailer_photo_url) : null)
+      : l.trailer_photo_url
     return {
       load_number: i + 1,
       size: first?.size.trim() || l.size.trim(),
       contents: contentsLabel(l),
       contents_description: first?.contents_description.trim() || l.contents_description.trim(),
-      vehicles: l.vehicles.map(v => ({
-        type: vehicleTypeLabel(v.type),
-        size: v.size.trim(),
-        contents: vehicleContentsLabel(v),
-        contents_description: v.contents_description.trim(),
-        ...dimensionTrioToMetres(v.length_m, v.width_m, v.height_m),
-        volume_m3: vehicleVolumeM3(v),
-        photo_url: v.photo_url,
-        photo_note: v.photo_note?.trim() || undefined,
-        extra_photo_urls: (v.extra_photos ?? []).map(p => p.url),
-        extra_photos: (v.extra_photos ?? []).map(p => ({ url: p.url, note: p.note?.trim() || undefined })),
-      })),
+      vehicles: l.vehicles.map(v => {
+        const extras = (v.extra_photos ?? []).filter(p => photoInCompose(p.include_in_compose))
+        const mainUrl = photoInCompose(v.photo_include_in_compose) ? v.photo_url : null
+        return {
+          type: vehicleTypeLabel(v.type),
+          size: v.size.trim(),
+          contents: vehicleContentsLabel(v),
+          contents_description: v.contents_description.trim(),
+          ...dimensionTrioToMetres(v.length_m, v.width_m, v.height_m),
+          volume_m3: vehicleVolumeM3(v),
+          photo_url: mainUrl,
+          photo_note: v.photo_note?.trim() || undefined,
+          extra_photo_urls: extras.map(p => p.url),
+          extra_photos: extras.map(p => ({ url: p.url, note: p.note?.trim() || undefined })),
+        }
+      }),
       date: l.date,
       dump_date: l.dump_date.trim() || undefined,
       dump_time: l.dump_time.trim() || undefined,
@@ -887,11 +895,11 @@ function composeWdm(job: Job): ComposeDocumentResult {
       distance_out_km: l.distance_out_km,
       distance_return_km: l.distance_return_km,
       volume_m3: loadVolumeM3(l),
-      trailer_photo_url: first?.photo_url || l.trailer_photo_url,
-      docket_photo_url: l.docket_photo_url,
+      trailer_photo_url: firstPhoto,
+      docket_photo_url: photoInCompose(l.docket_include_in_compose) ? l.docket_photo_url : null,
       docket_photo_note: l.docket_photo_note?.trim() || undefined,
-      facility_photo_urls: (l.facility_photos ?? []).map(p => p.url),
-      facility_photos: (l.facility_photos ?? []).map(p => ({ url: p.url, note: p.note?.trim() || undefined })),
+      facility_photo_urls: (l.facility_photos ?? []).filter(p => photoInCompose(p.include_in_compose)).map(p => p.url),
+      facility_photos: (l.facility_photos ?? []).filter(p => photoInCompose(p.include_in_compose)).map(p => ({ url: p.url, note: p.note?.trim() || undefined })),
       docket_unavailable: Boolean(l.docket_skipped && !l.docket_photo_url),
       docket_lost: l.docket_lost,
       recycling: l.recycling,

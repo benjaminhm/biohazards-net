@@ -1539,6 +1539,8 @@ export interface DisposalPhotoRef {
   id: string
   url: string
   note: string
+  /** When false, omitted from the composed CDR. Missing means include. */
+  include_in_compose?: boolean
 }
 
 /** One vehicle on a dump trip (trailer, ute, skip, …). */
@@ -1556,6 +1558,8 @@ export interface DisposalVehicle {
   photo_id: string | null
   photo_url: string | null
   photo_note: string
+  /** When false, the main vehicle photo is omitted from the composed CDR. Missing means include. */
+  photo_include_in_compose?: boolean
   extra_photos: DisposalPhotoRef[]
 }
 
@@ -1588,6 +1592,8 @@ export interface DisposalLoad {
   docket_photo_id: string | null
   docket_photo_url: string | null
   docket_photo_note: string
+  /** When false, the docket photo is omitted from the composed CDR. Missing means include. */
+  docket_include_in_compose?: boolean
   docket_lost: boolean
   recycling: boolean
   recycling_type: string

@@ -37,6 +37,7 @@ import {
   captureWithMetreDimensions,
   mergedDisposalManifestCapture,
   moveArrayItem,
+  photoInCompose,
   vehicleContentsLabel,
   vehicleTypeLabel,
   vehicleVolumeM3,
@@ -141,18 +142,40 @@ const MOVE_BTN: CSSProperties = {
   padding: 0,
 }
 
+function ComposePhotoCheck({
+  checked,
+  onChange,
+}: {
+  checked: boolean
+  onChange: (next: boolean) => void
+}) {
+  return (
+    <label style={{ ...CHECK, fontSize: 12, marginTop: 6, marginBottom: 4 }}>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={e => onChange(e.target.checked)}
+        style={CHECKBOX}
+      />
+      Add to document
+    </label>
+  )
+}
+
 function PhotoReorderGrid({
   photos,
   altPrefix,
   onMove,
   onNote,
   onRemove,
+  onInclude,
 }: {
   photos: DisposalPhotoRef[]
   altPrefix: string
   onMove: (index: number, direction: -1 | 1) => void
   onNote: (id: string, note: string) => void
   onRemove: (id: string) => void
+  onInclude: (id: string, include: boolean) => void
 }) {
   if (photos.length === 0) return null
   return (
@@ -176,6 +199,10 @@ function PhotoReorderGrid({
           >
             <ZoomablePhoto src={p.url} alt={p.note || `${altPrefix} ${pIndex + 1}`} maxHeight={180} />
           </div>
+          <ComposePhotoCheck
+            checked={photoInCompose(p.include_in_compose)}
+            onChange={include => onInclude(p.id, include)}
+          />
           <PhotoNoteField value={p.note ?? ''} onChange={value => onNote(p.id, value)} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
             {photos.length > 1 && (
@@ -577,6 +604,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                 photo_id: photo.id,
                 photo_url: photo.file_url,
                 photo_note: v.photo_note?.trim() ? v.photo_note : (exif.placeNote ?? ''),
+                photo_include_in_compose: true,
               },
         )
         let next: DisposalLoad = { ...load, vehicles }
@@ -616,6 +644,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
           docket_photo_id: photo.id,
           docket_photo_url: photo.file_url,
           docket_photo_note: load.docket_photo_note?.trim() ? load.docket_photo_note : (exif.placeNote ?? ''),
+          docket_include_in_compose: true,
         }
         if (!load.dump_date.trim() && (exif.date || timeFromTakenAt(exif.takenAt))) {
           if (exif.date) next.dump_date = exif.date
@@ -706,7 +735,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
           vehicles: l.vehicles.map(v =>
             v.id !== vehicleId
               ? v
-              : { ...v, extra_photos: [...(v.extra_photos ?? []), { id: photo.id, url: photo.file_url, note: exif?.placeNote ?? '' }] },
+              : { ...v, extra_photos: [...(v.extra_photos ?? []), { id: photo.id, url: photo.file_url, note: exif?.placeNote ?? '', include_in_compose: true }] },
           ),
         })
       }),
@@ -752,13 +781,33 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
     touch()
   }
 
+  function patchExtraPhotoInclude(loadId: string, vehicleId: string, photoId: string, include: boolean) {
+    setCapture(prev => ({
+      loads: prev.loads.map(l => {
+        if (l.id !== loadId) return l
+        return withMirrors({
+          ...l,
+          vehicles: l.vehicles.map(v =>
+            v.id !== vehicleId
+              ? v
+              : {
+                  ...v,
+                  extra_photos: (v.extra_photos ?? []).map(p => (p.id === photoId ? { ...p, include_in_compose: include } : p)),
+                },
+          ),
+        })
+      }),
+    }))
+    touch()
+  }
+
   function addFacilityPhoto(loadId: string, photo: Photo, exif?: PhotoExif) {
     setCapture(prev => ({
       loads: prev.loads.map(l => {
         if (l.id !== loadId) return l
         return withMirrors({
           ...l,
-          facility_photos: [...(l.facility_photos ?? []), { id: photo.id, url: photo.file_url, note: exif?.placeNote ?? '' }],
+          facility_photos: [...(l.facility_photos ?? []), { id: photo.id, url: photo.file_url, note: exif?.placeNote ?? '', include_in_compose: true }],
         })
       }),
     }))
@@ -786,6 +835,19 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
         return withMirrors({
           ...l,
           facility_photos: (l.facility_photos ?? []).map(p => (p.id === photoId ? { ...p, note } : p)),
+        })
+      }),
+    }))
+    touch()
+  }
+
+  function patchFacilityPhotoInclude(loadId: string, photoId: string, include: boolean) {
+    setCapture(prev => ({
+      loads: prev.loads.map(l => {
+        if (l.id !== loadId) return l
+        return withMirrors({
+          ...l,
+          facility_photos: (l.facility_photos ?? []).map(p => (p.id === photoId ? { ...p, include_in_compose: include } : p)),
         })
       }),
     }))
@@ -1129,6 +1191,12 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                             })
                           }
                         />
+                        {vehicle.photo_url && (
+                          <ComposePhotoCheck
+                            checked={photoInCompose(vehicle.photo_include_in_compose)}
+                            onChange={include => patchVehicle(load.id, vehicle.id, { photo_include_in_compose: include })}
+                          />
+                        )}
                         {((vehicle.extra_photos ?? []).length > 0 || vehicle.photo_url || vehicle.photo_skipped) && (
                           <div style={{ marginTop: 12 }}>
                             <label style={LABEL}>More photos</label>
@@ -1139,6 +1207,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                                 onMove={(pIndex, direction) => moveExtraPhoto(load.id, vehicle.id, pIndex, direction)}
                                 onNote={(id, value) => patchExtraPhotoNote(load.id, vehicle.id, id, value)}
                                 onRemove={id => removeExtraPhoto(load.id, vehicle.id, id)}
+                                onInclude={(id, include) => patchExtraPhotoInclude(load.id, vehicle.id, id, include)}
                               />
                             )}
                             <DisposalPhotoSlot
@@ -1405,6 +1474,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                       onMove={(pIndex, direction) => moveFacilityPhoto(load.id, pIndex, direction)}
                       onNote={(id, value) => patchFacilityPhotoNote(load.id, id, value)}
                       onRemove={id => removeFacilityPhoto(load.id, id)}
+                      onInclude={(id, include) => patchFacilityPhotoInclude(load.id, id, include)}
                     />
                   )}
                   <DisposalPhotoSlot
@@ -1428,6 +1498,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                   <>
                     <div style={{ ...LABEL, marginTop: 22 }}>Docket</div>
                     {(!load.docket_skipped || load.docket_photo_url) && (
+                    <>
                     <DisposalPhotoSlot
                       jobId={job.id}
                       areaRef={`Disposal load ${index + 1} — docket`}
@@ -1452,6 +1523,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                           docket_photo_id: null,
                           docket_photo_url: null,
                           docket_photo_note: '',
+                          docket_include_in_compose: true,
                           dump_location_from_photo: false,
                           dump_location_from_device: false,
                           dump_datetime_from_photo: false,
@@ -1460,6 +1532,13 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                         })
                       }
                     />
+                    {load.docket_photo_url && (
+                      <ComposePhotoCheck
+                        checked={photoInCompose(load.docket_include_in_compose)}
+                        onChange={include => patchLoad(load.id, { docket_include_in_compose: include })}
+                      />
+                    )}
+                    </>
                     )}
                     {!load.docket_photo_url && (
                       <label style={{ ...CHECK, marginTop: load.docket_skipped ? 0 : 12, marginBottom: 12 }}>
@@ -1657,18 +1736,21 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
           <span style={{ color: 'var(--text-muted)' }}>Loads</span>
           <span>{totals.load_count}</span>
         </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
           <span style={{ color: 'var(--text-muted)' }}>Volume</span>
           <span>{totals.volume_recorded ? formatM3(totals.volume_m3) : '—'}</span>
         </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+        <div style={{ color: 'var(--text-muted)', fontSize: 11, marginBottom: 8 }}>Close estimate</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
           <span style={{ color: 'var(--text-muted)' }}>Weight</span>
           <span>{totals.weight_recorded ? formatKg(totals.weight_kg) : '—'}</span>
         </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+        <div style={{ color: 'var(--text-muted)', fontSize: 11, marginBottom: 8 }}>Based on weights on dockets</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
           <span style={{ color: 'var(--text-muted)' }}>Distance</span>
-          <span>{totals.distance_recorded ? `${totals.distance_km} km` : '—'}</span>
+          <span>{totals.distance_recorded ? `${totals.distance_km} km return` : '—'}</span>
         </div>
+        <div style={{ color: 'var(--text-muted)', fontSize: 11, marginBottom: 8 }}>Return (round-trip) total</div>
         <div
           style={{
             display: 'flex',
