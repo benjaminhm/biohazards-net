@@ -110,3 +110,33 @@ export async function drivingDistanceKm(
     (await drivingKmViaMatrix(key, originLat, originLng, destLat, destLng))
   )
 }
+
+export async function forwardGeocodeAddress(
+  address: string,
+): Promise<{ lat: number; lng: number; address: string } | null> {
+  const key = mapsKey()
+  const q = address.trim()
+  if (!key || !q) return null
+
+  const url = new URL('https://maps.googleapis.com/maps/api/geocode/json')
+  url.searchParams.set('address', q)
+  url.searchParams.set('language', 'en-AU')
+  url.searchParams.set('region', 'au')
+  url.searchParams.set('key', key)
+
+  const res = await fetch(url.toString(), { cache: 'no-store' })
+  if (!res.ok) return null
+  const data = (await res.json()) as {
+    status?: string
+    results?: {
+      formatted_address?: string
+      geometry?: { location?: { lat?: number; lng?: number } }
+    }[]
+  }
+  if (data.status !== 'OK' || !data.results?.length) return null
+  const hit = data.results[0]
+  const lat = hit?.geometry?.location?.lat
+  const lng = hit?.geometry?.location?.lng
+  if (typeof lat !== 'number' || typeof lng !== 'number' || !isLatLng(lat, lng)) return null
+  return { lat, lng, address: hit.formatted_address?.trim() || q }
+}

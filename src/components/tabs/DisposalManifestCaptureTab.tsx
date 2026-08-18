@@ -309,15 +309,19 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
 
   useEffect(() => {
     for (const load of capture.loads) {
-      if (load.distance_km != null) continue
+      if (load.distance_km != null && !load.distance_from_geo) continue
+      const pickupText = load.location.trim() || job.site_address?.trim() || ''
+      const dropText = (load.facility || load.dump_location).trim()
       const origin = loadOriginLatLng(load, job)
-      if (origin.lat == null || origin.lng == null || load.dump_lat == null || load.dump_lng == null) continue
-      const key = `${load.id}:${origin.lat},${origin.lng}:${load.dump_lat},${load.dump_lng}`
+      const hasPins = origin.lat != null && origin.lng != null && load.dump_lat != null && load.dump_lng != null
+      const hasAddresses = Boolean(pickupText && dropText && !looksLikeCoordLabel(dropText))
+      if (!hasPins && !hasAddresses) continue
+      const key = `${load.id}:${pickupText}|${dropText}|${origin.lat},${origin.lng}|${load.dump_lat},${load.dump_lng}`
       if (distanceTried.current.has(key)) continue
       distanceTried.current.add(key)
-      void applyTripDistance(load.id, origin.lat, origin.lng, load.dump_lat, load.dump_lng)
+      void ensureTripDistance(load.id)
     }
-  }, [capture.loads, job.site_lat, job.site_lng])
+  }, [capture.loads, job.site_lat, job.site_lng, job.site_address])
 
   const totals = useMemo(() => computeDisposalTotals(capture.loads), [capture.loads])
 
@@ -328,6 +332,67 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
 
   function canAutofillDistance(load: DisposalLoad): boolean {
     return load.distance_km == null || load.distance_from_geo
+  }
+
+  async function geocodeAddressPin(address: string): Promise<{ lat: number; lng: number } | null> {
+    const q = address.trim()
+    if (!q || looksLikeCoordLabel(q)) return null
+    try {
+      const res = await fetch('/api/geocode/forward', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: q }),
+      })
+      const data = (await res.json()) as { lat?: number | null; lng?: number | null }
+      if (typeof data.lat === 'number' && typeof data.lng === 'number' && Number.isFinite(data.lat) && Number.isFinite(data.lng)) {
+        return { lat: data.lat, lng: data.lng }
+      }
+    } catch {
+      /* keep going without a pin */
+    }
+    return null
+  }
+
+  async function ensureTripDistance(loadId: string, hint?: Partial<DisposalLoad>) {
+    const existing = capture.loads.find(l => l.id === loadId)
+    const load: DisposalLoad = { ...(existing ?? applyJobSiteToLoad(emptyDisposalLoad(), job)), ...hint, id: loadId }
+    if (!canAutofillDistance(load)) return
+
+    const pickupText = load.location.trim() || job.site_address?.trim() || ''
+    const dropText = (load.facility || load.dump_location).trim()
+    let originLat = load.location_lat ?? job.site_lat ?? null
+    let originLng = load.location_lng ?? job.site_lng ?? null
+    let destLat = load.dump_lat
+    let destLng = load.dump_lng
+    const pinPatch: Partial<DisposalLoad> = {}
+
+    if ((originLat == null || originLng == null) && pickupText) {
+      const pin = await geocodeAddressPin(pickupText)
+      if (pin) {
+        originLat = pin.lat
+        originLng = pin.lng
+        pinPatch.location_lat = pin.lat
+        pinPatch.location_lng = pin.lng
+      }
+    }
+    if ((destLat == null || destLng == null) && dropText) {
+      const pin = await geocodeAddressPin(dropText)
+      if (pin) {
+        destLat = pin.lat
+        destLng = pin.lng
+        pinPatch.dump_lat = pin.lat
+        pinPatch.dump_lng = pin.lng
+      }
+    }
+
+    if (Object.keys(pinPatch).length) {
+      setCapture(prev => ({
+        loads: prev.loads.map(l => (l.id === loadId ? withMirrors({ ...l, ...pinPatch }) : l)),
+      }))
+    }
+
+    if (originLat == null || originLng == null || destLat == null || destLng == null) return
+    await applyTripDistance(loadId, originLat, originLng, destLat, destLng)
   }
 
   async function applyTripDistance(
@@ -358,10 +423,22 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
         if (l.id !== loadId) return l
         if (!canAutofillDistance(l)) return l
         const origin = loadOriginLatLng(l, job)
-        if (origin.lat !== originLat || origin.lng !== originLng) return l
-        if (l.dump_lat !== destLat || l.dump_lng !== destLng) return l
+        if (
+          origin.lat != null && origin.lng != null && originLat != null && originLng != null &&
+          (origin.lat !== originLat || origin.lng !== originLng)
+        ) return l
+        if (
+          l.dump_lat != null && l.dump_lng != null && destLat != null && destLng != null &&
+          (l.dump_lat !== destLat || l.dump_lng !== destLng)
+        ) return l
         if (l.distance_km === km && l.distance_from_geo) return l
-        return withMirrors({ ...l, distance_km: km, distance_from_geo: true })
+        return withMirrors({
+          ...l,
+          dump_lat: l.dump_lat ?? destLat ?? null,
+          dump_lng: l.dump_lng ?? destLng ?? null,
+          distance_km: km,
+          distance_from_geo: true,
+        })
       }),
     }))
     touch()
@@ -915,9 +992,9 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                       placeholder="Pickup / load location"
                       style={INPUT}
                       onChange={next => {
+                        const allow = canAutofillDistance(load)
                         const originLat = next.lat ?? job.site_lat
                         const originLng = next.lng ?? job.site_lng
-                        const allow = canAutofillDistance(load)
                         const km = distanceFromSiteKm(originLat, originLng, load.dump_lat, load.dump_lng)
                         patchLoad(load.id, {
                           location: next.address,
@@ -927,7 +1004,11 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                           ...(allow && km != null ? { distance_km: km, distance_from_geo: true } : {}),
                         })
                         if (allow) {
-                          void applyTripDistance(load.id, originLat, originLng, load.dump_lat, load.dump_lng)
+                          void ensureTripDistance(load.id, {
+                            location: next.address,
+                            location_lat: next.lat,
+                            location_lng: next.lng,
+                          })
                         }
                       }}
                     />
@@ -1196,11 +1277,16 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                         ...(allow && km != null
                           ? { distance_km: km, distance_from_geo: true }
                           : allow
-                            ? { distance_from_geo: false }
+                            ? { distance_from_geo: true }
                             : {}),
                       })
                       if (allow) {
-                        void applyTripDistance(load.id, origin.lat, origin.lng, next.lat, next.lng)
+                        void ensureTripDistance(load.id, {
+                          facility: next.address,
+                          dump_location: next.address,
+                          dump_lat: next.lat,
+                          dump_lng: next.lng,
+                        })
                       }
                     }}
                   />
@@ -1221,7 +1307,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                         distance_from_geo: false,
                       })
                     }
-                    placeholder="km"
+                    placeholder="Auto from map"
                     style={INPUT}
                   />
                 </div>

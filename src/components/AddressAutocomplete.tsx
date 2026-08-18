@@ -83,8 +83,26 @@ function loadPlaces(apiKey: string): Promise<unknown> {
 type PlaceLike = {
   id?: string
   formattedAddress?: string
-  location?: { lat: () => number; lng: () => number } | null
+  location?: unknown
   fetchFields?: (opts: { fields: string[] }) => Promise<unknown>
+}
+
+function latLngFromPlaceLocation(loc: unknown): { lat: number | null; lng: number | null } {
+  if (!loc || typeof loc !== 'object') return { lat: null, lng: null }
+  const o = loc as {
+    lat?: unknown
+    lng?: unknown
+    latitude?: unknown
+    longitude?: unknown
+  }
+  const latRaw = typeof o.lat === 'function' ? o.lat() : o.lat ?? o.latitude
+  const lngRaw = typeof o.lng === 'function' ? o.lng() : o.lng ?? o.longitude
+  const lat = typeof latRaw === 'number' ? latRaw : Number(latRaw)
+  const lng = typeof lngRaw === 'number' ? lngRaw : Number(lngRaw)
+  return {
+    lat: Number.isFinite(lat) ? lat : null,
+    lng: Number.isFinite(lng) ? lng : null,
+  }
 }
 
 type PlacePrediction = { toPlace: () => PlaceLike }
@@ -164,17 +182,20 @@ export default function AddressAutocomplete({
           } catch {
             /* still emit what we have */
           }
-          const address = place.formattedAddress ?? ''
-          const nextLat = place.location ? place.location.lat() : null
-          const nextLng = place.location ? place.location.lng() : null
-          lastCommittedRef.current = address
-          setFallback(address)
-          onChange({
-            address,
-            placeId: place.id ?? '',
-            lat: nextLat,
-            lng: nextLng,
-          })
+          try {
+            const address = place.formattedAddress ?? ''
+            const { lat: nextLat, lng: nextLng } = latLngFromPlaceLocation(place.location)
+            lastCommittedRef.current = address
+            setFallback(address)
+            onChange({
+              address,
+              placeId: place.id ?? '',
+              lat: nextLat,
+              lng: nextLng,
+            })
+          } catch {
+            /* keep typed text; parent can geocode */
+          }
         }
 
         onInputEvt = () => {
