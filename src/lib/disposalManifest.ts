@@ -298,14 +298,61 @@ export function contentsLabel(load: DisposalLoad): string {
   return row?.label ?? ''
 }
 
+/**
+ * Tape measures are usually millimetres (4050×1800×500) or centimetres (405×180×50).
+ * 4050 × 2 × 500 as metres is 4,050,000 m³; as mixed mm/m it is 4.05 × 2 × 0.5.
+ */
+export const MM_DIM_THRESHOLD = 20
+
+export function dimensionTrioToMetres(
+  length: number | null | undefined,
+  width: number | null | undefined,
+  height: number | null | undefined,
+): { length_m: number | null; width_m: number | null; height_m: number | null } {
+  const raw = [length, width, height]
+  const present = raw.filter((n): n is number => n != null && Number.isFinite(n) && n > 0)
+  const max = present.length ? Math.max(...present) : 0
+  const min = present.length ? Math.min(...present) : 0
+
+  const scale = (n: number | null | undefined): number | null => {
+    if (n == null || !Number.isFinite(n) || n <= 0) return null
+    if (max >= 1000) return n >= MM_DIM_THRESHOLD ? Math.round(n) / 1000 : n
+    if (min >= MM_DIM_THRESHOLD && max < 1000) return Math.round(n) / 100
+    if (n >= MM_DIM_THRESHOLD) return Math.round(n) / 1000
+    return n
+  }
+
+  return { length_m: scale(length), width_m: scale(width), height_m: scale(height) }
+}
+
+export function looksLikeMillimetres(n: number | null | undefined): boolean {
+  return n != null && Number.isFinite(n) && n >= MM_DIM_THRESHOLD
+}
+
 export function vehicleVolumeM3(vehicle: DisposalVehicle): number | null {
-  const l = vehicle.length_m
-  const w = vehicle.width_m
-  const h = vehicle.height_m
+  const { length_m: l, width_m: w, height_m: h } = dimensionTrioToMetres(
+    vehicle.length_m,
+    vehicle.width_m,
+    vehicle.height_m,
+  )
   if (l == null || w == null || h == null) return null
-  if (!Number.isFinite(l) || !Number.isFinite(w) || !Number.isFinite(h)) return null
-  if (l <= 0 || w <= 0 || h <= 0) return null
   return Math.round(l * w * h * 100) / 100
+}
+
+export function withMetreDimensions(vehicle: DisposalVehicle): DisposalVehicle {
+  return {
+    ...vehicle,
+    ...dimensionTrioToMetres(vehicle.length_m, vehicle.width_m, vehicle.height_m),
+  }
+}
+
+export function captureWithMetreDimensions(capture: DisposalManifestCapture): DisposalManifestCapture {
+  return {
+    loads: capture.loads.map(l => ({
+      ...l,
+      vehicles: l.vehicles.map(withMetreDimensions),
+    })),
+  }
 }
 
 export function loadVolumeM3(load: DisposalLoad): number | null {

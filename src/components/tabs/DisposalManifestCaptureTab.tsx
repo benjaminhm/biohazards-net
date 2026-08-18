@@ -29,6 +29,9 @@ import {
   formatM3,
   loadOriginLatLng,
   looksLikeCoordLabel,
+  looksLikeMillimetres,
+  dimensionTrioToMetres,
+  captureWithMetreDimensions,
   mergedDisposalManifestCapture,
   moveArrayItem,
   vehicleContentsLabel,
@@ -531,7 +534,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          assessment_data: { ...merged, disposal_manifest_capture: applyJobSiteToCapture(nextCapture, job) },
+          assessment_data: { ...merged, disposal_manifest_capture: captureWithMetreDimensions(applyJobSiteToCapture(nextCapture, job)) },
         }),
       })
       const data = (await res.json()) as { job?: Job; error?: string }
@@ -934,6 +937,8 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                 {load.vehicles.map((vehicle, vIndex) => {
                   const labels = photoLabels(vehicle.type)
                   const volM3 = vehicleVolumeM3(vehicle)
+                  const dimsM = dimensionTrioToMetres(vehicle.length_m, vehicle.width_m, vehicle.height_m)
+                  const tapeHint = looksLikeMillimetres(vehicle.length_m) || looksLikeMillimetres(vehicle.width_m) || looksLikeMillimetres(vehicle.height_m)
                   return (
                     <div
                       key={vehicle.id}
@@ -1032,7 +1037,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                           />
                         </div>
                         <div>
-                          <label style={LABEL}>Load measurements (m)</label>
+                          <label style={LABEL}>Load measurements (metres)</label>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
                             <div>
                               <label style={{ ...LABEL, fontSize: 10 }}>Length</label>
@@ -1046,7 +1051,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                                     length_m: e.target.value === '' ? null : Number(e.target.value),
                                   })
                                 }
-                                placeholder="L"
+                                placeholder="4.05"
                                 style={INPUT}
                               />
                             </div>
@@ -1062,7 +1067,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                                     width_m: e.target.value === '' ? null : Number(e.target.value),
                                   })
                                 }
-                                placeholder="W"
+                                placeholder="1.80"
                                 style={INPUT}
                               />
                             </div>
@@ -1078,13 +1083,18 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                                     height_m: e.target.value === '' ? null : Number(e.target.value),
                                   })
                                 }
-                                placeholder="H"
+                                placeholder="0.50"
                                 style={INPUT}
                               />
                             </div>
                           </div>
                           <div style={{ marginTop: 8, fontSize: 13, color: 'var(--text-muted)' }}>
                             Volume: {volM3 != null ? formatM3(volM3) : '—'}
+                            {tapeHint && (
+                              <span>
+                                {' '}· tape → {dimsM.length_m ?? '—'} × {dimsM.width_m ?? '—'} × {dimsM.height_m ?? '—'} m
+                              </span>
+                            )}
                           </div>
                         </div>
                         <div>
