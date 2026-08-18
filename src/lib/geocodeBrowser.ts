@@ -19,19 +19,13 @@ function readLatLng(loc: unknown): { lat: number; lng: number } | null {
 
 async function viaPlaces(query: string): Promise<{ lat: number; lng: number } | null> {
   try {
-    const lib = (await importLibrary('places')) as {
-      Place?: {
-        searchByText?: (req: Record<string, unknown>) => Promise<{ places?: { location?: unknown }[] }>
-      }
-    }
-    if (!lib.Place?.searchByText) return null
-    const { places } = await lib.Place.searchByText({
+    const { Place } = await importLibrary('places')
+    const { places } = await Place.searchByText({
       textQuery: query,
       fields: ['location', 'formattedAddress'],
       maxResultCount: 1,
-      includedRegionCodes: ['au'],
     })
-    return readLatLng(places?.[0]?.location)
+    return readLatLng(places[0]?.location ?? null)
   } catch {
     return null
   }
@@ -39,17 +33,10 @@ async function viaPlaces(query: string): Promise<{ lat: number; lng: number } | 
 
 async function viaGeocoder(query: string): Promise<{ lat: number; lng: number } | null> {
   try {
-    const lib = (await importLibrary('geocoding')) as {
-      Geocoder?: new () => {
-        geocode: (req: { address: string; region?: string }) => Promise<{
-          results?: { geometry?: { location?: unknown } }[]
-        }>
-      }
-    }
-    if (!lib.Geocoder) return null
-    const geocoder = new lib.Geocoder()
+    const { Geocoder } = await importLibrary('geocoding')
+    const geocoder = new Geocoder()
     const res = await geocoder.geocode({ address: query, region: 'AU' })
-    return readLatLng(res.results?.[0]?.geometry?.location)
+    return readLatLng(res.results[0]?.geometry?.location ?? null)
   } catch {
     return null
   }
