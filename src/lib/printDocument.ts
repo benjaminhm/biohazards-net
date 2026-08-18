@@ -32,7 +32,7 @@ import type {
 import { DOC_TYPE_LABELS } from './types'
 import { filterGroupedStages, groupPhotosByRoomAndStage, type RoomPhotoGroup } from './photoGroups'
 import { photosForComposedReports } from '@/lib/photosForComposedReports'
-import { docketStatusLabel, dimensionTrioToMetres, formatAud, formatKg, formatM3 } from '@/lib/disposalManifest'
+import { docketStatusLabel, dimensionTrioToMetres, formatAud, formatDistanceLegs, formatKg, formatM3 } from '@/lib/disposalManifest'
 import { SURFACE_LABELS } from '@/lib/areaSurfaces'
 import { effectiveAreaDimensions } from '@/lib/areaSubzones'
 import { OUTCOME_KIND_LABELS, groupRowsByKind, volumePricingSectionSubtotal, volumePricingSubtotal, customSectionSubtotal, customSectionRowsSum } from '@/lib/quoteSections'
@@ -1282,7 +1282,7 @@ function wdmLoadCards(c: WasteDisposalManifestContent): string {
       ['Volume', load.volume_m3 != null ? formatM3(load.volume_m3) : ''],
       ['Weight', load.weight_kg != null ? formatKg(load.weight_kg) : ''],
       ['Dump fee', load.dump_fee != null ? formatAud(load.dump_fee) : ''],
-      ['Distance', load.distance_km != null ? `${load.distance_km} km` : ''],
+      ['Distance', formatDistanceLegs(load.distance_out_km, load.distance_return_km) ?? (load.distance_km != null ? `${load.distance_km} km` : '')],
       ...(!vehicles.length
         ? [
             ['Contents', load.contents || ''] as [string, string],

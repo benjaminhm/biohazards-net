@@ -1602,7 +1602,10 @@ export interface DisposalLoad {
   dump_location_from_device: boolean
   weight_kg: number | null
   dump_fee: number | null
+  /** Billed total (out + return). */
   distance_km: number | null
+  distance_out_km: number | null
+  distance_return_km: number | null
   distance_from_geo: boolean
   facility: string
   notes: string
@@ -1654,6 +1657,8 @@ export interface WasteDisposalManifestLoadSnapshot {
   weight_kg: number | null
   dump_fee: number | null
   distance_km: number | null
+  distance_out_km?: number | null
+  distance_return_km?: number | null
   volume_m3?: number | null
   trailer_photo_url: string | null
   docket_photo_url: string | null

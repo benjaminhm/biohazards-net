@@ -67,16 +67,30 @@ async function drivingKmViaRoutes(
   return typeof meters === 'number' ? kmFromMeters(meters) : null
 }
 
-async function drivingKmViaMatrix(
+export type DrivingRoundTripKm = {
+  outKm: number | null
+  returnKm: number | null
+  km: number | null
+}
+
+function combineRoundTrip(outKm: number | null, returnKm: number | null): DrivingRoundTripKm | null {
+  if (outKm == null && returnKm == null) return null
+  const out = outKm ?? returnKm
+  const ret = returnKm ?? outKm
+  if (out == null || ret == null) return null
+  return { outKm: out, returnKm: ret, km: Math.round((out + ret) * 10) / 10 }
+}
+
+async function roundTripViaMatrix(
   key: string,
   originLat: number,
   originLng: number,
   destLat: number,
   destLng: number,
-): Promise<number | null> {
+): Promise<DrivingRoundTripKm | null> {
   const url = new URL('https://maps.googleapis.com/maps/api/distancematrix/json')
-  url.searchParams.set('origins', `${originLat},${originLng}`)
-  url.searchParams.set('destinations', `${destLat},${destLng}`)
+  url.searchParams.set('origins', `${originLat},${originLng}|${destLat},${destLng}`)
+  url.searchParams.set('destinations', `${originLat},${originLng}|${destLat},${destLng}`)
   url.searchParams.set('mode', 'driving')
   url.searchParams.set('units', 'metric')
   url.searchParams.set('region', 'au')
@@ -88,26 +102,48 @@ async function drivingKmViaMatrix(
     status?: string
     rows?: { elements?: { status?: string; distance?: { value?: number } }[] }[]
   }
-  const el = data.rows?.[0]?.elements?.[0]
-  if (data.status !== 'OK' || el?.status !== 'OK') return null
-  const meters = el.distance?.value
-  return typeof meters === 'number' ? kmFromMeters(meters) : null
+  if (data.status !== 'OK') return null
+  const outMeters = data.rows?.[0]?.elements?.[1]
+  const returnMeters = data.rows?.[1]?.elements?.[0]
+  const outKm = outMeters?.status === 'OK' && typeof outMeters.distance?.value === 'number'
+    ? kmFromMeters(outMeters.distance.value)
+    : null
+  const returnKm = returnMeters?.status === 'OK' && typeof returnMeters.distance?.value === 'number'
+    ? kmFromMeters(returnMeters.distance.value)
+    : null
+  return combineRoundTrip(outKm, returnKm)
 }
 
-/** Road km between two points. Null if the key is missing or Google returns no route. */
-export async function drivingDistanceKm(
+async function roundTripViaRoutes(
+  key: string,
   originLat: number,
   originLng: number,
   destLat: number,
   destLng: number,
-): Promise<number | null> {
+): Promise<DrivingRoundTripKm | null> {
+  const [outKm, returnKm] = await Promise.all([
+    drivingKmViaRoutes(key, originLat, originLng, destLat, destLng),
+    drivingKmViaRoutes(key, destLat, destLng, originLat, originLng),
+  ])
+  return combineRoundTrip(outKm, returnKm)
+}
+
+/** Pickup → facility and facility → pickup. `km` is the billed round trip. */
+export async function drivingRoundTripKm(
+  originLat: number,
+  originLng: number,
+  destLat: number,
+  destLng: number,
+): Promise<DrivingRoundTripKm> {
+  const empty: DrivingRoundTripKm = { outKm: null, returnKm: null, km: null }
   const key = mapsKey()
-  if (!key) return null
-  if (!isLatLng(originLat, originLng) || !isLatLng(destLat, destLng)) return null
+  if (!key) return empty
+  if (!isLatLng(originLat, originLng) || !isLatLng(destLat, destLng)) return empty
 
   return (
-    (await drivingKmViaRoutes(key, originLat, originLng, destLat, destLng)) ??
-    (await drivingKmViaMatrix(key, originLat, originLng, destLat, destLng))
+    (await roundTripViaMatrix(key, originLat, originLng, destLat, destLng)) ??
+    (await roundTripViaRoutes(key, originLat, originLng, destLat, destLng)) ??
+    empty
   )
 }
 

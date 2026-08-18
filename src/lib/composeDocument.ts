@@ -49,6 +49,7 @@ import {
   contentsLabel,
   dimensionTrioToMetres,
   formatAud,
+  formatDistanceLegs,
   formatM3,
   loadHasContent,
   loadVolumeM3,
@@ -883,6 +884,8 @@ function composeWdm(job: Job): ComposeDocumentResult {
       weight_kg: l.weight_kg,
       dump_fee: l.dump_fee,
       distance_km: l.distance_km,
+      distance_out_km: l.distance_out_km,
+      distance_return_km: l.distance_return_km,
       volume_m3: loadVolumeM3(l),
       trailer_photo_url: first?.photo_url || l.trailer_photo_url,
       docket_photo_url: l.docket_photo_url,
@@ -900,7 +903,8 @@ function composeWdm(job: Job): ComposeDocumentResult {
     .map((l, i) => {
       const from = l.location.trim()
       const to = (l.facility || l.dump_location).trim()
-      const km = l.distance_km != null ? `${l.distance_km} km` : ''
+      const km = formatDistanceLegs(l.distance_out_km, l.distance_return_km)
+        ?? (l.distance_km != null ? `${l.distance_km} km` : '')
       const parts = [`Load ${i + 1}`, km, from ? `from ${from}` : '', to ? `to ${to}` : ''].filter(Boolean)
       return parts.join(' — ')
     })

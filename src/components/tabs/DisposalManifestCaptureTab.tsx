@@ -23,6 +23,8 @@ import {
   contentsLabel,
   disposalManifestEqual,
   distanceFromSiteKm,
+  formatDistanceLegs,
+  geoRoundTripPatch,
   emptyDisposalLoad,
   emptyDisposalVehicle,
   formatAud,
@@ -410,7 +412,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
           location_lng: originLng,
           dump_lat: destLat,
           dump_lng: destLng,
-          ...(straight != null ? { distance_km: straight, distance_from_geo: true } : {}),
+          ...(straight != null ? geoRoundTripPatch(straight, straight) : {}),
         })
       }),
     }))
@@ -444,15 +446,21 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
     const straight = distanceFromSiteKm(originLat, originLng, destLat, destLng)
     if (straight == null || originLat == null || originLng == null || destLat == null || destLng == null) return
 
-    let km = straight
+    let trip = geoRoundTripPatch(straight, straight)
     try {
       const res = await fetch('/api/geocode/distance', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ originLat, originLng, destLat, destLng }),
       })
-      const data = (await res.json()) as { km?: number | null }
-      if (typeof data.km === 'number' && Number.isFinite(data.km) && data.km >= 0) km = data.km
+      const data = (await res.json()) as { km?: number | null; outKm?: number | null; returnKm?: number | null }
+      const outKm = typeof data.outKm === 'number' && Number.isFinite(data.outKm) ? data.outKm : null
+      const returnKm = typeof data.returnKm === 'number' && Number.isFinite(data.returnKm) ? data.returnKm : null
+      if (outKm != null || returnKm != null) {
+        trip = geoRoundTripPatch(outKm, returnKm)
+      } else if (typeof data.km === 'number' && Number.isFinite(data.km) && data.km >= 0) {
+        trip = geoRoundTripPatch(data.km, data.km)
+      }
     } catch {
       /* keep straight-line km */
     }
@@ -472,15 +480,20 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
             (l.dump_lat !== destLat || l.dump_lng !== destLng)
           ) return l
         }
-        if (!force && l.distance_km === km && l.distance_from_geo) return l
+        if (
+          !force &&
+          l.distance_km === trip.distance_km &&
+          l.distance_out_km === trip.distance_out_km &&
+          l.distance_return_km === trip.distance_return_km &&
+          l.distance_from_geo
+        ) return l
         return withMirrors({
           ...l,
           location_lat: force ? originLat : (l.location_lat ?? originLat ?? null),
           location_lng: force ? originLng : (l.location_lng ?? originLng ?? null),
           dump_lat: force ? destLat : (l.dump_lat ?? destLat ?? null),
           dump_lng: force ? destLng : (l.dump_lng ?? destLng ?? null),
-          distance_km: km,
-          distance_from_geo: true,
+          ...trip,
         })
       }),
     }))
@@ -520,7 +533,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
             dump_lng: lng,
             dump_location_from_photo: true,
             dump_location_from_device: fromDevice,
-            ...(allow && km != null ? { distance_km: km, distance_from_geo: true } : {}),
+            ...(allow && km != null ? geoRoundTripPatch(km, km) : {}),
           })
         }),
       }))
@@ -623,10 +636,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
           if (load.distance_km == null) {
             const origin = loadOriginLatLng(load, job)
             const km = distanceFromSiteKm(origin.lat, origin.lng, exif.lat, exif.lng)
-            if (km != null) {
-              next.distance_km = km
-              next.distance_from_geo = true
-            }
+            if (km != null) Object.assign(next, geoRoundTripPatch(km, km))
           }
         }
         return withMirrors(next)
@@ -1044,7 +1054,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                           location_lat: next.lat,
                           location_lng: next.lng,
                           location_from_photo: false,
-                          ...(allow && km != null ? { distance_km: km, distance_from_geo: true } : {}),
+                          ...(allow && km != null ? geoRoundTripPatch(km, km) : {}),
                         })
                         if (allow) {
                           void ensureTripDistance(load.id, {
@@ -1318,7 +1328,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                         dump_location_from_photo: false,
                         dump_location_from_device: false,
                         ...(allow && km != null
-                          ? { distance_km: km, distance_from_geo: true }
+                          ? geoRoundTripPatch(km, km)
                           : allow
                             ? { distance_from_geo: true }
                             : {}),
@@ -1336,7 +1346,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                 </div>
                 <div style={{ marginTop: 12 }}>
                   <label style={LABEL}>
-                    Distance pickup → facility (km)
+                    Distance (km)
                     <MetaChip show={load.distance_from_geo} label="From map" />
                   </label>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
@@ -1348,6 +1358,8 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                       onChange={e =>
                         patchLoad(load.id, {
                           distance_km: e.target.value === '' ? null : Number(e.target.value),
+                          distance_out_km: null,
+                          distance_return_km: null,
                           distance_from_geo: false,
                         })
                       }
@@ -1356,8 +1368,8 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                     />
                     <button
                       type="button"
-                      aria-label="Recalculate distance from pickup and drop-off"
-                      title="Recalculate from pickup and drop-off"
+                      aria-label="Recalculate round-trip distance from pickup and drop-off"
+                      title="Recalculate out and return from pickup and drop-off"
                       disabled={distanceBusyId === load.id || saving}
                       onClick={() => void reloadTripDistance(load.id)}
                       style={{
@@ -1373,6 +1385,11 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                       {distanceBusyId === load.id ? '…' : '↻'}
                     </button>
                   </div>
+                  {load.distance_from_geo && formatDistanceLegs(load.distance_out_km, load.distance_return_km) && (
+                    <div style={{ color: 'var(--muted)', fontSize: 12, marginTop: 6 }}>
+                      {formatDistanceLegs(load.distance_out_km, load.distance_return_km)}
+                    </div>
+                  )}
                   {distanceErrors[load.id] && (
                     <div style={{ color: '#F87171', fontSize: 12, marginTop: 6 }}>
                       {distanceErrors[load.id]}

@@ -83,6 +83,8 @@ export function emptyDisposalLoad(): DisposalLoad {
     weight_kg: null,
     dump_fee: null,
     distance_km: null,
+    distance_out_km: null,
+    distance_return_km: null,
     distance_from_geo: false,
     facility: '',
     notes: '',
@@ -258,6 +260,8 @@ function normalizeLoad(raw: unknown): DisposalLoad {
     weight_kg: numOrNull(o.weight_kg),
     dump_fee: numOrNull(o.dump_fee),
     distance_km: numOrNull(o.distance_km),
+    distance_out_km: numOrNull(o.distance_out_km),
+    distance_return_km: numOrNull(o.distance_return_km),
     distance_from_geo: bool(o.distance_from_geo),
     facility: str(o.facility),
     notes: str(o.notes),
@@ -382,6 +386,45 @@ export function haversineKm(lat1: number, lng1: number, lat2: number, lng2: numb
     Math.sin(dLat / 2) ** 2 +
     Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2
   return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x))
+}
+
+/** Combine outbound and return legs. A missing leg copies the other so both can display. */
+export function roundTripKm(
+  outKm: number | null,
+  returnKm: number | null,
+): { distance_out_km: number | null; distance_return_km: number | null; distance_km: number | null } {
+  if (outKm == null && returnKm == null) {
+    return { distance_out_km: null, distance_return_km: null, distance_km: null }
+  }
+  const out = outKm ?? returnKm
+  const ret = returnKm ?? outKm
+  if (out == null || ret == null) {
+    return { distance_out_km: null, distance_return_km: null, distance_km: null }
+  }
+  return {
+    distance_out_km: out,
+    distance_return_km: ret,
+    distance_km: Math.round((out + ret) * 10) / 10,
+  }
+}
+
+/** e.g. "10.3 km out / 20.6 km return" — return is the round-trip total. */
+export function formatDistanceLegs(
+  outKm: number | null | undefined,
+  returnKm: number | null | undefined,
+): string | null {
+  if (outKm == null && returnKm == null) return null
+  const total =
+    outKm != null && returnKm != null
+      ? Math.round((outKm + returnKm) * 10) / 10
+      : (outKm ?? returnKm ?? null)
+  const out = outKm != null ? `${outKm} km out` : '— km out'
+  const ret = total != null ? `${total} km return` : '— km return'
+  return `${out} / ${ret}`
+}
+
+export function geoRoundTripPatch(outKm: number | null, returnKm: number | null) {
+  return { ...roundTripKm(outKm, returnKm), distance_from_geo: true as const }
 }
 
 /** Pickup → dump when both coordinates exist. Returns km rounded to 1 decimal, or null. */
@@ -543,7 +586,8 @@ export function formatWasteDisposalNarrative(capture: DisposalManifestCapture): 
       vehicleBits.join('; ') || contentsLabel(l) || 'Waste',
       l.weight_kg != null ? formatKg(l.weight_kg) : null,
       l.dump_fee != null ? formatAud(l.dump_fee) : null,
-      l.distance_km != null ? `${l.distance_km} km` : null,
+      formatDistanceLegs(l.distance_out_km, l.distance_return_km)
+        ?? (l.distance_km != null ? `${l.distance_km} km` : null),
       l.dump_date.trim()
         ? `dumped ${l.dump_date}${l.dump_time.trim() ? ` ${l.dump_time}` : ''}`
         : null,
