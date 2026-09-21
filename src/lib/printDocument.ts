@@ -33,6 +33,7 @@ import { DOC_TYPE_LABELS } from './types'
 import { filterGroupedStages, groupPhotosByRoomAndStage, type RoomPhotoGroup } from './photoGroups'
 import { photosForComposedReports } from '@/lib/photosForComposedReports'
 import { docketStatusLabel, dimensionTrioToMetres, formatAud, formatDistanceLegs, formatKg, formatM3 } from '@/lib/disposalManifest'
+import { isPdfUrl } from '@/lib/pdfDocket'
 import { SURFACE_LABELS } from '@/lib/areaSurfaces'
 import { effectiveAreaDimensions } from '@/lib/areaSubzones'
 import { OUTCOME_KIND_LABELS, groupRowsByKind, volumePricingSectionSubtotal, volumePricingSubtotal, customSectionSubtotal, customSectionRowsSum } from '@/lib/quoteSections'
@@ -1198,6 +1199,9 @@ function wasteTable(items: WasteItem[]): string {
 }
 
 function wdmPhotoCard(url: string, cap: string): string {
+  if (isPdfUrl(url)) {
+    return `<div class="photo-card"><div class="photo-meta"><div class="photo-cap">${esc(cap)} (PDF)</div><div class="body-text"><a href="${esc(url)}">Open docket PDF</a></div></div></div>`
+  }
   return `<div class="photo-card"><img src="${esc(url)}" alt="${esc(cap)}"><div class="photo-meta"><div class="photo-cap">${esc(cap)}</div></div></div>`
 }
 
@@ -1269,6 +1273,9 @@ function wdmLoadCards(c: WasteDisposalManifestContent): string {
           'docket',
         )
       : ''
+    const docketPdf = load.docket_pdf_url && !isPdfUrl(load.docket_photo_url || '')
+      ? `<div class="body-text" style="margin-top:6px"><a href="${esc(load.docket_pdf_url)}">Original skip docket PDF</a></div>`
+      : ''
     const legacyPickup = !vehicles.length && load.trailer_photo_url
       ? wdmPhotoGrid([{ url: load.trailer_photo_url, cap: 'Pickup' }])
       : ''
@@ -1297,7 +1304,7 @@ function wdmLoadCards(c: WasteDisposalManifestContent): string {
         ${trip}
         ${pickupBlocks || (legacyPickup ? `<div class="label wdm-block-title">Pickup</div>${legacyPickup}` : '')}
         ${dropoffGrid ? `<div class="label wdm-block-title">Drop-off</div>${dropoffGrid}` : ''}
-        ${docketGrid ? `<div class="label wdm-block-title">Docket</div>${docketGrid}` : ''}
+        ${docketGrid || docketPdf ? `<div class="label wdm-block-title">Docket</div>${docketGrid}${docketPdf}` : ''}
       </div>`
   }).join('')
 }

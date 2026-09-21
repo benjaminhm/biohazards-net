@@ -898,6 +898,7 @@ function composeWdm(job: Job): ComposeDocumentResult {
       trailer_photo_url: firstPhoto,
       docket_photo_url: photoInCompose(l.docket_include_in_compose) ? l.docket_photo_url : null,
       docket_photo_note: l.docket_photo_note?.trim() || undefined,
+      docket_pdf_url: photoInCompose(l.docket_include_in_compose) ? (l.docket_pdf_url || null) : null,
       facility_photo_urls: (l.facility_photos ?? []).filter(p => photoInCompose(p.include_in_compose)).map(p => p.url),
       facility_photos: (l.facility_photos ?? []).filter(p => photoInCompose(p.include_in_compose)).map(p => ({ url: p.url, note: p.note?.trim() || undefined })),
       docket_unavailable: Boolean(l.docket_skipped && !l.docket_photo_url),

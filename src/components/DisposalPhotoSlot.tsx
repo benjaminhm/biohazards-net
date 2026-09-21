@@ -17,6 +17,7 @@ import {
   type GalleryWhen,
   type PhotoExif,
 } from '@/lib/photoExif'
+import { isPdfFile, isPdfUrl, rasterizePdfFirstPage, safePdfFileName } from '@/lib/pdfDocket'
 
 const ZOOM_BTN: CSSProperties = {
   minWidth: 44,
@@ -307,15 +308,18 @@ interface Props {
   skipLabel: string
   cameraLabel: string
   galleryLabel: string
-  onUploaded: (photo: Photo, exif: PhotoExif) => void
+  onUploaded: (photo: Photo, exif: PhotoExif, pdf?: Photo) => void
   /** Remaining gallery files after the first fills this slot (extras / facility). */
-  onOverflow?: (photo: Photo, exif: PhotoExif) => void
+  onOverflow?: (photo: Photo, exif: PhotoExif, pdf?: Photo) => void
   onSkip: () => void
   onClear: () => void
   hideSkip?: boolean
   note?: string
   onNoteChange?: (note: string) => void
   placeContext?: GalleryPlaceContext
+  /** Docket slot: skip-company PDFs are accepted and page 1 is stored as a JPEG. */
+  allowPdf?: boolean
+  pdfUrl?: string | null
 }
 
 async function compressImage(file: File, maxDim = 1920, quality = 0.82): Promise<Blob> {
@@ -374,6 +378,8 @@ export default function DisposalPhotoSlot({
   note,
   onNoteChange,
   placeContext,
+  allowPdf = false,
+  pdfUrl = null,
 }: Props) {
   const cameraRef = useRef<HTMLInputElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -392,11 +398,10 @@ export default function DisposalPhotoSlot({
     if (fileRef.current) fileRef.current.value = ''
   }
 
-  async function uploadOne(file: File, exif: PhotoExif, overflow: boolean) {
-    const compressed = await compressImage(file)
+  async function postFile(blob: Blob, filename: string, exif: PhotoExif): Promise<Photo> {
     const fd = new FormData()
     fd.append('job_id', jobId)
-    fd.append('file', compressed, 'upload.jpg')
+    fd.append('file', blob, filename)
     fd.append('caption', caption)
     fd.append('area_ref', areaRef)
     fd.append('category', 'during')
@@ -410,8 +415,22 @@ export default function DisposalPhotoSlot({
     const saveRes = await fetch('/api/photos/upload', { method: 'POST', body: fd })
     const saveJson = (await saveRes.json()) as { photo?: Photo; error?: string }
     if (!saveRes.ok || !saveJson.photo) throw new Error(saveJson.error || `Upload failed (${saveRes.status})`)
-    if (overflow && onOverflow) onOverflow(saveJson.photo, exif)
-    else onUploaded(saveJson.photo, exif)
+    return saveJson.photo
+  }
+
+  async function uploadOne(file: File, exif: PhotoExif, overflow: boolean) {
+    let pdf: Photo | undefined
+    let image: Blob
+    if (isPdfFile(file)) {
+      if (!allowPdf) throw new Error('This slot only accepts photos')
+      pdf = await postFile(file, safePdfFileName(file.name), exif)
+      image = await rasterizePdfFirstPage(file)
+    } else {
+      image = await compressImage(file)
+    }
+    const photo = await postFile(image, 'upload.jpg', exif)
+    if (overflow && onOverflow) onOverflow(photo, exif, pdf)
+    else onUploaded(photo, exif, pdf)
   }
 
   async function uploadBatch(items: { file: File; exif: PhotoExif }[]) {
@@ -463,8 +482,20 @@ export default function DisposalPhotoSlot({
   async function handleGalleryFiles(files: File[]) {
     if (!files.length) return
     setError('')
+    const pdfs = files.filter(isPdfFile)
+    const images = files.filter(file => !isPdfFile(file))
+    if (pdfs.length && !allowPdf) {
+      setError('This slot only accepts photos')
+      resetPickers()
+      return
+    }
+    const skipped: PhotoExif = { takenAt: null, date: null, lat: null, lng: null, geoSource: 'skipped' }
+    if (pdfs.length) {
+      await uploadBatch(pdfs.map(file => ({ file, exif: skipped })))
+    }
+    if (!images.length) return
     const items: { file: File; exif: PhotoExif }[] = []
-    for (const file of files) {
+    for (const file of images) {
       items.push({ file, exif: await readPhotoExif(file) })
     }
     const timeMissing = items.some(item => !photoHasTime(item.exif))
@@ -510,6 +541,7 @@ export default function DisposalPhotoSlot({
   }
 
   if (photoUrl) {
+    const previewIsPdf = isPdfUrl(photoUrl)
     return (
       <div>
         <div
@@ -521,8 +553,27 @@ export default function DisposalPhotoSlot({
             background: 'var(--surface-2)',
           }}
         >
-          <ZoomablePhoto src={photoUrl} alt={caption} maxHeight={280} />
+          {previewIsPdf ? (
+            <div style={{ padding: 16 }}>
+              <div style={{ fontWeight: 700, marginBottom: 8 }}>Skip docket PDF</div>
+              <a href={photoUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', fontWeight: 600 }}>
+                Open PDF
+              </a>
+            </div>
+          ) : (
+            <ZoomablePhoto src={photoUrl} alt={caption} maxHeight={280} />
+          )}
         </div>
+        {pdfUrl && !previewIsPdf && (
+          <a
+            href={pdfUrl}
+            target="_blank"
+            rel="noreferrer"
+            style={{ display: 'inline-block', marginTop: 8, fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}
+          >
+            Open original PDF
+          </a>
+        )}
         {onNoteChange && (
           <PhotoNoteField value={note ?? ''} onChange={onNoteChange} />
         )}
@@ -573,7 +624,7 @@ export default function DisposalPhotoSlot({
       <input
         type="file"
         ref={fileRef}
-        accept="image/*"
+        accept={allowPdf ? 'image/*,application/pdf,.pdf' : 'image/*'}
         multiple
         onChange={onGallerySelect}
         style={{ display: 'none' }}
@@ -599,7 +650,9 @@ export default function DisposalPhotoSlot({
         </button>
       </div>
       <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: hideSkip ? 0 : 8 }}>
-        You’ll be asked which address each photo belongs to.
+        {allowPdf
+          ? 'Photo or skip-company PDF. You’ll be asked which address photos belong to.'
+          : 'You’ll be asked which address each photo belongs to.'}
       </div>
       {!hideSkip && (
       <button

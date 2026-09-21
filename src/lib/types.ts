@@ -1592,6 +1592,8 @@ export interface DisposalLoad {
   docket_photo_id: string | null
   docket_photo_url: string | null
   docket_photo_note: string
+  /** Original skip-company PDF when the docket was uploaded as a PDF. */
+  docket_pdf_url?: string | null
   /** When false, the docket photo is omitted from the composed CDR. Missing means include. */
   docket_include_in_compose?: boolean
   docket_lost: boolean
@@ -1669,6 +1671,7 @@ export interface WasteDisposalManifestLoadSnapshot {
   trailer_photo_url: string | null
   docket_photo_url: string | null
   docket_photo_note?: string
+  docket_pdf_url?: string | null
   facility_photo_urls?: string[]
   facility_photos?: { url: string; note?: string }[]
   docket_unavailable?: boolean

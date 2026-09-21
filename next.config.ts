@@ -6,7 +6,7 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: path.join(__dirname),
   },
-  transpilePackages: ['@react-pdf/renderer'],
+  transpilePackages: ['@react-pdf/renderer', 'pdfjs-dist'],
   images: {
     remotePatterns: [
       {

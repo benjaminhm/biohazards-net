@@ -60,13 +60,25 @@ export async function POST(req: Request) {
     if (jobErr) throw jobErr
     if (!job) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
 
-    const name = file instanceof File && file.name ? file.name : 'upload.jpg'
-    const ext = (name.split('.').pop() ?? 'jpg').replace(/[^a-z0-9]/gi, '').slice(0, 8) || 'jpg'
+    const name = file instanceof File && file.name ? file.name : 'upload.bin'
+    const lowerName = name.toLowerCase()
+    const isPdf = (file instanceof File && file.type === 'application/pdf') || lowerName.endsWith('.pdf')
+    const isImage = file instanceof File && typeof file.type === 'string' && file.type.startsWith('image/')
+    if (!isPdf && !isImage && !/\.(jpe?g|png|webp|gif|heic)$/i.test(lowerName)) {
+      return NextResponse.json({ error: 'Only photos or PDFs can be uploaded' }, { status: 400 })
+    }
+    const ext = (name.split('.').pop() ?? (isPdf ? 'pdf' : 'jpg')).replace(/[^a-z0-9]/gi, '').slice(0, 8)
+      || (isPdf ? 'pdf' : 'jpg')
     const path = `${jobId}/${Date.now()}.${ext}`
 
     const buf = Buffer.from(await file.arrayBuffer())
-    const contentType =
-      file instanceof File && file.type && file.type.startsWith('image/')
+    if (buf.byteLength > 15 * 1024 * 1024) {
+      return NextResponse.json({ error: 'File is too large (max 15 MB)' }, { status: 400 })
+    }
+
+    const contentType = isPdf
+      ? 'application/pdf'
+      : isImage
         ? file.type
         : 'image/jpeg'
 

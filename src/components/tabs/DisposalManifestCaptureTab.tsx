@@ -632,7 +632,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
     }
   }
 
-  function applyDocketExif(id: string, photo: Photo, exif: PhotoExif) {
+  function applyDocketExif(id: string, photo: Photo, exif: PhotoExif, pdf?: Photo) {
     setCapture(prev => ({
       loads: prev.loads.map(load => {
         if (load.id !== id) return load
@@ -644,6 +644,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
           docket_photo_id: photo.id,
           docket_photo_url: photo.file_url,
           docket_photo_note: load.docket_photo_note?.trim() ? load.docket_photo_note : (exif.placeNote ?? ''),
+          docket_pdf_url: pdf?.file_url ?? load.docket_pdf_url ?? null,
           docket_include_in_compose: true,
         }
         if (!load.dump_date.trim() && (exif.date || timeFromTakenAt(exif.takenAt))) {
@@ -672,7 +673,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
       }),
     }))
     touch()
-    onPhotosUpdate([photo, ...photos])
+    onPhotosUpdate(pdf ? [pdf, photo, ...photos] : [photo, ...photos])
     const geoOk = exif.geoSource === 'dump'
     if (geoOk && exif.lat != null && exif.lng != null) {
       void fillDumpAddressFromGps(id, exif.lat, exif.lng, Boolean(exif.geoFromDevice))
@@ -1504,13 +1505,15 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                       areaRef={`Disposal load ${index + 1} — docket`}
                       caption={`Load ${index + 1} dump docket`}
                       photoUrl={load.docket_photo_url}
+                      pdfUrl={load.docket_pdf_url}
+                      allowPdf
                       skipped={false}
                       hideSkip
                       skipLabel=""
                       cameraLabel="📷 Docket"
-                      galleryLabel="🖼 Gallery"
+                      galleryLabel="🖼 File"
                       placeContext={galleryPlaceFor(job, load, 'dump')}
-                      onUploaded={(photo, exif) => applyDocketExif(load.id, photo, exif)}
+                      onUploaded={(photo, exif, pdf) => applyDocketExif(load.id, photo, exif, pdf)}
                       onOverflow={(photo, exif) => addFacilityPhoto(load.id, photo, exif)}
                       note={load.docket_photo_note}
                       onNoteChange={value => patchLoad(load.id, { docket_photo_note: value })}
@@ -1522,6 +1525,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                           recycling: false,
                           docket_photo_id: null,
                           docket_photo_url: null,
+                          docket_pdf_url: null,
                           docket_photo_note: '',
                           docket_include_in_compose: true,
                           dump_location_from_photo: false,

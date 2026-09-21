@@ -70,6 +70,7 @@ export function emptyDisposalLoad(): DisposalLoad {
     docket_photo_id: null,
     docket_photo_url: null,
     docket_photo_note: '',
+    docket_pdf_url: null,
     docket_include_in_compose: true,
     docket_lost: false,
     recycling: false,
@@ -263,6 +264,7 @@ function normalizeLoad(raw: unknown): DisposalLoad {
     docket_photo_id: str(o.docket_photo_id) || null,
     docket_photo_url: str(o.docket_photo_url) || null,
     docket_photo_note: str(o.docket_photo_note),
+    docket_pdf_url: str(o.docket_pdf_url) || null,
     docket_include_in_compose: boolDefaultTrue(o.docket_include_in_compose),
     docket_lost: bool(o.docket_lost),
     recycling: bool(o.recycling),
@@ -555,6 +557,7 @@ export function loadHasContent(load: DisposalLoad): boolean {
     load.dump_time.trim() ||
     load.trailer_photo_url ||
     load.docket_photo_url ||
+    load.docket_pdf_url ||
     load.docket_skipped ||
     load.docket_lost ||
     load.recycling ||
