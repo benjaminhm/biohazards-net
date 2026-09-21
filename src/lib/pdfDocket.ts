@@ -43,7 +43,7 @@ export async function rasterizePdfFirstPage(file: File): Promise<Blob> {
   }
   try {
     const pdfjs = await import('pdfjs-dist')
-    pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
+    pdfjs.GlobalWorkerOptions.workerSrc = new URL('/pdf.worker.min.mjs', window.location.origin).href
     const data = new Uint8Array(await file.arrayBuffer())
     const pdf = await pdfjs.getDocument({ data }).promise
     const page = await pdf.getPage(1)
@@ -63,4 +63,37 @@ export async function rasterizePdfFirstPage(file: File): Promise<Blob> {
     if (err instanceof Error && err.message.includes('too large')) throw err
     return pdfPlaceholderJpeg()
   }
+}
+
+async function parseJson(res: Response): Promise<{ error?: string; signedUrl?: string; publicUrl?: string }> {
+  const text = await res.text()
+  try {
+    return JSON.parse(text) as { error?: string; signedUrl?: string; publicUrl?: string }
+  } catch {
+    if (res.status === 413) throw new Error('File is too large to upload through the app')
+    throw new Error(res.ok ? 'Upload failed' : `Upload failed (${res.status})`)
+  }
+}
+
+/** Store the original skip docket on company-assets via a signed URL (bypasses Vercel body limit). */
+export async function uploadOriginalPdf(jobId: string, file: File): Promise<string> {
+  if (file.size > MAX_PDF_BYTES) {
+    throw new Error('PDF is too large (max 15 MB)')
+  }
+  const signRes = await fetch('/api/photos/docket-pdf-url', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jobId }),
+  })
+  const signJson = await parseJson(signRes)
+  if (!signRes.ok || !signJson.signedUrl || !signJson.publicUrl) {
+    throw new Error(signJson.error || 'Could not prepare PDF upload')
+  }
+  const put = await fetch(signJson.signedUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/pdf' },
+    body: file,
+  })
+  if (!put.ok) throw new Error(`Could not store original PDF (${put.status})`)
+  return signJson.publicUrl
 }

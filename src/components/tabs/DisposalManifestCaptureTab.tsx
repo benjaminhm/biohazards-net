@@ -632,7 +632,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
     }
   }
 
-  function applyDocketExif(id: string, photo: Photo, exif: PhotoExif, pdf?: Photo) {
+  function applyDocketExif(id: string, photo: Photo, exif: PhotoExif, pdf?: { file_url: string }) {
     setCapture(prev => ({
       loads: prev.loads.map(load => {
         if (load.id !== id) return load

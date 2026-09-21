@@ -17,7 +17,7 @@ import {
   type GalleryWhen,
   type PhotoExif,
 } from '@/lib/photoExif'
-import { isPdfFile, isPdfUrl, rasterizePdfFirstPage, safePdfFileName } from '@/lib/pdfDocket'
+import { isPdfFile, isPdfUrl, rasterizePdfFirstPage, uploadOriginalPdf } from '@/lib/pdfDocket'
 
 const ZOOM_BTN: CSSProperties = {
   minWidth: 44,
@@ -308,9 +308,9 @@ interface Props {
   skipLabel: string
   cameraLabel: string
   galleryLabel: string
-  onUploaded: (photo: Photo, exif: PhotoExif, pdf?: Photo) => void
+  onUploaded: (photo: Photo, exif: PhotoExif, pdf?: { file_url: string }) => void
   /** Remaining gallery files after the first fills this slot (extras / facility). */
-  onOverflow?: (photo: Photo, exif: PhotoExif, pdf?: Photo) => void
+  onOverflow?: (photo: Photo, exif: PhotoExif, pdf?: { file_url: string }) => void
   onSkip: () => void
   onClear: () => void
   hideSkip?: boolean
@@ -394,8 +394,12 @@ export default function DisposalPhotoSlot({
   const [needTime, setNeedTime] = useState(false)
 
   function resetPickers() {
-    if (cameraRef.current) cameraRef.current.value = ''
-    if (fileRef.current) fileRef.current.value = ''
+    try {
+      if (cameraRef.current) cameraRef.current.value = ''
+      if (fileRef.current) fileRef.current.value = ''
+    } catch {
+      /* Safari can throw "string did not match the expected pattern" when clearing file inputs */
+    }
   }
 
   async function postFile(blob: Blob, filename: string, exif: PhotoExif): Promise<Photo> {
@@ -413,22 +417,34 @@ export default function DisposalPhotoSlot({
       fd.append('location_label', exif.placeNote || formatCoordLabel(exif.lat, exif.lng))
     }
     const saveRes = await fetch('/api/photos/upload', { method: 'POST', body: fd })
-    const saveJson = (await saveRes.json()) as { photo?: Photo; error?: string }
+    const text = await saveRes.text()
+    let saveJson: { photo?: Photo; error?: string }
+    try {
+      saveJson = JSON.parse(text) as { photo?: Photo; error?: string }
+    } catch {
+      throw new Error(saveRes.status === 413 ? 'File is too large to upload' : `Upload failed (${saveRes.status})`)
+    }
     if (!saveRes.ok || !saveJson.photo) throw new Error(saveJson.error || `Upload failed (${saveRes.status})`)
     return saveJson.photo
   }
 
   async function uploadOne(file: File, exif: PhotoExif, overflow: boolean) {
-    let pdf: Photo | undefined
+    let pdf: { file_url: string } | undefined
     let image: Blob
     if (isPdfFile(file)) {
       if (!allowPdf) throw new Error('This slot only accepts photos')
-      pdf = await postFile(file, safePdfFileName(file.name), exif)
       image = await rasterizePdfFirstPage(file)
     } else {
       image = await compressImage(file)
     }
     const photo = await postFile(image, 'upload.jpg', exif)
+    if (isPdfFile(file)) {
+      try {
+        pdf = { file_url: await uploadOriginalPdf(jobId, file) }
+      } catch {
+        pdf = undefined
+      }
+    }
     if (overflow && onOverflow) onOverflow(photo, exif, pdf)
     else onUploaded(photo, exif, pdf)
   }
@@ -624,7 +640,7 @@ export default function DisposalPhotoSlot({
       <input
         type="file"
         ref={fileRef}
-        accept={allowPdf ? 'image/*,application/pdf,.pdf' : 'image/*'}
+        accept={allowPdf ? '.pdf,.jpg,.jpeg,.png,.webp,.heic' : 'image/*'}
         multiple
         onChange={onGallerySelect}
         style={{ display: 'none' }}

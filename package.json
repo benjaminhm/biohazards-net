@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "postinstall": "cp node_modules/pdfjs-dist/build/pdf.worker.min.mjs public/pdf.worker.min.mjs",
     "migrate:phones": "npx tsx scripts/migrate-phones-to-e164.ts"
   },
   "dependencies": {

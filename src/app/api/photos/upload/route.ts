@@ -3,6 +3,8 @@
  *
  * Browser → signed Supabase URL PUT is brittle (multipart shape, CORS). This route
  * accepts the compressed image from the client and uploads with storage.upload().
+ * Skip-company PDFs go through /api/photos/docket-pdf-url (direct storage PUT)
+ * so they are not capped by the Vercel function body limit.
  */
 import { NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
@@ -60,25 +62,23 @@ export async function POST(req: Request) {
     if (jobErr) throw jobErr
     if (!job) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
 
-    const name = file instanceof File && file.name ? file.name : 'upload.bin'
+    const name = file instanceof File && file.name ? file.name : 'upload.jpg'
     const lowerName = name.toLowerCase()
-    const isPdf = (file instanceof File && file.type === 'application/pdf') || lowerName.endsWith('.pdf')
-    const isImage = file instanceof File && typeof file.type === 'string' && file.type.startsWith('image/')
-    if (!isPdf && !isImage && !/\.(jpe?g|png|webp|gif|heic)$/i.test(lowerName)) {
-      return NextResponse.json({ error: 'Only photos or PDFs can be uploaded' }, { status: 400 })
+    if (lowerName.endsWith('.pdf') || (file instanceof File && file.type === 'application/pdf')) {
+      return NextResponse.json(
+        { error: 'PDFs must be uploaded as a docket file, not a photo' },
+        { status: 400 },
+      )
     }
-    const ext = (name.split('.').pop() ?? (isPdf ? 'pdf' : 'jpg')).replace(/[^a-z0-9]/gi, '').slice(0, 8)
-      || (isPdf ? 'pdf' : 'jpg')
+    const ext = (name.split('.').pop() ?? 'jpg').replace(/[^a-z0-9]/gi, '').slice(0, 8) || 'jpg'
     const path = `${jobId}/${Date.now()}.${ext}`
 
     const buf = Buffer.from(await file.arrayBuffer())
-    if (buf.byteLength > 15 * 1024 * 1024) {
-      return NextResponse.json({ error: 'File is too large (max 15 MB)' }, { status: 400 })
+    if (buf.byteLength > 8 * 1024 * 1024) {
+      return NextResponse.json({ error: 'Photo is too large (max 8 MB)' }, { status: 400 })
     }
-
-    const contentType = isPdf
-      ? 'application/pdf'
-      : isImage
+    const contentType =
+      file instanceof File && file.type && file.type.startsWith('image/')
         ? file.type
         : 'image/jpeg'
 
