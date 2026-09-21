@@ -1,6 +1,7 @@
 /*
  * Execute-phase Contents Disposal Record: one card per dump trip.
- * Vehicles (trailer / ute / skip) with size + L×W×H, then a shared weighbridge docket.
+ * Vehicles (trailer / ute / skip) with size + L×W×H. Skip uses price of skip;
+ * trailer/ute uses a shared weighbridge dump fee.
  */
 'use client'
 
@@ -30,7 +31,9 @@ import {
   formatAud,
   formatKg,
   formatM3,
+  loadHasSkipVehicle,
   loadOriginLatLng,
+  loadSkipOnly,
   looksLikeCoordLabel,
   looksLikeMillimetres,
   dimensionTrioToMetres,
@@ -38,6 +41,7 @@ import {
   mergedDisposalManifestCapture,
   moveArrayItem,
   photoInCompose,
+  reconcileSkipPricing,
   vehicleContentsLabel,
   vehicleTypeLabel,
   vehicleVolumeM3,
@@ -582,10 +586,11 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
     setCapture(prev => ({
       loads: prev.loads.map(l => {
         if (l.id !== loadId) return l
-        return withMirrors({
+        const next = withMirrors({
           ...l,
           vehicles: l.vehicles.map(v => (v.id === vehicleId ? { ...v, ...patch } : v)),
         })
+        return patch.type !== undefined ? reconcileSkipPricing(next) : next
       }),
     }))
     touch()
@@ -673,7 +678,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
       }),
     }))
     touch()
-    onPhotosUpdate(pdf ? [pdf, photo, ...photos] : [photo, ...photos])
+    onPhotosUpdate([photo, ...photos])
     const geoOk = exif.geoSource === 'dump'
     if (geoOk && exif.lat != null && exif.lng != null) {
       void fillDumpAddressFromGps(id, exif.lat, exif.lng, Boolean(exif.geoFromDevice))
@@ -936,7 +941,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
     <div style={{ maxWidth: 720, paddingBottom: 120 }}>
       <p style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.55, marginBottom: 16 }}>
         One card per dump trip. Record what left the site, where it went, and the
-        dump cost. Photos and the weighbridge docket are the proof for the client.
+        dump fee or skip cost. Photos and the docket are the proof for the client.
       </p>
 
       {capture.loads.map((load, index) => {
@@ -944,11 +949,19 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
         const typeBits = load.vehicles.map(v => vehicleTypeLabel(v.type)).filter(Boolean)
         const vol = load.vehicles.reduce((n, v) => n + (vehicleVolumeM3(v) ?? 0), 0)
         const volRecorded = load.vehicles.some(v => vehicleVolumeM3(v) != null)
+        const skipOnly = loadSkipOnly(load)
+        const hasSkip = loadHasSkipVehicle(load)
+        const skipCostSum = load.vehicles.reduce(
+          (n, v) => n + (v.type === 'skip' && v.skip_cost != null ? v.skip_cost : 0),
+          0,
+        )
+        const skipCostRecorded = load.vehicles.some(v => v.type === 'skip' && v.skip_cost != null)
         const titleBits = [
           typeBits.length ? typeBits.join(' + ') : null,
           contentsLabel(load) || null,
           volRecorded ? formatM3(Math.round(vol * 100) / 100) : null,
           load.weight_kg != null ? formatKg(load.weight_kg) : null,
+          skipCostRecorded ? formatAud(Math.round(skipCostSum * 100) / 100) : null,
         ].filter(Boolean)
         const docketOpen = anyVehicleReady(load)
         return (
@@ -1240,6 +1253,24 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                             style={INPUT}
                           />
                         </div>
+                        {vehicle.type === 'skip' && (
+                          <div>
+                            <label style={LABEL}>Price of skip ($)</label>
+                            <input
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              value={vehicle.skip_cost ?? ''}
+                              onChange={e =>
+                                patchVehicle(load.id, vehicle.id, {
+                                  skip_cost: e.target.value === '' ? null : Number(e.target.value),
+                                })
+                              }
+                              placeholder="0.00"
+                              style={INPUT}
+                            />
+                          </div>
+                        )}
                         <div>
                           <label style={LABEL}>Load measurements (metres)</label>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
@@ -1374,17 +1405,17 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                   + Add vehicle
                 </button>
 
-                <div style={{ ...LABEL, marginTop: 22 }}>Drop-off</div>
+                <div style={{ ...LABEL, marginTop: 22 }}>{skipOnly ? 'Collection' : 'Drop-off'}</div>
                 <div>
                   <label style={LABEL}>
-                    Facility / dump location
+                    {skipOnly ? 'Skip company / facility' : 'Facility / dump location'}
                     <MetaChip show={load.dump_location_from_photo} fromDevice={load.dump_location_from_device} />
                   </label>
                   <AddressAutocomplete
                     value={load.facility || load.dump_location}
                     lat={load.dump_lat}
                     lng={load.dump_lng}
-                    placeholder="Tip / facility name or address"
+                    placeholder={skipOnly ? 'Skip company or depot' : 'Tip / facility name or address'}
                     style={INPUT}
                     onChange={next => {
                       const origin = loadOriginLatLng(load, job)
@@ -1467,7 +1498,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                   )}
                 </div>
                 <div style={{ marginTop: 12 }}>
-                  <label style={LABEL}>Drop-off photos</label>
+                  <label style={LABEL}>{skipOnly ? 'Collection photos' : 'Drop-off photos'}</label>
                   {((load.facility_photos ?? []).length > 0) && (
                     <PhotoReorderGrid
                       photos={load.facility_photos ?? []}
@@ -1486,7 +1517,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                     skipped={false}
                     skipLabel=""
                     hideSkip
-                    cameraLabel="📷 Drop-off"
+                    cameraLabel={skipOnly ? '📷 Depot' : '📷 Drop-off'}
                     galleryLabel="🖼 Gallery"
                     placeContext={galleryPlaceFor(job, load, 'dump')}
                     onUploaded={(photo, exif) => addFacilityPhoto(load.id, photo, exif)}
@@ -1613,7 +1644,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                       <div>
                         <label style={LABEL}>
-                          Dump date
+                          {skipOnly ? 'Collection date' : 'Dump date'}
                           <MetaChip show={load.dump_datetime_from_photo} fromDevice={load.dump_datetime_from_device} />
                         </label>
                         <input
@@ -1630,7 +1661,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                         />
                       </div>
                       <div>
-                        <label style={LABEL}>Dump time</label>
+                        <label style={LABEL}>{skipOnly ? 'Collection time' : 'Dump time'}</label>
                         <input
                           type="time"
                           value={load.dump_time ?? ''}
@@ -1645,7 +1676,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                         />
                       </div>
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: skipOnly ? '1fr' : '1fr 1fr', gap: 10 }}>
                       <div>
                         <label style={LABEL}>Weight (kg)</label>
                         <input
@@ -1662,6 +1693,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                           style={INPUT}
                         />
                       </div>
+                      {!skipOnly && (
                       <div>
                         <label style={LABEL}>Dump fee ($)</label>
                         <input
@@ -1678,7 +1710,13 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                           style={INPUT}
                         />
                       </div>
+                      )}
                     </div>
+                    {hasSkip && !skipOnly && (
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                        Skip hire is entered on the skip vehicle as Price of skip.
+                      </div>
+                    )}
                     <div>
                       <label style={LABEL}>Notes</label>
                       <textarea
@@ -1755,6 +1793,18 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
           <span>{totals.distance_recorded ? `${totals.distance_km} km return` : '—'}</span>
         </div>
         <div style={{ color: 'var(--text-muted)', fontSize: 11, marginBottom: 8 }}>Return (round-trip) total</div>
+        {totals.fees_recorded > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+            <span style={{ color: 'var(--text-muted)' }}>Dump fees</span>
+            <span>{formatAud(totals.dump_fees)}</span>
+          </div>
+        )}
+        {totals.skip_fees_recorded > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+            <span style={{ color: 'var(--text-muted)' }}>Skip costs</span>
+            <span>{formatAud(totals.skip_fees)}</span>
+          </div>
+        )}
         <div
           style={{
             display: 'flex',
@@ -1764,8 +1814,12 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
             marginTop: 6,
           }}
         >
-          <strong>Dump fees</strong>
-          <strong>{totals.fees_recorded ? formatAud(totals.dump_fees) : '—'}</strong>
+          <strong>Disposal costs</strong>
+          <strong>
+            {totals.fees_recorded || totals.skip_fees_recorded
+              ? formatAud(totals.dump_fees + totals.skip_fees)
+              : '—'}
+          </strong>
         </div>
       </div>
 

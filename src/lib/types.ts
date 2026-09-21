@@ -1561,6 +1561,8 @@ export interface DisposalVehicle {
   /** When false, the main vehicle photo is omitted from the composed CDR. Missing means include. */
   photo_include_in_compose?: boolean
   extra_photos: DisposalPhotoRef[]
+  /** Skip-hire price. Independent of weighbridge / dump fee on the load. */
+  skip_cost: number | null
 }
 
 /** One dump run from site to facility (shared docket / fee). */
@@ -1630,10 +1632,12 @@ export interface DisposalManifestTotals {
   weight_kg: number
   distance_km: number
   dump_fees: number
+  skip_fees: number
   volume_recorded: number
   weight_recorded: number
   distance_recorded: number
   fees_recorded: number
+  skip_fees_recorded: number
 }
 
 export interface WasteDisposalManifestVehicleSnapshot {
@@ -1649,6 +1653,7 @@ export interface WasteDisposalManifestVehicleSnapshot {
   photo_note?: string
   extra_photo_urls?: string[]
   extra_photos?: { url: string; note?: string }[]
+  skip_cost?: number | null
 }
 
 export interface WasteDisposalManifestLoadSnapshot {
@@ -1664,6 +1669,7 @@ export interface WasteDisposalManifestLoadSnapshot {
   facility: string
   weight_kg: number | null
   dump_fee: number | null
+  skip_cost?: number | null
   distance_km: number | null
   distance_out_km?: number | null
   distance_return_km?: number | null
@@ -1926,7 +1932,9 @@ export interface WasteDisposalManifestContent {
   declaration: string
   completed_by?: string
   loads?: WasteDisposalManifestLoadSnapshot[]
-  totals?: Pick<DisposalManifestTotals, 'load_count' | 'volume_m3' | 'weight_kg' | 'distance_km' | 'dump_fees'>
+  totals?: Pick<DisposalManifestTotals, 'load_count' | 'volume_m3' | 'weight_kg' | 'distance_km' | 'dump_fees'> & {
+    skip_fees?: number
+  }
 }
 
 export interface JSAContent {

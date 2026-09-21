@@ -44,6 +44,7 @@ export function emptyDisposalVehicle(type: DisposalVehicleTypeId = 'trailer'): D
     photo_note: '',
     photo_include_in_compose: true,
     extra_photos: [],
+    skip_cost: null,
   }
 }
 
@@ -207,6 +208,7 @@ function normalizeVehicle(raw: unknown): DisposalVehicle {
     photo_note: str(o.photo_note),
     photo_include_in_compose: boolDefaultTrue(o.photo_include_in_compose),
     extra_photos: normalizePhotoList(o.extra_photos),
+    skip_cost: numOrNull(o.skip_cost),
   }
 }
 
@@ -307,6 +309,67 @@ export function disposalManifestEqual(a: DisposalManifestCapture, b: DisposalMan
 export function vehicleTypeLabel(type: DisposalVehicleTypeId | string): string {
   const row = DISPOSAL_VEHICLE_TYPES.find(t => t.id === type)
   return row?.label ?? (type ? String(type) : 'Vehicle')
+}
+
+export function loadHasSkipVehicle(load: { vehicles: DisposalVehicle[] }): boolean {
+  return load.vehicles.some(v => v.type === 'skip')
+}
+
+/** Every typed vehicle on the load is a skip (skip-company trip, not a weighbridge dump). */
+export function loadSkipOnly(load: { vehicles: DisposalVehicle[] }): boolean {
+  const typed = load.vehicles.filter(v => v.type)
+  return typed.length > 0 && typed.every(v => v.type === 'skip')
+}
+
+export function loadSkipCost(load: { vehicles: DisposalVehicle[] }): number | null {
+  let sum = 0
+  let any = false
+  for (const v of load.vehicles) {
+    if (v.type !== 'skip' || v.skip_cost == null) continue
+    sum += v.skip_cost
+    any = true
+  }
+  return any ? Math.round(sum * 100) / 100 : null
+}
+
+/** Prefer skip-hire totals; fall back to dump_fee on older skip-only loads. */
+export function loadSkipFeeForTotals(load: DisposalLoad): number | null {
+  const skip = loadSkipCost(load)
+  if (skip != null) return skip
+  if (loadSkipOnly(load) && load.dump_fee != null) return load.dump_fee
+  return null
+}
+
+export function loadDumpFeeForTotals(load: DisposalLoad): number | null {
+  if (loadSkipOnly(load)) return null
+  return load.dump_fee
+}
+
+/** Move dump_fee ↔ skip_cost when the load switches between skip and trailer/ute. */
+export function reconcileSkipPricing(load: DisposalLoad): DisposalLoad {
+  if (loadSkipOnly(load)) {
+    const skips = load.vehicles.filter(v => v.type === 'skip')
+    if (load.dump_fee != null && skips.length === 1 && skips.every(v => v.skip_cost == null)) {
+      const fee = load.dump_fee
+      return {
+        ...load,
+        dump_fee: null,
+        vehicles: load.vehicles.map(v => (v.type === 'skip' ? { ...v, skip_cost: fee } : v)),
+      }
+    }
+    return load
+  }
+  if (!loadHasSkipVehicle(load)) {
+    const costs = load.vehicles.map(v => v.skip_cost).filter((n): n is number => n != null)
+    if (load.dump_fee == null && costs.length === 1) {
+      return {
+        ...load,
+        dump_fee: costs[0],
+        vehicles: load.vehicles.map(v => ({ ...v, skip_cost: null })),
+      }
+    }
+  }
+  return load
 }
 
 export function vehicleContentsLabel(vehicle: DisposalVehicle): string {
@@ -482,10 +545,12 @@ export function computeDisposalTotals(loads: DisposalLoad[]): DisposalManifestTo
   let weight_kg = 0
   let distance_km = 0
   let dump_fees = 0
+  let skip_fees = 0
   let volume_m3 = 0
   let weight_n = 0
   let distance_n = 0
   let fee_n = 0
+  let skip_n = 0
   let volume_n = 0
   for (const load of loads) {
     if (load.weight_kg != null) {
@@ -496,9 +561,15 @@ export function computeDisposalTotals(loads: DisposalLoad[]): DisposalManifestTo
       distance_km += load.distance_km
       distance_n += 1
     }
-    if (load.dump_fee != null) {
-      dump_fees += load.dump_fee
+    const dump = loadDumpFeeForTotals(load)
+    if (dump != null) {
+      dump_fees += dump
       fee_n += 1
+    }
+    const skip = loadSkipFeeForTotals(load)
+    if (skip != null) {
+      skip_fees += skip
+      skip_n += 1
     }
     for (const v of load.vehicles) {
       const vol = vehicleVolumeM3(v)
@@ -514,10 +585,12 @@ export function computeDisposalTotals(loads: DisposalLoad[]): DisposalManifestTo
     weight_kg: Math.round(weight_kg * 10) / 10,
     distance_km: Math.round(distance_km * 10) / 10,
     dump_fees: Math.round(dump_fees * 100) / 100,
+    skip_fees: Math.round(skip_fees * 100) / 100,
     volume_recorded: volume_n,
     weight_recorded: weight_n,
     distance_recorded: distance_n,
     fees_recorded: fee_n,
+    skip_fees_recorded: skip_n,
   }
 }
 
@@ -538,7 +611,8 @@ function vehicleHasContent(v: DisposalVehicle): boolean {
     vehicleVolumeM3(v) != null ||
     v.photo_url ||
     v.extra_photos?.length > 0 ||
-    v.photo_skipped,
+    v.photo_skipped ||
+    v.skip_cost != null,
   )
 }
 
@@ -550,6 +624,7 @@ export function loadHasContent(load: DisposalLoad): boolean {
     load.contents_description.trim() ||
     load.weight_kg != null ||
     load.dump_fee != null ||
+    loadSkipCost(load) != null ||
     load.distance_km != null ||
     load.facility.trim() ||
     load.dump_location.trim() ||
@@ -604,14 +679,17 @@ export function formatWasteDisposalNarrative(capture: DisposalManifestCapture): 
         vol != null ? formatM3(vol) : null,
       ].filter(Boolean).join(' ')
     }).filter(Boolean)
+    const skipFee = loadSkipFeeForTotals(l)
+    const dumpFee = loadDumpFeeForTotals(l)
     const bits = [
       vehicleBits.join('; ') || contentsLabel(l) || 'Waste',
       l.weight_kg != null ? formatKg(l.weight_kg) : null,
-      l.dump_fee != null ? formatAud(l.dump_fee) : null,
+      skipFee != null ? `${formatAud(skipFee)} skip` : null,
+      dumpFee != null ? formatAud(dumpFee) : null,
       formatDistanceLegs(l.distance_out_km, l.distance_return_km)
         ?? (l.distance_km != null ? `${l.distance_km} km` : null),
       l.dump_date.trim()
-        ? `dumped ${l.dump_date}${l.dump_time.trim() ? ` ${l.dump_time}` : ''}`
+        ? `${loadSkipOnly(l) ? 'collected' : 'dumped'} ${l.dump_date}${l.dump_time.trim() ? ` ${l.dump_time}` : ''}`
         : null,
       l.recycling
         ? `recycling${l.recycling_type.trim() ? ` (${l.recycling_type.trim()})` : ''}`
@@ -624,11 +702,15 @@ export function formatWasteDisposalNarrative(capture: DisposalManifestCapture): 
     return `${i + 1}. ${bits.join(' · ')}`
   })
   const volumeBit = totals.volume_recorded ? `${formatM3(totals.volume_m3)}, ` : ''
+  const feeBits = [
+    totals.fees_recorded ? `${formatAud(totals.dump_fees)} dump fees` : null,
+    totals.skip_fees_recorded ? `${formatAud(totals.skip_fees)} skip costs` : null,
+  ].filter(Boolean)
   return [
     `Disposal loads (${totals.load_count})`,
     '',
     ...lines,
     '',
-    `Totals — ${volumeBit}${formatKg(totals.weight_kg)}, ${totals.distance_km} km return, ${formatAud(totals.dump_fees)} dump fees. Volume is a close estimate. Weight is from docket weights.`,
+    `Totals — ${volumeBit}${formatKg(totals.weight_kg)}, ${totals.distance_km} km return${feeBits.length ? `, ${feeBits.join(', ')}` : ''}. Volume is a close estimate. Weight is from docket weights.`,
   ].join('\n')
 }

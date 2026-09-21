@@ -1233,7 +1233,15 @@ function wdmVehicleSummary(v: WasteDisposalManifestVehicleSnapshot): string {
   const dims = length_m != null && width_m != null && height_m != null
     ? `${length_m} × ${width_m} × ${height_m} m`
     : ''
-  return [v.type, v.size, v.contents, v.contents_description, dims, v.volume_m3 != null ? formatM3(v.volume_m3) : '']
+  return [
+    v.type,
+    v.size,
+    v.contents,
+    v.contents_description,
+    dims,
+    v.volume_m3 != null ? formatM3(v.volume_m3) : '',
+    v.skip_cost != null ? `Skip ${formatAud(v.skip_cost)}` : '',
+  ]
     .map(s => (s || '').trim())
     .filter(Boolean)
     .join(' · ')
@@ -1280,15 +1288,19 @@ function wdmLoadCards(c: WasteDisposalManifestContent): string {
       ? wdmPhotoGrid([{ url: load.trailer_photo_url, cap: 'Pickup' }])
       : ''
 
+    const skipTrip = load.skip_cost != null && load.dump_fee == null
+      && (vehicles.length === 0 || vehicles.every(v => (v.type || '').toLowerCase() === 'skip'))
+
     const trip = wdmKv([
       ['Load date', load.date || ''],
-      ['Dump date', [load.dump_date, load.dump_time].filter(Boolean).join(' ')],
+      [skipTrip ? 'Collection date' : 'Dump date', [load.dump_date, load.dump_time].filter(Boolean).join(' ')],
       ['Pickup', load.location || ''],
-      ['Drop-off', load.facility || ''],
+      [skipTrip ? 'Skip company' : 'Drop-off', load.facility || ''],
       ['Docket', docketStatusLabel(load) || ''],
       ['Volume', load.volume_m3 != null ? `${formatM3(load.volume_m3)} (close estimate)` : ''],
       ['Weight', load.weight_kg != null ? `${formatKg(load.weight_kg)} (from docket)` : ''],
       ['Dump fee', load.dump_fee != null ? formatAud(load.dump_fee) : ''],
+      ['Skip cost', load.skip_cost != null ? formatAud(load.skip_cost) : ''],
       ['Distance', formatDistanceLegs(load.distance_out_km, load.distance_return_km) ?? (load.distance_km != null ? `${load.distance_km} km` : '')],
       ...(!vehicles.length
         ? [
@@ -1309,10 +1321,25 @@ function wdmLoadCards(c: WasteDisposalManifestContent): string {
   }).join('')
 }
 
+function wdmCostBits(dump: number | null | undefined, skip: number | null | undefined): string {
+  const bits: string[] = []
+  if (dump != null && dump !== 0) bits.push(`${formatAud(dump)} dump`)
+  if (skip != null && skip !== 0) bits.push(`${formatAud(skip)} skip`)
+  if (!bits.length) {
+    if (dump != null) bits.push(formatAud(dump))
+    else if (skip != null) bits.push(`${formatAud(skip)} skip`)
+  }
+  return bits.join(' · ')
+}
+
 function wdmSummary(c: WasteDisposalManifestContent): string {
   const t = c.totals
   const loads = c.loads ?? []
   const volume = t && t.volume_m3 != null && t.volume_m3 > 0 ? formatM3(t.volume_m3) : '—'
+  const skipFees = t?.skip_fees ?? 0
+  const costCell = t && t.load_count >= 1
+    ? (wdmCostBits(t.dump_fees, skipFees) || '—')
+    : '—'
   const totalsTable = t && t.load_count >= 1
     ? `
     <table>
@@ -1322,7 +1349,7 @@ function wdmSummary(c: WasteDisposalManifestContent): string {
           <th>Volume</th>
           <th>Weight</th>
           <th>Distance</th>
-          <th class="r">Dump fees</th>
+          <th class="r">Costs</th>
         </tr>
       </thead>
       <tbody>
@@ -1331,12 +1358,12 @@ function wdmSummary(c: WasteDisposalManifestContent): string {
           <td>${esc(volume)}</td>
           <td>${esc(formatKg(t.weight_kg))}</td>
           <td>${t.distance_km} km return</td>
-          <td class="r">${esc(formatAud(t.dump_fees))}</td>
+          <td class="r">${esc(costCell)}</td>
         </tr>
       </tbody>
     </table>
     <div class="body-text" style="margin-top:8px;font-size:8pt;color:var(--sow-muted)">
-      Volume is a close estimate from load measurements. Weight is based on weights on dockets. Distance is the return (round-trip) total.
+      Volume is a close estimate from load measurements. Weight is based on weights on dockets. Distance is the return (round-trip) total. Skip cost is the skip-hire price, separate from weighbridge dump fees.
     </div>`
     : ''
 
@@ -1349,7 +1376,7 @@ function wdmSummary(c: WasteDisposalManifestContent): string {
           <th>Vehicles</th>
           <th>Volume</th>
           <th>Weight</th>
-          <th class="r">Dump fee</th>
+          <th class="r">Cost</th>
         </tr>
       </thead>
       <tbody>
@@ -1357,13 +1384,14 @@ function wdmSummary(c: WasteDisposalManifestContent): string {
           const types = (load.vehicles ?? []).map(v => v.type).filter(Boolean).join(' + ')
             || load.contents
             || '—'
+          const cost = wdmCostBits(load.dump_fee, load.skip_cost) || '—'
           return `
           <tr>
             <td>${load.load_number}</td>
             <td>${esc(types)}</td>
             <td>${load.volume_m3 != null ? esc(formatM3(load.volume_m3)) : '—'}</td>
             <td>${load.weight_kg != null ? esc(formatKg(load.weight_kg)) : '—'}</td>
-            <td class="r">${load.dump_fee != null ? esc(formatAud(load.dump_fee)) : '—'}</td>
+            <td class="r">${esc(cost)}</td>
           </tr>`
         }).join('')}
       </tbody>

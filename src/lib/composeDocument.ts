@@ -52,6 +52,8 @@ import {
   formatDistanceLegs,
   formatM3,
   loadHasContent,
+  loadSkipFeeForTotals,
+  loadSkipOnly,
   loadVolumeM3,
   mergedDisposalManifestCapture,
   photoInCompose,
@@ -845,6 +847,7 @@ function composeWdm(job: Job): ComposeDocumentResult {
         vol != null ? formatM3(vol) : null,
       ].filter(Boolean).join(' — ')
     }).filter(Boolean)
+    const skipFee = loadSkipFeeForTotals(l)
     return {
       description: vehicleDesc.join('; ')
         || [contentsLabel(l), l.contents_description.trim(), l.size.trim()].filter(Boolean).join(' — ')
@@ -853,7 +856,9 @@ function composeWdm(job: Job): ComposeDocumentResult {
       unit: l.weight_kg != null ? 'kg' : '',
       disposal_method: l.recycling
         ? `Recycling${l.recycling_type.trim() ? ` — ${l.recycling_type.trim()}` : ''}`
-        : l.dump_fee != null ? `Weighbridge / dump fee ${formatAud(l.dump_fee)}` : 'Licensed facility',
+        : skipFee != null
+          ? `Skip ${formatAud(skipFee)}`
+          : l.dump_fee != null ? `Weighbridge / dump fee ${formatAud(l.dump_fee)}` : 'Licensed facility',
       facility: (l.facility || l.dump_location).trim() || '—',
     }
   })
@@ -882,6 +887,7 @@ function composeWdm(job: Job): ComposeDocumentResult {
           photo_note: v.photo_note?.trim() || undefined,
           extra_photo_urls: extras.map(p => p.url),
           extra_photos: extras.map(p => ({ url: p.url, note: p.note?.trim() || undefined })),
+          skip_cost: v.type === 'skip' ? v.skip_cost : null,
         }
       }),
       date: l.date,
@@ -890,7 +896,8 @@ function composeWdm(job: Job): ComposeDocumentResult {
       location: l.location.trim(),
       facility: (l.facility || l.dump_location).trim(),
       weight_kg: l.weight_kg,
-      dump_fee: l.dump_fee,
+      dump_fee: loadSkipOnly(l) ? null : l.dump_fee,
+      skip_cost: loadSkipFeeForTotals(l),
       distance_km: l.distance_km,
       distance_out_km: l.distance_out_km,
       distance_return_km: l.distance_return_km,
@@ -931,6 +938,7 @@ function composeWdm(job: Job): ComposeDocumentResult {
       weight_kg: totals.weight_kg,
       distance_km: totals.distance_km,
       dump_fees: totals.dump_fees,
+      skip_fees: totals.skip_fees,
     },
     transport_details: transport || '—',
     declaration:
