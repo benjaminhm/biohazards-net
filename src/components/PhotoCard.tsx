@@ -35,6 +35,8 @@ export interface PhotoCardProps {
   allowedCategories?: readonly PhotoCategory[]
   /** When false, hides the area chip in summary (e.g. inside a room-specific block). Default true. */
   showAreaChip?: boolean
+  /** When true, the photo stays on its current area and the area field is hidden. */
+  hideArea?: boolean
   onDelete: (id: string) => void
   onUpdate: (photo: Photo) => void
 }
@@ -44,6 +46,7 @@ export default function PhotoCard({
   areaNames = [],
   allowedCategories,
   showAreaChip = true,
+  hideArea = false,
   onDelete,
   onUpdate,
 }: PhotoCardProps) {
@@ -200,7 +203,7 @@ export default function PhotoCard({
                 </button>
               ))}
             </div>
-            {areaNames.length > 0 ? (
+            {hideArea ? null : areaNames.length > 0 ? (
               <select
                 value={areaRefDraft}
                 onChange={e => setAreaRefDraft(e.target.value)}

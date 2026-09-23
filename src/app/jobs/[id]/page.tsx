@@ -1741,7 +1741,9 @@ export default function JobPage() {
           <QuoteCaptureTab
             job={job}
             documents={documents}
+            photos={photos}
             onJobUpdate={setJob}
+            onPhotosUpdate={setPhotos}
             onGoToScope={() => {
               if (onHome) setHomeSection('scope_of_work')
               else requestTabChange('scope_capture')

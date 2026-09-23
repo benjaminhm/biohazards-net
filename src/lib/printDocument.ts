@@ -30,7 +30,7 @@ import type {
   PostRemediationEvaluationContent, PreScopeLineResolved,
 } from './types'
 import { DOC_TYPE_LABELS } from './types'
-import { filterGroupedStages, groupPhotosByRoomAndStage, type RoomPhotoGroup } from './photoGroups'
+import { filterGroupedStages, groupPhotosByRoomAndStage, isQuoteAppendixPhoto, type RoomPhotoGroup } from './photoGroups'
 import { photosForComposedReports } from '@/lib/photosForComposedReports'
 import { docketStatusLabel, dimensionTrioToMetres, formatAud, formatDistanceLegs, formatKg, formatM3 } from '@/lib/disposalManifest'
 import { isPdfUrl } from '@/lib/pdfDocket'
@@ -1017,6 +1017,20 @@ function buildAreasDimensionsHTML(areas: Area[], heading = 'Areas & Dimensions')
   `
 }
 
+function quoteAppendixHtml(photos: Photo[]): string {
+  const pics = photos.filter(isQuoteAppendixPhoto)
+  if (!pics.length) return ''
+  return `
+    <div class="label" style="margin-top:22px">Photos</div>
+    <div class="photos-grid photos-grid-single">
+      ${pics.map(p => `
+        <div class="photo-card">
+          <img src="${esc(p.file_url)}" alt="${esc((p.caption || '').trim() || 'Photo')}">
+          ${(p.caption || '').trim() ? `<div class="photo-meta"><div class="photo-cap">${esc(p.caption)}</div></div>` : ''}
+        </div>`).join('')}
+    </div>`
+}
+
 function photoGrid(photos: Photo[], heading: string): string {
   if (!photos.length) return ''
   return `
@@ -1984,6 +1998,7 @@ function buildQuoteMid(
       `
     })()}
     ${c.include_photos !== false ? roomPhotoSections(groups, 'Site Condition Photos', ['assessment', 'before']) : ''}
+    ${c.include_photos !== false ? quoteAppendixHtml(photos) : ''}
   `
 }
 

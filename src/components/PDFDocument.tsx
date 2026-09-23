@@ -39,7 +39,7 @@ import type {
   PostRemediationEvaluationContent,
   PreScopeLineResolved,
 } from '@/lib/types'
-import { filterGroupedStages, groupPhotosByRoomAndStage } from '@/lib/photoGroups'
+import { filterGroupedStages, groupPhotosByRoomAndStage, isQuoteAppendixPhoto } from '@/lib/photoGroups'
 import { photosForComposedReports } from '@/lib/photosForComposedReports'
 import { effectiveAreaDimensions } from '@/lib/areaSubzones'
 
@@ -672,7 +672,8 @@ function QuotePDF({
 }) {
   const today = new Date().toLocaleDateString('en-AU', { day: '2-digit', month: 'long', year: 'numeric' })
   const fmt = (n: number) => `$${Number(n).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-  const beforePhotos = photos.filter(p => p.category === 'before' || p.category === 'assessment').slice(0, 6)
+  const quoteAppendix = photos.filter(isQuoteAppendixPhoto)
+  const beforePhotos = photos.filter(p => !isQuoteAppendixPhoto(p) && (p.category === 'before' || p.category === 'assessment')).slice(0, 6)
   const site = (siteAddress ?? '').trim()
   const gstMode = content.gst_mode ?? (content.gst > 0 ? 'exclusive' : 'no_gst')
   const subtotalLabel = gstMode === 'inclusive' || gstMode === 'exclusive' ? 'Subtotal (ex GST)' : 'Subtotal'
@@ -732,6 +733,9 @@ function QuotePDF({
       {beforePhotos.length > 0 && (
         <RoomStageSection photos={beforePhotos} areas={areas} label="Site Condition Photos" stages={['assessment', 'before']} />
       )}
+      {quoteAppendix.length > 0 && content.include_photos !== false && (
+        <PhotoSection photos={quoteAppendix} label="Photos" showAppMetadata={false} singleColumn />
+      )}
 
       <Footer company={company} />
     </Page>
@@ -770,6 +774,7 @@ function IaqMultiPDF({
   const bundleRef = String(bundle.reference ?? ad.reference ?? '—').trim()
   const bundleTitle = String(bundle.title ?? 'Assessment / Scope / Quote').trim()
 
+  const quoteAppendix = photos.filter(isQuoteAppendixPhoto)
   const beforePhotos = photos.filter(p => p.category === 'before' || p.category === 'assessment')
   const fmt = (n: number) => `$${Number(n).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
   const gstMode = quote.gst_mode ?? (quote.gst > 0 ? 'exclusive' : 'no_gst')
@@ -886,6 +891,9 @@ function IaqMultiPDF({
 
         {beforePhotos.length > 0 && quote.include_photos !== false && (
           <RoomStageSection photos={beforePhotos} areas={areas} label="Site Condition Photos" stages={['assessment', 'before']} />
+        )}
+        {quoteAppendix.length > 0 && quote.include_photos !== false && (
+          <PhotoSection photos={quoteAppendix} label="Photos" showAppMetadata={false} singleColumn />
         )}
 
         <Footer company={company} />

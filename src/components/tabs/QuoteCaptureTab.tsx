@@ -24,6 +24,7 @@ import type {
   SurfaceKind,
   SurfacePricingLine,
   VolumeDisposalFeeMode,
+  Photo,
   VolumePricingBlock,
   VolumePricingRow,
 } from '@/lib/types'
@@ -51,13 +52,18 @@ import {
   syncVolumePricing,
   volumePricingSubtotal,
 } from '@/lib/quoteSections'
+import PhotoCard from '@/components/PhotoCard'
+import PhotoUploadPanel from '@/components/PhotoUploadPanel'
 import RichTextEditor from '@/components/RichTextEditor'
+import { QUOTE_APPENDIX_AREA_REF, isQuoteAppendixPhoto } from '@/lib/photoGroups'
 import { tradingAuthReplyEmail } from '@/lib/tradingNames'
 
 interface Props {
   job: Job
   documents: Document[]
+  photos: Photo[]
   onJobUpdate: (job: Job) => void
+  onPhotosUpdate: (photos: Photo[]) => void
   onGoToScope?: () => void
 }
 
@@ -402,7 +408,7 @@ const SECTION: CSSProperties = {
   marginBottom: 10,
 }
 
-export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
+export default function QuoteCaptureTab({ job, photos, onJobUpdate, onPhotosUpdate }: Props) {
   const router = useRouter()
   const ad = job.assessment_data
   const fastQuote = ad?.fast_quote?.enabled ? ad.fast_quote : null
@@ -1096,6 +1102,8 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
     }
   }
 
+  const quotePhotos = photos.filter(isQuoteAppendixPhoto)
+
   return (
     <div style={{ maxWidth: 720, paddingBottom: 40 }}>
       {/* ── Quote selector (hub-and-spoke) ───────────────────────────────────
@@ -1259,6 +1267,53 @@ export default function QuoteCaptureTab({ job, onJobUpdate }: Props) {
             )
           })}
         </div>
+      </div>
+
+      <div
+        style={{
+          border: '1px solid var(--border)',
+          background: 'var(--surface)',
+          borderRadius: 12,
+          padding: '14px 14px 16px',
+          marginBottom: 18,
+        }}
+      >
+        <div style={{ ...SECTION, marginBottom: 6 }}>Photos</div>
+        <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5, margin: '0 0 12px' }}>
+          One upload for this quote. The photos print together at the end of the document.
+        </p>
+        <PhotoUploadPanel
+          jobId={job.id}
+          photos={photos}
+          onPhotosUpdate={onPhotosUpdate}
+          defaultPendingCategory="assessment"
+          allowedCategories={['assessment', 'before']}
+          fixedCapturePhase="assessment"
+          fixedAreaRef={QUOTE_APPENDIX_AREA_REF}
+          compact
+        />
+        {quotePhotos.length > 0 && (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+              gap: 8,
+              marginTop: 4,
+            }}
+          >
+            {quotePhotos.map(photo => (
+              <PhotoCard
+                key={photo.id}
+                photo={photo}
+                allowedCategories={['assessment', 'before']}
+                showAreaChip={false}
+                hideArea
+                onDelete={id => onPhotosUpdate(photos.filter(p => p.id !== id))}
+                onUpdate={updated => onPhotosUpdate(photos.map(p => (p.id === updated.id ? updated : p)))}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       {/* ── Pricing approach toggles ───────────────────────────────────────
