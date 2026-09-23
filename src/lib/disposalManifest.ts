@@ -5,6 +5,7 @@ import type {
   DisposalManifestCapture,
   DisposalManifestTotals,
   DisposalPhotoRef,
+  DisposalTripDefaults,
   DisposalVehicle,
   DisposalVehicleTypeId,
 } from '@/lib/types'
@@ -97,14 +98,37 @@ export function emptyDisposalLoad(): DisposalLoad {
   }
 }
 
+export function emptyTripDefaults(): DisposalTripDefaults {
+  return {
+    vehicle_type: 'trailer',
+    size: '',
+    length_m: null,
+    width_m: null,
+    height_m: null,
+    location: '',
+    location_lat: null,
+    location_lng: null,
+    facility: '',
+    dump_lat: null,
+    dump_lng: null,
+    distance_km: null,
+    distance_out_km: null,
+    distance_return_km: null,
+    distance_from_geo: false,
+  }
+}
+
 export function emptyDisposalManifestCapture(): DisposalManifestCapture {
-  return { loads: [emptyDisposalLoad()] }
+  return { defaults: emptyTripDefaults(), loads: [emptyDisposalLoad()] }
 }
 
 export function mergedDisposalManifestCapture(ad: AssessmentData | null | undefined): DisposalManifestCapture {
   const raw = ad?.disposal_manifest_capture
   const loads = Array.isArray(raw?.loads) ? raw.loads.map(normalizeLoad) : []
-  return { loads: loads.length ? loads : [emptyDisposalLoad()] }
+  const defaults = normalizeTripDefaults(
+    raw && typeof raw === 'object' && 'defaults' in raw ? raw.defaults : undefined,
+  )
+  return { defaults, loads: loads.length ? loads : [emptyDisposalLoad()] }
 }
 
 /** Matches formatCoordLabel() — GPS text, not a street address. */
@@ -128,11 +152,27 @@ export function applyJobSiteToLoad(
   return next
 }
 
+function applyJobSiteToDefaults(
+  defaults: DisposalTripDefaults,
+  job: { site_address?: string | null; site_lat?: number | null; site_lng?: number | null },
+): DisposalTripDefaults {
+  const address = job.site_address?.trim() || ''
+  const next = { ...defaults }
+  const locationBlank = !next.location.trim() || looksLikeCoordLabel(next.location)
+  if (locationBlank && address) next.location = address
+  if (next.location_lat == null && job.site_lat != null) next.location_lat = job.site_lat
+  if (next.location_lng == null && job.site_lng != null) next.location_lng = job.site_lng
+  return next
+}
+
 export function applyJobSiteToCapture(
   capture: DisposalManifestCapture,
   job: { site_address?: string | null; site_lat?: number | null; site_lng?: number | null },
 ): DisposalManifestCapture {
-  return { loads: capture.loads.map(l => applyJobSiteToLoad(l, job)) }
+  return {
+    defaults: applyJobSiteToDefaults(capture.defaults ?? emptyTripDefaults(), job),
+    loads: capture.loads.map(l => applyJobSiteToLoad(l, job)),
+  }
 }
 
 function str(v: unknown): string {
@@ -243,6 +283,29 @@ function withLegacyMirrors(load: DisposalLoad): DisposalLoad {
     contents_type: v.contents_type,
     contents_other: v.contents_other,
     contents_description: v.contents_description,
+  }
+}
+
+function normalizeTripDefaults(raw: unknown): DisposalTripDefaults {
+  const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
+  const base = emptyTripDefaults()
+  return {
+    ...base,
+    vehicle_type: vehicleTypeOf(o.vehicle_type) || 'trailer',
+    size: str(o.size),
+    length_m: numOrNull(o.length_m),
+    width_m: numOrNull(o.width_m),
+    height_m: numOrNull(o.height_m),
+    location: str(o.location),
+    location_lat: numOrNull(o.location_lat),
+    location_lng: numOrNull(o.location_lng),
+    facility: str(o.facility) || str(o.dump_location),
+    dump_lat: numOrNull(o.dump_lat),
+    dump_lng: numOrNull(o.dump_lng),
+    distance_km: numOrNull(o.distance_km),
+    distance_out_km: numOrNull(o.distance_out_km),
+    distance_return_km: numOrNull(o.distance_return_km),
+    distance_from_geo: bool(o.distance_from_geo),
   }
 }
 
@@ -435,12 +498,177 @@ export function withMetreDimensions(vehicle: DisposalVehicle): DisposalVehicle {
 }
 
 export function captureWithMetreDimensions(capture: DisposalManifestCapture): DisposalManifestCapture {
+  const defaults = capture.defaults ?? emptyTripDefaults()
   return {
+    ...capture,
+    defaults: {
+      ...defaults,
+      ...dimensionTrioToMetres(defaults.length_m, defaults.width_m, defaults.height_m),
+    },
     loads: capture.loads.map(l => ({
       ...l,
       vehicles: l.vehicles.map(withMetreDimensions),
     })),
   }
+}
+
+function strFollows(current: string, prev: string): boolean {
+  if (!current.trim()) return true
+  const previous = prev.trim()
+  if (!previous) return false
+  return current.trim() === previous
+}
+
+function numFollows(current: number | null, prev: number | null): boolean {
+  if (current == null) return true
+  if (prev == null) return false
+  return current === prev
+}
+
+function addressFollows(current: string, prev: string): boolean {
+  const value = current.trim()
+  if (!value || looksLikeCoordLabel(value)) return true
+  return strFollows(value, prev)
+}
+
+function loadTipText(load: DisposalLoad): string {
+  return (load.facility || load.dump_location).trim()
+}
+
+function distanceFollows(load: DisposalLoad, prev: DisposalTripDefaults): boolean {
+  if (load.distance_km == null) return true
+  if (prev.distance_km == null) return false
+  return load.distance_km === prev.distance_km && load.distance_from_geo === prev.distance_from_geo
+}
+
+/**
+ * Copy shared trailer / route fields onto a load when that load still has the
+ * previous shared value (or the field is blank). Edited loads keep their own value.
+ */
+export function applyFollowingDefaults(
+  load: DisposalLoad,
+  prev: DisposalTripDefaults,
+  next: DisposalTripDefaults,
+): DisposalLoad {
+  const vehicle = load.vehicles[0]
+  if (!vehicle) return load
+
+  let v = vehicle
+  let vehicleChanged = false
+  const typeFollows = !v.type || v.type === prev.vehicle_type
+  if (typeFollows) {
+    if (next.vehicle_type && v.type !== next.vehicle_type) {
+      v = { ...v, type: next.vehicle_type }
+      vehicleChanged = true
+    }
+    if (strFollows(v.size, prev.size) && v.size !== next.size) {
+      v = { ...v, size: next.size }
+      vehicleChanged = true
+    }
+    if (numFollows(v.length_m, prev.length_m) && v.length_m !== next.length_m) {
+      v = { ...v, length_m: next.length_m }
+      vehicleChanged = true
+    }
+    if (numFollows(v.width_m, prev.width_m) && v.width_m !== next.width_m) {
+      v = { ...v, width_m: next.width_m }
+      vehicleChanged = true
+    }
+    if (numFollows(v.height_m, prev.height_m) && v.height_m !== next.height_m) {
+      v = { ...v, height_m: next.height_m }
+      vehicleChanged = true
+    }
+  }
+
+  let nextLoad = vehicleChanged ? { ...load, vehicles: [v, ...load.vehicles.slice(1)] } : load
+
+  if (
+    next.location.trim() &&
+    addressFollows(nextLoad.location, prev.location) &&
+    (nextLoad.location !== next.location ||
+      nextLoad.location_lat !== next.location_lat ||
+      nextLoad.location_lng !== next.location_lng)
+  ) {
+    nextLoad = {
+      ...nextLoad,
+      location: next.location,
+      location_lat: next.location_lat,
+      location_lng: next.location_lng,
+      location_from_photo: false,
+    }
+  }
+
+  const nextTip = next.facility.trim()
+  if (
+    nextTip &&
+    addressFollows(loadTipText(nextLoad), prev.facility) &&
+    (loadTipText(nextLoad) !== nextTip ||
+      nextLoad.dump_lat !== next.dump_lat ||
+      nextLoad.dump_lng !== next.dump_lng)
+  ) {
+    nextLoad = {
+      ...nextLoad,
+      facility: next.facility,
+      dump_location: next.facility,
+      dump_lat: next.dump_lat,
+      dump_lng: next.dump_lng,
+      dump_location_from_photo: false,
+      dump_location_from_device: false,
+    }
+  }
+
+  const routeMatches =
+    (!next.location.trim() || nextLoad.location.trim() === next.location.trim()) &&
+    (!nextTip || loadTipText(nextLoad) === nextTip)
+  if (
+    routeMatches &&
+    distanceFollows(nextLoad, prev) &&
+    (nextLoad.distance_km !== next.distance_km ||
+      nextLoad.distance_out_km !== next.distance_out_km ||
+      nextLoad.distance_return_km !== next.distance_return_km ||
+      nextLoad.distance_from_geo !== next.distance_from_geo)
+  ) {
+    nextLoad = {
+      ...nextLoad,
+      distance_km: next.distance_km,
+      distance_out_km: next.distance_out_km,
+      distance_return_km: next.distance_return_km,
+      distance_from_geo: next.distance_from_geo,
+    }
+  }
+
+  if (nextLoad === load) return load
+  return reconcileSkipPricing(withLegacyMirrors(nextLoad))
+}
+
+/** New load starts from the shared trailer and route. Photos, weight, and price stay empty. */
+export function loadFromTripDefaults(load: DisposalLoad, defaults: DisposalTripDefaults): DisposalLoad {
+  const vehicle = load.vehicles[0] ?? emptyDisposalVehicle(defaults.vehicle_type || 'trailer')
+  const nextVehicle: DisposalVehicle = {
+    ...vehicle,
+    type: defaults.vehicle_type || vehicle.type || 'trailer',
+    size: defaults.size.trim() || vehicle.size,
+    length_m: defaults.length_m ?? vehicle.length_m,
+    width_m: defaults.width_m ?? vehicle.width_m,
+    height_m: defaults.height_m ?? vehicle.height_m,
+  }
+  const origin = defaults.location.trim()
+  const tip = defaults.facility.trim()
+  return reconcileSkipPricing(withLegacyMirrors({
+    ...load,
+    vehicles: [nextVehicle, ...load.vehicles.slice(1)],
+    location: origin || load.location,
+    location_lat: origin ? defaults.location_lat : load.location_lat,
+    location_lng: origin ? defaults.location_lng : load.location_lng,
+    location_from_photo: origin ? false : load.location_from_photo,
+    facility: tip || load.facility,
+    dump_location: tip || load.dump_location,
+    dump_lat: tip ? defaults.dump_lat : load.dump_lat,
+    dump_lng: tip ? defaults.dump_lng : load.dump_lng,
+    distance_km: defaults.distance_km ?? load.distance_km,
+    distance_out_km: defaults.distance_out_km ?? load.distance_out_km,
+    distance_return_km: defaults.distance_return_km ?? load.distance_return_km,
+    distance_from_geo: defaults.distance_km != null ? defaults.distance_from_geo : load.distance_from_geo,
+  }))
 }
 
 export function loadVolumeM3(load: DisposalLoad): number | null {

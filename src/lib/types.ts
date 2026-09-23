@@ -1622,7 +1622,31 @@ export interface DisposalLoad {
   facility_photos: DisposalPhotoRef[]
 }
 
+/**
+ * Trailer, dimensions, origin, tip, and kilometres shared by this disposal record.
+ * Copied onto each load. A load keeps a value once that load is edited away from it.
+ * Photos, weight, and price are not shared.
+ */
+export interface DisposalTripDefaults {
+  vehicle_type: DisposalVehicleTypeId
+  size: string
+  length_m: number | null
+  width_m: number | null
+  height_m: number | null
+  location: string
+  location_lat: number | null
+  location_lng: number | null
+  facility: string
+  dump_lat: number | null
+  dump_lng: number | null
+  distance_km: number | null
+  distance_out_km: number | null
+  distance_return_km: number | null
+  distance_from_geo: boolean
+}
+
 export interface DisposalManifestCapture {
+  defaults: DisposalTripDefaults
   loads: DisposalLoad[]
 }
 

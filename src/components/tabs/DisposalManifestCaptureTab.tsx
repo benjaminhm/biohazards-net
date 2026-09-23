@@ -1,13 +1,14 @@
 /*
  * Execute-phase Contents Disposal Record: one card per dump trip.
- * Vehicles (trailer / ute / skip) with size + L×W×H. Skip uses price of skip;
- * trailer/ute uses a shared weighbridge dump fee.
+ * Trailer, dimensions, origin, tip, and kilometres are set once at the top and
+ * copied onto each load. Photos, weight, and price stay on the load.
+ * Skip uses price of skip; trailer/ute uses a shared weighbridge dump fee.
  */
 'use client'
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
-import type { DisposalLoad, DisposalPhotoRef, DisposalVehicle, Job, Photo } from '@/lib/types'
+import type { DisposalLoad, DisposalPhotoRef, DisposalTripDefaults, DisposalVehicle, Job, Photo } from '@/lib/types'
 import { mergeAssessmentData } from '@/lib/riskDerivation'
 import { useRegisterUnsavedChanges } from '@/lib/unsavedChangesContext'
 import DisposalPhotoSlot, { PhotoNoteField, ZoomablePhoto } from '@/components/DisposalPhotoSlot'
@@ -18,6 +19,7 @@ import {
   DISPOSAL_CONTENTS_TYPES,
   DISPOSAL_VEHICLE_TYPES,
   anyVehicleReady,
+  applyFollowingDefaults,
   applyJobSiteToCapture,
   applyJobSiteToLoad,
   computeDisposalTotals,
@@ -28,6 +30,7 @@ import {
   geoRoundTripPatch,
   emptyDisposalLoad,
   emptyDisposalVehicle,
+  loadFromTripDefaults,
   formatAud,
   formatKg,
   formatM3,
@@ -359,6 +362,23 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
     }
   }, [capture.loads, job.site_lat, job.site_lng, job.site_address])
 
+  useEffect(() => {
+    const d = capture.defaults
+    if (!d) return
+    if (d.distance_km != null && !d.distance_from_geo) return
+    const pickupText = d.location.trim() || job.site_address?.trim() || ''
+    const dropText = d.facility.trim()
+    const originLat = d.location_lat ?? job.site_lat ?? null
+    const originLng = d.location_lng ?? job.site_lng ?? null
+    const hasPins = originLat != null && originLng != null && d.dump_lat != null && d.dump_lng != null
+    const hasAddresses = Boolean(pickupText && dropText && !looksLikeCoordLabel(dropText))
+    if (!hasPins && !hasAddresses) return
+    const key = `defaults:${pickupText}|${dropText}|${originLat},${originLng}|${d.dump_lat},${d.dump_lng}`
+    if (distanceTried.current.has(key)) return
+    distanceTried.current.add(key)
+    void ensureDefaultsDistance(d)
+  }, [capture.defaults, job.site_lat, job.site_lng, job.site_address])
+
   const totals = useMemo(() => computeDisposalTotals(capture.loads), [capture.loads])
 
   function touch() {
@@ -368,6 +388,31 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
 
   function canAutofillDistance(load: DisposalLoad): boolean {
     return load.distance_km == null || load.distance_from_geo
+  }
+
+  function commitDefaults(patch: Partial<DisposalTripDefaults>) {
+    setCapture(prev => {
+      const nextDefaults: DisposalTripDefaults = { ...prev.defaults, ...patch }
+      return {
+        ...prev,
+        defaults: nextDefaults,
+        loads: prev.loads.map(load => applyFollowingDefaults(load, prev.defaults, nextDefaults)),
+      }
+    })
+    touch()
+  }
+
+  function defaultsWithStraightKm(patch: Partial<DisposalTripDefaults>): Partial<DisposalTripDefaults> {
+    const next = { ...capture.defaults, ...patch }
+    if (next.distance_km != null && !next.distance_from_geo) return patch
+    const km = distanceFromSiteKm(
+      next.location_lat ?? job.site_lat,
+      next.location_lng ?? job.site_lng,
+      next.dump_lat,
+      next.dump_lng,
+    )
+    if (km == null) return { ...patch, distance_from_geo: true }
+    return { ...patch, ...geoRoundTripPatch(km, km) }
   }
 
   async function geocodeAddressPin(address: string): Promise<{ lat: number; lng: number } | null> {
@@ -433,6 +478,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
 
     const straight = distanceFromSiteKm(originLat, originLng, destLat, destLng)
     setCapture(prev => ({
+      ...prev,
       loads: prev.loads.map(l => {
         if (l.id !== loadId) return l
         if (!force && !canAutofillDistance(l)) return l
@@ -450,6 +496,110 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
     touch()
     await applyTripDistance(loadId, originLat, originLng, destLat, destLng, force)
     return { ok: true }
+  }
+
+  async function ensureDefaultsDistance(
+    hint: DisposalTripDefaults,
+    force = false,
+  ): Promise<{ ok: boolean; error?: string }> {
+    const d = { ...capture.defaults, ...hint }
+    if (!force && d.distance_km != null && !d.distance_from_geo) return { ok: true }
+
+    const pickupText = d.location.trim() || job.site_address?.trim() || ''
+    const dropText = d.facility.trim()
+    if (!pickupText || !dropText) {
+      return { ok: false, error: 'Add origin and tip destination first' }
+    }
+
+    let originLat = d.location_lat ?? job.site_lat ?? null
+    let originLng = d.location_lng ?? job.site_lng ?? null
+    let destLat = d.dump_lat
+    let destLng = d.dump_lng
+
+    if ((force || originLat == null || originLng == null) && pickupText) {
+      const pin = await geocodeAddressPin(pickupText)
+      if (pin) {
+        originLat = pin.lat
+        originLng = pin.lng
+      }
+    }
+    if ((force || destLat == null || destLng == null) && dropText) {
+      const pin = await geocodeAddressPin(dropText)
+      if (pin) {
+        destLat = pin.lat
+        destLng = pin.lng
+      }
+    }
+
+    if (originLat == null || originLng == null || destLat == null || destLng == null) {
+      return { ok: false, error: 'Could not find origin or tip on the map' }
+    }
+
+    const straight = distanceFromSiteKm(originLat, originLng, destLat, destLng)
+    let trip = straight != null ? geoRoundTripPatch(straight, straight) : null
+    try {
+      const res = await fetch('/api/geocode/distance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ originLat, originLng, destLat, destLng }),
+      })
+      const data = (await res.json()) as { km?: number | null; outKm?: number | null; returnKm?: number | null }
+      const outKm = typeof data.outKm === 'number' && Number.isFinite(data.outKm) ? data.outKm : null
+      const returnKm = typeof data.returnKm === 'number' && Number.isFinite(data.returnKm) ? data.returnKm : null
+      if (outKm != null || returnKm != null) trip = geoRoundTripPatch(outKm, returnKm)
+      else if (typeof data.km === 'number' && Number.isFinite(data.km) && data.km >= 0) trip = geoRoundTripPatch(data.km, data.km)
+    } catch {
+      /* keep straight-line km */
+    }
+    if (!trip) return { ok: false, error: 'Could not calculate distance' }
+
+    const pins = { location_lat: originLat, location_lng: originLng, dump_lat: destLat, dump_lng: destLng }
+    setCapture(prev => {
+      if (!force && prev.defaults.distance_km != null && !prev.defaults.distance_from_geo) return prev
+      if (!force) {
+        if (prev.defaults.location.trim() !== d.location.trim() || prev.defaults.facility.trim() !== d.facility.trim()) return prev
+        if (
+          prev.defaults.location_lat != null && prev.defaults.location_lng != null &&
+          (prev.defaults.location_lat !== originLat || prev.defaults.location_lng !== originLng)
+        ) return prev
+        if (
+          prev.defaults.dump_lat != null && prev.defaults.dump_lng != null &&
+          (prev.defaults.dump_lat !== destLat || prev.defaults.dump_lng !== destLng)
+        ) return prev
+      }
+      const nextDefaults: DisposalTripDefaults = { ...prev.defaults, ...pins, ...trip }
+      if (
+        prev.defaults.distance_km === nextDefaults.distance_km &&
+        prev.defaults.distance_out_km === nextDefaults.distance_out_km &&
+        prev.defaults.distance_return_km === nextDefaults.distance_return_km &&
+        prev.defaults.distance_from_geo === nextDefaults.distance_from_geo &&
+        prev.defaults.location_lat === nextDefaults.location_lat &&
+        prev.defaults.location_lng === nextDefaults.location_lng &&
+        prev.defaults.dump_lat === nextDefaults.dump_lat &&
+        prev.defaults.dump_lng === nextDefaults.dump_lng
+      ) return prev
+      return {
+        ...prev,
+        defaults: nextDefaults,
+        loads: prev.loads.map(load => applyFollowingDefaults(load, prev.defaults, nextDefaults)),
+      }
+    })
+    touch()
+    return { ok: true }
+  }
+
+  async function reloadDefaultsDistance() {
+    if (distanceBusyId) return
+    setDistanceBusyId('__defaults')
+    setDistanceErrors(prev => ({ ...prev, __defaults: '' }))
+    try {
+      const result = await ensureDefaultsDistance(capture.defaults, true)
+      if (!result.ok) {
+        setDistanceErrors(prev => ({ ...prev, __defaults: result.error || 'Could not calculate distance' }))
+      }
+    } finally {
+      setDistanceBusyId(null)
+    }
   }
 
   async function reloadTripDistance(loadId: string) {
@@ -497,6 +647,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
     }
 
     setCapture(prev => ({
+      ...prev,
       loads: prev.loads.map(l => {
         if (l.id !== loadId) return l
         if (!force && !canAutofillDistance(l)) return l
@@ -552,6 +703,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
       const km = distanceFromSiteKm(origin.lat, origin.lng, lat, lng)
       const allow = !existing || canAutofillDistance(existing)
       setCapture(prev => ({
+        ...prev,
         loads: prev.loads.map(l => {
           if (l.id !== loadId) return l
           const current = (l.facility || l.dump_location).trim()
@@ -577,6 +729,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
 
   function patchLoad(id: string, patch: Partial<DisposalLoad>) {
     setCapture(prev => ({
+      ...prev,
       loads: prev.loads.map(l => (l.id === id ? withMirrors({ ...l, ...patch }) : l)),
     }))
     touch()
@@ -584,6 +737,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
 
   function patchVehicle(loadId: string, vehicleId: string, patch: Partial<DisposalVehicle>) {
     setCapture(prev => ({
+      ...prev,
       loads: prev.loads.map(l => {
         if (l.id !== loadId) return l
         const next = withMirrors({
@@ -598,6 +752,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
 
   function applyVehicleExif(loadId: string, vehicleId: string, photo: Photo, exif: PhotoExif) {
     setCapture(prev => ({
+      ...prev,
       loads: prev.loads.map(load => {
         if (load.id !== loadId) return load
         const vehicles = load.vehicles.map(v =>
@@ -639,6 +794,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
 
   function applyDocketExif(id: string, photo: Photo, exif: PhotoExif, pdf?: { file_url: string }) {
     setCapture(prev => ({
+      ...prev,
       loads: prev.loads.map(load => {
         if (load.id !== id) return load
         const next: DisposalLoad = {
@@ -719,21 +875,22 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
   function moveLoad(index: number, direction: -1 | 1) {
     const load = capture.loads[index]
     if (!load || unlockedLoadId !== load.id) return
-    const next = { loads: moveArrayItem(capture.loads, index, direction) }
+    const next = { ...capture, loads: moveArrayItem(capture.loads, index, direction) }
     setCapture(next)
     setUnlockedLoadId(null)
     void save(next)
   }
 
   function addLoad() {
-    const load = applyJobSiteToLoad(emptyDisposalLoad(), job)
-    setCapture(prev => ({ loads: [...prev.loads, load] }))
+    const load = loadFromTripDefaults(applyJobSiteToLoad(emptyDisposalLoad(), job), capture.defaults)
+    setCapture(prev => ({ ...prev, loads: [...prev.loads, load] }))
     setOpenId(load.id)
     touch()
   }
 
   function addExtraPhoto(loadId: string, vehicleId: string, photo: Photo, exif?: PhotoExif) {
     setCapture(prev => ({
+      ...prev,
       loads: prev.loads.map(l => {
         if (l.id !== loadId) return l
         return withMirrors({
@@ -752,6 +909,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
 
   function removeExtraPhoto(loadId: string, vehicleId: string, photoId: string) {
     setCapture(prev => ({
+      ...prev,
       loads: prev.loads.map(l => {
         if (l.id !== loadId) return l
         return withMirrors({
@@ -769,6 +927,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
 
   function patchExtraPhotoNote(loadId: string, vehicleId: string, photoId: string, note: string) {
     setCapture(prev => ({
+      ...prev,
       loads: prev.loads.map(l => {
         if (l.id !== loadId) return l
         return withMirrors({
@@ -789,6 +948,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
 
   function patchExtraPhotoInclude(loadId: string, vehicleId: string, photoId: string, include: boolean) {
     setCapture(prev => ({
+      ...prev,
       loads: prev.loads.map(l => {
         if (l.id !== loadId) return l
         return withMirrors({
@@ -809,6 +969,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
 
   function addFacilityPhoto(loadId: string, photo: Photo, exif?: PhotoExif) {
     setCapture(prev => ({
+      ...prev,
       loads: prev.loads.map(l => {
         if (l.id !== loadId) return l
         return withMirrors({
@@ -823,6 +984,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
 
   function removeFacilityPhoto(loadId: string, photoId: string) {
     setCapture(prev => ({
+      ...prev,
       loads: prev.loads.map(l => {
         if (l.id !== loadId) return l
         return withMirrors({
@@ -836,6 +998,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
 
   function patchFacilityPhotoNote(loadId: string, photoId: string, note: string) {
     setCapture(prev => ({
+      ...prev,
       loads: prev.loads.map(l => {
         if (l.id !== loadId) return l
         return withMirrors({
@@ -849,6 +1012,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
 
   function patchFacilityPhotoInclude(loadId: string, photoId: string, include: boolean) {
     setCapture(prev => ({
+      ...prev,
       loads: prev.loads.map(l => {
         if (l.id !== loadId) return l
         return withMirrors({
@@ -862,6 +1026,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
 
   function moveExtraPhoto(loadId: string, vehicleId: string, index: number, direction: -1 | 1) {
     setCapture(prev => ({
+      ...prev,
       loads: prev.loads.map(l => {
         if (l.id !== loadId) return l
         return withMirrors({
@@ -879,6 +1044,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
 
   function moveFacilityPhoto(loadId: string, index: number, direction: -1 | 1) {
     setCapture(prev => ({
+      ...prev,
       loads: prev.loads.map(l => {
         if (l.id !== loadId) return l
         return withMirrors({
@@ -893,6 +1059,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
   function addVehicle(loadId: string) {
     const vehicle = emptyDisposalVehicle('ute')
     setCapture(prev => ({
+      ...prev,
       loads: prev.loads.map(l => {
         if (l.id !== loadId) return l
         return withMirrors({ ...l, vehicles: [...l.vehicles, vehicle] })
@@ -906,6 +1073,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
     if (!load) return
     if (load.vehicles.length > 1 && !window.confirm('Remove this vehicle?')) return
     setCapture(prev => ({
+      ...prev,
       loads: prev.loads.map(l => {
         if (l.id !== loadId) return l
         if (l.vehicles.length <= 1) {
@@ -919,18 +1087,32 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
 
   function removeLoad(id: string) {
     if (capture.loads.length <= 1) {
-      const fresh = applyJobSiteToLoad(emptyDisposalLoad(), job)
-      setCapture({ loads: [fresh] })
+      const fresh = loadFromTripDefaults(applyJobSiteToLoad(emptyDisposalLoad(), job), capture.defaults)
+      setCapture({ ...capture, loads: [fresh] })
       setOpenId(fresh.id)
       touch()
       return
     }
     if (!window.confirm('Remove this load?')) return
     const next = capture.loads.filter(l => l.id !== id)
-    setCapture({ loads: next })
+    setCapture({ ...capture, loads: next })
     if (openId === id) setOpenId(next[next.length - 1]?.id ?? null)
     touch()
   }
+
+  const sharedVolume = vehicleVolumeM3({
+    length_m: capture.defaults.length_m,
+    width_m: capture.defaults.width_m,
+    height_m: capture.defaults.height_m,
+  } as DisposalVehicle)
+  const sharedMetres = dimensionTrioToMetres(
+    capture.defaults.length_m,
+    capture.defaults.width_m,
+    capture.defaults.height_m,
+  )
+  const sharedTape = looksLikeMillimetres(capture.defaults.length_m)
+    || looksLikeMillimetres(capture.defaults.width_m)
+    || looksLikeMillimetres(capture.defaults.height_m)
 
   async function saveAndCompose() {
     const ok = await save()
@@ -940,9 +1122,191 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
   return (
     <div style={{ maxWidth: 720, paddingBottom: 120 }}>
       <p style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.55, marginBottom: 16 }}>
-        One card per dump trip. Record what left the site, where it went, and the
-        dump fee or skip cost. Photos and the docket are the proof for the client.
+        Set the trailer, its dimensions, the origin, and the tip once. Kilometres are worked out from
+        that route and filled onto every load. Photos, weight, and price are entered on each load.
+        You can still change the shared details on a load that is different.
       </p>
+
+      <div
+        style={{
+          border: '1px solid var(--border)',
+          borderRadius: 12,
+          background: 'var(--surface)',
+          marginBottom: 16,
+          padding: '14px 14px 16px',
+        }}
+      >
+        <div style={{ fontWeight: 800, fontSize: 13, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 4 }}>
+          Same for every load
+        </div>
+        <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5, margin: '0 0 14px' }}>
+          Fills each load that still matches. A load you edit keeps its own trailer, route, or kilometres.
+        </p>
+        <div style={{ display: 'grid', gap: 12 }}>
+          <div>
+            <label style={LABEL}>Vehicle</label>
+            <select
+              value={capture.defaults.vehicle_type}
+              onChange={e => commitDefaults({ vehicle_type: e.target.value as DisposalVehicle['type'] })}
+              style={{ ...INPUT, cursor: 'pointer' }}
+            >
+              {DISPOSAL_VEHICLE_TYPES.map(t => (
+                <option key={t.id} value={t.id}>{t.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label style={LABEL}>
+              {capture.defaults.vehicle_type === 'ute'
+                ? 'Which ute'
+                : capture.defaults.vehicle_type === 'skip'
+                  ? 'Which skip'
+                  : capture.defaults.vehicle_type === 'other'
+                    ? 'Which vehicle'
+                    : 'Which trailer'}
+            </label>
+            <input
+              value={capture.defaults.size}
+              onChange={e => commitDefaults({ size: e.target.value })}
+              placeholder={sizePlaceholder(capture.defaults.vehicle_type)}
+              style={INPUT}
+            />
+          </div>
+          <div>
+            <label style={LABEL}>Dimensions (metres)</label>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+              <div>
+                <label style={{ ...LABEL, fontSize: 10 }}>Length</label>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={capture.defaults.length_m ?? ''}
+                  onChange={e => commitDefaults({ length_m: e.target.value === '' ? null : Number(e.target.value) })}
+                  placeholder="4.05"
+                  style={INPUT}
+                />
+              </div>
+              <div>
+                <label style={{ ...LABEL, fontSize: 10 }}>Width</label>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={capture.defaults.width_m ?? ''}
+                  onChange={e => commitDefaults({ width_m: e.target.value === '' ? null : Number(e.target.value) })}
+                  placeholder="1.80"
+                  style={INPUT}
+                />
+              </div>
+              <div>
+                <label style={{ ...LABEL, fontSize: 10 }}>Height</label>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={capture.defaults.height_m ?? ''}
+                  onChange={e => commitDefaults({ height_m: e.target.value === '' ? null : Number(e.target.value) })}
+                  placeholder="0.50"
+                  style={INPUT}
+                />
+              </div>
+            </div>
+            <div style={{ marginTop: 8, fontSize: 13, color: 'var(--text-muted)' }}>
+              Volume: {sharedVolume != null ? formatM3(sharedVolume) : '—'}
+              {sharedTape && (
+                <span>
+                  {' '}· tape → {sharedMetres.length_m ?? '—'} × {sharedMetres.width_m ?? '—'} × {sharedMetres.height_m ?? '—'} m
+                </span>
+              )}
+            </div>
+          </div>
+          <div>
+            <label style={LABEL}>Origin</label>
+            <AddressAutocomplete
+              value={capture.defaults.location}
+              lat={capture.defaults.location_lat}
+              lng={capture.defaults.location_lng}
+              placeholder="Where the load leaves from"
+              style={INPUT}
+              onChange={next => {
+                commitDefaults(defaultsWithStraightKm({
+                  location: next.address,
+                  location_lat: next.lat,
+                  location_lng: next.lng,
+                }))
+              }}
+            />
+          </div>
+          <div>
+            <label style={LABEL}>Tip destination</label>
+            <AddressAutocomplete
+              value={capture.defaults.facility}
+              lat={capture.defaults.dump_lat}
+              lng={capture.defaults.dump_lng}
+              placeholder="Tip / facility name or address"
+              style={INPUT}
+              onChange={next => {
+                commitDefaults(defaultsWithStraightKm({
+                  facility: next.address,
+                  dump_lat: next.lat,
+                  dump_lng: next.lng,
+                }))
+              }}
+            />
+          </div>
+          <div>
+            <label style={LABEL}>
+              Kilometres
+              <MetaChip show={capture.defaults.distance_from_geo} label="From map" />
+            </label>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
+              <input
+                type="number"
+                min={0}
+                step="0.1"
+                value={capture.defaults.distance_km ?? ''}
+                onChange={e => commitDefaults({
+                  distance_km: e.target.value === '' ? null : Number(e.target.value),
+                  distance_out_km: null,
+                  distance_return_km: null,
+                  distance_from_geo: false,
+                })}
+                placeholder="Auto from origin and tip"
+                style={{ ...INPUT, flex: 1 }}
+              />
+              <button
+                type="button"
+                aria-label="Recalculate round-trip kilometres from origin and tip"
+                title="Recalculate out and return from origin and tip"
+                disabled={distanceBusyId === '__defaults' || saving}
+                onClick={() => void reloadDefaultsDistance()}
+                style={{
+                  ...MOVE_BTN,
+                  width: 44,
+                  height: 'auto',
+                  minHeight: 38,
+                  cursor: distanceBusyId === '__defaults' || saving ? 'not-allowed' : 'pointer',
+                  opacity: distanceBusyId === '__defaults' || saving ? 0.5 : 1,
+                  fontSize: 18,
+                }}
+              >
+                {distanceBusyId === '__defaults' ? '…' : '↻'}
+              </button>
+            </div>
+            {capture.defaults.distance_from_geo && formatDistanceLegs(capture.defaults.distance_out_km, capture.defaults.distance_return_km) && (
+              <div style={{ color: 'var(--muted)', fontSize: 12, marginTop: 6 }}>
+                {formatDistanceLegs(capture.defaults.distance_out_km, capture.defaults.distance_return_km)}
+              </div>
+            )}
+            {distanceErrors.__defaults && (
+              <div style={{ color: '#F87171', fontSize: 12, marginTop: 6 }}>
+                {distanceErrors.__defaults}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
 
       {capture.loads.map((load, index) => {
         const open = openId === load.id
@@ -1111,14 +1475,14 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                   </div>
                   <div>
                     <label style={LABEL}>
-                      Location
+                      Origin
                       <MetaChip show={load.location_from_photo} />
                     </label>
                     <AddressAutocomplete
                       value={load.location}
                       lat={load.location_lat}
                       lng={load.location_lng}
-                      placeholder="Pickup / load location"
+                      placeholder="Origin — where this load leaves from"
                       style={INPUT}
                       onChange={next => {
                         const allow = canAutofillDistance(load)
@@ -1408,7 +1772,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                 <div style={{ ...LABEL, marginTop: 22 }}>{skipOnly ? 'Collection' : 'Drop-off'}</div>
                 <div>
                   <label style={LABEL}>
-                    {skipOnly ? 'Skip company / facility' : 'Facility / dump location'}
+                    {skipOnly ? 'Skip company / facility' : 'Tip destination'}
                     <MetaChip show={load.dump_location_from_photo} fromDevice={load.dump_location_from_device} />
                   </label>
                   <AddressAutocomplete
