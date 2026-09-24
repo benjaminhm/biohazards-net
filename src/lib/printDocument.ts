@@ -2518,28 +2518,31 @@ function buildWDMMid(c: WasteDisposalManifestContent): string {
 }
 
 function buildStatementMid(c: StatementOfAccountsContent): string {
-  const row = (label: string, amount: number, strong = false) => `
-    <tr>
-      <td${strong ? ' style="font-weight:700"' : ''}>${esc(label)}</td>
-      <td class="r"${strong ? ' style="font-weight:700"' : ''}>${esc(fmtMoney(amount))}</td>
-    </tr>`
-  const quoteTotal = c.gst_mode === 'no_gst' ? c.quote_ex : c.quote_inc
-  const depositPaid = c.deposit_taken ? c.deposit_entered : 0
-  const gstRows = c.gst_mode === 'no_gst'
-    ? ''
-    : `${row('Amount owing before GST', c.owing_ex)}${row('GST', c.gst)}`
-  const credit = c.owing_inc < 0
-    ? `<p class="body-text">This balance is a credit.</p>`
-    : ''
+  const money = (n: number) => esc(fmtMoney(n))
+  const chargesGst = c.gst_mode !== 'no_gst'
+  const quoteInc = chargesGst ? c.quote_inc : c.quote_ex
+  const depositInc = c.deposit_taken ? c.deposit_entered : 0
+  const depositEx = c.deposit_taken ? c.deposit_ex : 0
+  const contentsEx = c.disposal
+  const contentsInc = chargesGst ? Math.round(contentsEx * 1.1 * 100) / 100 : contentsEx
+  const grandEx = Math.round((c.quote_ex + contentsEx) * 100) / 100
+  const grandInc = Math.round((quoteInc + contentsInc) * 100) / 100
+  const row = (label: string, before: number, amount: number, strong = false) => {
+    const weight = strong ? ' style="font-weight:700"' : ''
+    const beforeCell = chargesGst ? `<td class="r"${weight}>${money(before)}</td>` : ''
+    return `<tr><td${weight}>${esc(label)}</td>${beforeCell}<td class="r"${weight}>${money(amount)}</td></tr>`
+  }
+  const credit = c.owing_inc < 0 ? `<p class="body-text">This balance is a credit.</p>` : ''
+  const beforeHead = chargesGst ? `<th class="r">Before GST</th>` : ''
   return `
     <table>
-      <thead><tr><th>Item</th><th class="r">Amount</th></tr></thead>
+      <thead><tr><th>Item</th>${beforeHead}<th class="r">${chargesGst ? 'Amount' : 'Amount'}</th></tr></thead>
       <tbody>
-        ${row('This was the original quote', quoteTotal)}
-        ${row('You paid a deposit of', depositPaid)}
-        ${row('Contents removed cost', c.disposal)}
-        ${gstRows}
-        ${row('Total remaining owed', c.owing_inc, true)}
+        ${row('This was the original quote', c.quote_ex, quoteInc)}
+        ${row('You paid a deposit of', depositEx, depositInc)}
+        ${row('Contents removed cost', contentsEx, contentsInc)}
+        ${row('Grand total, including contents removal', grandEx, grandInc, true)}
+        ${row('Total remaining owed', c.owing_ex, c.owing_inc, true)}
       </tbody>
     </table>
     ${credit}

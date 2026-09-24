@@ -107,26 +107,32 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
     if (ok) router.push(`/jobs/${job.id}/docs/statement_of_accounts?compose=1`)
   }
 
-  const row = (label: string, value: string, strong = false) => (
+  const quoteInc = chargesGst ? figures.quote_inc : figures.quote_ex
+  const depositInc = capture.deposit_taken ? figures.deposit_entered : 0
+  const depositEx = capture.deposit_taken ? figures.deposit_ex : 0
+  const contentsInc = chargesGst ? Math.round(figures.disposal * 1.1 * 100) / 100 : figures.disposal
+  const grandEx = Math.round((figures.quote_ex + figures.disposal) * 100) / 100
+  const grandInc = Math.round((quoteInc + contentsInc) * 100) / 100
+  const line = (label: string, before: number, amount: number, strong = false) => (
     <div
       style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        gap: 12,
-        marginBottom: 6,
+        display: 'grid',
+        gridTemplateColumns: chargesGst ? '1.4fr 1fr 1fr' : '1.4fr 1fr',
+        gap: 8,
+        marginBottom: 8,
         fontWeight: strong ? 700 : 400,
       }}
     >
-      <span style={{ color: strong ? 'var(--text)' : 'var(--text-muted)' }}>{label}</span>
-      <span>{value}</span>
+      <span>{label}</span>
+      {chargesGst && <span style={{ textAlign: 'right' }}>{formatAud(before)}</span>}
+      <span style={{ textAlign: 'right' }}>{formatAud(amount)}</span>
     </div>
   )
 
   return (
     <div style={{ maxWidth: 720, paddingBottom: 120 }}>
       <p style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.55, marginBottom: 16 }}>
-        The statement says the original quote, the deposit paid, and the contents removed cost, then the total remaining owed.
-        GST is shown only on that remaining amount.
+        Each figure is shown before GST and as the amount including GST. The grand total adds the contents removal to the quote. The total remaining owed is that grand total minus the deposit.
       </p>
 
       {!hasQuote && (
@@ -134,21 +140,6 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
           No quote or estimate is saved on this job yet. Those lines stay at $0 until one is saved.
         </p>
       )}
-
-      <div
-        style={{
-          padding: '14px 16px',
-          borderRadius: 12,
-          border: '1px solid var(--border)',
-          background: 'var(--surface)',
-          marginBottom: 16,
-          fontSize: 14,
-        }}
-      >
-        {row('This was the original quote', formatAud(chargesGst ? figures.quote_inc : figures.quote_ex))}
-        {row('You paid a deposit of', formatAud(capture.deposit_taken ? figures.deposit_entered : 0))}
-        {row('Contents removed cost', formatAud(figures.disposal))}
-      </div>
 
       <div
         style={{
@@ -208,12 +199,28 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
           fontSize: 14,
         }}
       >
-        <div style={{ fontWeight: 800, fontSize: 13, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 12, color: '#E2E8F0' }}>
-          Total remaining owed
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: chargesGst ? '1.4fr 1fr 1fr' : '1.4fr 1fr',
+            gap: 8,
+            marginBottom: 10,
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: '0.06em',
+            textTransform: 'uppercase',
+            color: '#E2E8F0',
+          }}
+        >
+          <span>Item</span>
+          {chargesGst && <span style={{ textAlign: 'right' }}>Before GST</span>}
+          <span style={{ textAlign: 'right' }}>Amount</span>
         </div>
-        {chargesGst && row('Amount owing before GST', formatAud(figures.owing_ex))}
-        {chargesGst && row('GST', formatAud(figures.gst))}
-        {row('Total remaining owed', formatAud(figures.owing_inc), true)}
+        {line('This was the original quote', figures.quote_ex, quoteInc)}
+        {line('You paid a deposit of', depositEx, depositInc)}
+        {line('Contents removed cost', figures.disposal, contentsInc)}
+        {line('Grand total, including contents removal', grandEx, grandInc, true)}
+        {line('Total remaining owed', figures.owing_ex, figures.owing_inc, true)}
         {figures.owing_inc < 0 && (
           <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 8 }}>This balance is a credit.</div>
         )}
