@@ -328,8 +328,31 @@ function cssSowPrint(): string {
     }
     .sow-root .sow-mid thead th.r { text-align: right; }
     .sow-root .sow-mid table.wdm-break { font-size: 8pt; }
-    .sow-root .sow-mid table.wdm-break thead th { padding: 5px 4px; font-size: 7pt; }
-    .sow-root .sow-mid table.wdm-break td { padding: 5px 4px; font-size: 8pt; }
+    .sow-root .sow-mid table.wdm-break thead th { padding: 6px 5px; font-size: 7pt; }
+    .sow-root .sow-mid table.wdm-break thead th.g-name { text-align: center; letter-spacing: 0.04em; text-transform: uppercase; }
+    .sow-root .sow-mid table.wdm-break td { padding: 6px 5px; font-size: 8pt; }
+    .sow-root .sow-mid table.wdm-break .g-start { border-left: 2px solid #fff; }
+    .sow-root .sow-mid table.wdm-break tbody .g-start { border-left: 2px solid var(--sow-navy); }
+    .sow-root .sow-mid table.wdm-break thead th.g-skip,
+    .sow-root .sow-mid table.wdm-break tbody td.g-skip { background: #ddeaf7; color: inherit; }
+    .sow-root .sow-mid table.wdm-break thead th.g-trailer,
+    .sow-root .sow-mid table.wdm-break tbody td.g-trailer { background: #f7fafc; color: inherit; }
+    .sow-root .sow-mid table.wdm-break thead th.g-ute,
+    .sow-root .sow-mid table.wdm-break tbody td.g-ute { background: #e8f0fa; color: inherit; }
+    .sow-root .sow-mid table.wdm-break thead th.g-tip,
+    .sow-root .sow-mid table.wdm-break tbody td.g-tip { background: #f7fafc; color: inherit; }
+    .sow-root .sow-mid table.wdm-break thead th.g-total,
+    .sow-root .sow-mid table.wdm-break tbody td.g-total { background: #d7e6f6; color: inherit; font-weight: 700; }
+    .sow-root .sow-mid table.wdm-break thead th.g-skip,
+    .sow-root .sow-mid table.wdm-break thead th.g-trailer,
+    .sow-root .sow-mid table.wdm-break thead th.g-ute,
+    .sow-root .sow-mid table.wdm-break thead th.g-tip,
+    .sow-root .sow-mid table.wdm-break thead th.g-total { color: var(--sow-navy); }
+    .sow-root .sow-mid table.wdm-break tbody tr:nth-child(even) td.g-skip { background: #c9dcee; }
+    .sow-root .sow-mid table.wdm-break tbody tr:nth-child(even) td.g-trailer { background: #eef3f7; }
+    .sow-root .sow-mid table.wdm-break tbody tr:nth-child(even) td.g-ute { background: #d9e6f3; }
+    .sow-root .sow-mid table.wdm-break tbody tr:nth-child(even) td.g-tip { background: #eef3f7; }
+    .sow-root .sow-mid table.wdm-break tbody tr:nth-child(even) td.g-total { background: #c5d9ef; }
     .sow-root .sow-mid tbody tr { border-bottom: 1px solid var(--sow-rule); }
     .sow-root .sow-mid tbody td { padding: 8px 10px; vertical-align: top; }
     .sow-root .sow-mid tbody td.r { text-align: right; white-space: nowrap; }
@@ -1439,18 +1462,18 @@ function wdmSummary(c: WasteDisposalManifestContent): string {
           <th rowspan="2">Vehicles</th>
           <th rowspan="2">Volume</th>
           <th rowspan="2">Weight</th>
-          <th class="r" colspan="2">Skip</th>
-          <th class="r" colspan="2">Trailer</th>
-          <th class="r" colspan="2">Ute</th>
-          <th class="r" colspan="2">Tip</th>
-          <th class="r" colspan="2">Load total</th>
+          <th class="g-name g-skip g-start" colspan="2">Skip</th>
+          <th class="g-name g-trailer g-start" colspan="2">Trailer</th>
+          <th class="g-name g-ute g-start" colspan="2">Ute</th>
+          <th class="g-name g-tip g-start" colspan="2">Tip</th>
+          <th class="g-name g-total g-start" colspan="2">Load total</th>
         </tr>
         <tr>
-          <th class="r">Before GST</th><th class="r">Amount</th>
-          <th class="r">Before GST</th><th class="r">Amount</th>
-          <th class="r">Before GST</th><th class="r">Amount</th>
-          <th class="r">Before GST</th><th class="r">Amount</th>
-          <th class="r">Before GST</th><th class="r">Amount</th>
+          <th class="r g-skip g-start">Before GST</th><th class="r g-skip">Amount</th>
+          <th class="r g-trailer g-start">Before GST</th><th class="r g-trailer">Amount</th>
+          <th class="r g-ute g-start">Before GST</th><th class="r g-ute">Amount</th>
+          <th class="r g-tip g-start">Before GST</th><th class="r g-tip">Amount</th>
+          <th class="r g-total g-start">Before GST</th><th class="r g-total">Amount</th>
         </tr>
       </thead>
       <tbody>
@@ -1467,16 +1490,16 @@ function wdmSummary(c: WasteDisposalManifestContent): string {
             <td>${esc(types)}</td>
             <td>${load.volume_m3 != null ? esc(formatM3(load.volume_m3)) : '—'}</td>
             <td>${load.weight_kg != null ? esc(formatKg(load.weight_kg)) : '—'}</td>
-            <td class="r">${moneyOrDash(load.skip_ex)}</td>
-            <td class="r">${moneyOrDash(load.skip_inc)}</td>
-            <td class="r">${moneyOrDash(load.trailer_ex)}</td>
-            <td class="r">${moneyOrDash(load.trailer_inc)}</td>
-            <td class="r">${moneyOrDash(load.ute_ex)}</td>
-            <td class="r">${moneyOrDash(load.ute_inc)}</td>
-            <td class="r">${moneyOrDash(load.dump_ex)}</td>
-            <td class="r">${moneyOrDash(load.dump_inc)}</td>
-            <td class="r">${costEx != null && costEx !== 0 ? esc(formatAud(costEx)) : '—'}</td>
-            <td class="r">${costInc != null && costInc !== 0 ? esc(formatAud(costInc)) : '—'}</td>
+            <td class="r g-skip g-start">${moneyOrDash(load.skip_ex)}</td>
+            <td class="r g-skip">${moneyOrDash(load.skip_inc)}</td>
+            <td class="r g-trailer g-start">${moneyOrDash(load.trailer_ex)}</td>
+            <td class="r g-trailer">${moneyOrDash(load.trailer_inc)}</td>
+            <td class="r g-ute g-start">${moneyOrDash(load.ute_ex)}</td>
+            <td class="r g-ute">${moneyOrDash(load.ute_inc)}</td>
+            <td class="r g-tip g-start">${moneyOrDash(load.dump_ex)}</td>
+            <td class="r g-tip">${moneyOrDash(load.dump_inc)}</td>
+            <td class="r g-total g-start">${costEx != null && costEx !== 0 ? esc(formatAud(costEx)) : '—'}</td>
+            <td class="r g-total">${costInc != null && costInc !== 0 ? esc(formatAud(costInc)) : '—'}</td>
           </tr>`
         }).join('')}
       </tbody>
