@@ -83,6 +83,7 @@ type Tab = 'home' | 'docs' | 'details' | 'timeline' | 'assessment' | 'case_studi
 type HomeSection =
   | 'initial_contact'
   | 'onsite_assessment'
+  | 'survey'
   | 'scope_of_work'
   | 'quote'
   | 'legal'
@@ -96,6 +97,7 @@ type HomeSection =
 const HOME_SECTIONS: { id: HomeSection; label: string }[] = [
   { id: 'initial_contact', label: 'Initial Contact' },
   { id: 'onsite_assessment', label: 'Onsite Assessment' },
+  { id: 'survey', label: 'Survey' },
   { id: 'scope_of_work', label: 'Scope of Work' },
   { id: 'quote', label: 'Quote/Estimate' },
   { id: 'legal', label: 'Legal' },
@@ -126,6 +128,7 @@ const DOCS_SECTION_IDS = DOCS_SECTIONS.map(s => s.id) as readonly DocsSection[]
 const HOME_SECTION_TO_CAP: Record<HomeSection, keyof TeamCapabilities> = {
   initial_contact:   'view_home_initial_contact',
   onsite_assessment: 'view_home_onsite_assessment',
+  survey:            'view_home_onsite_assessment',
   scope_of_work:     'view_home_scope_of_work',
   quote:             'view_home_quote',
   legal:             'view_home_legal',
@@ -685,7 +688,7 @@ export default function JobPage() {
   const [safetySection,  setSafetySection]  = useState<SafetySection>('authority_to_proceed')
   const [reviewSection,  setReviewSection]  = useState<ReviewSection>('client_feedback')
   /** Secondary tabs when viewing Assessment (Presentation → Health Hazards → Risks → Recommendations → Equipment → Document) */
-  const [assessmentSection, setAssessmentSection] = useState<'presentation' | 'survey' | 'hazards' | 'risks' | 'pathogens' | 'contents' | 'structure' | 'recommendations' | 'chemicals' | 'equipment' | 'document'>('presentation')
+  const [assessmentSection, setAssessmentSection] = useState<'presentation' | 'hazards' | 'risks' | 'pathogens' | 'contents' | 'structure' | 'recommendations' | 'chemicals' | 'equipment' | 'document'>('presentation')
   const [caseStudiesSection, setCaseStudiesSection] = useState<'written' | 'video_script'>('written')
   const [writtenCaseStatus, setWrittenCaseStatus] = useState<CaseStudyWorkflowStatus>('draft')
   const [writtenCaseReviewer, setWrittenCaseReviewer] = useState('')
@@ -712,19 +715,6 @@ export default function JobPage() {
     fontWeight: 600,
     color: assessmentSection === 'presentation' ? 'var(--accent)' : 'var(--text-muted)',
     borderBottom: assessmentSection === 'presentation' ? '2px solid var(--accent)' : '2px solid transparent',
-    transition: 'color 0.15s, border-color 0.15s',
-    background: 'none',
-    border: 'none',
-    cursor: 'pointer',
-    marginBottom: -1,
-  } as const
-
-  const assessmentSurveyBtnStyle = {
-    padding: '8px 16px',
-    fontSize: 13,
-    fontWeight: 600,
-    color: assessmentSection === 'survey' ? 'var(--accent)' : 'var(--text-muted)',
-    borderBottom: assessmentSection === 'survey' ? '2px solid var(--accent)' : '2px solid transparent',
     transition: 'color 0.15s, border-color 0.15s',
     background: 'none',
     border: 'none',
@@ -1006,7 +996,9 @@ export default function JobPage() {
   const tabs = allTabs.filter(t => t.show)
   const pageTitle = activeTab === 'home' && homeSection === 'execute'
     ? DOC_TYPE_LABELS.waste_disposal_manifest
-    : activeTab === 'home' && homeSection === 'statement'
+    : activeTab === 'home' && homeSection === 'survey'
+      ? 'Survey'
+      : activeTab === 'home' && homeSection === 'statement'
       ? DOC_TYPE_LABELS.statement_of_accounts
       : pageTitleForTab(activeTab, job)
   const emptyRoomStyle: React.CSSProperties = {
@@ -1034,6 +1026,7 @@ export default function JobPage() {
   const showTimeline       = activeTab === 'timeline'
   const showInitialContact = inHome('initial_contact')
   const showAssessmentUI   = activeTab === 'assessment' || inHome('onsite_assessment')
+  const showSurvey         = inHome('survey')
   const showScope          = activeTab === 'scope_capture' || inHome('scope_of_work')
   const showQuote          = activeTab === 'quote_capture' || inHome('quote')
   const showPRC            = activeTab === 'pre_remediation_checklist_capture' || inHome('plan')
@@ -1345,15 +1338,6 @@ export default function JobPage() {
             <button
               type="button"
               role="tab"
-              aria-selected={assessmentSection === 'survey'}
-              onClick={() => setAssessmentSection('survey')}
-              style={assessmentSurveyBtnStyle}
-            >
-              Survey
-            </button>
-            <button
-              type="button"
-              role="tab"
               aria-selected={assessmentSection === 'hazards'}
               onClick={() => setAssessmentSection('hazards')}
               style={assessmentBiohazardsBtnStyle}
@@ -1483,9 +1467,6 @@ export default function JobPage() {
             photos={photos}
             onPhotosUpdate={setPhotos}
           />
-        )}
-        {showAssessmentUI && assessmentSection === 'survey' && (
-          <HouseSurveyTab job={job} onJobUpdate={setJob} />
         )}
         {showAssessmentUI && assessmentSection === 'hazards' && (
           <AssessmentHealthHazardsTab job={job} onJobUpdate={setJob} />
@@ -1802,6 +1783,9 @@ export default function JobPage() {
         )}
         {showCompletionRpt && (
           <PostRemediationEvaluationTab job={job} photos={photos} documents={documents} onJobUpdate={setJob} onPhotosUpdate={setPhotos} />
+        )}
+        {showSurvey && (
+          <HouseSurveyTab job={job} onJobUpdate={setJob} />
         )}
         {showStatement && (
           <StatementOfAccountsTab job={job} documents={documents} onJobUpdate={setJob} />
