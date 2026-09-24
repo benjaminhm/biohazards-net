@@ -1563,6 +1563,10 @@ export interface DisposalVehicle {
   extra_photos: DisposalPhotoRef[]
   /** Skip-hire price. Independent of weighbridge / dump fee on the load. */
   skip_cost: number | null
+  /** Square metres of waste in this vehicle. Null follows its volume until edited. */
+  waste_sqm: number | null
+  /** Price for this vehicle. Null follows its square metres × the shared rate until edited. */
+  waste_price: number | null
 }
 
 /** One dump run from site to facility (shared docket / fee). */

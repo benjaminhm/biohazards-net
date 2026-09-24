@@ -36,8 +36,6 @@ import {
   formatKg,
   formatM3,
   loadHasSkipVehicle,
-  loadWastePrice,
-  loadWasteSqm,
   loadOriginLatLng,
   loadSkipOnly,
   looksLikeCoordLabel,
@@ -768,6 +766,8 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
         if (l.id !== loadId) return l
         const next = withMirrors({
           ...l,
+          ...(patch.waste_sqm !== undefined ? { waste_sqm: null } : {}),
+          ...(patch.waste_price !== undefined ? { waste_price: null } : {}),
           vehicles: l.vehicles.map(v => (v.id === vehicleId ? { ...v, ...patch } : v)),
         })
         return patch.type !== undefined ? reconcileSkipPricing(next) : next
@@ -1212,7 +1212,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
             </div>
           </div>
           <p style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.45, margin: 0 }}>
-            Each load starts from this rate times its volume. Sqm and price on a load can be changed on their own. Prepaid cubic metres come off the total.
+            Each vehicle starts from this rate times its volume. Sqm and price are edited on that vehicle, so a ute and a trailer stay separate. Prepaid cubic metres come off the total.
           </p>
           <div>
             <label style={LABEL}>Vehicle</label>
@@ -1537,36 +1537,6 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
             {open && (
               <div style={{ padding: '0 14px 16px' }}>
                 <div style={{ display: 'grid', gap: 12, marginTop: 14 }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                    <div>
-                      <label style={LABEL}>Sqm</label>
-                      <input
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        value={load.waste_sqm ?? loadWasteSqm(load) ?? ''}
-                        onChange={e => patchLoad(load.id, {
-                          waste_sqm: e.target.value === '' ? null : Number(e.target.value),
-                        })}
-                        placeholder="0"
-                        style={INPUT}
-                      />
-                    </div>
-                    <div>
-                      <label style={LABEL}>Price ($)</label>
-                      <input
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        value={load.waste_price ?? loadWastePrice(load, capture.cost_per_m3) ?? ''}
-                        onChange={e => patchLoad(load.id, {
-                          waste_price: e.target.value === '' ? null : Number(e.target.value),
-                        })}
-                        placeholder="0.00"
-                        style={INPUT}
-                      />
-                    </div>
-                  </div>
                   <div>
                     <label style={LABEL}>
                       Load date
@@ -1617,6 +1587,13 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                 {load.vehicles.map((vehicle, vIndex) => {
                   const labels = photoLabels(vehicle.type)
                   const volM3 = vehicleVolumeM3(vehicle)
+                  const singleVehicle = load.vehicles.length === 1
+                  const shownSqm = vehicle.waste_sqm ?? (singleVehicle ? load.waste_sqm : null) ?? volM3
+                  const shownPrice = vehicle.waste_price
+                    ?? (singleVehicle ? load.waste_price : null)
+                    ?? (shownSqm != null && capture.cost_per_m3 != null
+                      ? Math.round(shownSqm * capture.cost_per_m3 * 100) / 100
+                      : null)
                   const dimsM = dimensionTrioToMetres(vehicle.length_m, vehicle.width_m, vehicle.height_m)
                   const tapeHint = looksLikeMillimetres(vehicle.length_m) || looksLikeMillimetres(vehicle.width_m) || looksLikeMillimetres(vehicle.height_m)
                   return (
@@ -1631,7 +1608,37 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                       }}
                     >
                       <div style={{ ...LABEL, marginTop: 0 }}>
-                        Vehicle {vIndex + 1}
+                        {vehicleTypeLabel(vehicle.type) || `Vehicle ${vIndex + 1}`}
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+                        <div>
+                          <label style={LABEL}>Sqm</label>
+                          <input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            value={shownSqm ?? ''}
+                            onChange={e => patchVehicle(load.id, vehicle.id, {
+                              waste_sqm: e.target.value === '' ? null : Number(e.target.value),
+                            })}
+                            placeholder="0"
+                            style={INPUT}
+                          />
+                        </div>
+                        <div>
+                          <label style={LABEL}>Price ($)</label>
+                          <input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            value={shownPrice ?? ''}
+                            onChange={e => patchVehicle(load.id, vehicle.id, {
+                              waste_price: e.target.value === '' ? null : Number(e.target.value),
+                            })}
+                            placeholder="0.00"
+                            style={INPUT}
+                          />
+                        </div>
                       </div>
                       <div>
                         <label style={LABEL}>Type</label>

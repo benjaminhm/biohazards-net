@@ -46,6 +46,8 @@ export function emptyDisposalVehicle(type: DisposalVehicleTypeId = 'trailer'): D
     photo_include_in_compose: true,
     extra_photos: [],
     skip_cost: null,
+    waste_sqm: null,
+    waste_price: null,
   }
 }
 
@@ -264,6 +266,8 @@ function normalizeVehicle(raw: unknown): DisposalVehicle {
     photo_include_in_compose: boolDefaultTrue(o.photo_include_in_compose),
     extra_photos: normalizePhotoList(o.extra_photos),
     skip_cost: numOrNull(o.skip_cost),
+    waste_sqm: numOrNull(o.waste_sqm),
+    waste_price: numOrNull(o.waste_price),
   }
 }
 
@@ -847,18 +851,53 @@ export interface DisposalWasteCharge {
   balance: number | null
 }
 
-/** Square metres billed for this load. An edited amount wins; otherwise the load volume. */
-export function loadWasteSqm(load: DisposalLoad): number | null {
-  if (load.waste_sqm != null && Number.isFinite(load.waste_sqm)) return load.waste_sqm
-  return loadVolumeM3(load)
+/** Square metres billed for this vehicle. An edited amount wins; otherwise its volume. */
+export function vehicleWasteSqm(vehicle: DisposalVehicle): number | null {
+  if (vehicle.waste_sqm != null && Number.isFinite(vehicle.waste_sqm)) return vehicle.waste_sqm
+  return vehicleVolumeM3(vehicle)
 }
 
-/** Price billed for this load. An edited price wins; otherwise square metres × the shared rate. */
-export function loadWastePrice(load: DisposalLoad, rate: number | null | undefined): number | null {
-  if (load.waste_price != null && Number.isFinite(load.waste_price)) return load.waste_price
-  const sqm = loadWasteSqm(load)
+/** Price billed for this vehicle. An edited price wins; otherwise its square metres × the rate. */
+export function vehicleWastePrice(vehicle: DisposalVehicle, rate: number | null | undefined): number | null {
+  if (vehicle.waste_price != null && Number.isFinite(vehicle.waste_price)) return vehicle.waste_price
+  const sqm = vehicleWasteSqm(vehicle)
   if (sqm == null || rate == null || !Number.isFinite(rate) || rate < 0) return null
   return Math.round(sqm * rate * 100) / 100
+}
+
+/** Square metres billed for this load, added up per vehicle. */
+export function loadWasteSqm(load: DisposalLoad): number | null {
+  const single = load.vehicles.length <= 1
+  let sum = 0
+  let n = 0
+  for (const vehicle of load.vehicles) {
+    const sqm = vehicle.waste_sqm ?? (single ? load.waste_sqm : null) ?? vehicleVolumeM3(vehicle)
+    if (sqm == null || !Number.isFinite(sqm)) continue
+    sum += sqm
+    n += 1
+  }
+  return n ? Math.round(sum * 100) / 100 : null
+}
+
+/** Price billed for this load, added up per vehicle so a ute and a trailer stay separate. */
+export function loadWastePrice(load: DisposalLoad, rate: number | null | undefined): number | null {
+  const single = load.vehicles.length <= 1
+  const safeRate = rate != null && Number.isFinite(rate) && rate >= 0 ? rate : null
+  let sum = 0
+  let n = 0
+  for (const vehicle of load.vehicles) {
+    let price: number | null = null
+    if (vehicle.waste_price != null && Number.isFinite(vehicle.waste_price)) price = vehicle.waste_price
+    else if (single && load.waste_price != null && Number.isFinite(load.waste_price)) price = load.waste_price
+    else {
+      const sqm = vehicle.waste_sqm ?? (single ? load.waste_sqm : null) ?? vehicleVolumeM3(vehicle)
+      if (sqm != null && safeRate != null) price = Math.round(sqm * safeRate * 100) / 100
+    }
+    if (price == null) continue
+    sum += price
+    n += 1
+  }
+  return n ? Math.round(sum * 100) / 100 : null
 }
 
 /** Waste dollars from each load's square metres and price. Prepaid cubic metres come off that total. */
