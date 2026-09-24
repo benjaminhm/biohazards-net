@@ -922,24 +922,6 @@ export function disposalWasteCharge(
   return { cost_per_m3: rate, prepaid_m3: prepaid, gross, prepaid_value, balance }
 }
 
-export interface DisposalPriceLines {
-  skips: number
-  trailers_utes: number
-  dump_fees: number
-  prepaid: number
-  total: number
-  skips_ex: number
-  skips_inc: number
-  trailers_utes_ex: number
-  trailers_utes_inc: number
-  dump_fees_ex: number
-  dump_fees_inc: number
-  prepaid_ex: number
-  prepaid_inc: number
-  total_ex: number
-  total_inc: number
-}
-
 function roundMoney(n: number): number {
   return Math.round(n * 100) / 100
 }
@@ -952,6 +934,91 @@ function gstIncFromEx(n: number): number {
   return roundMoney(n * 1.1)
 }
 
+function vehicleExclusiveWastePrice(
+  load: DisposalLoad,
+  vehicle: DisposalVehicle,
+  rate: number | null,
+): number | null {
+  if (vehicle.type === 'skip') return null
+  const single = load.vehicles.length <= 1
+  if (vehicle.waste_price != null && Number.isFinite(vehicle.waste_price)) return vehicle.waste_price
+  if (single && load.waste_price != null && Number.isFinite(load.waste_price)) return load.waste_price
+  if (rate == null) return null
+  const sqm = vehicle.waste_sqm ?? (single ? load.waste_sqm : null) ?? vehicleVolumeM3(vehicle)
+  if (sqm == null) return null
+  return roundMoney(sqm * rate)
+}
+
+export interface LoadPriceBreakdown {
+  skip_ex: number
+  skip_inc: number
+  trailer_ex: number
+  trailer_inc: number
+  ute_ex: number
+  ute_inc: number
+  dump_ex: number
+  dump_inc: number
+  total_ex: number
+  total_inc: number
+}
+
+export function loadPriceBreakdown(
+  load: DisposalLoad,
+  cost_per_m3: number | null | undefined,
+): LoadPriceBreakdown {
+  const rate = cost_per_m3 != null && Number.isFinite(cost_per_m3) && cost_per_m3 >= 0 ? cost_per_m3 : null
+  const skip_inc = roundMoney(loadSkipFeeForTotals(load) ?? 0)
+  const dump_inc = roundMoney(loadDumpFeeForTotals(load) ?? 0)
+  let trailer_ex = 0
+  let ute_ex = 0
+  for (const vehicle of load.vehicles) {
+    const price = vehicleExclusiveWastePrice(load, vehicle, rate)
+    if (price == null) continue
+    if (vehicle.type === 'ute') ute_ex += price
+    else trailer_ex += price
+  }
+  trailer_ex = roundMoney(trailer_ex)
+  ute_ex = roundMoney(ute_ex)
+  const skip_ex = gstExFromInc(skip_inc)
+  const dump_ex = gstExFromInc(dump_inc)
+  const trailer_inc = gstIncFromEx(trailer_ex)
+  const ute_inc = gstIncFromEx(ute_ex)
+  return {
+    skip_ex,
+    skip_inc,
+    trailer_ex,
+    trailer_inc,
+    ute_ex,
+    ute_inc,
+    dump_ex,
+    dump_inc,
+    total_ex: roundMoney(skip_ex + trailer_ex + ute_ex + dump_ex),
+    total_inc: roundMoney(skip_inc + trailer_inc + ute_inc + dump_inc),
+  }
+}
+
+export interface DisposalPriceLines {
+  skips: number
+  trailers_utes: number
+  dump_fees: number
+  prepaid: number
+  total: number
+  skips_ex: number
+  skips_inc: number
+  trailers_utes_ex: number
+  trailers_utes_inc: number
+  trailers_ex: number
+  trailers_inc: number
+  utes_ex: number
+  utes_inc: number
+  dump_fees_ex: number
+  dump_fees_inc: number
+  prepaid_ex: number
+  prepaid_inc: number
+  total_ex: number
+  total_inc: number
+}
+
 /** Skip hire and dump fees are GST-inclusive pass-through. Trailer/ute waste is GST-exclusive. */
 export function disposalPriceLines(
   loads: DisposalLoad[],
@@ -960,48 +1027,45 @@ export function disposalPriceLines(
 ): DisposalPriceLines {
   const rate = cost_per_m3 != null && Number.isFinite(cost_per_m3) && cost_per_m3 >= 0 ? cost_per_m3 : null
   let skips_inc = 0
-  let trailers_utes_ex = 0
+  let trailers_ex = 0
+  let utes_ex = 0
   let dump_fees_inc = 0
   for (const load of loads) {
-    const dump = loadDumpFeeForTotals(load)
-    if (dump != null) dump_fees_inc += dump
-    const skip = loadSkipFeeForTotals(load)
-    if (skip != null) skips_inc += skip
-    const single = load.vehicles.length <= 1
-    for (const vehicle of load.vehicles) {
-      if (vehicle.type === 'skip') continue
-      let price: number | null = null
-      if (vehicle.waste_price != null && Number.isFinite(vehicle.waste_price)) price = vehicle.waste_price
-      else if (single && load.waste_price != null && Number.isFinite(load.waste_price)) price = load.waste_price
-      else if (rate != null) {
-        const sqm = vehicle.waste_sqm ?? (single ? load.waste_sqm : null) ?? vehicleVolumeM3(vehicle)
-        if (sqm != null) price = roundMoney(sqm * rate)
-      }
-      if (price != null) trailers_utes_ex += price
-    }
+    const row = loadPriceBreakdown(load, rate)
+    skips_inc += row.skip_inc
+    trailers_ex += row.trailer_ex
+    utes_ex += row.ute_ex
+    dump_fees_inc += row.dump_inc
   }
   const prepaidQty = prepaid_m3 != null && Number.isFinite(prepaid_m3) && prepaid_m3 > 0 ? prepaid_m3 : 0
-  const prepaid_ex = rate == null ? 0 : roundMoney(prepaidQty * rate)
+  const prepaid_ex_r = rate == null ? 0 : roundMoney(prepaidQty * rate)
   const skips_inc_r = roundMoney(skips_inc)
   const dump_inc_r = roundMoney(dump_fees_inc)
-  const trailers_ex_r = roundMoney(trailers_utes_ex)
-  const prepaid_ex_r = prepaid_ex
+  const trailers_ex_r = roundMoney(trailers_ex)
+  const utes_ex_r = roundMoney(utes_ex)
+  const trailers_utes_ex = roundMoney(trailers_ex_r + utes_ex_r)
   const skips_ex = gstExFromInc(skips_inc_r)
   const dump_fees_ex = gstExFromInc(dump_inc_r)
-  const trailers_utes_inc = gstIncFromEx(trailers_ex_r)
+  const trailers_inc = gstIncFromEx(trailers_ex_r)
+  const utes_inc = gstIncFromEx(utes_ex_r)
+  const trailers_utes_inc = roundMoney(trailers_inc + utes_inc)
   const prepaid_inc = gstIncFromEx(prepaid_ex_r)
-  const total_ex = roundMoney(skips_ex + trailers_ex_r + dump_fees_ex - prepaid_ex_r)
+  const total_ex = roundMoney(skips_ex + trailers_utes_ex + dump_fees_ex - prepaid_ex_r)
   const total_inc = roundMoney(skips_inc_r + trailers_utes_inc + dump_inc_r - prepaid_inc)
   return {
     skips: skips_inc_r,
-    trailers_utes: trailers_ex_r,
+    trailers_utes: trailers_utes_ex,
     dump_fees: dump_inc_r,
     prepaid: prepaid_ex_r,
     total: total_inc,
     skips_ex,
     skips_inc: skips_inc_r,
-    trailers_utes_ex: trailers_ex_r,
+    trailers_utes_ex,
     trailers_utes_inc,
+    trailers_ex: trailers_ex_r,
+    trailers_inc,
+    utes_ex: utes_ex_r,
+    utes_inc,
     dump_fees_ex,
     dump_fees_inc: dump_inc_r,
     prepaid_ex: prepaid_ex_r,

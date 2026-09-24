@@ -1722,6 +1722,14 @@ export interface WasteDisposalManifestLoadSnapshot {
   cost?: number | null
   cost_ex?: number | null
   cost_inc?: number | null
+  skip_ex?: number | null
+  skip_inc?: number | null
+  trailer_ex?: number | null
+  trailer_inc?: number | null
+  ute_ex?: number | null
+  ute_inc?: number | null
+  dump_ex?: number | null
+  dump_inc?: number | null
   distance_km: number | null
   distance_out_km?: number | null
   distance_return_km?: number | null
@@ -1998,6 +2006,10 @@ export interface WasteDisposalManifestContent {
     trailer_ute_fees_inc?: number | null
     prepaid_value_inc?: number | null
     price_total_ex?: number | null
+    trailer_fees_ex?: number | null
+    trailer_fees_inc?: number | null
+    ute_fees_ex?: number | null
+    ute_fees_inc?: number | null
   }
 }
 

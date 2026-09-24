@@ -327,6 +327,9 @@ function cssSowPrint(): string {
       text-align: left;
     }
     .sow-root .sow-mid thead th.r { text-align: right; }
+    .sow-root .sow-mid table.wdm-break { font-size: 8pt; }
+    .sow-root .sow-mid table.wdm-break thead th { padding: 5px 4px; font-size: 7pt; }
+    .sow-root .sow-mid table.wdm-break td { padding: 5px 4px; font-size: 8pt; }
     .sow-root .sow-mid tbody tr { border-bottom: 1px solid var(--sow-rule); }
     .sow-root .sow-mid tbody td { padding: 8px 10px; vertical-align: top; }
     .sow-root .sow-mid tbody td.r { text-align: right; white-space: nowrap; }
@@ -1408,13 +1411,20 @@ function wdmPriceTable(t: WasteDisposalManifestContent['totals']): string {
     <table style="margin-top:12px">
       <thead><tr><th>Item</th><th class="r">Before GST</th><th class="r">Amount</th></tr></thead>
       <tbody>
-        ${row('Skips', skipsEx, skipsInc)}
-        ${row('Trailers / utes', trailersEx, trailersInc)}
-        ${row('Dump fees', dumpsEx, dumpsInc)}
+        ${skipsInc ? row('Skips', skipsEx, skipsInc) : ''}
+        ${(t.trailer_fees_ex ?? 0) > 0 || (t.trailer_fees_inc ?? 0) > 0 ? row('Trailers', t.trailer_fees_ex ?? 0, t.trailer_fees_inc ?? 0) : ''}
+        ${(t.ute_fees_ex ?? 0) > 0 || (t.ute_fees_inc ?? 0) > 0 ? row('Utes', t.ute_fees_ex ?? 0, t.ute_fees_inc ?? 0) : ''}
+        ${t.trailer_fees_ex == null && t.ute_fees_ex == null && trailersEx ? row('Trailers / utes', trailersEx, trailersInc) : ''}
+        ${dumpsInc ? row('Dump fees', dumpsEx, dumpsInc) : ''}
         ${prepaidEx ? row('Prepaid', -prepaidEx, -prepaidInc) : ''}
         ${row('Total', totalEx, totalInc, true)}
       </tbody>
     </table>`
+}
+
+function moneyOrDash(n: number | null | undefined): string {
+  if (n == null || n === 0) return '—'
+  return esc(formatAud(n))
 }
 
 function wdmSummary(c: WasteDisposalManifestContent): string {
@@ -1422,15 +1432,25 @@ function wdmSummary(c: WasteDisposalManifestContent): string {
   const loads = c.loads ?? []
   const indexTable = loads.length
     ? `
-    <table>
+    <table class="wdm-break">
       <thead>
         <tr>
-          <th>Load</th>
-          <th>Vehicles</th>
-          <th>Volume</th>
-          <th>Weight</th>
-          <th class="r">Before GST</th>
-          <th class="r">Amount</th>
+          <th rowspan="2">Load</th>
+          <th rowspan="2">Vehicles</th>
+          <th rowspan="2">Volume</th>
+          <th rowspan="2">Weight</th>
+          <th class="r" colspan="2">Skip</th>
+          <th class="r" colspan="2">Trailer</th>
+          <th class="r" colspan="2">Ute</th>
+          <th class="r" colspan="2">Tip</th>
+          <th class="r" colspan="2">Load total</th>
+        </tr>
+        <tr>
+          <th class="r">Before GST</th><th class="r">Amount</th>
+          <th class="r">Before GST</th><th class="r">Amount</th>
+          <th class="r">Before GST</th><th class="r">Amount</th>
+          <th class="r">Before GST</th><th class="r">Amount</th>
+          <th class="r">Before GST</th><th class="r">Amount</th>
         </tr>
       </thead>
       <tbody>
@@ -1447,8 +1467,16 @@ function wdmSummary(c: WasteDisposalManifestContent): string {
             <td>${esc(types)}</td>
             <td>${load.volume_m3 != null ? esc(formatM3(load.volume_m3)) : '—'}</td>
             <td>${load.weight_kg != null ? esc(formatKg(load.weight_kg)) : '—'}</td>
-            <td class="r">${costEx != null ? esc(formatAud(costEx)) : '—'}</td>
-            <td class="r">${costInc != null ? esc(formatAud(costInc)) : '—'}</td>
+            <td class="r">${moneyOrDash(load.skip_ex)}</td>
+            <td class="r">${moneyOrDash(load.skip_inc)}</td>
+            <td class="r">${moneyOrDash(load.trailer_ex)}</td>
+            <td class="r">${moneyOrDash(load.trailer_inc)}</td>
+            <td class="r">${moneyOrDash(load.ute_ex)}</td>
+            <td class="r">${moneyOrDash(load.ute_inc)}</td>
+            <td class="r">${moneyOrDash(load.dump_ex)}</td>
+            <td class="r">${moneyOrDash(load.dump_inc)}</td>
+            <td class="r">${costEx != null && costEx !== 0 ? esc(formatAud(costEx)) : '—'}</td>
+            <td class="r">${costInc != null && costInc !== 0 ? esc(formatAud(costInc)) : '—'}</td>
           </tr>`
         }).join('')}
       </tbody>

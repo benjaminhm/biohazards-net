@@ -2295,11 +2295,18 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
             <span style={{ textAlign: 'right' }}>{formatAud(prices.skips_inc)}</span>
           </div>
         )}
-        {prices.trailers_utes_ex > 0 && (
+        {prices.trailers_ex > 0 && (
           <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr', gap: 8, marginBottom: 6 }}>
-            <span style={{ color: 'var(--text-muted)' }}>Trailers / utes</span>
-            <span style={{ textAlign: 'right' }}>{formatAud(prices.trailers_utes_ex)}</span>
-            <span style={{ textAlign: 'right' }}>{formatAud(prices.trailers_utes_inc)}</span>
+            <span style={{ color: 'var(--text-muted)' }}>Trailers</span>
+            <span style={{ textAlign: 'right' }}>{formatAud(prices.trailers_ex)}</span>
+            <span style={{ textAlign: 'right' }}>{formatAud(prices.trailers_inc)}</span>
+          </div>
+        )}
+        {prices.utes_ex > 0 && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr', gap: 8, marginBottom: 6 }}>
+            <span style={{ color: 'var(--text-muted)' }}>Utes</span>
+            <span style={{ textAlign: 'right' }}>{formatAud(prices.utes_ex)}</span>
+            <span style={{ textAlign: 'right' }}>{formatAud(prices.utes_inc)}</span>
           </div>
         )}
         {prices.dump_fees_inc > 0 && (

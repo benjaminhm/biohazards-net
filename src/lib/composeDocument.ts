@@ -55,6 +55,7 @@ import {
   formatDistanceLegs,
   formatM3,
   loadHasContent,
+  loadPriceBreakdown,
   loadSkipFeeForTotals,
   loadSkipOnly,
   loadVolumeM3,
@@ -877,7 +878,7 @@ function composeWdm(job: Job): ComposeDocumentResult {
     const firstPhoto = first
       ? (photoInCompose(first.photo_include_in_compose) ? (first.photo_url || l.trailer_photo_url) : null)
       : l.trailer_photo_url
-    const loadPrices = disposalPriceLines([l], capture.cost_per_m3, 0)
+    const loadPrices = loadPriceBreakdown(l, capture.cost_per_m3)
     return {
       load_number: i + 1,
       size: first?.size.trim() || l.size.trim(),
@@ -911,6 +912,14 @@ function composeWdm(job: Job): ComposeDocumentResult {
       cost: loadPrices.total_inc,
       cost_ex: loadPrices.total_ex,
       cost_inc: loadPrices.total_inc,
+      skip_ex: loadPrices.skip_ex,
+      skip_inc: loadPrices.skip_inc,
+      trailer_ex: loadPrices.trailer_ex,
+      trailer_inc: loadPrices.trailer_inc,
+      ute_ex: loadPrices.ute_ex,
+      ute_inc: loadPrices.ute_inc,
+      dump_ex: loadPrices.dump_ex,
+      dump_inc: loadPrices.dump_inc,
       distance_km: l.distance_km,
       distance_out_km: l.distance_out_km,
       distance_return_km: l.distance_return_km,
@@ -963,6 +972,10 @@ function composeWdm(job: Job): ComposeDocumentResult {
       trailer_ute_fees_inc: prices.trailers_utes_inc,
       prepaid_value_inc: prices.prepaid_inc,
       price_total_ex: prices.total_ex,
+      trailer_fees_ex: prices.trailers_ex,
+      trailer_fees_inc: prices.trailers_inc,
+      ute_fees_ex: prices.utes_ex,
+      ute_fees_inc: prices.utes_inc,
     },
     transport_details: transport || '—',
     declaration:
