@@ -1127,7 +1127,15 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
   }
 
   return (
-    <div style={{ maxWidth: 720, paddingBottom: 120 }}>
+    <div className="disposal-record" style={{ paddingBottom: 120 }}>
+      <style>{`
+        .disposal-record { max-width: 720px; }
+        .disposal-loads { display: grid; gap: 12px; }
+        @media (min-width: 900px) {
+          .disposal-record { max-width: none; }
+          .disposal-loads { grid-template-columns: 1fr 1fr; }
+        }
+      `}</style>
       <p style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.55, marginBottom: 16 }}>
         Set the trailer, its dimensions, the origin, and the tip once. Kilometres are worked out from
         that route and filled onto every load. Photos, weight, and price are entered on each load.
@@ -1352,6 +1360,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
         </div>
       </div>
 
+      <div className="disposal-loads">
       {capture.loads.map((load, index) => {
         const open = openId === load.id
         const typeBits = load.vehicles.map(v => vehicleTypeLabel(v.type)).filter(Boolean)
@@ -1379,7 +1388,6 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
               border: '1px solid var(--border)',
               borderRadius: 12,
               background: 'var(--surface)',
-              marginBottom: 12,
               overflow: 'hidden',
             }}
           >
@@ -2189,12 +2197,13 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
           </div>
         )
       })}
+      </div>
 
       <button
         type="button"
         className="btn btn-secondary"
         onClick={addLoad}
-        style={{ width: '100%', marginBottom: 18, padding: 12, fontWeight: 700 }}
+        style={{ width: '100%', marginTop: 12, marginBottom: 18, padding: 12, fontWeight: 700 }}
       >
         + Another load
       </button>
@@ -2293,7 +2302,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
           padding: '10px 16px max(12px, env(safe-area-inset-bottom, 0px))',
         }}
       >
-        <div style={{ maxWidth: 720, margin: '0 auto' }}>
+        <div style={{ maxWidth: 880, margin: '0 auto' }}>
           {saveError && (
             <div style={{ color: '#F87171', fontSize: 13, marginBottom: 8 }} role="alert">
               {saveError}
