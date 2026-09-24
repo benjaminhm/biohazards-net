@@ -2534,9 +2534,15 @@ function buildStatementMid(c: StatementOfAccountsContent): string {
   }
   const credit = c.owing_inc < 0 ? `<p class="body-text">This balance is a credit.</p>` : ''
   const beforeHead = chargesGst ? `<th class="r">Before GST</th>` : ''
+  const meta = `
+    <p class="body-text"><strong>Property:</strong> ${esc(c.site_address || '—')}</p>
+    <p class="body-text"><strong>Quote / estimate:</strong> ${esc(c.quote_reference || '—')}</p>
+    <p class="body-text"><strong>Contents disposal record:</strong> ${esc(c.disposal_reference || '—')}</p>`
+  const payment = `<p class="body-text">The remaining 50% of the original quote, or the amount shown on the corresponding invoice, should be paid against that invoice. A new invoice will be issued for the remaining updated amount.</p>`
   return `
+    ${meta}
     <table>
-      <thead><tr><th>Item</th>${beforeHead}<th class="r">${chargesGst ? 'Amount' : 'Amount'}</th></tr></thead>
+      <thead><tr><th>Item</th>${beforeHead}<th class="r">Amount</th></tr></thead>
       <tbody>
         ${row('This was the original quote', c.quote_ex, quoteInc)}
         ${row('You paid a deposit of', depositEx, depositInc)}
@@ -2546,6 +2552,7 @@ function buildStatementMid(c: StatementOfAccountsContent): string {
       </tbody>
     </table>
     ${credit}
+    ${payment}
   `
 }
 

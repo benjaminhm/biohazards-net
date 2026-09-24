@@ -1993,7 +1993,9 @@ export interface WasteDisposalManifestContent {
 export interface StatementOfAccountsContent {
   title: string
   reference: string
+  site_address: string
   quote_reference: string
+  disposal_reference: string
   gst_mode: QuoteGstMode
   quote_ex: number
   quote_gst: number

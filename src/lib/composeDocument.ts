@@ -74,7 +74,7 @@ import {
   volumePricingHasContent,
 } from '@/lib/quoteSections'
 import { buildPrintHTML, type ClientInfo } from '@/lib/printDocument'
-import { statementFromJob } from '@/lib/statementOfAccounts'
+import { latestDisposalDocument, documentReference, statementFromJob } from '@/lib/statementOfAccounts'
 import type { CompanyProfile } from '@/lib/types'
 import {
   presentingHealthHazardsFromAssessment,
@@ -1068,7 +1068,9 @@ function composeStatement(job: Job, documents: Document[]): ComposeDocumentResul
     content: {
       title: 'Statement of Accounts',
       reference: refPrefix('statement_of_accounts', job.id),
+      site_address: job.site_address || '',
       quote_reference: figures.reference,
+      disposal_reference: documentReference(latestDisposalDocument(documents), '—'),
       gst_mode: figures.gst_mode,
       quote_ex: figures.quote_ex,
       quote_gst: figures.quote_gst,

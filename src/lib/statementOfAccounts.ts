@@ -52,10 +52,23 @@ function quoteMode(content: Record<string, unknown>): QuoteGstMode {
   return 'exclusive'
 }
 
+function latestOfType(documents: Document[], type: Document['type']): Document | null {
+  const rows = documents.filter(d => d.type === type)
+  if (!rows.length) return null
+  return [...rows].sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))[0]
+}
+
 export function latestQuoteDocument(documents: Document[]): Document | null {
-  const quotes = documents.filter(d => d.type === 'quote')
-  if (!quotes.length) return null
-  return [...quotes].sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))[0]
+  return latestOfType(documents, 'quote')
+}
+
+export function latestDisposalDocument(documents: Document[]): Document | null {
+  return latestOfType(documents, 'waste_disposal_manifest')
+}
+
+export function documentReference(doc: Document | null, fallback: string): string {
+  const raw = doc?.content?.reference
+  return typeof raw === 'string' && raw.trim() ? raw.trim() : fallback
 }
 
 export function disposalTotal(capture: DisposalManifestCapture | null | undefined): number {

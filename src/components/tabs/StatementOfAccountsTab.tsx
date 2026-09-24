@@ -7,6 +7,8 @@ import { mergeAssessmentData } from '@/lib/riskDerivation'
 import { useRegisterUnsavedChanges } from '@/lib/unsavedChangesContext'
 import { disposalPriceLines, formatAud, mergedDisposalManifestCapture } from '@/lib/disposalManifest'
 import {
+  documentReference,
+  latestDisposalDocument,
   latestQuoteDocument,
   normalizeStatementCapture,
   statementFigures,
@@ -141,6 +143,12 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
         </p>
       )}
 
+      <div style={{ fontSize: 14, lineHeight: 1.55, marginBottom: 16 }}>
+        <div style={{ marginBottom: 6 }}><strong>Property:</strong> {job.site_address || '—'}</div>
+        <div style={{ marginBottom: 6 }}><strong>Quote / estimate:</strong> {figures.reference}</div>
+        <div><strong>Contents disposal record:</strong> {documentReference(latestDisposalDocument(documents), '—')}</div>
+      </div>
+
       <div
         style={{
           padding: '14px 16px',
@@ -225,6 +233,9 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
           <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 8 }}>This balance is a credit.</div>
         )}
       </div>
+      <p style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.55, marginBottom: 18 }}>
+        The remaining 50% of the original quote, or the amount shown on the corresponding invoice, should be paid against that invoice. A new invoice will be issued for the remaining updated amount.
+      </p>
 
       <div
         style={{

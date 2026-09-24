@@ -348,6 +348,8 @@ Include realistic items based on the job type and assessment data. This is a cus
   "title": "Statement of Accounts",
   "reference": "${r}",
   "quote_reference": "",
+  "disposal_reference": "",
+  "site_address": "",
   "gst_mode": "exclusive",
   "quote_ex": 0,
   "quote_gst": 0,
