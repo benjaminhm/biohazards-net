@@ -1408,9 +1408,9 @@ function wdmPriceTable(t: WasteDisposalManifestContent['totals']): string {
     <table style="margin-top:12px">
       <thead><tr><th>Item</th><th class="r">Before GST</th><th class="r">Amount</th></tr></thead>
       <tbody>
-        ${row('Skips (inc GST pass-through)', skipsEx, skipsInc)}
-        ${row('Trailers / utes (ex GST)', trailersEx, trailersInc)}
-        ${row('Dump fees (inc GST pass-through)', dumpsEx, dumpsInc)}
+        ${row('Skips', skipsEx, skipsInc)}
+        ${row('Trailers / utes', trailersEx, trailersInc)}
+        ${row('Dump fees', dumpsEx, dumpsInc)}
         ${prepaidEx ? row('Prepaid', -prepaidEx, -prepaidInc) : ''}
         ${row('Total', totalEx, totalInc, true)}
       </tbody>
@@ -1429,7 +1429,8 @@ function wdmSummary(c: WasteDisposalManifestContent): string {
           <th>Vehicles</th>
           <th>Volume</th>
           <th>Weight</th>
-          <th class="r">Cost</th>
+          <th class="r">Before GST</th>
+          <th class="r">Amount</th>
         </tr>
       </thead>
       <tbody>
@@ -1438,14 +1439,16 @@ function wdmSummary(c: WasteDisposalManifestContent): string {
             || load.contents
             || '—'
           const fallback = [load.dump_fee, load.skip_cost].reduce<number>((sum, n) => sum + (n ?? 0), 0)
-          const cost = load.cost ?? (fallback ? fallback : null)
+          const costInc = load.cost_inc ?? load.cost ?? (fallback ? fallback : null)
+          const costEx = load.cost_ex ?? (costInc != null ? Math.round(costInc / 1.1 * 100) / 100 : null)
           return `
           <tr>
             <td>${load.load_number}</td>
             <td>${esc(types)}</td>
             <td>${load.volume_m3 != null ? esc(formatM3(load.volume_m3)) : '—'}</td>
             <td>${load.weight_kg != null ? esc(formatKg(load.weight_kg)) : '—'}</td>
-            <td class="r">${cost != null ? esc(formatAud(cost)) : '—'}</td>
+            <td class="r">${costEx != null ? esc(formatAud(costEx)) : '—'}</td>
+            <td class="r">${costInc != null ? esc(formatAud(costInc)) : '—'}</td>
           </tr>`
         }).join('')}
       </tbody>

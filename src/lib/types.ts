@@ -1718,8 +1718,10 @@ export interface WasteDisposalManifestLoadSnapshot {
   weight_kg: number | null
   dump_fee: number | null
   skip_cost?: number | null
-  /** Skip hire + trailer/ute prices + dump fee for this load. */
+  /** GST-inclusive mix for this load. Prefer cost_ex / cost_inc. */
   cost?: number | null
+  cost_ex?: number | null
+  cost_inc?: number | null
   distance_km: number | null
   distance_out_km?: number | null
   distance_return_km?: number | null

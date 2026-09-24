@@ -877,6 +877,7 @@ function composeWdm(job: Job): ComposeDocumentResult {
     const firstPhoto = first
       ? (photoInCompose(first.photo_include_in_compose) ? (first.photo_url || l.trailer_photo_url) : null)
       : l.trailer_photo_url
+    const loadPrices = disposalPriceLines([l], capture.cost_per_m3, 0)
     return {
       load_number: i + 1,
       size: first?.size.trim() || l.size.trim(),
@@ -907,7 +908,9 @@ function composeWdm(job: Job): ComposeDocumentResult {
       weight_kg: l.weight_kg,
       dump_fee: loadSkipOnly(l) ? null : l.dump_fee,
       skip_cost: loadSkipFeeForTotals(l),
-      cost: disposalPriceLines([l], capture.cost_per_m3, 0).total_inc,
+      cost: loadPrices.total_inc,
+      cost_ex: loadPrices.total_ex,
+      cost_inc: loadPrices.total_inc,
       distance_km: l.distance_km,
       distance_out_km: l.distance_out_km,
       distance_return_km: l.distance_return_km,

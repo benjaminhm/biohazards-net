@@ -2290,21 +2290,21 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
         </div>
         {prices.skips_inc > 0 && (
           <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr', gap: 8, marginBottom: 6 }}>
-            <span style={{ color: 'var(--text-muted)' }}>Skips (inc GST pass-through)</span>
+            <span style={{ color: 'var(--text-muted)' }}>Skips</span>
             <span style={{ textAlign: 'right' }}>{formatAud(prices.skips_ex)}</span>
             <span style={{ textAlign: 'right' }}>{formatAud(prices.skips_inc)}</span>
           </div>
         )}
         {prices.trailers_utes_ex > 0 && (
           <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr', gap: 8, marginBottom: 6 }}>
-            <span style={{ color: 'var(--text-muted)' }}>Trailers / utes (ex GST)</span>
+            <span style={{ color: 'var(--text-muted)' }}>Trailers / utes</span>
             <span style={{ textAlign: 'right' }}>{formatAud(prices.trailers_utes_ex)}</span>
             <span style={{ textAlign: 'right' }}>{formatAud(prices.trailers_utes_inc)}</span>
           </div>
         )}
         {prices.dump_fees_inc > 0 && (
           <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr', gap: 8, marginBottom: 6 }}>
-            <span style={{ color: 'var(--text-muted)' }}>Dump fees (inc GST pass-through)</span>
+            <span style={{ color: 'var(--text-muted)' }}>Dump fees</span>
             <span style={{ textAlign: 'right' }}>{formatAud(prices.dump_fees_ex)}</span>
             <span style={{ textAlign: 'right' }}>{formatAud(prices.dump_fees_inc)}</span>
           </div>
