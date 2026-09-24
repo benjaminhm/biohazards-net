@@ -334,6 +334,17 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
     mq.addEventListener('change', apply)
     return () => mq.removeEventListener('change', apply)
   }, [])
+  useEffect(() => {
+    const header = document.querySelector('[data-devid="P2-E1"]')
+    if (!header) return
+    const apply = () => {
+      document.documentElement.style.setProperty('--disposal-stick-top', `${header.getBoundingClientRect().height}px`)
+    }
+    apply()
+    const observer = new ResizeObserver(apply)
+    observer.observe(header)
+    return () => observer.disconnect()
+  }, [])
   const [unlockedLoadId, setUnlockedLoadId] = useState<string | null>(null)
   const [distanceBusyId, setDistanceBusyId] = useState<string | null>(null)
   const [distanceErrors, setDistanceErrors] = useState<Record<string, string>>({})
@@ -1393,11 +1404,9 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
           <div
             key={load.id}
             style={{
-              border: '1px solid rgba(148,163,184,0.42)',
+              border: '1px solid var(--border)',
               borderRadius: 12,
-              background: 'var(--surface-2)',
-              boxShadow: '0 8px 24px rgba(0,0,0,0.28)',
-              overflow: 'hidden',
+              background: 'var(--surface)',
             }}
           >
             <div
@@ -1406,7 +1415,12 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                 alignItems: 'center',
                 gap: 6,
                 paddingRight: 8,
-                background: 'rgba(148,163,184,0.1)',
+                position: 'sticky',
+                top: 'var(--disposal-stick-top, 120px)',
+                zIndex: 6,
+                background: 'var(--surface)',
+                borderBottom: open ? '1px solid var(--border)' : undefined,
+                borderRadius: '12px 12px 0 0',
               }}
             >
               <button
@@ -1521,7 +1535,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
             </div>
 
             {open && (
-              <div style={{ padding: '0 14px 16px', borderTop: '1px solid rgba(148,163,184,0.28)', background: 'var(--surface)' }}>
+              <div style={{ padding: '0 14px 16px' }}>
                 <div style={{ display: 'grid', gap: 12, marginTop: 14 }}>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                     <div>
@@ -1612,9 +1626,8 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                         marginTop: 16,
                         padding: 12,
                         borderRadius: 10,
-                        border: '1px solid rgba(148,163,184,0.32)',
-                        borderLeft: '3px solid #94A3B8',
-                        background: 'var(--bg)',
+                        border: '1px solid var(--border)',
+                        background: 'var(--surface-2)',
                       }}
                     >
                       <div style={{ ...LABEL, marginTop: 0 }}>
@@ -2058,9 +2071,8 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                           marginBottom: 12,
                           padding: '12px 12px 14px',
                           borderRadius: 10,
-                          border: '1px solid rgba(148,163,184,0.32)',
-                          borderLeft: '3px solid #94A3B8',
-                          background: 'var(--bg)',
+                          border: '1px solid var(--border)',
+                          background: 'var(--surface-2)',
                         }}
                       >
                         <label style={CHECK}>
