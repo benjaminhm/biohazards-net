@@ -1991,6 +1991,11 @@ export interface WasteDisposalManifestContent {
     trailer_ute_fees?: number | null
     prepaid_value?: number | null
     price_total?: number | null
+    skip_fees_ex?: number | null
+    dump_fees_ex?: number | null
+    trailer_ute_fees_inc?: number | null
+    prepaid_value_inc?: number | null
+    price_total_ex?: number | null
   }
 }
 

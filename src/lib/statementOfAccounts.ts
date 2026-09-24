@@ -93,7 +93,7 @@ export function documentReference(doc: Document | null, fallback: string): strin
 
 export function disposalTotal(capture: DisposalManifestCapture | null | undefined): number {
   if (!capture) return 0
-  return disposalPriceLines(capture.loads ?? [], capture.cost_per_m3, capture.prepaid_m3).total
+  return disposalPriceLines(capture.loads ?? [], capture.cost_per_m3, capture.prepaid_m3).total_ex
 }
 
 /** Quote before GST + disposal total − deposit before GST. GST is 10% of that balance. */

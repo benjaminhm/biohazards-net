@@ -1369,25 +1369,50 @@ function wdmLoadCards(c: WasteDisposalManifestContent): string {
 
 function wdmPriceTable(t: WasteDisposalManifestContent['totals']): string {
   if (!t) return ''
-  const skips = t.skip_fees ?? 0
-  const trailers = t.trailer_ute_fees ?? t.waste_gross ?? 0
-  const dumps = t.dump_fees ?? 0
-  const prepaid = t.prepaid_value ?? 0
-  const total = t.price_total ?? Math.round((skips + trailers + dumps - prepaid) * 100) / 100
-  const row = (label: string, amount: number, strong = false) => `
+  const skipsInc = t.skip_fees ?? 0
+  const trailersEx = t.trailer_ute_fees ?? t.waste_gross ?? 0
+  const dumpsInc = t.dump_fees ?? 0
+  const prepaidEx = t.prepaid_value ?? 0
+  const hasGstSplit = t.skip_fees_ex != null || t.dump_fees_ex != null || t.trailer_ute_fees_inc != null || t.price_total_ex != null
+  const skipsEx = t.skip_fees_ex ?? Math.round(skipsInc / 1.1 * 100) / 100
+  const dumpsEx = t.dump_fees_ex ?? Math.round(dumpsInc / 1.1 * 100) / 100
+  const trailersInc = t.trailer_ute_fees_inc ?? Math.round(trailersEx * 1.1 * 100) / 100
+  const prepaidInc = t.prepaid_value_inc ?? Math.round(prepaidEx * 1.1 * 100) / 100
+  const totalEx = t.price_total_ex ?? Math.round((skipsEx + trailersEx + dumpsEx - prepaidEx) * 100) / 100
+  const totalInc = t.price_total ?? Math.round((skipsInc + trailersInc + dumpsInc - prepaidInc) * 100) / 100
+  if (!hasGstSplit) {
+    const row = (label: string, amount: number, strong = false) => `
     <tr>
       <td${strong ? ' style="font-weight:700"' : ''}>${label}</td>
       <td class="r"${strong ? ' style="font-weight:700"' : ''}>${esc(formatAud(amount))}</td>
     </tr>`
-  return `
+    return `
     <table style="margin-top:12px">
       <thead><tr><th>Item</th><th class="r">Amount</th></tr></thead>
       <tbody>
-        ${row('Skips', skips)}
-        ${row('Trailers / utes', trailers)}
-        ${row('Dump fees', dumps)}
-        ${prepaid ? row('Prepaid', -prepaid) : ''}
-        ${row('Total', total, true)}
+        ${row('Skips', skipsInc)}
+        ${row('Trailers / utes', trailersEx)}
+        ${row('Dump fees', dumpsInc)}
+        ${prepaidEx ? row('Prepaid', -prepaidEx) : ''}
+        ${row('Total', t.price_total ?? Math.round((skipsInc + trailersEx + dumpsInc - prepaidEx) * 100) / 100, true)}
+      </tbody>
+    </table>`
+  }
+  const row = (label: string, before: number, amount: number, strong = false) => `
+    <tr>
+      <td${strong ? ' style="font-weight:700"' : ''}>${label}</td>
+      <td class="r"${strong ? ' style="font-weight:700"' : ''}>${esc(formatAud(before))}</td>
+      <td class="r"${strong ? ' style="font-weight:700"' : ''}>${esc(formatAud(amount))}</td>
+    </tr>`
+  return `
+    <table style="margin-top:12px">
+      <thead><tr><th>Item</th><th class="r">Before GST</th><th class="r">Amount</th></tr></thead>
+      <tbody>
+        ${row('Skips (inc GST pass-through)', skipsEx, skipsInc)}
+        ${row('Trailers / utes (ex GST)', trailersEx, trailersInc)}
+        ${row('Dump fees (inc GST pass-through)', dumpsEx, dumpsInc)}
+        ${prepaidEx ? row('Prepaid', -prepaidEx, -prepaidInc) : ''}
+        ${row('Total', totalEx, totalInc, true)}
       </tbody>
     </table>`
 }

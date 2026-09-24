@@ -1179,7 +1179,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
         <div style={{ display: 'grid', gap: 12 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             <div>
-              <label style={LABEL}>Cost per m³ ($)</label>
+              <label style={LABEL}>Cost per m³ (ex GST) ($)</label>
               <input
                 type="number"
                 min={0}
@@ -1212,7 +1212,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
             </div>
           </div>
           <p style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.45, margin: 0 }}>
-            Each vehicle starts from this rate times its volume. Sqm and price are edited on that vehicle, so a ute and a trailer stay separate. Prepaid cubic metres come off the total.
+            Each vehicle starts from this rate times its volume, before GST. Skip hire and council dump fees are entered including GST and passed through. Prepaid cubic metres come off the waste line.
           </p>
           <div>
             <label style={LABEL}>Vehicle</label>
@@ -1626,7 +1626,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                           />
                         </div>
                         <div>
-                          <label style={LABEL}>Price ($)</label>
+                          <label style={LABEL}>Price (ex GST) ($)</label>
                           <input
                             type="number"
                             min={0}
@@ -1732,7 +1732,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                         </div>
                         {vehicle.type === 'skip' && (
                           <div>
-                            <label style={LABEL}>Price of skip ($)</label>
+                            <label style={LABEL}>Price of skip (inc GST) ($)</label>
                             <input
                               type="number"
                               min={0}
@@ -2172,7 +2172,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                       </div>
                       {!skipOnly && (
                       <div>
-                        <label style={LABEL}>Dump fee ($)</label>
+                        <label style={LABEL}>Dump fee (inc GST) ($)</label>
                         <input
                           type="number"
                           min={0}
@@ -2271,41 +2271,64 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
           <span>{totals.distance_recorded ? `${totals.distance_km} km return` : '—'}</span>
         </div>
         <div style={{ color: 'var(--text-muted)', fontSize: 11, marginBottom: 8 }}>Return (round-trip) total</div>
-        {prices.skips > 0 && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-            <span style={{ color: 'var(--text-muted)' }}>Skips</span>
-            <span>{formatAud(prices.skips)}</span>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1.4fr 1fr 1fr',
+            gap: 8,
+            marginBottom: 8,
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: '0.06em',
+            textTransform: 'uppercase',
+            color: '#E2E8F0',
+          }}
+        >
+          <span>Item</span>
+          <span style={{ textAlign: 'right' }}>Before GST</span>
+          <span style={{ textAlign: 'right' }}>Amount</span>
+        </div>
+        {prices.skips_inc > 0 && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr', gap: 8, marginBottom: 6 }}>
+            <span style={{ color: 'var(--text-muted)' }}>Skips (inc GST pass-through)</span>
+            <span style={{ textAlign: 'right' }}>{formatAud(prices.skips_ex)}</span>
+            <span style={{ textAlign: 'right' }}>{formatAud(prices.skips_inc)}</span>
           </div>
         )}
-        {prices.trailers_utes > 0 && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-            <span style={{ color: 'var(--text-muted)' }}>Trailers / utes</span>
-            <span>{formatAud(prices.trailers_utes)}</span>
+        {prices.trailers_utes_ex > 0 && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr', gap: 8, marginBottom: 6 }}>
+            <span style={{ color: 'var(--text-muted)' }}>Trailers / utes (ex GST)</span>
+            <span style={{ textAlign: 'right' }}>{formatAud(prices.trailers_utes_ex)}</span>
+            <span style={{ textAlign: 'right' }}>{formatAud(prices.trailers_utes_inc)}</span>
           </div>
         )}
-        {prices.dump_fees > 0 && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-            <span style={{ color: 'var(--text-muted)' }}>Dump fees</span>
-            <span>{formatAud(prices.dump_fees)}</span>
+        {prices.dump_fees_inc > 0 && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr', gap: 8, marginBottom: 6 }}>
+            <span style={{ color: 'var(--text-muted)' }}>Dump fees (inc GST pass-through)</span>
+            <span style={{ textAlign: 'right' }}>{formatAud(prices.dump_fees_ex)}</span>
+            <span style={{ textAlign: 'right' }}>{formatAud(prices.dump_fees_inc)}</span>
           </div>
         )}
-        {prices.prepaid > 0 && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+        {prices.prepaid_ex > 0 && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr', gap: 8, marginBottom: 6 }}>
             <span style={{ color: 'var(--text-muted)' }}>Prepaid</span>
-            <span>−{formatAud(prices.prepaid)}</span>
+            <span style={{ textAlign: 'right' }}>−{formatAud(prices.prepaid_ex)}</span>
+            <span style={{ textAlign: 'right' }}>−{formatAud(prices.prepaid_inc)}</span>
           </div>
         )}
         <div
           style={{
-            display: 'flex',
-            justifyContent: 'space-between',
+            display: 'grid',
+            gridTemplateColumns: '1.4fr 1fr 1fr',
+            gap: 8,
             borderTop: '1px solid var(--border)',
             paddingTop: 8,
             marginTop: 6,
           }}
         >
           <strong>Total</strong>
-          <strong>{formatAud(prices.total)}</strong>
+          <strong style={{ textAlign: 'right' }}>{formatAud(prices.total_ex)}</strong>
+          <strong style={{ textAlign: 'right' }}>{formatAud(prices.total_inc)}</strong>
         </div>
       </div>
 

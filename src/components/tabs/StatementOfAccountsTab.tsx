@@ -71,7 +71,7 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
 
   const figures = useMemo(() => {
     const disposal = mergedDisposalManifestCapture(job.assessment_data)
-    const disposalAmount = disposalPriceLines(disposal.loads ?? [], disposal.cost_per_m3, disposal.prepaid_m3).total
+    const disposalAmount = disposalPriceLines(disposal.loads ?? [], disposal.cost_per_m3, disposal.prepaid_m3).total_ex
     return statementFigures(latestQuoteDocument(documents), disposalAmount, capture)
   }, [documents, job.assessment_data, capture])
   const chargesGst = figures.gst_mode !== 'no_gst'
