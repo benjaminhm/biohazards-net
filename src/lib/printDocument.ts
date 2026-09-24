@@ -2607,16 +2607,21 @@ function buildStatementMid(c: StatementOfAccountsContent): string {
   const originalOwingInc = c.original_owing_inc ?? Math.round((quoteInc - depositInc) * 100) / 100
   const newEx = c.new_invoice_ex ?? c.disposal
   const newInc = c.new_invoice_inc ?? (chargesGst ? Math.round(c.disposal * 1.1 * 100) / 100 : c.disposal)
-  const invoiceCell = (number: string, url: string) => {
-    if (!number && !url) return '—'
-    const label = esc(number || 'Open invoice')
-    const href = /^https?:\/\//i.test(url) ? url : ''
-    return href ? `<a href="${esc(href)}">${label}</a>` : label
-  }
-  const row = (what: string, invoiceHtml: string, before: number, amount: number, strong = false) => {
+  const originalLabel = c.original_invoice_number
+    ? `Owing on the original invoice (${c.original_invoice_number})`
+    : 'Owing on the original invoice'
+  const newLabel = c.new_invoice_number
+    ? `Owing on the new invoice (${c.new_invoice_number})`
+    : 'Owing on the new invoice'
+  const row = (label: string, before: number, amount: number, strong = false) => {
     const weight = strong ? ' style="font-weight:700"' : ''
     const beforeCell = chargesGst ? `<td class="r"${weight}>${money(before)}</td>` : ''
-    return `<tr><td${weight}>${esc(what)}</td><td${weight}>${invoiceHtml}</td>${beforeCell}<td class="r"${weight}>${money(amount)}</td></tr>`
+    return `<tr><td${weight}>${esc(label)}</td>${beforeCell}<td class="r"${weight}>${money(amount)}</td></tr>`
+  }
+  const urlCell = (url: string) => {
+    const href = (url || '').trim()
+    if (!/^https?:\/\//i.test(href)) return '—'
+    return `<a href="${esc(href)}">${esc(href)}</a>`
   }
   const credit = c.owing_inc < 0 ? `<p class="body-text">This balance is a credit.</p>` : ''
   const beforeHead = chargesGst ? `<th class="r">Before GST</th>` : ''
@@ -2627,17 +2632,38 @@ function buildStatementMid(c: StatementOfAccountsContent): string {
   return `
     ${meta}
     <table>
-      <thead><tr><th>What</th><th>Invoice</th>${beforeHead}<th class="r">Amount</th></tr></thead>
+      <thead><tr><th>Item</th>${beforeHead}<th class="r">Amount</th></tr></thead>
       <tbody>
-        ${row('Original quote', esc(c.quote_reference || '—'), c.quote_ex, quoteInc)}
-        ${row('Deposit paid', '—', depositEx, depositInc)}
-        ${row('Pay on the original invoice', invoiceCell(c.original_invoice_number, c.original_invoice_url), originalOwingEx, originalOwingInc, true)}
-        ${row('Pay on the new invoice to cover the adjusted total', invoiceCell(c.new_invoice_number, c.new_invoice_url), newEx, newInc, true)}
-        ${row('Total owing', '—', c.owing_ex, c.owing_inc, true)}
+        ${row('This was the original quote', c.quote_ex, quoteInc)}
+        ${row('You paid a deposit of', depositEx, depositInc)}
+        ${row(originalLabel, originalOwingEx, originalOwingInc, true)}
+        ${row(newLabel, newEx, newInc, true)}
+        ${row('Total remaining owed', c.owing_ex, c.owing_inc, true)}
       </tbody>
     </table>
     ${credit}
-    <p class="body-text">Each pay row is the amount to pay on that invoice. The original invoice is the remaining quote after the deposit. The new invoice covers the adjusted total for contents removal.</p>
+    <h3 style="margin:18px 0 8px;font-size:13px">Make a payment</h3>
+    <table>
+      <thead><tr><th>Invoice</th><th class="r">Remaining</th><th>Link</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Invoice 1${c.original_invoice_number ? ` ${esc(c.original_invoice_number)}` : ''}</td>
+          <td class="r">${money(originalOwingInc)}</td>
+          <td>${urlCell(c.original_invoice_url)}</td>
+        </tr>
+      </tbody>
+    </table>
+    <table>
+      <thead><tr><th>Invoice</th><th class="r">Before GST</th><th class="r">After GST</th><th>Link</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Invoice 2${c.new_invoice_number ? ` ${esc(c.new_invoice_number)}` : ''}</td>
+          <td class="r">${money(newEx)}</td>
+          <td class="r">${money(newInc)}</td>
+          <td>${urlCell(c.new_invoice_url)}</td>
+        </tr>
+      </tbody>
+    </table>
   `
 }
 
