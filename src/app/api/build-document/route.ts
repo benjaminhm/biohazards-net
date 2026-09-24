@@ -360,7 +360,11 @@ Include realistic items based on the job type and assessment data. This is a cus
   "deposit_ex": 0,
   "owing_ex": 0,
   "gst": 0,
-  "owing_inc": 0
+  "owing_inc": 0,
+  "original_invoice_number": "",
+  "original_invoice_url": "",
+  "new_invoice_number": "",
+  "new_invoice_url": ""
 }
 This document is composed from the saved quote and the contents disposal record. Do not invent amounts.`,
 

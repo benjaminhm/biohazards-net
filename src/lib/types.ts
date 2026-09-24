@@ -1069,6 +1069,10 @@ export interface AssessmentData {
     deposit_taken: boolean
     deposit_amount: number | null
     deposit_includes_gst: boolean
+    original_invoice_number?: string
+    original_invoice_url?: string
+    new_invoice_number?: string
+    new_invoice_url?: string
   }
   /** Job-scoped pathogen / pathophysiology PDF reference library. Used as
    *  grounded biology source by the Assessment Document AI suggester. */
@@ -2007,6 +2011,10 @@ export interface StatementOfAccountsContent {
   owing_ex: number
   gst: number
   owing_inc: number
+  original_invoice_number: string
+  original_invoice_url: string
+  new_invoice_number: string
+  new_invoice_url: string
 }
 
 export interface JSAContent {

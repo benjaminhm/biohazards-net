@@ -74,7 +74,7 @@ import {
   volumePricingHasContent,
 } from '@/lib/quoteSections'
 import { buildPrintHTML, type ClientInfo } from '@/lib/printDocument'
-import { latestDisposalDocument, documentReference, statementFromJob } from '@/lib/statementOfAccounts'
+import { latestDisposalDocument, documentReference, normalizeStatementCapture, statementFromJob } from '@/lib/statementOfAccounts'
 import type { CompanyProfile } from '@/lib/types'
 import {
   presentingHealthHazardsFromAssessment,
@@ -1064,6 +1064,7 @@ function composeIaqMulti(
 
 function composeStatement(job: Job, documents: Document[]): ComposeDocumentResult {
   const figures = statementFromJob(documents, job.assessment_data)
+  const capture = normalizeStatementCapture(job.assessment_data?.statement_of_accounts)
   return {
     content: {
       title: 'Statement of Accounts',
@@ -1082,6 +1083,10 @@ function composeStatement(job: Job, documents: Document[]): ComposeDocumentResul
       owing_ex: figures.owing_ex,
       gst: figures.gst,
       owing_inc: figures.owing_inc,
+      original_invoice_number: capture.original_invoice_number,
+      original_invoice_url: capture.original_invoice_url,
+      new_invoice_number: capture.new_invoice_number,
+      new_invoice_url: capture.new_invoice_url,
     },
     source: 'assessment_capture',
   }

@@ -6,6 +6,10 @@ export interface StatementOfAccountsCapture {
   /** Dollars received. Includes GST when deposit_includes_gst is true and the quote charges GST. */
   deposit_amount: number | null
   deposit_includes_gst: boolean
+  original_invoice_number: string
+  original_invoice_url: string
+  new_invoice_number: string
+  new_invoice_url: string
 }
 
 export interface StatementFigures {
@@ -23,8 +27,20 @@ export interface StatementFigures {
   owing_inc: number
 }
 
+function textField(raw: unknown): string {
+  return typeof raw === 'string' ? raw.trim() : ''
+}
+
 export function emptyStatementCapture(): StatementOfAccountsCapture {
-  return { deposit_taken: false, deposit_amount: null, deposit_includes_gst: true }
+  return {
+    deposit_taken: false,
+    deposit_amount: null,
+    deposit_includes_gst: true,
+    original_invoice_number: '',
+    original_invoice_url: '',
+    new_invoice_number: '',
+    new_invoice_url: '',
+  }
 }
 
 export function normalizeStatementCapture(raw: unknown): StatementOfAccountsCapture {
@@ -34,6 +50,10 @@ export function normalizeStatementCapture(raw: unknown): StatementOfAccountsCapt
     deposit_taken: o.deposit_taken === true,
     deposit_amount: Number.isFinite(amount) && amount >= 0 ? amount : null,
     deposit_includes_gst: o.deposit_includes_gst !== false,
+    original_invoice_number: textField(o.original_invoice_number),
+    original_invoice_url: textField(o.original_invoice_url),
+    new_invoice_number: textField(o.new_invoice_number),
+    new_invoice_url: textField(o.new_invoice_url),
   }
 }
 

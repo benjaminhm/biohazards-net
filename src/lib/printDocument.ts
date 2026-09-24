@@ -2534,10 +2534,21 @@ function buildStatementMid(c: StatementOfAccountsContent): string {
   }
   const credit = c.owing_inc < 0 ? `<p class="body-text">This balance is a credit.</p>` : ''
   const beforeHead = chargesGst ? `<th class="r">Before GST</th>` : ''
+  const invoiceLine = (label: string, number: string, url: string) => {
+    if (!number && !url) return ''
+    const name = esc(number || label)
+    const href = /^https?:\/\//i.test(url) ? url : ''
+    const value = href
+      ? `<a href="${esc(href)}">${name}</a>`
+      : name
+    return `<p class="body-text"><strong>${esc(label)}:</strong> ${value}</p>`
+  }
   const meta = `
     <p class="body-text"><strong>Property:</strong> ${esc(c.site_address || '—')}</p>
     <p class="body-text"><strong>Quote / estimate:</strong> ${esc(c.quote_reference || '—')}</p>
-    <p class="body-text"><strong>Contents disposal record:</strong> ${esc(c.disposal_reference || '—')}</p>`
+    <p class="body-text"><strong>Contents disposal record:</strong> ${esc(c.disposal_reference || '—')}</p>
+    ${invoiceLine('Original invoice', c.original_invoice_number, c.original_invoice_url)}
+    ${invoiceLine('New invoice', c.new_invoice_number, c.new_invoice_url)}`
   const payment = `<p class="body-text">The remaining 50% of the original quote, or the amount shown on the corresponding invoice, should be paid against that invoice. A new invoice will be issued for the remaining updated amount.</p>`
   return `
     ${meta}

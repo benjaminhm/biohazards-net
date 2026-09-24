@@ -45,6 +45,10 @@ function capturesEqual(a: StatementOfAccountsCapture, b: StatementOfAccountsCapt
   return a.deposit_taken === b.deposit_taken
     && a.deposit_amount === b.deposit_amount
     && a.deposit_includes_gst === b.deposit_includes_gst
+    && a.original_invoice_number === b.original_invoice_number
+    && a.original_invoice_url === b.original_invoice_url
+    && a.new_invoice_number === b.new_invoice_number
+    && a.new_invoice_url === b.new_invoice_url
 }
 
 export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: Props) {
@@ -195,6 +199,62 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
             )}
           </div>
         )}
+      </div>
+
+      <div
+        style={{
+          padding: '14px 16px',
+          borderRadius: 12,
+          border: '1px solid var(--border)',
+          background: 'var(--surface)',
+          marginBottom: 16,
+        }}
+      >
+        <div style={{ fontWeight: 800, fontSize: 13, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 12 }}>
+          Invoices
+        </div>
+        <div style={{ display: 'grid', gap: 12 }}>
+          <div>
+            <label style={LABEL}>Original invoice number</label>
+            <input
+              type="text"
+              value={capture.original_invoice_number}
+              onChange={e => patch({ original_invoice_number: e.target.value })}
+              placeholder="INV-1001"
+              style={INPUT}
+            />
+          </div>
+          <div>
+            <label style={LABEL}>Original invoice link</label>
+            <input
+              type="url"
+              value={capture.original_invoice_url}
+              onChange={e => patch({ original_invoice_url: e.target.value })}
+              placeholder="https://"
+              style={INPUT}
+            />
+          </div>
+          <div>
+            <label style={LABEL}>New invoice number</label>
+            <input
+              type="text"
+              value={capture.new_invoice_number}
+              onChange={e => patch({ new_invoice_number: e.target.value })}
+              placeholder="INV-1002"
+              style={INPUT}
+            />
+          </div>
+          <div>
+            <label style={LABEL}>New invoice link</label>
+            <input
+              type="url"
+              value={capture.new_invoice_url}
+              onChange={e => patch({ new_invoice_url: e.target.value })}
+              placeholder="https://"
+              style={INPUT}
+            />
+          </div>
+        </div>
       </div>
 
       <div
