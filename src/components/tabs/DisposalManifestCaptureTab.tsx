@@ -36,6 +36,8 @@ import {
   formatKg,
   formatM3,
   loadHasSkipVehicle,
+  loadWastePrice,
+  loadWasteSqm,
   loadOriginLatLng,
   loadSkipOnly,
   looksLikeCoordLabel,
@@ -382,8 +384,8 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
 
   const totals = useMemo(() => computeDisposalTotals(capture.loads), [capture.loads])
   const wasteCharge = useMemo(
-    () => disposalWasteCharge(totals.volume_m3, capture.cost_per_m3, capture.prepaid_m3),
-    [totals.volume_m3, capture.cost_per_m3, capture.prepaid_m3],
+    () => disposalWasteCharge(capture.loads, capture.cost_per_m3, capture.prepaid_m3),
+    [capture.loads, capture.cost_per_m3, capture.prepaid_m3],
   )
 
   function touch() {
@@ -1183,7 +1185,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
             </div>
           </div>
           <p style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.45, margin: 0 }}>
-            Waste charge is this rate times the volume of the loads. Prepaid cubic metres come off that total.
+            Each load starts from this rate times its volume. Sqm and price on a load can be changed on their own. Prepaid cubic metres come off the total.
           </p>
           <div>
             <label style={LABEL}>Vehicle</label>
@@ -1503,6 +1505,36 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
             {open && (
               <div style={{ padding: '0 14px 16px', borderTop: '1px solid var(--border)' }}>
                 <div style={{ display: 'grid', gap: 12, marginTop: 14 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <div>
+                      <label style={LABEL}>Sqm</label>
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={load.waste_sqm ?? loadWasteSqm(load) ?? ''}
+                        onChange={e => patchLoad(load.id, {
+                          waste_sqm: e.target.value === '' ? null : Number(e.target.value),
+                        })}
+                        placeholder="0"
+                        style={INPUT}
+                      />
+                    </div>
+                    <div>
+                      <label style={LABEL}>Price ($)</label>
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={load.waste_price ?? loadWastePrice(load, capture.cost_per_m3) ?? ''}
+                        onChange={e => patchLoad(load.id, {
+                          waste_price: e.target.value === '' ? null : Number(e.target.value),
+                        })}
+                        placeholder="0.00"
+                        style={INPUT}
+                      />
+                    </div>
+                  </div>
                   <div>
                     <label style={LABEL}>
                       Load date
@@ -2192,7 +2224,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
         {wasteCharge.gross != null && (
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
             <span style={{ color: wasteCharge.prepaid_value == null ? 'var(--text)' : 'var(--text-muted)', fontWeight: wasteCharge.prepaid_value == null ? 700 : 400 }}>
-              Waste ({formatM3(totals.volume_m3)} × {formatAud(wasteCharge.cost_per_m3 ?? 0)})
+              Waste
             </span>
             <span style={{ fontWeight: wasteCharge.prepaid_value == null ? 700 : 400 }}>{formatAud(wasteCharge.gross)}</span>
           </div>

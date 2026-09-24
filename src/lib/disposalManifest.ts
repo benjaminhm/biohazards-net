@@ -87,6 +87,8 @@ export function emptyDisposalLoad(): DisposalLoad {
     dump_location_from_photo: false,
     dump_location_from_device: false,
     weight_kg: null,
+    waste_sqm: null,
+    waste_price: null,
     dump_fee: null,
     distance_km: null,
     distance_out_km: null,
@@ -357,6 +359,8 @@ function normalizeLoad(raw: unknown): DisposalLoad {
     dump_location_from_photo: bool(o.dump_location_from_photo),
     dump_location_from_device: bool(o.dump_location_from_device),
     weight_kg: numOrNull(o.weight_kg),
+    waste_sqm: numOrNull(o.waste_sqm),
+    waste_price: numOrNull(o.waste_price),
     dump_fee: numOrNull(o.dump_fee),
     distance_km: numOrNull(o.distance_km),
     distance_out_km: numOrNull(o.distance_out_km),
@@ -843,15 +847,37 @@ export interface DisposalWasteCharge {
   balance: number | null
 }
 
-/** Waste dollars from load volume × the rate. Prepaid cubic metres come off that total. */
+/** Square metres billed for this load. An edited amount wins; otherwise the load volume. */
+export function loadWasteSqm(load: DisposalLoad): number | null {
+  if (load.waste_sqm != null && Number.isFinite(load.waste_sqm)) return load.waste_sqm
+  return loadVolumeM3(load)
+}
+
+/** Price billed for this load. An edited price wins; otherwise square metres × the shared rate. */
+export function loadWastePrice(load: DisposalLoad, rate: number | null | undefined): number | null {
+  if (load.waste_price != null && Number.isFinite(load.waste_price)) return load.waste_price
+  const sqm = loadWasteSqm(load)
+  if (sqm == null || rate == null || !Number.isFinite(rate) || rate < 0) return null
+  return Math.round(sqm * rate * 100) / 100
+}
+
+/** Waste dollars from each load's square metres and price. Prepaid cubic metres come off that total. */
 export function disposalWasteCharge(
-  volume_m3: number,
+  loads: DisposalLoad[],
   cost_per_m3: number | null | undefined,
   prepaid_m3: number | null | undefined,
 ): DisposalWasteCharge {
   const rate = cost_per_m3 != null && Number.isFinite(cost_per_m3) && cost_per_m3 >= 0 ? cost_per_m3 : null
   const prepaid = prepaid_m3 != null && Number.isFinite(prepaid_m3) && prepaid_m3 > 0 ? prepaid_m3 : null
-  const gross = rate == null ? null : Math.round(Math.max(0, volume_m3) * rate * 100) / 100
+  let sum = 0
+  let priced = 0
+  for (const load of loads) {
+    const price = loadWastePrice(load, rate)
+    if (price == null) continue
+    sum += price
+    priced += 1
+  }
+  const gross = priced === 0 ? null : Math.round(sum * 100) / 100
   const prepaid_value = rate == null || prepaid == null ? null : Math.round(prepaid * rate * 100) / 100
   const balance = gross == null ? null : Math.round((gross - (prepaid_value ?? 0)) * 100) / 100
   return { cost_per_m3: rate, prepaid_m3: prepaid, gross, prepaid_value, balance }
@@ -969,7 +995,7 @@ export function formatWasteDisposalNarrative(capture: DisposalManifestCapture): 
     totals.fees_recorded ? `${formatAud(totals.dump_fees)} dump fees` : null,
     totals.skip_fees_recorded ? `${formatAud(totals.skip_fees)} skip costs` : null,
   ].filter(Boolean)
-  const waste = disposalWasteCharge(totals.volume_m3, capture.cost_per_m3, capture.prepaid_m3)
+  const waste = disposalWasteCharge(loads, capture.cost_per_m3, capture.prepaid_m3)
   const wasteBit = waste.gross == null
     ? ''
     : waste.prepaid_value != null

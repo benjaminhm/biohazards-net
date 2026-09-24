@@ -46,6 +46,7 @@ import { getSpokeById } from '@/lib/quoteSpokes'
 import {
   applyJobSiteToCapture,
   computeDisposalTotals,
+  disposalWasteCharge,
   contentsLabel,
   dimensionTrioToMetres,
   formatAud,
@@ -832,6 +833,7 @@ function composeWdm(job: Job): ComposeDocumentResult {
   const capture = applyJobSiteToCapture(mergedDisposalManifestCapture(job.assessment_data), job)
   const loads = capture.loads.filter(loadHasContent)
   const totals = computeDisposalTotals(loads)
+  const waste = disposalWasteCharge(loads, capture.cost_per_m3, capture.prepaid_m3)
   const dates = loads.map(l => l.date).filter(Boolean).sort()
   const collection_date = dates[0]
     ? new Date(`${dates[0]}T00:00:00`).toLocaleDateString('en-AU')
@@ -941,6 +943,7 @@ function composeWdm(job: Job): ComposeDocumentResult {
       skip_fees: totals.skip_fees,
       cost_per_m3: capture.cost_per_m3,
       prepaid_m3: capture.prepaid_m3,
+      waste_gross: waste.gross,
     },
     transport_details: transport || '—',
     declaration:

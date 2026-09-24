@@ -1611,6 +1611,10 @@ export interface DisposalLoad {
   dump_location_from_photo: boolean
   dump_location_from_device: boolean
   weight_kg: number | null
+  /** Square metres of waste on this load. Null follows the load volume until edited. */
+  waste_sqm: number | null
+  /** Price for this load. Null follows square metres × the shared rate until edited. */
+  waste_price: number | null
   dump_fee: number | null
   /** Billed total (out + return). */
   distance_km: number | null
@@ -1964,6 +1968,8 @@ export interface WasteDisposalManifestContent {
     skip_fees?: number
     cost_per_m3?: number | null
     prepaid_m3?: number | null
+    /** Sum of each load's price, after any per-load edits. */
+    waste_gross?: number | null
   }
 }
 

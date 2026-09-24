@@ -32,7 +32,7 @@ import type {
 import { DOC_TYPE_LABELS } from './types'
 import { filterGroupedStages, groupPhotosByRoomAndStage, isQuoteAppendixPhoto, type RoomPhotoGroup } from './photoGroups'
 import { photosForComposedReports } from '@/lib/photosForComposedReports'
-import { docketStatusLabel, dimensionTrioToMetres, disposalWasteCharge, formatAud, formatDistanceLegs, formatKg, formatM3 } from '@/lib/disposalManifest'
+import { docketStatusLabel, dimensionTrioToMetres, formatAud, formatDistanceLegs, formatKg, formatM3 } from '@/lib/disposalManifest'
 import { isPdfUrl } from '@/lib/pdfDocket'
 import { SURFACE_LABELS } from '@/lib/areaSurfaces'
 import { effectiveAreaDimensions } from '@/lib/areaSubzones'
@@ -1369,7 +1369,12 @@ function wdmLoadCards(c: WasteDisposalManifestContent): string {
 
 function wdmWasteChargeHtml(t: WasteDisposalManifestContent['totals']): string {
   if (!t || t.cost_per_m3 == null) return ''
-  const waste = disposalWasteCharge(t.volume_m3, t.cost_per_m3, t.prepaid_m3)
+  const rate = t.cost_per_m3
+  const gross = t.waste_gross ?? (t.volume_m3 > 0 ? Math.round(t.volume_m3 * rate * 100) / 100 : null)
+  const prepaidM3 = t.prepaid_m3 != null && t.prepaid_m3 > 0 ? t.prepaid_m3 : null
+  const prepaidValue = prepaidM3 == null ? null : Math.round(prepaidM3 * rate * 100) / 100
+  const balance = gross == null ? null : Math.round((gross - (prepaidValue ?? 0)) * 100) / 100
+  const waste = { cost_per_m3: rate, prepaid_m3: prepaidM3, gross, prepaid_value: prepaidValue, balance }
   if (waste.gross == null) return ''
   const prepaid = waste.prepaid_value != null
     ? `<div style="display:flex;justify-content:space-between;margin-top:4px;"><span>Prepaid (${esc(formatM3(waste.prepaid_m3 ?? 0))})</span><span>−${esc(formatAud(waste.prepaid_value))}</span></div>
@@ -1377,7 +1382,7 @@ function wdmWasteChargeHtml(t: WasteDisposalManifestContent['totals']): string {
     : ''
   return `
     <div class="body-text" style="margin-top:10px;">
-      <div style="display:flex;justify-content:space-between;${prepaid ? '' : 'font-weight:700;'}"><span>Waste (${esc(formatM3(t.volume_m3))} × ${esc(formatAud(waste.cost_per_m3 ?? 0))})</span><span>${esc(formatAud(waste.gross))}</span></div>
+      <div style="display:flex;justify-content:space-between;${prepaid ? '' : 'font-weight:700;'}"><span>Waste</span><span>${esc(formatAud(waste.gross))}</span></div>
       ${prepaid}
     </div>`
 }
