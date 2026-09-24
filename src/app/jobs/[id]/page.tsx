@@ -58,6 +58,7 @@ import InvoiceTab from '@/components/tabs/InvoiceTab'
 import ProgressNotesTab from '@/components/tabs/ProgressNotesTab'
 import ProgressPhotosTab from '@/components/tabs/ProgressPhotosTab'
 import PostRemediationEvaluationTab from '@/components/tabs/PostRemediationEvaluationTab'
+import StatementOfAccountsTab from '@/components/tabs/StatementOfAccountsTab'
 import PerExecuteCapturePanel from '@/components/tabs/PerExecuteCapturePanel'
 import DisposalManifestCaptureTab from '@/components/tabs/DisposalManifestCaptureTab'
 import CompanyLetterTab from '@/components/tabs/CompanyLetterTab'
@@ -88,6 +89,7 @@ type HomeSection =
   | 'plan'
   | 'execute'
   | 'verify'
+  | 'statement'
   | 'review'
 
 const HOME_SECTIONS: { id: HomeSection; label: string }[] = [
@@ -100,6 +102,7 @@ const HOME_SECTIONS: { id: HomeSection; label: string }[] = [
   { id: 'plan', label: 'Plan' },
   { id: 'execute', label: 'Contents Disposal Record' },
   { id: 'verify', label: 'Post Remediation Evaluation' },
+  { id: 'statement', label: 'Statement of Accounts' },
   { id: 'review', label: 'Review' },
 ]
 
@@ -129,6 +132,7 @@ const HOME_SECTION_TO_CAP: Record<HomeSection, keyof TeamCapabilities> = {
   plan:              'view_home_plan',
   execute:           'view_home_execute',
   verify:            'view_home_verify',
+  statement:         'view_home_verify',
   review:            'view_home_review',
 }
 
@@ -988,7 +992,9 @@ export default function JobPage() {
   const tabs = allTabs.filter(t => t.show)
   const pageTitle = activeTab === 'home' && homeSection === 'execute'
     ? DOC_TYPE_LABELS.waste_disposal_manifest
-    : pageTitleForTab(activeTab, job)
+    : activeTab === 'home' && homeSection === 'statement'
+      ? DOC_TYPE_LABELS.statement_of_accounts
+      : pageTitleForTab(activeTab, job)
   const emptyRoomStyle: React.CSSProperties = {
     minHeight: 360,
     border: '1px dashed var(--border)',
@@ -1029,6 +1035,7 @@ export default function JobPage() {
   const showQualityChecks  = activeTab === 'quality_checks_capture'
   const showRecommendations= activeTab === 'recommendations_capture'
   const showCompletionRpt  = activeTab === 'progress_report_generate' || inHome('verify')
+  const showStatement      = inHome('statement')
   const showClientFeedback = activeTab === 'client_feedback_capture' || (inHome('review') && reviewSection === 'client_feedback')
   const showTeamFeedback   = activeTab === 'team_feedback_capture' || (inHome('review') && reviewSection === 'team_feedback')
 
@@ -1769,6 +1776,9 @@ export default function JobPage() {
         )}
         {showCompletionRpt && (
           <PostRemediationEvaluationTab job={job} photos={photos} documents={documents} onJobUpdate={setJob} onPhotosUpdate={setPhotos} />
+        )}
+        {showStatement && (
+          <StatementOfAccountsTab job={job} documents={documents} onJobUpdate={setJob} />
         )}
         {showClientFeedback && (
           <div style={emptyRoomStyle}>Client feedback (empty room)</div>

@@ -23,7 +23,7 @@ import type {
   DocType, Photo, PhotoCategory, CompanyProfile, Area,
   QuoteContent, SOWContent, AssessmentDocumentContent, SWMSContent, AuthorityToProceedContent,
   EngagementAgreementContent, ReportContent, CertificateOfDecontaminationContent,
-  WasteDisposalManifestContent, JSAContent, NDAContent, RiskAssessmentContent,
+  WasteDisposalManifestContent, StatementOfAccountsContent, JSAContent, NDAContent, RiskAssessmentContent,
   WasteDisposalManifestVehicleSnapshot,
   WorkStep, RiskRow, WasteItem, OutcomeQuoteRow,
   PathophysiologyRow,
@@ -2517,6 +2517,39 @@ function buildWDMMid(c: WasteDisposalManifestContent): string {
   `
 }
 
+function buildStatementMid(c: StatementOfAccountsContent): string {
+  const row = (label: string, amount: number, strong = false) => `
+    <tr>
+      <td${strong ? ' style="font-weight:700"' : ''}>${esc(label)}</td>
+      <td class="r"${strong ? ' style="font-weight:700"' : ''}>${esc(fmtMoney(amount))}</td>
+    </tr>`
+  const depositFoot = c.deposit_taken && c.deposit_entered !== c.deposit_ex
+    ? `<p class="body-text">Deposit entered ${esc(fmtMoney(c.deposit_entered))}, shown before GST in the table.</p>`
+    : ''
+  return `
+    <p class="body-text">Quote ${esc(c.quote_reference || '—')}</p>
+    <table>
+      <thead><tr><th>Item</th><th class="r">Amount</th></tr></thead>
+      <tbody>
+        ${row('Quote / estimate (ex GST)', c.quote_ex)}
+        ${row('GST on quote', c.quote_gst)}
+        ${row('Quote / estimate (inc GST)', c.quote_inc)}
+        ${row('Contents disposal', c.disposal)}
+        ${row(c.deposit_taken ? 'Deposit (ex GST)' : 'Deposit', c.deposit_taken ? -c.deposit_ex : 0)}
+        ${row('Amount owing (ex GST)', c.owing_ex, true)}
+        ${row('GST', c.gst)}
+        ${row('Amount owing (inc GST)', c.owing_inc, true)}
+      </tbody>
+    </table>
+    ${depositFoot}
+  `
+}
+
+function buildStatementHTML(c: StatementOfAccountsContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
+  const mid = buildStatementMid(c)
+  return wrapBranded(mid, c.title || 'Statement of Accounts', c.title || 'Statement of Accounts', c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
+}
+
 function buildWDMHTML(c: WasteDisposalManifestContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
   const mid = buildWDMMid(c)
   return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
@@ -2819,6 +2852,8 @@ export function buildPrintMidHTML(
       return buildCODMid(c as unknown as CertificateOfDecontaminationContent)
     case 'waste_disposal_manifest':
       return buildWDMMid(c as unknown as WasteDisposalManifestContent)
+    case 'statement_of_accounts':
+      return buildStatementMid(c as unknown as StatementOfAccountsContent)
     case 'jsa':
       return buildJSAMid(c as unknown as JSAContent)
     case 'nda':
@@ -2916,6 +2951,7 @@ export function buildPrintHTML(
                                          : buildReportHTML(c as unknown as ReportContent, photos, areas, company, client, screenActionBar)
     case 'certificate_of_decontamination': return buildCODHTML(c as unknown as CertificateOfDecontaminationContent, company, client, screenActionBar)
     case 'waste_disposal_manifest':    return buildWDMHTML(c as unknown as WasteDisposalManifestContent, company, client, screenActionBar)
+    case 'statement_of_accounts':      return buildStatementHTML(c as unknown as StatementOfAccountsContent, company, client, screenActionBar)
     case 'jsa':                        return buildJSAHTML(c as unknown as JSAContent, company, client, screenActionBar)
     case 'nda':                        return buildNDAHTML(c as unknown as NDAContent, company, client, screenActionBar)
     case 'risk_assessment':            return buildRAHTML(c as unknown as RiskAssessmentContent, company, client, screenActionBar)

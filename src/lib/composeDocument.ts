@@ -11,6 +11,7 @@ import type {
   Area,
   ChemicalCatalogueItem,
   DocType,
+  Document,
   EquipmentCatalogueItem,
   Job,
   Photo,
@@ -73,6 +74,7 @@ import {
   volumePricingHasContent,
 } from '@/lib/quoteSections'
 import { buildPrintHTML, type ClientInfo } from '@/lib/printDocument'
+import { statementFromJob } from '@/lib/statementOfAccounts'
 import type { CompanyProfile } from '@/lib/types'
 import {
   presentingHealthHazardsFromAssessment,
@@ -113,6 +115,8 @@ export interface ComposeDocumentOptions {
   chemicalsCatalogue?: ChemicalCatalogueItem[] | null
   /** Which quote spoke to compose (quote / iaq_multi). Omitted = legacy single capture. */
   quoteId?: string
+  /** Saved documents, so the statement can read the latest quote. */
+  documents?: Document[]
 }
 
 const todayRef = () => new Date().toISOString().slice(0, 10).replace(/-/g, '')
@@ -123,6 +127,7 @@ function refPrefix(type: DocType, jobId: string): string {
     iaq_multi: 'IAQ',
     sow: 'SOW',
     quote: 'QUO',
+    statement_of_accounts: 'SOA',
     report: 'RPT',
     swms: 'SWMS',
     authority_to_proceed: 'ATP',
@@ -1057,6 +1062,29 @@ function composeIaqMulti(
   }
 }
 
+function composeStatement(job: Job, documents: Document[]): ComposeDocumentResult {
+  const figures = statementFromJob(documents, job.assessment_data)
+  return {
+    content: {
+      title: 'Statement of Accounts',
+      reference: refPrefix('statement_of_accounts', job.id),
+      quote_reference: figures.reference,
+      gst_mode: figures.gst_mode,
+      quote_ex: figures.quote_ex,
+      quote_gst: figures.quote_gst,
+      quote_inc: figures.quote_inc,
+      disposal: figures.disposal,
+      deposit_taken: figures.deposit_taken,
+      deposit_entered: figures.deposit_entered,
+      deposit_ex: figures.deposit_ex,
+      owing_ex: figures.owing_ex,
+      gst: figures.gst,
+      owing_inc: figures.owing_inc,
+    },
+    source: 'assessment_capture',
+  }
+}
+
 export function composeDocumentContent(type: DocType, job: Job, options?: ComposeDocumentOptions): ComposeDocumentResult {
   const equipment = resolveJobEquipment(job.assessment_data, options?.equipmentCatalogue ?? null)
   const chems = resolveJobChemicals(job.assessment_data, options?.chemicalsCatalogue ?? null)
@@ -1087,6 +1115,8 @@ export function composeDocumentContent(type: DocType, job: Job, options?: Compos
       return composeCod(job)
     case 'waste_disposal_manifest':
       return composeWdm(job)
+    case 'statement_of_accounts':
+      return composeStatement(job, options?.documents ?? [])
     case 'jsa':
       return composeJsa(job, equipment, chems)
     case 'nda':

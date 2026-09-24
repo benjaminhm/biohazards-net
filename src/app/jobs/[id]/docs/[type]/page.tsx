@@ -13,7 +13,7 @@
 
 import { useEffect, useState, useRef, Suspense } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
-import type { AreaPricingRow, CompanyProfile, CustomPricingRow, DocType, Job, OutcomeQuoteRow, Photo, ProgressNote, ProgressRoomNote, QuoteContent, QuoteLineItemRow, QuotePricingLayout, SectionTerms, VolumeDisposalFeeMode, VolumePricingBlock } from '@/lib/types'
+import type { AreaPricingRow, CompanyProfile, CustomPricingRow, DocType, Document, Job, OutcomeQuoteRow, Photo, ProgressNote, ProgressRoomNote, QuoteContent, QuoteLineItemRow, QuotePricingLayout, SectionTerms, VolumeDisposalFeeMode, VolumePricingBlock } from '@/lib/types'
 import { DOC_TYPE_LABELS } from '@/lib/types'
 import { composeDocumentContent, buildComposedPreviewHtml, type ComposeDocumentOptions } from '@/lib/composeDocument'
 import { mergeQuoteLineItemsIntoDocContent } from '@/lib/quoteLineItemsForDocuments'
@@ -224,6 +224,10 @@ function DocViewerInner() {
           equipmentCatalogue: co?.equipment_catalogue ?? null,
           chemicalsCatalogue: co?.chemicals_catalogue ?? null,
           ...(quoteId ? { quoteId } : {}),
+        }
+        if (docType === 'statement_of_accounts') {
+          const docsRes = await fetch(`/api/documents?jobId=${jobId}`).then(r => r.json())
+          composeOpts = { ...composeOpts, documents: (docsRes.documents ?? []) as Document[] }
         }
         const { content: composed } = composeDocumentContent(docType, j, composeOpts)
         let finalComposed = composed

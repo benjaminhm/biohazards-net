@@ -106,7 +106,7 @@ function ref(type: DocType, job: Job): string {
     iaq_multi: 'IAQ',
     quote: 'QTE', sow: 'SOW', assessment_document: 'ASD', swms: 'SWMS', authority_to_proceed: 'ATP',
     engagement_agreement: 'ENG', report: 'RPT', certificate_of_decontamination: 'COD',
-    waste_disposal_manifest: 'CDR', jsa: 'JSA', nda: 'NDA', risk_assessment: 'RA',
+    waste_disposal_manifest: 'CDR', statement_of_accounts: 'SOA', jsa: 'JSA', nda: 'NDA', risk_assessment: 'RA',
     company_letter: 'LTR',
   }
   const d = new Date()
@@ -342,6 +342,25 @@ Include 6–10 realistic steps covering: site assessment, PPE donning, containme
   "completed_by": ""
 }
 Include realistic items based on the job type and assessment data. This is a customer record of what was removed, not a government waste manifest.`,
+
+    statement_of_accounts: `Return ONLY valid JSON:
+{
+  "title": "Statement of Accounts",
+  "reference": "${r}",
+  "quote_reference": "",
+  "gst_mode": "exclusive",
+  "quote_ex": 0,
+  "quote_gst": 0,
+  "quote_inc": 0,
+  "disposal": 0,
+  "deposit_taken": false,
+  "deposit_entered": 0,
+  "deposit_ex": 0,
+  "owing_ex": 0,
+  "gst": 0,
+  "owing_inc": 0
+}
+This document is composed from the saved quote and the contents disposal record. Do not invent amounts.`,
 
     jsa: `Return ONLY valid JSON:
 {

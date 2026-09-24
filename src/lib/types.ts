@@ -51,6 +51,7 @@ export type DocType =
   | 'report'
   | 'certificate_of_decontamination'
   | 'waste_disposal_manifest'
+  | 'statement_of_accounts'
   | 'jsa'
   | 'nda'
   | 'risk_assessment'
@@ -67,6 +68,7 @@ export const DOC_TYPE_LABELS: Record<DocType, string> = {
   report:                     'Post Remediation Evaluation',
   certificate_of_decontamination: 'Certificate of Decontamination',
   waste_disposal_manifest:    'Contents Disposal Record',
+  statement_of_accounts:      'Statement of Accounts',
   jsa:                        'Job Safety Analysis',
   nda:                        'Non-Disclosure Agreement',
   risk_assessment:            'Risk Assessment',
@@ -148,7 +150,7 @@ export const DOC_TYPE_GROUPS: DocTypeGroup[] = [
   {
     id: 'verify',
     label: '9. Verify',
-    types: ['report', 'certificate_of_decontamination'],
+    types: ['report', 'certificate_of_decontamination', 'statement_of_accounts'],
   },
   {
     id: 'review',
@@ -1062,6 +1064,12 @@ export interface AssessmentData {
   /** Post Remediation Evaluations — each anchored 1:1 to a saved quote document.
    *  Hub-and-spoke mirror of outcome_quotes[]. See PostRemediationEvaluation. */
   post_remediation_evaluations?: PostRemediationEvaluation[]
+  /** Statement of Accounts — deposit taken against the quote, before the balance is worked out. */
+  statement_of_accounts?: {
+    deposit_taken: boolean
+    deposit_amount: number | null
+    deposit_includes_gst: boolean
+  }
   /** Job-scoped pathogen / pathophysiology PDF reference library. Used as
    *  grounded biology source by the Assessment Document AI suggester. */
   pathogens_capture?: PathogensCapture
@@ -1980,6 +1988,23 @@ export interface WasteDisposalManifestContent {
     prepaid_value?: number | null
     price_total?: number | null
   }
+}
+
+export interface StatementOfAccountsContent {
+  title: string
+  reference: string
+  quote_reference: string
+  gst_mode: QuoteGstMode
+  quote_ex: number
+  quote_gst: number
+  quote_inc: number
+  disposal: number
+  deposit_taken: boolean
+  deposit_entered: number
+  deposit_ex: number
+  owing_ex: number
+  gst: number
+  owing_inc: number
 }
 
 export interface JSAContent {
