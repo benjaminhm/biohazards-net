@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
 import type { Document, Job } from '@/lib/types'
 import { mergeAssessmentData } from '@/lib/riskDerivation'
@@ -116,23 +116,26 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
   const quoteInc = chargesGst ? figures.quote_inc : figures.quote_ex
   const depositInc = capture.deposit_taken ? figures.deposit_entered : 0
   const depositEx = capture.deposit_taken ? figures.deposit_ex : 0
-  const originalInvoice = capture.original_invoice_number.trim()
-    ? `Owing on the original invoice (${capture.original_invoice_number.trim()})`
-    : 'Owing on the original invoice'
-  const newInvoice = capture.new_invoice_number.trim()
-    ? `Owing on the new invoice (${capture.new_invoice_number.trim()})`
-    : 'Owing on the new invoice'
-  const line = (label: string, before: number, amount: number, strong = false) => (
+  const invoiceRef = (number: string, url: string) => {
+    const label = number.trim() || (url.trim() ? 'Open invoice' : '—')
+    if (url.trim() && /^https?:\/\//i.test(url.trim())) {
+      return <a href={url.trim()} target="_blank" rel="noreferrer">{label}</a>
+    }
+    return label
+  }
+  const cols = chargesGst ? '1.3fr 1fr 0.9fr 0.9fr' : '1.3fr 1fr 0.9fr'
+  const line = (what: string, invoice: ReactNode, before: number, amount: number, strong = false) => (
     <div
       style={{
         display: 'grid',
-        gridTemplateColumns: chargesGst ? '1.4fr 1fr 1fr' : '1.4fr 1fr',
+        gridTemplateColumns: cols,
         gap: 8,
         marginBottom: 8,
         fontWeight: strong ? 700 : 400,
       }}
     >
-      <span>{label}</span>
+      <span>{what}</span>
+      <span>{invoice}</span>
       {chargesGst && <span style={{ textAlign: 'right' }}>{formatAud(before)}</span>}
       <span style={{ textAlign: 'right' }}>{formatAud(amount)}</span>
     </div>
@@ -141,7 +144,7 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
   return (
     <div style={{ maxWidth: 720, paddingBottom: 120 }}>
       <p style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.55, marginBottom: 16 }}>
-        Each figure is shown before GST and including GST. The remainder of the original quote is owing on the original invoice. Contents removal is owing on the new invoice.
+        Each figure is shown before GST and including GST. Pay each invoice row against that invoice.
       </p>
 
       {!hasQuote && (
@@ -238,7 +241,7 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
             />
           </div>
           <div>
-            <label style={LABEL}>New invoice number</label>
+            <label style={LABEL}>New invoice to cover the adjusted total — number</label>
             <input
               type="text"
               value={capture.new_invoice_number}
@@ -248,7 +251,7 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
             />
           </div>
           <div>
-            <label style={LABEL}>New invoice link</label>
+            <label style={LABEL}>New invoice to cover the adjusted total — link</label>
             <input
               type="url"
               value={capture.new_invoice_url}
@@ -273,7 +276,7 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: chargesGst ? '1.4fr 1fr 1fr' : '1.4fr 1fr',
+            gridTemplateColumns: cols,
             gap: 8,
             marginBottom: 10,
             fontSize: 11,
@@ -283,21 +286,22 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
             color: '#E2E8F0',
           }}
         >
-          <span>Item</span>
+          <span>What</span>
+          <span>Invoice</span>
           {chargesGst && <span style={{ textAlign: 'right' }}>Before GST</span>}
           <span style={{ textAlign: 'right' }}>Amount</span>
         </div>
-        {line('This was the original quote', figures.quote_ex, quoteInc)}
-        {line('You paid a deposit of', depositEx, depositInc)}
-        {line(originalInvoice, figures.original_owing_ex, figures.original_owing_inc, true)}
-        {line(newInvoice, figures.new_invoice_ex, figures.new_invoice_inc, true)}
-        {line('Total remaining owed', figures.owing_ex, figures.owing_inc, true)}
+        {line('Original quote', figures.reference, figures.quote_ex, quoteInc)}
+        {line('Deposit paid', '—', depositEx, depositInc)}
+        {line('Pay on the original invoice', invoiceRef(capture.original_invoice_number, capture.original_invoice_url), figures.original_owing_ex, figures.original_owing_inc, true)}
+        {line('Pay on the new invoice to cover the adjusted total', invoiceRef(capture.new_invoice_number, capture.new_invoice_url), figures.new_invoice_ex, figures.new_invoice_inc, true)}
+        {line('Total owing', '—', figures.owing_ex, figures.owing_inc, true)}
         {figures.owing_inc < 0 && (
           <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 8 }}>This balance is a credit.</div>
         )}
       </div>
       <p style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.55, marginBottom: 18 }}>
-        Pay the original invoice remainder against that invoice. Pay the contents removal amount on the new invoice.
+        The original invoice is the remaining quote after the deposit. The new invoice covers the adjusted total for contents removal.
       </p>
 
       <div
