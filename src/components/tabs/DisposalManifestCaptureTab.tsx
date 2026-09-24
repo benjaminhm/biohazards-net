@@ -326,6 +326,14 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
   const [savedFlash, setSavedFlash] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [openId, setOpenId] = useState<string | null>(persisted.loads[0]?.id ?? null)
+  const [desktop, setDesktop] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 900px)')
+    const apply = () => setDesktop(mq.matches)
+    apply()
+    mq.addEventListener('change', apply)
+    return () => mq.removeEventListener('change', apply)
+  }, [])
   const [unlockedLoadId, setUnlockedLoadId] = useState<string | null>(null)
   const [distanceBusyId, setDistanceBusyId] = useState<string | null>(null)
   const [distanceErrors, setDistanceErrors] = useState<Record<string, string>>({})
@@ -1362,7 +1370,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
 
       <div className="disposal-loads">
       {capture.loads.map((load, index) => {
-        const open = openId === load.id
+        const open = desktop || openId === load.id
         const typeBits = load.vehicles.map(v => vehicleTypeLabel(v.type)).filter(Boolean)
         const vol = load.vehicles.reduce((n, v) => n + (vehicleVolumeM3(v) ?? 0), 0)
         const volRecorded = load.vehicles.some(v => vehicleVolumeM3(v) != null)
@@ -1401,7 +1409,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
             >
               <button
                 type="button"
-                onClick={() => setOpenId(open ? null : load.id)}
+                onClick={() => { if (!desktop) setOpenId(open ? null : load.id) }}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
