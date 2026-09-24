@@ -23,7 +23,7 @@ import {
   applyJobSiteToCapture,
   applyJobSiteToLoad,
   computeDisposalTotals,
-  disposalWasteCharge,
+  disposalPriceLines,
   contentsLabel,
   disposalManifestEqual,
   distanceFromSiteKm,
@@ -400,8 +400,8 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
   }, [capture.defaults, job.site_lat, job.site_lng, job.site_address])
 
   const totals = useMemo(() => computeDisposalTotals(capture.loads), [capture.loads])
-  const wasteCharge = useMemo(
-    () => disposalWasteCharge(capture.loads, capture.cost_per_m3, capture.prepaid_m3),
+  const prices = useMemo(
+    () => disposalPriceLines(capture.loads, capture.cost_per_m3, capture.prepaid_m3),
     [capture.loads, capture.cost_per_m3, capture.prepaid_m3],
   )
 
@@ -2261,26 +2261,6 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
           <span>{totals.volume_recorded ? formatM3(totals.volume_m3) : '—'}</span>
         </div>
         <div style={{ color: 'var(--text-muted)', fontSize: 11, marginBottom: 8 }}>Close estimate</div>
-        {wasteCharge.gross != null && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-            <span style={{ color: wasteCharge.prepaid_value == null ? 'var(--text)' : 'var(--text-muted)', fontWeight: wasteCharge.prepaid_value == null ? 700 : 400 }}>
-              Waste
-            </span>
-            <span style={{ fontWeight: wasteCharge.prepaid_value == null ? 700 : 400 }}>{formatAud(wasteCharge.gross)}</span>
-          </div>
-        )}
-        {wasteCharge.prepaid_value != null && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-            <span style={{ color: 'var(--text-muted)' }}>Prepaid ({formatM3(wasteCharge.prepaid_m3 ?? 0)})</span>
-            <span>−{formatAud(wasteCharge.prepaid_value)}</span>
-          </div>
-        )}
-        {wasteCharge.balance != null && wasteCharge.prepaid_value != null && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-            <strong>Waste to bill</strong>
-            <strong>{formatAud(wasteCharge.balance)}</strong>
-          </div>
-        )}
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
           <span style={{ color: 'var(--text-muted)' }}>Weight</span>
           <span>{totals.weight_recorded ? formatKg(totals.weight_kg) : '—'}</span>
@@ -2291,16 +2271,28 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
           <span>{totals.distance_recorded ? `${totals.distance_km} km return` : '—'}</span>
         </div>
         <div style={{ color: 'var(--text-muted)', fontSize: 11, marginBottom: 8 }}>Return (round-trip) total</div>
-        {totals.fees_recorded > 0 && (
+        {prices.skips > 0 && (
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-            <span style={{ color: 'var(--text-muted)' }}>Dump fees</span>
-            <span>{formatAud(totals.dump_fees)}</span>
+            <span style={{ color: 'var(--text-muted)' }}>Skips</span>
+            <span>{formatAud(prices.skips)}</span>
           </div>
         )}
-        {totals.skip_fees_recorded > 0 && (
+        {prices.trailers_utes > 0 && (
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-            <span style={{ color: 'var(--text-muted)' }}>Skip costs</span>
-            <span>{formatAud(totals.skip_fees)}</span>
+            <span style={{ color: 'var(--text-muted)' }}>Trailers / utes</span>
+            <span>{formatAud(prices.trailers_utes)}</span>
+          </div>
+        )}
+        {prices.dump_fees > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+            <span style={{ color: 'var(--text-muted)' }}>Dump fees</span>
+            <span>{formatAud(prices.dump_fees)}</span>
+          </div>
+        )}
+        {prices.prepaid > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+            <span style={{ color: 'var(--text-muted)' }}>Prepaid</span>
+            <span>−{formatAud(prices.prepaid)}</span>
           </div>
         )}
         <div
@@ -2312,12 +2304,8 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
             marginTop: 6,
           }}
         >
-          <strong>Disposal costs</strong>
-          <strong>
-            {totals.fees_recorded || totals.skip_fees_recorded
-              ? formatAud(totals.dump_fees + totals.skip_fees)
-              : '—'}
-          </strong>
+          <strong>Total</strong>
+          <strong>{formatAud(prices.total)}</strong>
         </div>
       </div>
 
