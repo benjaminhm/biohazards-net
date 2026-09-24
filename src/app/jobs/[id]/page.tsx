@@ -51,6 +51,7 @@ import DocumentsTab from '@/components/tabs/DocumentsTab'
 import PreRemediationChecklistTab from '@/components/tabs/PreRemediationChecklistTab'
 import ScopeOfWorkTab from '@/components/tabs/ScopeOfWorkTab'
 import AssessmentDocumentTab from '@/components/tabs/AssessmentDocumentTab'
+import HouseSurveyTab from '@/components/tabs/HouseSurveyTab'
 import QuoteCaptureTab from '@/components/tabs/QuoteCaptureTab'
 import IaqBundleCaptureTab from '@/components/tabs/IaqBundleCaptureTab'
 import MessagesTab from '@/components/tabs/MessagesTab'
@@ -684,7 +685,7 @@ export default function JobPage() {
   const [safetySection,  setSafetySection]  = useState<SafetySection>('authority_to_proceed')
   const [reviewSection,  setReviewSection]  = useState<ReviewSection>('client_feedback')
   /** Secondary tabs when viewing Assessment (Presentation → Health Hazards → Risks → Recommendations → Equipment → Document) */
-  const [assessmentSection, setAssessmentSection] = useState<'presentation' | 'hazards' | 'risks' | 'pathogens' | 'contents' | 'structure' | 'recommendations' | 'chemicals' | 'equipment' | 'document'>('presentation')
+  const [assessmentSection, setAssessmentSection] = useState<'presentation' | 'survey' | 'hazards' | 'risks' | 'pathogens' | 'contents' | 'structure' | 'recommendations' | 'chemicals' | 'equipment' | 'document'>('presentation')
   const [caseStudiesSection, setCaseStudiesSection] = useState<'written' | 'video_script'>('written')
   const [writtenCaseStatus, setWrittenCaseStatus] = useState<CaseStudyWorkflowStatus>('draft')
   const [writtenCaseReviewer, setWrittenCaseReviewer] = useState('')
@@ -711,6 +712,19 @@ export default function JobPage() {
     fontWeight: 600,
     color: assessmentSection === 'presentation' ? 'var(--accent)' : 'var(--text-muted)',
     borderBottom: assessmentSection === 'presentation' ? '2px solid var(--accent)' : '2px solid transparent',
+    transition: 'color 0.15s, border-color 0.15s',
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    marginBottom: -1,
+  } as const
+
+  const assessmentSurveyBtnStyle = {
+    padding: '8px 16px',
+    fontSize: 13,
+    fontWeight: 600,
+    color: assessmentSection === 'survey' ? 'var(--accent)' : 'var(--text-muted)',
+    borderBottom: assessmentSection === 'survey' ? '2px solid var(--accent)' : '2px solid transparent',
     transition: 'color 0.15s, border-color 0.15s',
     background: 'none',
     border: 'none',
@@ -1331,6 +1345,15 @@ export default function JobPage() {
             <button
               type="button"
               role="tab"
+              aria-selected={assessmentSection === 'survey'}
+              onClick={() => setAssessmentSection('survey')}
+              style={assessmentSurveyBtnStyle}
+            >
+              Survey
+            </button>
+            <button
+              type="button"
+              role="tab"
               aria-selected={assessmentSection === 'hazards'}
               onClick={() => setAssessmentSection('hazards')}
               style={assessmentBiohazardsBtnStyle}
@@ -1460,6 +1483,9 @@ export default function JobPage() {
             photos={photos}
             onPhotosUpdate={setPhotos}
           />
+        )}
+        {showAssessmentUI && assessmentSection === 'survey' && (
+          <HouseSurveyTab job={job} onJobUpdate={setJob} />
         )}
         {showAssessmentUI && assessmentSection === 'hazards' && (
           <AssessmentHealthHazardsTab job={job} onJobUpdate={setJob} />
