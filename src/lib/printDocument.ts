@@ -1367,24 +1367,29 @@ function wdmLoadCards(c: WasteDisposalManifestContent): string {
   }).join('')
 }
 
-function wdmWasteChargeHtml(t: WasteDisposalManifestContent['totals']): string {
-  if (!t || t.cost_per_m3 == null) return ''
-  const rate = t.cost_per_m3
-  const gross = t.waste_gross ?? (t.volume_m3 > 0 ? Math.round(t.volume_m3 * rate * 100) / 100 : null)
-  const prepaidM3 = t.prepaid_m3 != null && t.prepaid_m3 > 0 ? t.prepaid_m3 : null
-  const prepaidValue = prepaidM3 == null ? null : Math.round(prepaidM3 * rate * 100) / 100
-  const balance = gross == null ? null : Math.round((gross - (prepaidValue ?? 0)) * 100) / 100
-  const waste = { cost_per_m3: rate, prepaid_m3: prepaidM3, gross, prepaid_value: prepaidValue, balance }
-  if (waste.gross == null) return ''
-  const prepaid = waste.prepaid_value != null
-    ? `<div style="display:flex;justify-content:space-between;margin-top:4px;"><span>Prepaid (${esc(formatM3(waste.prepaid_m3 ?? 0))})</span><span>−${esc(formatAud(waste.prepaid_value))}</span></div>
-       <div style="display:flex;justify-content:space-between;margin-top:4px;font-weight:700;"><span>Waste to bill</span><span>${esc(formatAud(waste.balance ?? 0))}</span></div>`
-    : ''
+function wdmPriceTable(t: WasteDisposalManifestContent['totals']): string {
+  if (!t) return ''
+  const skips = t.skip_fees ?? 0
+  const trailers = t.trailer_ute_fees ?? t.waste_gross ?? 0
+  const dumps = t.dump_fees ?? 0
+  const prepaid = t.prepaid_value ?? 0
+  const total = t.price_total ?? Math.round((skips + trailers + dumps - prepaid) * 100) / 100
+  const row = (label: string, amount: number, strong = false) => `
+    <tr>
+      <td${strong ? ' style="font-weight:700"' : ''}>${label}</td>
+      <td class="r"${strong ? ' style="font-weight:700"' : ''}>${esc(formatAud(amount))}</td>
+    </tr>`
   return `
-    <div class="body-text" style="margin-top:10px;">
-      <div style="display:flex;justify-content:space-between;${prepaid ? '' : 'font-weight:700;'}"><span>Waste</span><span>${esc(formatAud(waste.gross))}</span></div>
-      ${prepaid}
-    </div>`
+    <table style="margin-top:12px">
+      <thead><tr><th>Item</th><th class="r">Amount</th></tr></thead>
+      <tbody>
+        ${row('Skips', skips)}
+        ${row('Trailers / utes', trailers)}
+        ${row('Dump fees', dumps)}
+        ${prepaid ? row('Prepaid', -prepaid) : ''}
+        ${row('Total', total, true)}
+      </tbody>
+    </table>`
 }
 
 function wdmCostBits(dump: number | null | undefined, skip: number | null | undefined): string {
@@ -1402,10 +1407,6 @@ function wdmSummary(c: WasteDisposalManifestContent): string {
   const t = c.totals
   const loads = c.loads ?? []
   const volume = t && t.volume_m3 != null && t.volume_m3 > 0 ? formatM3(t.volume_m3) : '—'
-  const skipFees = t?.skip_fees ?? 0
-  const costCell = t && t.load_count >= 1
-    ? (wdmCostBits(t.dump_fees, skipFees) || '—')
-    : '—'
   const totalsTable = t && t.load_count >= 1
     ? `
     <table>
@@ -1415,7 +1416,6 @@ function wdmSummary(c: WasteDisposalManifestContent): string {
           <th>Volume</th>
           <th>Weight</th>
           <th>Distance</th>
-          <th class="r">Costs</th>
         </tr>
       </thead>
       <tbody>
@@ -1424,14 +1424,13 @@ function wdmSummary(c: WasteDisposalManifestContent): string {
           <td>${esc(volume)}</td>
           <td>${esc(formatKg(t.weight_kg))}</td>
           <td>${t.distance_km} km return</td>
-          <td class="r">${esc(costCell)}</td>
         </tr>
       </tbody>
     </table>
+    ${wdmPriceTable(t)}
     <div class="body-text" style="margin-top:8px;font-size:8pt;color:var(--sow-muted)">
-      Volume is a close estimate from load measurements. Weight is based on weights on dockets. Distance is the return (round-trip) total. Skip cost is the skip-hire price, separate from weighbridge dump fees.
-    </div>
-    ${wdmWasteChargeHtml(t)}`
+      Volume is a close estimate from load measurements. Weight is based on weights on dockets. Distance is the return (round-trip) total. Skips are skip-hire prices. Trailers and utes are each vehicle’s own price. Dump fees are weighbridge charges.
+    </div>`
     : ''
 
   const indexTable = loads.length

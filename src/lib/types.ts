@@ -1974,6 +1974,9 @@ export interface WasteDisposalManifestContent {
     prepaid_m3?: number | null
     /** Sum of each load's price, after any per-load edits. */
     waste_gross?: number | null
+    trailer_ute_fees?: number | null
+    prepaid_value?: number | null
+    price_total?: number | null
   }
 }
 

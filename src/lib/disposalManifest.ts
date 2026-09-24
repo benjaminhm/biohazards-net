@@ -922,6 +922,54 @@ export function disposalWasteCharge(
   return { cost_per_m3: rate, prepaid_m3: prepaid, gross, prepaid_value, balance }
 }
 
+export interface DisposalPriceLines {
+  skips: number
+  trailers_utes: number
+  dump_fees: number
+  prepaid: number
+  total: number
+}
+
+/** Skip hire, trailer/ute prices, and dump fees kept apart, then one total. */
+export function disposalPriceLines(
+  loads: DisposalLoad[],
+  cost_per_m3: number | null | undefined,
+  prepaid_m3: number | null | undefined,
+): DisposalPriceLines {
+  const rate = cost_per_m3 != null && Number.isFinite(cost_per_m3) && cost_per_m3 >= 0 ? cost_per_m3 : null
+  let skips = 0
+  let trailers_utes = 0
+  let dump_fees = 0
+  for (const load of loads) {
+    const dump = loadDumpFeeForTotals(load)
+    if (dump != null) dump_fees += dump
+    const skip = loadSkipFeeForTotals(load)
+    if (skip != null) skips += skip
+    const single = load.vehicles.length <= 1
+    for (const vehicle of load.vehicles) {
+      if (vehicle.type === 'skip') continue
+      let price: number | null = null
+      if (vehicle.waste_price != null && Number.isFinite(vehicle.waste_price)) price = vehicle.waste_price
+      else if (single && load.waste_price != null && Number.isFinite(load.waste_price)) price = load.waste_price
+      else if (rate != null) {
+        const sqm = vehicle.waste_sqm ?? (single ? load.waste_sqm : null) ?? vehicleVolumeM3(vehicle)
+        if (sqm != null) price = Math.round(sqm * rate * 100) / 100
+      }
+      if (price != null) trailers_utes += price
+    }
+  }
+  const prepaidQty = prepaid_m3 != null && Number.isFinite(prepaid_m3) && prepaid_m3 > 0 ? prepaid_m3 : 0
+  const prepaid = rate == null ? 0 : Math.round(prepaidQty * rate * 100) / 100
+  const round = (n: number) => Math.round(n * 100) / 100
+  return {
+    skips: round(skips),
+    trailers_utes: round(trailers_utes),
+    dump_fees: round(dump_fees),
+    prepaid,
+    total: round(skips + trailers_utes + dump_fees - prepaid),
+  }
+}
+
 export function formatKg(kg: number): string {
   if (kg >= 1000) return `${(kg / 1000).toFixed(2)} t`
   return `${kg.toFixed(kg % 1 === 0 ? 0 : 1)} kg`
