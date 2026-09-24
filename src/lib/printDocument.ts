@@ -327,10 +327,11 @@ function cssSowPrint(): string {
       text-align: left;
     }
     .sow-root .sow-mid thead th.r { text-align: right; }
-    .sow-root .sow-mid table.wdm-break { font-size: 8pt; }
-    .sow-root .sow-mid table.wdm-break thead th { padding: 6px 5px; font-size: 7pt; }
-    .sow-root .sow-mid table.wdm-break thead th.g-name { text-align: center; letter-spacing: 0.04em; text-transform: uppercase; }
-    .sow-root .sow-mid table.wdm-break td { padding: 6px 5px; font-size: 8pt; }
+    .sow-root .sow-mid table.wdm-break { font-size: 6.5pt; table-layout: fixed; width: 100%; }
+    .sow-root .sow-mid table.wdm-break thead th { padding: 3px 2px; font-size: 6pt; }
+    .sow-root .sow-mid table.wdm-break thead th.g-name { text-align: center; letter-spacing: 0.03em; text-transform: uppercase; }
+    .sow-root .sow-mid table.wdm-break td { padding: 3px 2px; font-size: 6.5pt; }
+    .sow-root .sow-mid table.wdm-break tbody td.r { white-space: nowrap; font-variant-numeric: tabular-nums; }
     .sow-root .sow-mid table.wdm-break .g-start { border-left: 2px solid #fff; }
     .sow-root .sow-mid table.wdm-break tbody .g-start { border-left: 2px solid var(--sow-navy); }
     .sow-root .sow-mid table.wdm-break thead th.g-skip,
@@ -1469,11 +1470,11 @@ function wdmSummary(c: WasteDisposalManifestContent): string {
           <th class="g-name g-total g-start" colspan="2">Load total</th>
         </tr>
         <tr>
-          <th class="r g-skip g-start">Before GST</th><th class="r g-skip">Amount</th>
-          <th class="r g-trailer g-start">Before GST</th><th class="r g-trailer">Amount</th>
-          <th class="r g-ute g-start">Before GST</th><th class="r g-ute">Amount</th>
-          <th class="r g-tip g-start">Before GST</th><th class="r g-tip">Amount</th>
-          <th class="r g-total g-start">Before GST</th><th class="r g-total">Amount</th>
+          <th class="r g-skip g-start">ex GST</th><th class="r g-skip">inc GST</th>
+          <th class="r g-trailer g-start">ex GST</th><th class="r g-trailer">inc GST</th>
+          <th class="r g-ute g-start">ex GST</th><th class="r g-ute">inc GST</th>
+          <th class="r g-tip g-start">ex GST</th><th class="r g-tip">inc GST</th>
+          <th class="r g-total g-start">ex GST</th><th class="r g-total">inc GST</th>
         </tr>
       </thead>
       <tbody>
