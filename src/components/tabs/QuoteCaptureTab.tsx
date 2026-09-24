@@ -56,7 +56,6 @@ import PhotoCard from '@/components/PhotoCard'
 import PhotoUploadPanel from '@/components/PhotoUploadPanel'
 import RichTextEditor from '@/components/RichTextEditor'
 import { QUOTE_APPENDIX_AREA_REF, isQuoteAppendixPhoto } from '@/lib/photoGroups'
-import { tradingAuthReplyEmail } from '@/lib/tradingNames'
 
 interface Props {
   job: Job
@@ -2677,12 +2676,7 @@ export default function QuoteCaptureTab({ job, photos, onJobUpdate, onPhotosUpda
           background: 'rgba(249,115,22,0.1)',
         }}>
           <div style={{ fontWeight: 700, color: '#FDBA74', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Authorisation to Proceed</div>
-          <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>To accept this quote and proceed with booking, please complete the following steps:</div>
-          <ol style={{ margin: 0, paddingLeft: 18 }}>
-            <li>With pen and paper, write out the authorisation text exactly as shown below.</li>
-            <li>Sign and date the handwritten authorisation.</li>
-            <li>Take a clear photo and email it to <strong style={{ color: 'var(--text)' }}>{tradingAuthReplyEmail(job.trading_name)}</strong>.</li>
-          </ol>
+          <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>The client accepts this quote online from the link you send. The button sits at the end of the page.</div>
         </div>
         <RichTextEditor
           value={auth.acceptance_statement}

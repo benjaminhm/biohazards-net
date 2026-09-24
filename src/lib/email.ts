@@ -14,7 +14,7 @@ import { Resend } from 'resend'
 const resend = new Resend(process.env.RESEND_API_KEY)
 const NOTIFY_EMAIL = process.env.NOTIFY_EMAIL!
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://biohazards-net.vercel.app'
-export const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev'
+export const FROM_EMAIL = process.env.RESEND_FROM_ACCOUNTS || process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev'
 
 export interface QuoteAcceptedData {
   jobId: string
@@ -23,6 +23,7 @@ export interface QuoteAcceptedData {
   jobType: string
   reference: string
   total: number
+  contactEmail?: string
 }
 
 /**
@@ -50,6 +51,10 @@ export async function sendQuoteAcceptedEmail(data: QuoteAcceptedData) {
           <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #888; margin-bottom: 2px;">Client</div>
           <div style="font-size: 16px; font-weight: 600; color: #111;">${data.clientName}</div>
         </div>
+        ${data.contactEmail ? `<div style="margin-bottom: 12px;">
+          <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #888; margin-bottom: 2px;">Email they entered</div>
+          <div style="font-size: 14px; color: #333;">${data.contactEmail.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
+        </div>` : ''}
         <div style="margin-bottom: 12px;">
           <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #888; margin-bottom: 2px;">Site</div>
           <div style="font-size: 14px; color: #333;">${data.siteAddress}</div>
@@ -82,10 +87,48 @@ export async function sendQuoteAcceptedEmail(data: QuoteAcceptedData) {
     </div>
   `
 
-  await resend.emails.send({
+  const { error } = await resend.emails.send({
     from: `biohazards.net <${FROM_EMAIL}>`,
     to: NOTIFY_EMAIL,
     subject: `Quote Accepted — ${data.clientName} — ${data.reference}`,
     html,
   })
+  if (error) throw new Error(error.message || 'Staff email failed')
+}
+
+export async function sendQuoteAcceptedClientEmail(data: {
+  to: string
+  clientName: string
+  siteAddress: string
+  reference: string
+  total: number | null
+  brandLabel: string
+}) {
+  const fmt = (n: number) => `$${Number(n).toLocaleString('en-AU', { minimumFractionDigits: 2 })}`
+  const total = data.total == null ? '' : fmt(data.total)
+  const safe = (value: string) => value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+  const html = `
+    <div style="font-family: -apple-system, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px;">
+      <div style="border-top: 4px solid #FF6B35; padding-top: 24px; margin-bottom: 24px;">
+        <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #FF6B35; margin-bottom: 6px;">
+          ${safe(data.brandLabel)}
+        </div>
+        <h1 style="font-size: 24px; font-weight: 700; color: #111; margin: 0;">We have your acceptance</h1>
+      </div>
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        Thank you${data.clientName ? `, ${safe(data.clientName)}` : ''}. We have recorded your acceptance
+        of <strong>${safe(data.reference || 'this quote')}</strong>${data.siteAddress ? ` for ${safe(data.siteAddress)}` : ''}${total ? ` (${total})` : ''}.
+      </p>
+      <p style="font-size: 14px; color: #555; line-height: 1.6;">We will be in touch to book the work.</p>
+    </div>`
+  const { error } = await resend.emails.send({
+    from: `${data.brandLabel} <${FROM_EMAIL}>`,
+    to: data.to,
+    subject: `Accepted — ${data.reference || 'your quote'}`,
+    html,
+  })
+  if (error) throw new Error(error.message || 'Client email failed')
 }

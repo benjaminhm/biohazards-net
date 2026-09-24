@@ -32,7 +32,7 @@ import type {
 import { DOC_TYPE_LABELS } from './types'
 import { filterGroupedStages, groupPhotosByRoomAndStage, isQuoteAppendixPhoto, type RoomPhotoGroup } from './photoGroups'
 import { photosForComposedReports } from '@/lib/photosForComposedReports'
-import { docketStatusLabel, dimensionTrioToMetres, formatAud, formatDistanceLegs, formatKg, formatM3 } from '@/lib/disposalManifest'
+import { docketStatusLabel, dimensionTrioToMetres, disposalWasteCharge, formatAud, formatDistanceLegs, formatKg, formatM3 } from '@/lib/disposalManifest'
 import { isPdfUrl } from '@/lib/pdfDocket'
 import { SURFACE_LABELS } from '@/lib/areaSurfaces'
 import { effectiveAreaDimensions } from '@/lib/areaSubzones'
@@ -403,6 +403,33 @@ function cssSowPrint(): string {
       line-height: 1.55;
       margin-bottom: 6px;
     }
+    .sow-root .quote-accept {
+      margin-top: 28px;
+      padding: 16px;
+      border: 1px solid var(--sow-rule);
+      border-radius: 8px;
+      background: #fff;
+    }
+    .sow-root .quote-accept input[type="email"] {
+      width: 100%;
+      box-sizing: border-box;
+      font-size: 14px;
+      padding: 10px 12px;
+      border: 1px solid var(--sow-rule);
+      border-radius: 8px;
+      margin: 8px 0 12px;
+    }
+    .sow-root .quote-accept button {
+      background: #FF6B35;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 15px;
+      padding: 12px 16px;
+      cursor: pointer;
+    }
+    .sow-root .quote-accept .quote-accept-msg { margin-top: 10px; font-size: 13px; }
     .sow-root .quote-auth-callout ol {
       margin: 0;
       padding-left: 1.2em;
@@ -586,6 +613,7 @@ function cssSowPrint(): string {
       @page { size: auto; margin: 10mm 12mm; }
       body.sow-print-body { background: white !important; padding-top: 0 !important; }
       body.sow-print-body .action-bar { display: none !important; }
+      .sow-root .quote-accept { display: none !important; }
       .sow-root .sow-sheet {
         width: 100%;
         min-height: auto !important;
@@ -632,6 +660,10 @@ export interface ClientInfo {
   photoToggleSupported?: boolean
   /** Current effective state of photo inclusion, used to label/link the toggle. */
   photosOn?: boolean
+  /** Saved quote document. When set, the public page shows the accept button. */
+  quoteAcceptDocumentId?: string
+  /** Set when this quote document has already been accepted. */
+  quoteAccepted?: { email: string; accepted_at: string } | null
 }
 
 /**
@@ -1335,6 +1367,21 @@ function wdmLoadCards(c: WasteDisposalManifestContent): string {
   }).join('')
 }
 
+function wdmWasteChargeHtml(t: WasteDisposalManifestContent['totals']): string {
+  if (!t || t.cost_per_m3 == null) return ''
+  const waste = disposalWasteCharge(t.volume_m3, t.cost_per_m3, t.prepaid_m3)
+  if (waste.gross == null) return ''
+  const prepaid = waste.prepaid_value != null
+    ? `<div style="display:flex;justify-content:space-between;margin-top:4px;"><span>Prepaid (${esc(formatM3(waste.prepaid_m3 ?? 0))})</span><span>−${esc(formatAud(waste.prepaid_value))}</span></div>
+       <div style="display:flex;justify-content:space-between;margin-top:4px;font-weight:700;"><span>Waste to bill</span><span>${esc(formatAud(waste.balance ?? 0))}</span></div>`
+    : ''
+  return `
+    <div class="body-text" style="margin-top:10px;">
+      <div style="display:flex;justify-content:space-between;${prepaid ? '' : 'font-weight:700;'}"><span>Waste (${esc(formatM3(t.volume_m3))} × ${esc(formatAud(waste.cost_per_m3 ?? 0))})</span><span>${esc(formatAud(waste.gross))}</span></div>
+      ${prepaid}
+    </div>`
+}
+
 function wdmCostBits(dump: number | null | undefined, skip: number | null | undefined): string {
   const bits: string[] = []
   if (dump != null && dump !== 0) bits.push(`${formatAud(dump)} dump`)
@@ -1378,7 +1425,8 @@ function wdmSummary(c: WasteDisposalManifestContent): string {
     </table>
     <div class="body-text" style="margin-top:8px;font-size:8pt;color:var(--sow-muted)">
       Volume is a close estimate from load measurements. Weight is based on weights on dockets. Distance is the return (round-trip) total. Skip cost is the skip-hire price, separate from weighbridge dump fees.
-    </div>`
+    </div>
+    ${wdmWasteChargeHtml(t)}`
     : ''
 
   const indexTable = loads.length
@@ -1828,15 +1876,12 @@ function buildQuoteMid(
   photos: Photo[],
   groups: RoomPhotoGroup[],
   areas: Area[],
-  company: CompanyProfile | null,
+  _company: CompanyProfile | null,
   _jobId: string,
   _appUrl: string,
   client: ClientInfo | undefined,
 ): string {
   const siteLine = (client?.site_address ?? '').trim()
-  // Print routes pass applyTradingBrand(company), so FCQ gets its brand email.
-  const authReplyEmail =
-    (company?.email || '').trim() || 'admin@brisbanebiohazardcleaning.com.au'
   const layout = c.pricing_layout
   const outcomeRows = (c.outcome_rows ?? []).filter(Boolean)
   const globalMobilisationFee = Math.max(0, Number(c.global_mobilisation_fee || 0))
@@ -1984,12 +2029,9 @@ function buildQuoteMid(
         ${acceptanceInner ? `
           <div class="quote-auth-callout">
             <div class="quote-auth-callout-title">Authorisation to Proceed</div>
-            <div class="quote-auth-callout-intro">To accept this quote and proceed with booking, please complete the following steps:</div>
-            <ol>
-              <li>With pen and paper, write out the authorisation text exactly as shown below.</li>
-              <li>Sign and date the handwritten authorisation.</li>
-              <li>Take a clear photo and email it to <strong>${esc(authReplyEmail)}</strong>.</li>
-            </ol>
+            <div class="quote-auth-callout-intro">${client?.quoteAcceptDocumentId
+              ? 'To accept, use the button at the end of this page.'
+              : 'Acceptance is completed online. Open the link sent with this quote and use the button at the end of the page.'}</div>
           </div>
           <div style="margin-top:18px;padding:16px;border:1px solid var(--sow-rule);border-radius:8px;background:var(--sow-blue-xs);">
             <div class="body-text sow-rich">${acceptanceInner}</div>
@@ -1999,7 +2041,62 @@ function buildQuoteMid(
     })()}
     ${c.include_photos !== false ? roomPhotoSections(groups, 'Site Condition Photos', ['assessment', 'before']) : ''}
     ${c.include_photos !== false ? quoteAppendixHtml(photos) : ''}
+    ${quoteAcceptPanel(client)}
   `
+}
+
+function quoteAcceptPanel(client: ClientInfo | undefined): string {
+  const id = client?.quoteAcceptDocumentId
+  if (!id) return ''
+  if (client?.quoteAccepted) {
+    const when = new Date(client.quoteAccepted.accepted_at)
+    const stamp = Number.isNaN(when.getTime())
+      ? ''
+      : when.toLocaleString('en-AU', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+    return `
+      <div class="quote-accept">
+        <div class="label">Accepted</div>
+        <div class="body-text">This quote was accepted${client.quoteAccepted.email ? ` by ${esc(client.quoteAccepted.email)}` : ''}${stamp ? ` on ${esc(stamp)}` : ''}.</div>
+      </div>`
+  }
+  return `
+    <div class="quote-accept">
+      <div class="label">Accept</div>
+      <div class="body-text">Enter your email and confirm. You will get a confirmation email, and we will be notified.</div>
+      <form id="quote-accept-form">
+        <input type="email" name="email" required autocomplete="email" placeholder="Your email" value="${esc(client?.client_email ?? '')}">
+        <button type="submit">I accept this quote/estimate</button>
+      </form>
+      <div class="quote-accept-msg" id="quote-accept-msg"></div>
+    </div>
+    <script>
+      (function () {
+        var form = document.getElementById('quote-accept-form');
+        if (!form) return;
+        var msg = document.getElementById('quote-accept-msg');
+        form.addEventListener('submit', function (event) {
+          event.preventDefault();
+          var email = (form.email.value || '').trim();
+          var button = form.querySelector('button');
+          button.disabled = true;
+          msg.textContent = 'Sending…';
+          fetch('/api/accept/quote/${id}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: email })
+          }).then(function (res) { return res.json().then(function (body) { return { ok: res.ok, body: body }; }); })
+            .then(function (result) {
+              if (!result.ok) throw new Error((result.body && result.body.error) || 'Could not record your acceptance');
+              form.style.display = 'none';
+              msg.textContent = 'Accepted. A confirmation email is on its way.';
+            })
+            .catch(function (err) {
+              button.disabled = false;
+              msg.textContent = err && err.message ? err.message : 'Could not record your acceptance';
+            });
+        });
+      })();
+    </script>`
 }
 
 function buildQuoteHTML(c: QuoteContent, photos: Photo[], groups: RoomPhotoGroup[], areas: Area[], company: CompanyProfile | null, _jobId: string, _appUrl: string, client: ClientInfo | undefined, screenActionBar: boolean): string {

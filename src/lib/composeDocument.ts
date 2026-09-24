@@ -939,6 +939,8 @@ function composeWdm(job: Job): ComposeDocumentResult {
       distance_km: totals.distance_km,
       dump_fees: totals.dump_fees,
       skip_fees: totals.skip_fees,
+      cost_per_m3: capture.cost_per_m3,
+      prepaid_m3: capture.prepaid_m3,
     },
     transport_details: transport || '—',
     declaration:

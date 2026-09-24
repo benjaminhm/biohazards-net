@@ -23,6 +23,7 @@ import {
   applyJobSiteToCapture,
   applyJobSiteToLoad,
   computeDisposalTotals,
+  disposalWasteCharge,
   contentsLabel,
   disposalManifestEqual,
   distanceFromSiteKm,
@@ -380,6 +381,10 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
   }, [capture.defaults, job.site_lat, job.site_lng, job.site_address])
 
   const totals = useMemo(() => computeDisposalTotals(capture.loads), [capture.loads])
+  const wasteCharge = useMemo(
+    () => disposalWasteCharge(totals.volume_m3, capture.cost_per_m3, capture.prepaid_m3),
+    [totals.volume_m3, capture.cost_per_m3, capture.prepaid_m3],
+  )
 
   function touch() {
     setSavedFlash(false)
@@ -1143,6 +1148,43 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
           Fills each load that still matches. A load you edit keeps its own trailer, route, or kilometres.
         </p>
         <div style={{ display: 'grid', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div>
+              <label style={LABEL}>Cost per m³ ($)</label>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                value={capture.cost_per_m3 ?? ''}
+                onChange={e => {
+                  const raw = e.target.value
+                  setCapture(prev => ({ ...prev, cost_per_m3: raw === '' ? null : Number(raw) }))
+                  touch()
+                }}
+                placeholder="0.00"
+                style={INPUT}
+              />
+            </div>
+            <div>
+              <label style={LABEL}>m³ already prepaid</label>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                value={capture.prepaid_m3 ?? ''}
+                onChange={e => {
+                  const raw = e.target.value
+                  setCapture(prev => ({ ...prev, prepaid_m3: raw === '' ? null : Number(raw) }))
+                  touch()
+                }}
+                placeholder="0"
+                style={INPUT}
+              />
+            </div>
+          </div>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.45, margin: 0 }}>
+            Waste charge is this rate times the volume of the loads. Prepaid cubic metres come off that total.
+          </p>
           <div>
             <label style={LABEL}>Vehicle</label>
             <select
@@ -2147,6 +2189,26 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
           <span>{totals.volume_recorded ? formatM3(totals.volume_m3) : '—'}</span>
         </div>
         <div style={{ color: 'var(--text-muted)', fontSize: 11, marginBottom: 8 }}>Close estimate</div>
+        {wasteCharge.gross != null && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+            <span style={{ color: wasteCharge.prepaid_value == null ? 'var(--text)' : 'var(--text-muted)', fontWeight: wasteCharge.prepaid_value == null ? 700 : 400 }}>
+              Waste ({formatM3(totals.volume_m3)} × {formatAud(wasteCharge.cost_per_m3 ?? 0)})
+            </span>
+            <span style={{ fontWeight: wasteCharge.prepaid_value == null ? 700 : 400 }}>{formatAud(wasteCharge.gross)}</span>
+          </div>
+        )}
+        {wasteCharge.prepaid_value != null && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+            <span style={{ color: 'var(--text-muted)' }}>Prepaid ({formatM3(wasteCharge.prepaid_m3 ?? 0)})</span>
+            <span>−{formatAud(wasteCharge.prepaid_value)}</span>
+          </div>
+        )}
+        {wasteCharge.balance != null && wasteCharge.prepaid_value != null && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+            <strong>Waste to bill</strong>
+            <strong>{formatAud(wasteCharge.balance)}</strong>
+          </div>
+        )}
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
           <span style={{ color: 'var(--text-muted)' }}>Weight</span>
           <span>{totals.weight_recorded ? formatKg(totals.weight_kg) : '—'}</span>

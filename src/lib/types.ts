@@ -1648,6 +1648,10 @@ export interface DisposalTripDefaults {
 export interface DisposalManifestCapture {
   defaults: DisposalTripDefaults
   loads: DisposalLoad[]
+  /** Dollars charged per cubic metre of waste. Null until entered. */
+  cost_per_m3: number | null
+  /** Cubic metres the client has already paid for. */
+  prepaid_m3: number | null
 }
 
 export interface DisposalManifestTotals {
@@ -1958,6 +1962,8 @@ export interface WasteDisposalManifestContent {
   loads?: WasteDisposalManifestLoadSnapshot[]
   totals?: Pick<DisposalManifestTotals, 'load_count' | 'volume_m3' | 'weight_kg' | 'distance_km' | 'dump_fees'> & {
     skip_fees?: number
+    cost_per_m3?: number | null
+    prepaid_m3?: number | null
   }
 }
 

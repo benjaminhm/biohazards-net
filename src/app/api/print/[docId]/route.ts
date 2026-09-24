@@ -39,6 +39,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ docId: s
     imagesParam,
     viewerUrl: `${appUrl}/api/print/${docId}`,
     includeClientContact: true,
+    showQuoteAccept: doc.type === 'quote',
   })
 
   return new NextResponse(html, {

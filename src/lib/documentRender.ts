@@ -91,11 +91,13 @@ export interface RenderDocumentOptions {
    * the client's own portal, where they are the recipient.
    */
   includeClientContact: boolean
+  /** Public quote page: show the accept button for this saved document. */
+  showQuoteAccept?: boolean
 }
 
 /** Fetch everything a document needs and return the rendered HTML page. */
 export async function renderDocumentHtml(options: RenderDocumentOptions): Promise<string> {
-  const { supabase, doc, imagesParam, viewerUrl, includeClientContact } = options
+  const { supabase, doc, imagesParam, viewerUrl, includeClientContact, showQuoteAccept } = options
 
   const [companyRes, photosRes, jobRes] = await Promise.all([
     supabase.from('company_profile').select('*').limit(1).maybeSingle(),
@@ -165,6 +167,21 @@ export async function renderDocumentHtml(options: RenderDocumentOptions): Promis
 
   const job = jobRes.data
 
+  let quoteAccepted: { email: string; accepted_at: string } | null = null
+  if (showQuoteAccept && doc.type === 'quote') {
+    const { data: acceptance } = await supabase
+      .from('quote_acceptances')
+      .select('contact_email, accepted_at')
+      .eq('document_id', doc.id)
+      .maybeSingle()
+    if (acceptance?.accepted_at) {
+      quoteAccepted = {
+        email: (acceptance.contact_email as string) ?? '',
+        accepted_at: acceptance.accepted_at as string,
+      }
+    }
+  }
+
   return buildPrintHTML(
     doc.type as DocType,
     docContent,
@@ -182,6 +199,8 @@ export async function renderDocumentHtml(options: RenderDocumentOptions): Promis
       printUrl: viewerUrl,
       photoToggleSupported,
       photosOn,
+      quoteAcceptDocumentId: showQuoteAccept && doc.type === 'quote' ? doc.id : undefined,
+      quoteAccepted,
     },
   )
 }

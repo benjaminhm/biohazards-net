@@ -119,7 +119,7 @@ export function emptyTripDefaults(): DisposalTripDefaults {
 }
 
 export function emptyDisposalManifestCapture(): DisposalManifestCapture {
-  return { defaults: emptyTripDefaults(), loads: [emptyDisposalLoad()] }
+  return { defaults: emptyTripDefaults(), loads: [emptyDisposalLoad()], cost_per_m3: null, prepaid_m3: null }
 }
 
 export function mergedDisposalManifestCapture(ad: AssessmentData | null | undefined): DisposalManifestCapture {
@@ -128,7 +128,13 @@ export function mergedDisposalManifestCapture(ad: AssessmentData | null | undefi
   const defaults = normalizeTripDefaults(
     raw && typeof raw === 'object' && 'defaults' in raw ? raw.defaults : undefined,
   )
-  return { defaults, loads: loads.length ? loads : [emptyDisposalLoad()] }
+  const rawRecord = raw && typeof raw === 'object' ? (raw as unknown as Record<string, unknown>) : {}
+  return {
+    defaults,
+    loads: loads.length ? loads : [emptyDisposalLoad()],
+    cost_per_m3: nonNegativeOrNull(rawRecord.cost_per_m3),
+    prepaid_m3: nonNegativeOrNull(rawRecord.prepaid_m3),
+  }
 }
 
 /** Matches formatCoordLabel() — GPS text, not a street address. */
@@ -170,6 +176,7 @@ export function applyJobSiteToCapture(
   job: { site_address?: string | null; site_lat?: number | null; site_lng?: number | null },
 ): DisposalManifestCapture {
   return {
+    ...capture,
     defaults: applyJobSiteToDefaults(capture.defaults ?? emptyTripDefaults(), job),
     loads: capture.loads.map(l => applyJobSiteToLoad(l, job)),
   }
@@ -183,6 +190,12 @@ function numOrNull(v: unknown): number | null {
   if (v == null || v === '') return null
   const n = typeof v === 'number' ? v : Number(v)
   return Number.isFinite(n) ? n : null
+}
+
+function nonNegativeOrNull(v: unknown): number | null {
+  const n = numOrNull(v)
+  if (n == null || n < 0) return null
+  return n
 }
 
 function bool(v: unknown): boolean {
@@ -822,6 +835,28 @@ export function computeDisposalTotals(loads: DisposalLoad[]): DisposalManifestTo
   }
 }
 
+export interface DisposalWasteCharge {
+  cost_per_m3: number | null
+  prepaid_m3: number | null
+  gross: number | null
+  prepaid_value: number | null
+  balance: number | null
+}
+
+/** Waste dollars from load volume × the rate. Prepaid cubic metres come off that total. */
+export function disposalWasteCharge(
+  volume_m3: number,
+  cost_per_m3: number | null | undefined,
+  prepaid_m3: number | null | undefined,
+): DisposalWasteCharge {
+  const rate = cost_per_m3 != null && Number.isFinite(cost_per_m3) && cost_per_m3 >= 0 ? cost_per_m3 : null
+  const prepaid = prepaid_m3 != null && Number.isFinite(prepaid_m3) && prepaid_m3 > 0 ? prepaid_m3 : null
+  const gross = rate == null ? null : Math.round(Math.max(0, volume_m3) * rate * 100) / 100
+  const prepaid_value = rate == null || prepaid == null ? null : Math.round(prepaid * rate * 100) / 100
+  const balance = gross == null ? null : Math.round((gross - (prepaid_value ?? 0)) * 100) / 100
+  return { cost_per_m3: rate, prepaid_m3: prepaid, gross, prepaid_value, balance }
+}
+
 export function formatKg(kg: number): string {
   if (kg >= 1000) return `${(kg / 1000).toFixed(2)} t`
   return `${kg.toFixed(kg % 1 === 0 ? 0 : 1)} kg`
@@ -934,11 +969,17 @@ export function formatWasteDisposalNarrative(capture: DisposalManifestCapture): 
     totals.fees_recorded ? `${formatAud(totals.dump_fees)} dump fees` : null,
     totals.skip_fees_recorded ? `${formatAud(totals.skip_fees)} skip costs` : null,
   ].filter(Boolean)
+  const waste = disposalWasteCharge(totals.volume_m3, capture.cost_per_m3, capture.prepaid_m3)
+  const wasteBit = waste.gross == null
+    ? ''
+    : waste.prepaid_value != null
+      ? ` Waste ${formatM3(totals.volume_m3)} × ${formatAud(waste.cost_per_m3 ?? 0)} = ${formatAud(waste.gross)}. Prepaid ${formatM3(waste.prepaid_m3 ?? 0)} (${formatAud(waste.prepaid_value)}). To bill ${formatAud(waste.balance ?? 0)}.`
+      : ` Waste ${formatM3(totals.volume_m3)} × ${formatAud(waste.cost_per_m3 ?? 0)} = ${formatAud(waste.gross)}.`
   return [
     `Disposal loads (${totals.load_count})`,
     '',
     ...lines,
     '',
-    `Totals — ${volumeBit}${formatKg(totals.weight_kg)}, ${totals.distance_km} km return${feeBits.length ? `, ${feeBits.join(', ')}` : ''}. Volume is a close estimate. Weight is from docket weights.`,
+    `Totals — ${volumeBit}${formatKg(totals.weight_kg)}, ${totals.distance_km} km return${feeBits.length ? `, ${feeBits.join(', ')}` : ''}.${wasteBit} Volume is a close estimate. Weight is from docket weights.`,
   ].join('\n')
 }
