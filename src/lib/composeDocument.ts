@@ -902,6 +902,7 @@ function composeWdm(job: Job): ComposeDocumentResult {
       weight_kg: l.weight_kg,
       dump_fee: loadSkipOnly(l) ? null : l.dump_fee,
       skip_cost: loadSkipFeeForTotals(l),
+      cost: disposalPriceLines([l], capture.cost_per_m3, 0).total,
       distance_km: l.distance_km,
       distance_out_km: l.distance_out_km,
       distance_return_km: l.distance_return_km,

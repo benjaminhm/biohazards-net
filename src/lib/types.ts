@@ -1706,6 +1706,8 @@ export interface WasteDisposalManifestLoadSnapshot {
   weight_kg: number | null
   dump_fee: number | null
   skip_cost?: number | null
+  /** Skip hire + trailer/ute prices + dump fee for this load. */
+  cost?: number | null
   distance_km: number | null
   distance_out_km?: number | null
   distance_return_km?: number | null

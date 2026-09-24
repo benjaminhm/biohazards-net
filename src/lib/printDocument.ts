@@ -1392,47 +1392,9 @@ function wdmPriceTable(t: WasteDisposalManifestContent['totals']): string {
     </table>`
 }
 
-function wdmCostBits(dump: number | null | undefined, skip: number | null | undefined): string {
-  const bits: string[] = []
-  if (dump != null && dump !== 0) bits.push(`${formatAud(dump)} dump`)
-  if (skip != null && skip !== 0) bits.push(`${formatAud(skip)} skip`)
-  if (!bits.length) {
-    if (dump != null) bits.push(formatAud(dump))
-    else if (skip != null) bits.push(`${formatAud(skip)} skip`)
-  }
-  return bits.join(' · ')
-}
-
 function wdmSummary(c: WasteDisposalManifestContent): string {
   const t = c.totals
   const loads = c.loads ?? []
-  const volume = t && t.volume_m3 != null && t.volume_m3 > 0 ? formatM3(t.volume_m3) : '—'
-  const totalsTable = t && t.load_count >= 1
-    ? `
-    <table>
-      <thead>
-        <tr>
-          <th>Loads</th>
-          <th>Volume</th>
-          <th>Weight</th>
-          <th>Distance</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td>${t.load_count}</td>
-          <td>${esc(volume)}</td>
-          <td>${esc(formatKg(t.weight_kg))}</td>
-          <td>${t.distance_km} km return</td>
-        </tr>
-      </tbody>
-    </table>
-    ${wdmPriceTable(t)}
-    <div class="body-text" style="margin-top:8px;font-size:8pt;color:var(--sow-muted)">
-      Volume is a close estimate from load measurements. Weight is based on weights on dockets. Distance is the return (round-trip) total. Skips are skip-hire prices. Trailers and utes are each vehicle’s own price. Dump fees are weighbridge charges.
-    </div>`
-    : ''
-
   const indexTable = loads.length
     ? `
     <table>
@@ -1450,14 +1412,15 @@ function wdmSummary(c: WasteDisposalManifestContent): string {
           const types = (load.vehicles ?? []).map(v => v.type).filter(Boolean).join(' + ')
             || load.contents
             || '—'
-          const cost = wdmCostBits(load.dump_fee, load.skip_cost) || '—'
+          const fallback = [load.dump_fee, load.skip_cost].reduce<number>((sum, n) => sum + (n ?? 0), 0)
+          const cost = load.cost ?? (fallback ? fallback : null)
           return `
           <tr>
             <td>${load.load_number}</td>
             <td>${esc(types)}</td>
             <td>${load.volume_m3 != null ? esc(formatM3(load.volume_m3)) : '—'}</td>
             <td>${load.weight_kg != null ? esc(formatKg(load.weight_kg)) : '—'}</td>
-            <td class="r">${esc(cost)}</td>
+            <td class="r">${cost != null ? esc(formatAud(cost)) : '—'}</td>
           </tr>`
         }).join('')}
       </tbody>
@@ -1468,8 +1431,8 @@ function wdmSummary(c: WasteDisposalManifestContent): string {
     <div class="sow-sec">
       <div class="sow-sec-title">Summary</div>
       ${c.collection_date ? `<div class="body-text" style="margin-bottom:10px"><strong>Collection date:</strong> ${esc(c.collection_date)}</div>` : ''}
-      ${totalsTable}
       ${indexTable}
+      ${wdmPriceTable(t)}
     </div>`
 }
 
