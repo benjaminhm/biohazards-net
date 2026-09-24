@@ -125,8 +125,8 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
   return (
     <div style={{ maxWidth: 720, paddingBottom: 120 }}>
       <p style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.55, marginBottom: 16 }}>
-        The balance is the quote or estimate before GST, plus the contents disposal total, minus the deposit before GST.
-        GST is then added to that balance.
+        The statement says the original quote, the deposit paid, and the contents removed cost, then the total remaining owed.
+        GST is shown only on that remaining amount.
       </p>
 
       {!hasQuote && (
@@ -145,13 +145,9 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
           fontSize: 14,
         }}
       >
-        <div style={{ fontWeight: 800, fontSize: 13, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 12 }}>
-          Quote {figures.reference !== 'Quote' ? figures.reference : ''}
-        </div>
-        {row('Quote / estimate (ex GST)', formatAud(figures.quote_ex))}
-        {row('GST on quote', formatAud(figures.quote_gst))}
-        {row('Quote / estimate (inc GST)', formatAud(figures.quote_inc))}
-        {row('Contents disposal', formatAud(figures.disposal))}
+        {row('This was the original quote', formatAud(chargesGst ? figures.quote_inc : figures.quote_ex))}
+        {row('You paid a deposit of', formatAud(capture.deposit_taken ? figures.deposit_entered : 0))}
+        {row('Contents removed cost', formatAud(figures.disposal))}
       </div>
 
       <div
@@ -213,17 +209,11 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
         }}
       >
         <div style={{ fontWeight: 800, fontSize: 13, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 12, color: '#E2E8F0' }}>
-          Amount owing
+          Total remaining owed
         </div>
-        {row('Deposit (ex GST)', capture.deposit_taken ? `−${formatAud(figures.deposit_ex)}` : formatAud(0))}
-        {chargesGst && capture.deposit_taken && figures.deposit_entered !== figures.deposit_ex && (
-          <div style={{ color: 'var(--text-muted)', fontSize: 11, marginBottom: 8 }}>
-            Entered {formatAud(figures.deposit_entered)} including GST
-          </div>
-        )}
-        {row('Amount owing (ex GST)', formatAud(figures.owing_ex), true)}
-        {row('GST', formatAud(figures.gst))}
-        {row('Amount owing (inc GST)', formatAud(figures.owing_inc), true)}
+        {chargesGst && row('Amount owing before GST', formatAud(figures.owing_ex))}
+        {chargesGst && row('GST', formatAud(figures.gst))}
+        {row('Total remaining owed', formatAud(figures.owing_inc), true)}
         {figures.owing_inc < 0 && (
           <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 8 }}>This balance is a credit.</div>
         )}

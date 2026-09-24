@@ -2523,25 +2523,26 @@ function buildStatementMid(c: StatementOfAccountsContent): string {
       <td${strong ? ' style="font-weight:700"' : ''}>${esc(label)}</td>
       <td class="r"${strong ? ' style="font-weight:700"' : ''}>${esc(fmtMoney(amount))}</td>
     </tr>`
-  const depositFoot = c.deposit_taken && c.deposit_entered !== c.deposit_ex
-    ? `<p class="body-text">Deposit entered ${esc(fmtMoney(c.deposit_entered))}, shown before GST in the table.</p>`
+  const quoteTotal = c.gst_mode === 'no_gst' ? c.quote_ex : c.quote_inc
+  const depositPaid = c.deposit_taken ? c.deposit_entered : 0
+  const gstRows = c.gst_mode === 'no_gst'
+    ? ''
+    : `${row('Amount owing before GST', c.owing_ex)}${row('GST', c.gst)}`
+  const credit = c.owing_inc < 0
+    ? `<p class="body-text">This balance is a credit.</p>`
     : ''
   return `
-    <p class="body-text">Quote ${esc(c.quote_reference || '—')}</p>
     <table>
       <thead><tr><th>Item</th><th class="r">Amount</th></tr></thead>
       <tbody>
-        ${row('Quote / estimate (ex GST)', c.quote_ex)}
-        ${row('GST on quote', c.quote_gst)}
-        ${row('Quote / estimate (inc GST)', c.quote_inc)}
-        ${row('Contents disposal', c.disposal)}
-        ${row(c.deposit_taken ? 'Deposit (ex GST)' : 'Deposit', c.deposit_taken ? -c.deposit_ex : 0)}
-        ${row('Amount owing (ex GST)', c.owing_ex, true)}
-        ${row('GST', c.gst)}
-        ${row('Amount owing (inc GST)', c.owing_inc, true)}
+        ${row('This was the original quote', quoteTotal)}
+        ${row('You paid a deposit of', depositPaid)}
+        ${row('Contents removed cost', c.disposal)}
+        ${gstRows}
+        ${row('Total remaining owed', c.owing_inc, true)}
       </tbody>
     </table>
-    ${depositFoot}
+    ${credit}
   `
 }
 
