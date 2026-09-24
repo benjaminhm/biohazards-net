@@ -5,13 +5,14 @@ import { useRouter } from 'next/navigation'
 import type { Document, Job } from '@/lib/types'
 import { mergeAssessmentData } from '@/lib/riskDerivation'
 import { useRegisterUnsavedChanges } from '@/lib/unsavedChangesContext'
-import { disposalPriceLines, formatAud, mergedDisposalManifestCapture } from '@/lib/disposalManifest'
+import { formatAud, mergedDisposalManifestCapture } from '@/lib/disposalManifest'
 import {
   documentReference,
   latestDisposalDocument,
   latestQuoteDocument,
   normalizeStatementCapture,
   statementFigures,
+  disposalTotals,
   type StatementOfAccountsCapture,
 } from '@/lib/statementOfAccounts'
 
@@ -70,9 +71,8 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
   useRegisterUnsavedChanges('statement-of-accounts', isDirty)
 
   const figures = useMemo(() => {
-    const disposal = mergedDisposalManifestCapture(job.assessment_data)
-    const disposalAmount = disposalPriceLines(disposal.loads ?? [], disposal.cost_per_m3, disposal.prepaid_m3).total_ex
-    return statementFigures(latestQuoteDocument(documents), disposalAmount, capture)
+    const disposal = disposalTotals(mergedDisposalManifestCapture(job.assessment_data))
+    return statementFigures(latestQuoteDocument(documents), disposal, capture)
   }, [documents, job.assessment_data, capture])
   const chargesGst = figures.gst_mode !== 'no_gst'
   const hasQuote = documents.some(d => d.type === 'quote')
@@ -116,9 +116,12 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
   const quoteInc = chargesGst ? figures.quote_inc : figures.quote_ex
   const depositInc = capture.deposit_taken ? figures.deposit_entered : 0
   const depositEx = capture.deposit_taken ? figures.deposit_ex : 0
-  const contentsInc = chargesGst ? Math.round(figures.disposal * 1.1 * 100) / 100 : figures.disposal
-  const grandEx = Math.round((figures.quote_ex + figures.disposal) * 100) / 100
-  const grandInc = Math.round((quoteInc + contentsInc) * 100) / 100
+  const originalInvoice = capture.original_invoice_number.trim()
+    ? `Owing on the original invoice (${capture.original_invoice_number.trim()})`
+    : 'Owing on the original invoice'
+  const newInvoice = capture.new_invoice_number.trim()
+    ? `Owing on the new invoice (${capture.new_invoice_number.trim()})`
+    : 'Owing on the new invoice'
   const line = (label: string, before: number, amount: number, strong = false) => (
     <div
       style={{
@@ -138,7 +141,7 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
   return (
     <div style={{ maxWidth: 720, paddingBottom: 120 }}>
       <p style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.55, marginBottom: 16 }}>
-        Each figure is shown before GST and as the amount including GST. The grand total adds the contents removal to the quote. The total remaining owed is that grand total minus the deposit.
+        Each figure is shown before GST and including GST. The remainder of the original quote is owing on the original invoice. Contents removal is owing on the new invoice.
       </p>
 
       {!hasQuote && (
@@ -286,15 +289,15 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
         </div>
         {line('This was the original quote', figures.quote_ex, quoteInc)}
         {line('You paid a deposit of', depositEx, depositInc)}
-        {line('Contents removed cost', figures.disposal, contentsInc)}
-        {line('Grand total, including contents removal', grandEx, grandInc, true)}
+        {line(originalInvoice, figures.original_owing_ex, figures.original_owing_inc, true)}
+        {line(newInvoice, figures.new_invoice_ex, figures.new_invoice_inc, true)}
         {line('Total remaining owed', figures.owing_ex, figures.owing_inc, true)}
         {figures.owing_inc < 0 && (
           <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 8 }}>This balance is a credit.</div>
         )}
       </div>
       <p style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.55, marginBottom: 18 }}>
-        The remaining 50% of the original quote, or the amount shown on the corresponding invoice, should be paid against that invoice. A new invoice will be issued for the remaining updated amount.
+        Pay the original invoice remainder against that invoice. Pay the contents removal amount on the new invoice.
       </p>
 
       <div

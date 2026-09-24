@@ -2603,10 +2603,16 @@ function buildStatementMid(c: StatementOfAccountsContent): string {
   const quoteInc = chargesGst ? c.quote_inc : c.quote_ex
   const depositInc = c.deposit_taken ? c.deposit_entered : 0
   const depositEx = c.deposit_taken ? c.deposit_ex : 0
-  const contentsEx = c.disposal
-  const contentsInc = chargesGst ? Math.round(contentsEx * 1.1 * 100) / 100 : contentsEx
-  const grandEx = Math.round((c.quote_ex + contentsEx) * 100) / 100
-  const grandInc = Math.round((quoteInc + contentsInc) * 100) / 100
+  const originalOwingEx = c.original_owing_ex ?? Math.round((c.quote_ex - depositEx) * 100) / 100
+  const originalOwingInc = c.original_owing_inc ?? Math.round((quoteInc - depositInc) * 100) / 100
+  const newEx = c.new_invoice_ex ?? c.disposal
+  const newInc = c.new_invoice_inc ?? (chargesGst ? Math.round(c.disposal * 1.1 * 100) / 100 : c.disposal)
+  const originalLabel = c.original_invoice_number
+    ? `Owing on the original invoice (${c.original_invoice_number})`
+    : 'Owing on the original invoice'
+  const newLabel = c.new_invoice_number
+    ? `Owing on the new invoice (${c.new_invoice_number})`
+    : 'Owing on the new invoice'
   const row = (label: string, before: number, amount: number, strong = false) => {
     const weight = strong ? ' style="font-weight:700"' : ''
     const beforeCell = chargesGst ? `<td class="r"${weight}>${money(before)}</td>` : ''
@@ -2629,7 +2635,7 @@ function buildStatementMid(c: StatementOfAccountsContent): string {
     <p class="body-text"><strong>Contents disposal record:</strong> ${esc(c.disposal_reference || '—')}</p>
     ${invoiceLine('Original invoice', c.original_invoice_number, c.original_invoice_url)}
     ${invoiceLine('New invoice', c.new_invoice_number, c.new_invoice_url)}`
-  const payment = `<p class="body-text">The remaining 50% of the original quote, or the amount shown on the corresponding invoice, should be paid against that invoice. A new invoice will be issued for the remaining updated amount.</p>`
+  const payment = `<p class="body-text">Pay ${esc(fmtMoney(originalOwingInc))} remaining on the original invoice${c.original_invoice_number ? ` (${esc(c.original_invoice_number)})` : ''}. Pay ${esc(fmtMoney(newInc))} on the new invoice${c.new_invoice_number ? ` (${esc(c.new_invoice_number)})` : ''} for contents removal.</p>`
   return `
     ${meta}
     <table>
@@ -2637,8 +2643,8 @@ function buildStatementMid(c: StatementOfAccountsContent): string {
       <tbody>
         ${row('This was the original quote', c.quote_ex, quoteInc)}
         ${row('You paid a deposit of', depositEx, depositInc)}
-        ${row('Contents removed cost', contentsEx, contentsInc)}
-        ${row('Grand total, including contents removal', grandEx, grandInc, true)}
+        ${row(originalLabel, originalOwingEx, originalOwingInc, true)}
+        ${row(newLabel, newEx, newInc, true)}
         ${row('Total remaining owed', c.owing_ex, c.owing_inc, true)}
       </tbody>
     </table>

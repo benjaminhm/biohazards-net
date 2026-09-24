@@ -2030,6 +2030,10 @@ export interface StatementOfAccountsContent {
   owing_ex: number
   gst: number
   owing_inc: number
+  original_owing_ex?: number
+  original_owing_inc?: number
+  new_invoice_ex?: number
+  new_invoice_inc?: number
   original_invoice_number: string
   original_invoice_url: string
   new_invoice_number: string

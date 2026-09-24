@@ -25,6 +25,10 @@ export interface StatementFigures {
   owing_ex: number
   gst: number
   owing_inc: number
+  original_owing_ex: number
+  original_owing_inc: number
+  new_invoice_ex: number
+  new_invoice_inc: number
 }
 
 function textField(raw: unknown): string {
@@ -91,15 +95,20 @@ export function documentReference(doc: Document | null, fallback: string): strin
   return typeof raw === 'string' && raw.trim() ? raw.trim() : fallback
 }
 
-export function disposalTotal(capture: DisposalManifestCapture | null | undefined): number {
-  if (!capture) return 0
-  return disposalPriceLines(capture.loads ?? [], capture.cost_per_m3, capture.prepaid_m3).total_ex
+export function disposalTotals(capture: DisposalManifestCapture | null | undefined): { ex: number; inc: number } {
+  if (!capture) return { ex: 0, inc: 0 }
+  const lines = disposalPriceLines(capture.loads ?? [], capture.cost_per_m3, capture.prepaid_m3)
+  return { ex: lines.total_ex, inc: lines.total_inc }
 }
 
-/** Quote before GST + disposal total − deposit before GST. GST is 10% of that balance. */
+export function disposalTotal(capture: DisposalManifestCapture | null | undefined): number {
+  return disposalTotals(capture).ex
+}
+
+/** Quote remainder stays on the original invoice. Contents disposal is the new invoice. */
 export function statementFigures(
   quote: Document | null,
-  disposal: number,
+  disposal: { ex: number; inc: number } | number,
   capture: StatementOfAccountsCapture,
 ): StatementFigures {
   const content = (quote?.content ?? {}) as Record<string, unknown>
@@ -113,9 +122,16 @@ export function statementFigures(
   const deposit_ex = gst_mode === 'no_gst' || !capture.deposit_includes_gst
     ? round2(entered)
     : round2(entered / 1.1)
-  const owing_ex = round2(quote_ex + disposal - deposit_ex)
-  const gst = gst_mode === 'no_gst' ? 0 : round2(owing_ex * 0.1)
-  const owing_inc = gst_mode === 'no_gst' ? owing_ex : round2(owing_ex + gst)
+  const deposit_inc = round2(entered)
+  const new_invoice_ex = round2(typeof disposal === 'number' ? disposal : disposal.ex)
+  const new_invoice_inc = round2(typeof disposal === 'number'
+    ? (gst_mode === 'no_gst' ? disposal : disposal * 1.1)
+    : disposal.inc)
+  const original_owing_ex = round2(quote_ex - deposit_ex)
+  const original_owing_inc = round2(quote_inc - deposit_inc)
+  const owing_ex = round2(original_owing_ex + new_invoice_ex)
+  const owing_inc = round2(original_owing_inc + new_invoice_inc)
+  const gst = gst_mode === 'no_gst' ? 0 : round2(owing_inc - owing_ex)
   const reference = typeof content.reference === 'string' && content.reference.trim()
     ? content.reference.trim()
     : 'Quote'
@@ -125,13 +141,17 @@ export function statementFigures(
     quote_ex,
     quote_gst,
     quote_inc,
-    disposal: round2(disposal),
+    disposal: round2(new_invoice_ex),
     deposit_taken: capture.deposit_taken,
-    deposit_entered: round2(entered),
+    deposit_entered: deposit_inc,
     deposit_ex,
     owing_ex,
     gst,
     owing_inc,
+    original_owing_ex,
+    original_owing_inc,
+    new_invoice_ex,
+    new_invoice_inc,
   }
 }
 
@@ -140,6 +160,5 @@ export function statementFromJob(
   assessment: AssessmentData | null | undefined,
 ): StatementFigures {
   const capture = normalizeStatementCapture(assessment?.statement_of_accounts)
-  const disposal = disposalTotal(mergedDisposalManifestCapture(assessment))
-  return statementFigures(latestQuoteDocument(documents), disposal, capture)
+  return statementFigures(latestQuoteDocument(documents), disposalTotals(mergedDisposalManifestCapture(assessment)), capture)
 }
