@@ -58,6 +58,11 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
   const [openId, setOpenId] = useState<string | null>(saved.areas[0]?.id ?? null)
   const [unlockedAreas, setUnlockedAreas] = useState<Record<string, boolean>>({})
   const [selectedLegId, setSelectedLegId] = useState<string | null>(null)
+  const [renumberLegId, setRenumberLegId] = useState<string | null>(null)
+  const [renumberValue, setRenumberValue] = useState('')
+  const dragFrom = useRef<{ areaId: string; index: number } | null>(null)
+  const skipRenumber = useRef(false)
+  const [dragOverIndex, setDragOverIndex] = useState<{ areaId: string; index: number } | null>(null)
   const [measureAreaId, setMeasureAreaId] = useState<string | null>(null)
   const [measurePoints, setMeasurePoints] = useState<SurveyPoint[]>([])
   const [saving, setSaving] = useState(false)
@@ -137,20 +142,26 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
     touch()
   }
 
-  function moveLeg(areaId: string, index: number, delta: -1 | 1) {
+  function moveLegTo(areaId: string, from: number, to: number) {
     setSurvey(prev => ({
       ...prev,
       areas: prev.areas.map(area => {
         if (area.id !== areaId) return area
-        const next = index + delta
-        if (next < 0 || next >= area.legs.length) return area
+        if (from < 0 || from >= area.legs.length) return area
+        const target = Math.max(0, Math.min(area.legs.length - 1, to))
+        if (target === from) return area
         const legs = [...area.legs]
-        const [moved] = legs.splice(index, 1)
-        legs.splice(next, 0, moved)
+        const [moved] = legs.splice(from, 1)
+        if (!moved) return area
+        legs.splice(target, 0, moved)
         return { ...area, legs }
       }),
     }))
     touch()
+  }
+
+  function moveLeg(areaId: string, index: number, delta: -1 | 1) {
+    moveLegTo(areaId, index, index + delta)
   }
 
   function patchLeg(areaId: string, legId: string, next: Partial<HouseSurveyLeg>) {
@@ -329,6 +340,17 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
               {area.legs.map((leg, index) => (
                 <div
                   key={leg.id}
+                  onDragOver={event => {
+                    event.preventDefault()
+                    setDragOverIndex({ areaId: area.id, index })
+                  }}
+                  onDrop={event => {
+                    event.preventDefault()
+                    const from = dragFrom.current
+                    if (from && from.areaId === area.id) moveLegTo(area.id, from.index, index)
+                    dragFrom.current = null
+                    setDragOverIndex(null)
+                  }}
                   onClick={event => {
                     const target = event.target as HTMLElement
                     if (target.closest('input, select, button, textarea')) return
@@ -336,7 +358,7 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
                   }}
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: 'auto 72px 1fr 1fr auto',
+                    gridTemplateColumns: 'auto auto minmax(72px, auto) 1fr 1fr auto',
                     gap: 8,
                     alignItems: 'end',
                     padding: 12,
@@ -344,8 +366,25 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
                     border: selectedLegId === leg.id ? '1px solid #fbbf24' : '1px solid var(--border)',
                     background: selectedLegId === leg.id ? 'rgba(251, 191, 36, 0.12)' : 'var(--bg)',
                     cursor: 'pointer',
+                    boxShadow: dragOverIndex?.areaId === area.id && dragOverIndex.index === index ? 'inset 0 2px 0 var(--accent)' : undefined,
                   }}
                 >
+                  <div
+                    draggable
+                    aria-label="Drag wall"
+                    title="Drag to move"
+                    onDragStart={event => {
+                      dragFrom.current = { areaId: area.id, index }
+                      event.dataTransfer.effectAllowed = 'move'
+                    }}
+                    onDragEnd={() => {
+                      dragFrom.current = null
+                      setDragOverIndex(null)
+                    }}
+                    style={{ cursor: 'grab', paddingBottom: 8, color: 'var(--text-muted)', fontWeight: 700, userSelect: 'none' }}
+                  >
+                    ⋮⋮
+                  </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4, paddingBottom: 4 }}>
                     <button
                       type="button"
@@ -384,7 +423,45 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
                       ↓
                     </button>
                   </div>
-                  <div style={{ fontWeight: 700, paddingBottom: 8 }}>Wall {index + 1}</div>
+                  {renumberLegId === leg.id ? (
+                    <input
+                      autoFocus
+                      type="number"
+                      min={1}
+                      max={area.legs.length}
+                      value={renumberValue}
+                      aria-label={`Wall ${index + 1} position`}
+                      onChange={event => setRenumberValue(event.target.value)}
+                      onBlur={() => {
+                        if (skipRenumber.current) {
+                          skipRenumber.current = false
+                          return
+                        }
+                        const next = Number(renumberValue)
+                        if (Number.isInteger(next)) moveLegTo(area.id, index, next - 1)
+                        setRenumberLegId(null)
+                      }}
+                      onKeyDown={event => {
+                        if (event.key === 'Enter') event.currentTarget.blur()
+                        if (event.key === 'Escape') {
+                          skipRenumber.current = true
+                          setRenumberLegId(null)
+                        }
+                      }}
+                      style={{ ...INPUT, width: 72 }}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRenumberLegId(leg.id)
+                        setRenumberValue(String(index + 1))
+                      }}
+                      style={{ fontWeight: 700, background: 'none', border: 'none', color: 'inherit', cursor: 'text', padding: '0 0 8px', textAlign: 'left' }}
+                    >
+                      Wall {index + 1}
+                    </button>
+                  )}
                   <div>
                     <label style={LABEL}>Turn</label>
                     <select
