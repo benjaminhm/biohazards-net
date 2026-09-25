@@ -72,6 +72,30 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
   }, [job.id, job.assessment_data?.house_survey])
 
   useEffect(() => {
+    const header = document.querySelector('[data-devid="P2-E1"]')
+    if (!header) return
+    const apply = () => {
+      document.documentElement.style.setProperty('--survey-stick-top', `${header.getBoundingClientRect().height}px`)
+    }
+    apply()
+    const observer = new ResizeObserver(apply)
+    observer.observe(header)
+    return () => observer.disconnect()
+  }, [])
+
+  useEffect(() => {
+    const bar = document.querySelector('[data-survey-card-head="open"]')
+    if (!bar) return
+    const apply = () => {
+      document.documentElement.style.setProperty('--survey-card-head', `${bar.getBoundingClientRect().height}px`)
+    }
+    apply()
+    const observer = new ResizeObserver(apply)
+    observer.observe(bar)
+    return () => observer.disconnect()
+  }, [openId])
+
+  useEffect(() => {
     if (openId && !survey.areas.some(area => area.id === openId)) {
       setOpenId(survey.areas[0]?.id ?? null)
     }
@@ -170,9 +194,15 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
         .house-survey-plan {
           order: -1;
           position: sticky;
-          top: 12px;
-          z-index: 2;
+          top: calc(var(--survey-stick-top, 120px) + var(--survey-card-head, 48px) + 8px);
+          z-index: 5;
           align-self: start;
+        }
+        .house-survey-card-head {
+          position: sticky;
+          top: var(--survey-stick-top, 120px);
+          z-index: 6;
+          background: var(--surface);
         }
         @media (min-width: 900px) {
           .house-survey-area-body { grid-template-columns: minmax(0, 1.3fr) minmax(220px, 0.8fr); }
@@ -197,7 +227,11 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
               background: 'var(--surface)',
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div
+              className={openId === area.id ? 'house-survey-card-head' : undefined}
+              data-survey-card-head={openId === area.id ? 'open' : undefined}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, borderBottom: openId === area.id ? '1px solid var(--border)' : undefined }}
+            >
               <button
                 type="button"
                 onClick={() => setOpenId(current => current === area.id ? null : area.id)}
