@@ -6,9 +6,16 @@ export interface HouseSurveyLeg {
   length_m: number | null
 }
 
-export interface HouseSurveyCapture {
+export interface HouseSurveyArea {
+  id: string
+  title: string
+  description: string
   start_note: string
   legs: HouseSurveyLeg[]
+}
+
+export interface HouseSurveyCapture {
+  areas: HouseSurveyArea[]
 }
 
 export interface SurveyPoint {
@@ -26,8 +33,18 @@ export interface HouseSurveyTrace {
 
 const CLOSE_GAP_M = 0.15
 
+export function newHouseSurveyArea(): HouseSurveyArea {
+  return {
+    id: `area_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+    title: '',
+    description: '',
+    start_note: '',
+    legs: [],
+  }
+}
+
 export function emptyHouseSurvey(): HouseSurveyCapture {
-  return { start_note: '', legs: [] }
+  return { areas: [newHouseSurveyArea()] }
 }
 
 export function newHouseSurveyLeg(turn: HouseSurveyTurn = 'right'): HouseSurveyLeg {
@@ -38,20 +55,42 @@ export function newHouseSurveyLeg(turn: HouseSurveyTurn = 'right'): HouseSurveyL
   }
 }
 
+function normalizeLeg(raw: unknown): HouseSurveyLeg {
+  const row = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {}
+  const length = typeof row.length_m === 'number' ? row.length_m : Number(row.length_m)
+  return {
+    id: typeof row.id === 'string' && row.id ? row.id : newHouseSurveyLeg().id,
+    turn: row.turn === 'left' ? 'left' : 'right',
+    length_m: Number.isFinite(length) && length >= 0 ? length : null,
+  }
+}
+
+function normalizeArea(raw: unknown): HouseSurveyArea {
+  const row = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {}
+  const legs = Array.isArray(row.legs) ? row.legs : []
+  return {
+    id: typeof row.id === 'string' && row.id ? row.id : newHouseSurveyArea().id,
+    title: typeof row.title === 'string' ? row.title : '',
+    description: typeof row.description === 'string' ? row.description : '',
+    start_note: typeof row.start_note === 'string' ? row.start_note : '',
+    legs: legs.map(normalizeLeg),
+  }
+}
+
 export function normalizeHouseSurvey(raw: unknown): HouseSurveyCapture {
   const o = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {}
-  const legs = Array.isArray(o.legs) ? o.legs : []
+  if (Array.isArray(o.areas)) {
+    const areas = o.areas.map(normalizeArea)
+    return { areas: areas.length > 0 ? areas : [newHouseSurveyArea()] }
+  }
   return {
-    start_note: typeof o.start_note === 'string' ? o.start_note : '',
-    legs: legs.map(leg => {
-      const row = leg && typeof leg === 'object' ? leg as Record<string, unknown> : {}
-      const length = typeof row.length_m === 'number' ? row.length_m : Number(row.length_m)
-      return {
-        id: typeof row.id === 'string' && row.id ? row.id : newHouseSurveyLeg().id,
-        turn: row.turn === 'left' ? 'left' : 'right',
-        length_m: Number.isFinite(length) && length >= 0 ? length : null,
-      }
-    }),
+    areas: [normalizeArea({
+      id: 'area_1',
+      title: '',
+      description: '',
+      start_note: o.start_note,
+      legs: o.legs,
+    })],
   }
 }
 

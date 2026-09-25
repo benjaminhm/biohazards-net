@@ -5,10 +5,12 @@ import type { Job } from '@/lib/types'
 import { mergeAssessmentData } from '@/lib/riskDerivation'
 import { useRegisterUnsavedChanges } from '@/lib/unsavedChangesContext'
 import {
+  newHouseSurveyArea,
   newHouseSurveyLeg,
   normalizeHouseSurvey,
   surveySketchPath,
   traceHouseSurvey,
+  type HouseSurveyArea,
   type HouseSurveyCapture,
   type HouseSurveyLeg,
 } from '@/lib/houseSurvey'
@@ -75,16 +77,34 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
     return () => window.clearTimeout(handle)
   }, [survey, saved])
 
-  const trace = useMemo(() => traceHouseSurvey(survey.legs), [survey.legs])
-  const sketch = useMemo(() => surveySketchPath(trace.points), [trace.points])
-  const start = sketch?.d.split(' ')[0]?.split(',')
+  const plans = useMemo(
+    () => survey.areas.map(area => {
+      const trace = traceHouseSurvey(area.legs)
+      return { area, trace, sketch: surveySketchPath(trace.points) }
+    }),
+    [survey.areas],
+  )
 
-  function patchLeg(id: string, next: Partial<HouseSurveyLeg>) {
+  function touch() {
+    setSavedFlash(false)
+  }
+
+  function patchArea(id: string, next: Partial<HouseSurveyArea>) {
     setSurvey(prev => ({
       ...prev,
-      legs: prev.legs.map(leg => (leg.id === id ? { ...leg, ...next } : leg)),
+      areas: prev.areas.map(area => (area.id === id ? { ...area, ...next } : area)),
     }))
-    setSavedFlash(false)
+    touch()
+  }
+
+  function patchLeg(areaId: string, legId: string, next: Partial<HouseSurveyLeg>) {
+    setSurvey(prev => ({
+      ...prev,
+      areas: prev.areas.map(area => area.id === areaId
+        ? { ...area, legs: area.legs.map(leg => (leg.id === legId ? { ...leg, ...next } : leg)) }
+        : area),
+    }))
+    touch()
   }
 
   async function save(next: HouseSurveyCapture): Promise<boolean> {
@@ -113,11 +133,11 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
     }
   }
 
-  const status = trace.points.length < 2
-    ? 'Add the first wall.'
-    : trace.closed
-      ? `Closed. Perimeter ${trace.perimeter} m. Floor ${trace.area} m².`
-      : `Open. Short by ${trace.gap} m. Perimeter so far ${trace.perimeter} m.`
+  function areaStatus(trace: ReturnType<typeof traceHouseSurvey>): string {
+    if (trace.points.length < 2) return 'Add the first wall.'
+    if (trace.closed) return `Closed. Perimeter ${trace.perimeter} m. Floor ${trace.area} m².`
+    return `Open. Short by ${trace.gap} m. Perimeter so far ${trace.perimeter} m.`
+  }
 
   return (
     <div className="house-survey" style={{ paddingBottom: 48 }}>
@@ -132,87 +152,155 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
       <div className="house-survey-grid">
       <div>
       <p style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.55, marginBottom: 16 }}>
-        One walk of the whole house. Start at the front door and follow the inside of the walls clockwise.
-        Each wall is a left or right turn, then its length, until the line meets the start.
+        Each area is its own clockwise walk. Title it, describe it, then add walls until that area closes. Start another area for the next part of the house.
       </p>
-      <div style={{ marginBottom: 16 }}>
-        <label style={LABEL}>Where you started</label>
-        <input
-          type="text"
-          value={survey.start_note}
-          onChange={e => {
-            setSurvey(prev => ({ ...prev, start_note: e.target.value }))
-            setSavedFlash(false)
-          }}
-          placeholder="Front door, left side"
-          style={INPUT}
-        />
-      </div>
-      <div style={{ display: 'grid', gap: 10, marginBottom: 12 }}>
-        {survey.legs.map((leg, index) => (
-          <div
-            key={leg.id}
+      <div style={{ display: 'grid', gap: 16 }}>
+        {survey.areas.map((area, areaIndex) => (
+          <section
+            key={area.id}
             style={{
               display: 'grid',
-              gridTemplateColumns: '72px 1fr 1fr auto',
-              gap: 8,
-              alignItems: 'end',
-              padding: 12,
+              gap: 12,
+              padding: 14,
               borderRadius: 12,
               border: '1px solid var(--border)',
               background: 'var(--surface)',
             }}
           >
-            <div style={{ fontWeight: 700, paddingBottom: 8 }}>Wall {index + 1}</div>
-            <div>
-              <label style={LABEL}>Turn</label>
-              <select
-                value={leg.turn}
-                onChange={e => patchLeg(leg.id, { turn: e.target.value === 'left' ? 'left' : 'right' })}
-                style={INPUT}
-              >
-                <option value="right">Right</option>
-                <option value="left">Left</option>
-              </select>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+              <div style={{ fontWeight: 800 }}>Area {areaIndex + 1}</div>
+              {survey.areas.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSurvey(prev => ({ ...prev, areas: prev.areas.filter(row => row.id !== area.id) }))
+                    touch()
+                  }}
+                  style={{ background: 'none', border: 'none', color: '#F87171', fontWeight: 700, cursor: 'pointer' }}
+                >
+                  Remove area
+                </button>
+              )}
             </div>
             <div>
-              <label style={LABEL}>Length (m)</label>
+              <label style={LABEL}>Title</label>
               <input
-                type="number"
-                min={0}
-                step="0.01"
-                value={leg.length_m ?? ''}
-                onChange={e => {
-                  const raw = e.target.value
-                  patchLeg(leg.id, { length_m: raw === '' ? null : Number(raw) })
-                }}
-                placeholder="0.00"
+                type="text"
+                value={area.title}
+                onChange={e => patchArea(area.id, { title: e.target.value })}
+                placeholder="Kitchen"
                 style={INPUT}
               />
             </div>
+            <div>
+              <label style={LABEL}>Description</label>
+              <textarea
+                value={area.description}
+                onChange={e => patchArea(area.id, { description: e.target.value })}
+                placeholder="Open plan, island in the middle"
+                rows={2}
+                style={{ ...INPUT, resize: 'vertical' }}
+              />
+            </div>
+            <div>
+              <label style={LABEL}>Where you started</label>
+              <input
+                type="text"
+                value={area.start_note}
+                onChange={e => patchArea(area.id, { start_note: e.target.value })}
+                placeholder="Front door, left side"
+                style={INPUT}
+              />
+            </div>
+            <div style={{ display: 'grid', gap: 10 }}>
+              {area.legs.map((leg, index) => (
+                <div
+                  key={leg.id}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '72px 1fr 1fr auto',
+                    gap: 8,
+                    alignItems: 'end',
+                    padding: 12,
+                    borderRadius: 12,
+                    border: '1px solid var(--border)',
+                    background: 'var(--bg)',
+                  }}
+                >
+                  <div style={{ fontWeight: 700, paddingBottom: 8 }}>Wall {index + 1}</div>
+                  <div>
+                    <label style={LABEL}>Turn</label>
+                    <select
+                      value={leg.turn}
+                      onChange={e => patchLeg(area.id, leg.id, { turn: e.target.value === 'left' ? 'left' : 'right' })}
+                      style={INPUT}
+                    >
+                      <option value="right">Right</option>
+                      <option value="left">Left</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={LABEL}>Length (m)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={leg.length_m ?? ''}
+                      onChange={e => {
+                        const raw = e.target.value
+                        patchLeg(area.id, leg.id, { length_m: raw === '' ? null : Number(raw) })
+                      }}
+                      placeholder="0.00"
+                      style={INPUT}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSurvey(prev => ({
+                        ...prev,
+                        areas: prev.areas.map(row => row.id === area.id
+                          ? { ...row, legs: row.legs.filter(legRow => legRow.id !== leg.id) }
+                          : row),
+                      }))
+                      touch()
+                    }}
+                    style={{ background: 'none', border: 'none', color: '#F87171', fontWeight: 700, cursor: 'pointer', paddingBottom: 8 }}
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
             <button
               type="button"
+              className="btn btn-secondary"
               onClick={() => {
-                setSurvey(prev => ({ ...prev, legs: prev.legs.filter(row => row.id !== leg.id) }))
-                setSavedFlash(false)
+                setSurvey(prev => ({
+                  ...prev,
+                  areas: prev.areas.map(row => row.id === area.id
+                    ? { ...row, legs: [...row.legs, newHouseSurveyLeg()] }
+                    : row),
+                }))
+                touch()
               }}
-              style={{ background: 'none', border: 'none', color: '#F87171', fontWeight: 700, cursor: 'pointer', paddingBottom: 8 }}
+              style={{ width: '100%', padding: 12, fontWeight: 700 }}
             >
-              Remove
+              + Another wall
             </button>
-          </div>
+          </section>
         ))}
       </div>
       <button
         type="button"
-        className="btn btn-secondary"
+        className="btn btn-primary"
         onClick={() => {
-          setSurvey(prev => ({ ...prev, legs: [...prev.legs, newHouseSurveyLeg()] }))
-          setSavedFlash(false)
+          setSurvey(prev => ({ ...prev, areas: [...prev.areas, newHouseSurveyArea()] }))
+          touch()
         }}
-        style={{ width: '100%', marginBottom: 18, padding: 12, fontWeight: 700 }}
+        style={{ width: '100%', marginTop: 16, padding: 12, fontWeight: 700 }}
       >
-        + Another wall
+        Start a new area
       </button>
       </div>
       <div
@@ -225,26 +313,34 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
           boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
         }}
       >
-        {sketch ? (
-          <svg
-            viewBox={`0 0 ${sketch.width} ${sketch.height}`}
-            width="100%"
-            height={220}
-            style={{ display: 'block', background: 'var(--surface)', borderRadius: 8 }}
-          >
-            <polyline points={sketch.d} fill="none" stroke="#93c5fd" strokeWidth="2" />
-            {start && <circle cx={start[0]} cy={start[1]} r="4" fill="#86efac" />}
-          </svg>
-        ) : (
-          <div style={{ height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', background: 'var(--surface)', borderRadius: 8, textAlign: 'center', padding: 16 }}>
-            The plan appears here as you add walls.
-          </div>
-        )}
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 10, fontSize: 13 }}>
-          <span>{status}</span>
-          <span style={{ color: saveError ? '#F87171' : 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-            {saveError || (saving ? 'Saving…' : savedFlash ? 'Saved' : '')}
-          </span>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8, fontSize: 13, color: saveError ? '#F87171' : 'var(--text-muted)' }}>
+          {saveError || (saving ? 'Saving…' : savedFlash ? 'Saved' : '')}
+        </div>
+        <div style={{ display: 'grid', gap: 12, maxHeight: '70vh', overflow: 'auto' }}>
+          {plans.map(({ area, trace, sketch }, index) => {
+            const start = sketch?.d.split(' ')[0]?.split(',')
+            return (
+              <div key={area.id}>
+                <div style={{ fontWeight: 700, marginBottom: 6 }}>{area.title.trim() || `Area ${index + 1}`}</div>
+                {sketch ? (
+                  <svg
+                    viewBox={`0 0 ${sketch.width} ${sketch.height}`}
+                    width="100%"
+                    height={180}
+                    style={{ display: 'block', background: 'var(--surface)', borderRadius: 8 }}
+                  >
+                    <polyline points={sketch.d} fill="none" stroke="#93c5fd" strokeWidth="2" />
+                    {start && <circle cx={start[0]} cy={start[1]} r="4" fill="#86efac" />}
+                  </svg>
+                ) : (
+                  <div style={{ height: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', background: 'var(--surface)', borderRadius: 8, textAlign: 'center', padding: 12 }}>
+                    The plan appears here as you add walls.
+                  </div>
+                )}
+                <div style={{ marginTop: 8, fontSize: 13 }}>{areaStatus(trace)}</div>
+              </div>
+            )
+          })}
         </div>
       </div>
       </div>

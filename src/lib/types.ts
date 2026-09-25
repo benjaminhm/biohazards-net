@@ -1064,10 +1064,15 @@ export interface AssessmentData {
   /** Post Remediation Evaluations — each anchored 1:1 to a saved quote document.
    *  Hub-and-spoke mirror of outcome_quotes[]. See PostRemediationEvaluation. */
   post_remediation_evaluations?: PostRemediationEvaluation[]
-  /** Home → Survey: one clockwise walk of the inside walls of the whole house. */
+  /** Home → Survey: named areas, each a clockwise walk of its inside walls. */
   house_survey?: {
-    start_note: string
-    legs: { id: string; turn: 'left' | 'right'; length_m: number | null }[]
+    areas: {
+      id: string
+      title: string
+      description: string
+      start_note: string
+      legs: { id: string; turn: 'left' | 'right'; length_m: number | null }[]
+    }[]
   }
   /** Statement of Accounts — deposit taken against the quote, before the balance is worked out. */
   statement_of_accounts?: {
