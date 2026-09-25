@@ -120,42 +120,17 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
       : `Open. Short by ${trace.gap} m. Perimeter so far ${trace.perimeter} m.`
 
   return (
-    <div style={{ maxWidth: 720, paddingBottom: 48 }}>
-      <div
-        style={{
-          position: 'sticky',
-          top: 0,
-          zIndex: 20,
-          marginBottom: 16,
-          padding: 12,
-          borderRadius: 12,
-          border: '1px solid var(--border)',
-          background: 'var(--bg)',
-          boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
-        }}
-      >
-        {sketch ? (
-          <svg
-            viewBox={`0 0 ${sketch.width} ${sketch.height}`}
-            width="100%"
-            height={180}
-            style={{ display: 'block', background: 'var(--surface)', borderRadius: 8 }}
-          >
-            <polyline points={sketch.d} fill="none" stroke="#93c5fd" strokeWidth="2" />
-            {start && <circle cx={start[0]} cy={start[1]} r="4" fill="#86efac" />}
-          </svg>
-        ) : (
-          <div style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', background: 'var(--surface)', borderRadius: 8 }}>
-            The plan appears here as you add walls.
-          </div>
-        )}
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 10, fontSize: 13 }}>
-          <span>{status}</span>
-          <span style={{ color: saveError ? '#F87171' : 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-            {saveError || (saving ? 'Saving…' : savedFlash ? 'Saved' : '')}
-          </span>
-        </div>
-      </div>
+    <div className="house-survey" style={{ paddingBottom: 48 }}>
+      <style>{`
+        .house-survey-grid { display: grid; gap: 16px; align-items: start; }
+        .house-survey-plan { order: -1; position: sticky; top: 0; z-index: 20; }
+        @media (min-width: 900px) {
+          .house-survey-grid { grid-template-columns: minmax(0, 1.3fr) minmax(260px, 0.9fr); }
+          .house-survey-plan { order: 0; top: 12px; }
+        }
+      `}</style>
+      <div className="house-survey-grid">
+      <div>
       <p style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.55, marginBottom: 16 }}>
         One walk of the whole house. Start at the front door and follow the inside of the walls clockwise.
         Each wall is a left or right turn, then its length, until the line meets the start.
@@ -239,6 +214,40 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
       >
         + Another wall
       </button>
+      </div>
+      <div
+        className="house-survey-plan"
+        style={{
+          padding: 12,
+          borderRadius: 12,
+          border: '1px solid var(--border)',
+          background: 'var(--bg)',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
+        }}
+      >
+        {sketch ? (
+          <svg
+            viewBox={`0 0 ${sketch.width} ${sketch.height}`}
+            width="100%"
+            height={220}
+            style={{ display: 'block', background: 'var(--surface)', borderRadius: 8 }}
+          >
+            <polyline points={sketch.d} fill="none" stroke="#93c5fd" strokeWidth="2" />
+            {start && <circle cx={start[0]} cy={start[1]} r="4" fill="#86efac" />}
+          </svg>
+        ) : (
+          <div style={{ height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', background: 'var(--surface)', borderRadius: 8, textAlign: 'center', padding: 16 }}>
+            The plan appears here as you add walls.
+          </div>
+        )}
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 10, fontSize: 13 }}>
+          <span>{status}</span>
+          <span style={{ color: saveError ? '#F87171' : 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+            {saveError || (saving ? 'Saving…' : savedFlash ? 'Saved' : '')}
+          </span>
+        </div>
+      </div>
+      </div>
     </div>
   )
 }
