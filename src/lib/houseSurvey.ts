@@ -23,8 +23,15 @@ export interface SurveyPoint {
   y: number
 }
 
+export interface SurveySegment {
+  legId: string
+  from: SurveyPoint
+  to: SurveyPoint
+}
+
 export interface HouseSurveyTrace {
   points: SurveyPoint[]
+  segments: SurveySegment[]
   perimeter: number
   gap: number
   closed: boolean
@@ -100,15 +107,18 @@ export function traceHouseSurvey(legs: HouseSurveyLeg[]): HouseSurveyTrace {
   let y = 0
   let heading = 0
   const points: SurveyPoint[] = [{ x: 0, y: 0 }]
+  const segments: SurveySegment[] = []
   let perimeter = 0
   for (const leg of legs) {
     const length = leg.length_m
     if (length == null || !Number.isFinite(length) || length <= 0) continue
     heading += leg.turn === 'left' ? 90 : -90
     const rad = (heading * Math.PI) / 180
+    const from = { x, y }
     x += length * Math.cos(rad)
     y += length * Math.sin(rad)
     points.push({ x, y })
+    segments.push({ legId: leg.id, from, to: { x, y } })
     perimeter += length
   }
   const gap = Math.hypot(x, y)
@@ -119,6 +129,7 @@ export function traceHouseSurvey(legs: HouseSurveyLeg[]): HouseSurveyTrace {
   area = Math.abs(area) / 2
   return {
     points,
+    segments,
     perimeter: Math.round(perimeter * 100) / 100,
     gap: Math.round(gap * 100) / 100,
     closed: points.length > 2 && gap <= CLOSE_GAP_M,
@@ -126,8 +137,14 @@ export function traceHouseSurvey(legs: HouseSurveyLeg[]): HouseSurveyTrace {
   }
 }
 
-export function surveySketchPath(points: SurveyPoint[]): { d: string; width: number; height: number } | null {
-  if (points.length < 2) return null
+export function surveySketchPath(trace: HouseSurveyTrace): {
+  width: number
+  height: number
+  start: { x: number; y: number }
+  lines: { legId: string; x1: number; y1: number; x2: number; y2: number }[]
+} | null {
+  if (trace.segments.length === 0) return null
+  const points = trace.points
   const xs = points.map(p => p.x)
   const ys = points.map(p => p.y)
   const minX = Math.min(...xs)
@@ -140,10 +157,19 @@ export function surveySketchPath(points: SurveyPoint[]): { d: string; width: num
   const width = 320
   const height = 220
   const scale = Math.min((width - pad * 2) / spanX, (height - pad * 2) / spanY)
-  const xy = (p: SurveyPoint) => {
-    const sx = pad + (p.x - minX) * scale
-    const sy = height - pad - (p.y - minY) * scale
-    return `${sx.toFixed(1)},${sy.toFixed(1)}`
+  const project = (p: SurveyPoint) => ({
+    x: pad + (p.x - minX) * scale,
+    y: height - pad - (p.y - minY) * scale,
+  })
+  const start = project(points[0])
+  return {
+    width,
+    height,
+    start,
+    lines: trace.segments.map(segment => {
+      const from = project(segment.from)
+      const to = project(segment.to)
+      return { legId: segment.legId, x1: from.x, y1: from.y, x2: to.x, y2: to.y }
+    }),
   }
-  return { d: points.map(xy).join(' '), width, height }
 }

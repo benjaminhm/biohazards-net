@@ -52,6 +52,7 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
   const [survey, setSurvey] = useState<HouseSurveyCapture>(saved)
   const [openId, setOpenId] = useState<string | null>(saved.areas[0]?.id ?? null)
   const [unlockedAreas, setUnlockedAreas] = useState<Record<string, boolean>>({})
+  const [selectedLegId, setSelectedLegId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [savedFlash, setSavedFlash] = useState(false)
   const [saveError, setSaveError] = useState('')
@@ -112,7 +113,7 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
   const plans = useMemo(
     () => survey.areas.map(area => {
       const trace = traceHouseSurvey(area.legs)
-      return { area, trace, sketch: surveySketchPath(trace.points) }
+      return { area, trace, sketch: surveySketchPath(trace) }
     }),
     [survey.areas],
   )
@@ -321,6 +322,11 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
               {area.legs.map((leg, index) => (
                 <div
                   key={leg.id}
+                  onClick={event => {
+                    const target = event.target as HTMLElement
+                    if (target.closest('input, select, button, textarea')) return
+                    setSelectedLegId(current => current === leg.id ? null : leg.id)
+                  }}
                   style={{
                     display: 'grid',
                     gridTemplateColumns: 'auto 72px 1fr 1fr auto',
@@ -328,8 +334,9 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
                     alignItems: 'end',
                     padding: 12,
                     borderRadius: 12,
-                    border: '1px solid var(--border)',
-                    background: 'var(--bg)',
+                    border: selectedLegId === leg.id ? '1px solid #fbbf24' : '1px solid var(--border)',
+                    background: selectedLegId === leg.id ? 'rgba(251, 191, 36, 0.12)' : 'var(--bg)',
+                    cursor: 'pointer',
                   }}
                 >
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4, paddingBottom: 4 }}>
@@ -444,7 +451,6 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
             >
               {(() => {
                 const sketch = plans[areaIndex].sketch
-                const start = sketch?.d.split(' ')[0]?.split(',')
                 return sketch ? (
                   <svg
                     viewBox={`0 0 ${sketch.width} ${sketch.height}`}
@@ -452,8 +458,24 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
                     height={200}
                     style={{ display: 'block', background: 'var(--surface)', borderRadius: 8 }}
                   >
-                    <polyline points={sketch.d} fill="none" stroke="#93c5fd" strokeWidth="2" />
-                    {start && <circle cx={start[0]} cy={start[1]} r="4" fill="#86efac" />}
+                    {sketch.lines.map(line => {
+                      const selected = line.legId === selectedLegId
+                      return (
+                        <line
+                          key={line.legId}
+                          x1={line.x1}
+                          y1={line.y1}
+                          x2={line.x2}
+                          y2={line.y2}
+                          stroke={selected ? '#fbbf24' : '#93c5fd'}
+                          strokeWidth={selected ? 6 : 2}
+                          strokeLinecap="round"
+                          onClick={() => setSelectedLegId(current => current === line.legId ? null : line.legId)}
+                          style={{ cursor: 'pointer' }}
+                        />
+                      )
+                    })}
+                    <circle cx={sketch.start.x} cy={sketch.start.y} r="4" fill="#86efac" />
                   </svg>
                 ) : (
                   <div style={{ height: 140, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', background: 'var(--surface)', borderRadius: 8, textAlign: 'center', padding: 12 }}>
