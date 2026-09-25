@@ -51,6 +51,7 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
   )
   const [survey, setSurvey] = useState<HouseSurveyCapture>(saved)
   const [openId, setOpenId] = useState<string | null>(saved.areas[0]?.id ?? null)
+  const [unlockedAreas, setUnlockedAreas] = useState<Record<string, boolean>>({})
   const [saving, setSaving] = useState(false)
   const [savedFlash, setSavedFlash] = useState(false)
   const [saveError, setSaveError] = useState('')
@@ -104,6 +105,22 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
     touch()
   }
 
+  function moveLeg(areaId: string, index: number, delta: -1 | 1) {
+    setSurvey(prev => ({
+      ...prev,
+      areas: prev.areas.map(area => {
+        if (area.id !== areaId) return area
+        const next = index + delta
+        if (next < 0 || next >= area.legs.length) return area
+        const legs = [...area.legs]
+        const [moved] = legs.splice(index, 1)
+        legs.splice(next, 0, moved)
+        return { ...area, legs }
+      }),
+    }))
+    touch()
+  }
+
   function patchLeg(areaId: string, legId: string, next: Partial<HouseSurveyLeg>) {
     setSurvey(prev => ({
       ...prev,
@@ -150,10 +167,16 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
     <div className="house-survey" style={{ paddingBottom: 48, maxWidth: 880 }}>
       <style>{`
         .house-survey-area-body { display: grid; gap: 16px; align-items: start; }
-        .house-survey-plan { order: -1; }
+        .house-survey-plan {
+          order: -1;
+          position: sticky;
+          top: 12px;
+          z-index: 2;
+          align-self: start;
+        }
         @media (min-width: 900px) {
           .house-survey-area-body { grid-template-columns: minmax(0, 1.3fr) minmax(220px, 0.8fr); }
-          .house-survey-plan { order: 0; position: sticky; top: 12px; }
+          .house-survey-plan { order: 0; }
         }
       `}</style>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
@@ -172,7 +195,6 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
               borderRadius: 12,
               border: '1px solid var(--border)',
               background: 'var(--surface)',
-              overflow: 'hidden',
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -242,13 +264,32 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
                 style={INPUT}
               />
             </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+              <span style={{ ...LABEL, marginBottom: 0 }}>Walls</span>
+              <button
+                type="button"
+                onClick={() => setUnlockedAreas(prev => ({ ...prev, [area.id]: !prev[area.id] }))}
+                style={{
+                  background: 'none',
+                  border: '1px solid var(--border)',
+                  borderRadius: 8,
+                  color: unlockedAreas[area.id] ? 'var(--accent)' : 'var(--text-muted)',
+                  fontWeight: 700,
+                  fontSize: 12,
+                  cursor: 'pointer',
+                  padding: '6px 10px',
+                }}
+              >
+                {unlockedAreas[area.id] ? 'Lock walls' : 'Unlock walls'}
+              </button>
+            </div>
             <div style={{ display: 'grid', gap: 10 }}>
               {area.legs.map((leg, index) => (
                 <div
                   key={leg.id}
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: '72px 1fr 1fr auto',
+                    gridTemplateColumns: 'auto 72px 1fr 1fr auto',
                     gap: 8,
                     alignItems: 'end',
                     padding: 12,
@@ -257,6 +298,44 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
                     background: 'var(--bg)',
                   }}
                 >
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, paddingBottom: 4 }}>
+                    <button
+                      type="button"
+                      aria-label="Move wall up"
+                      disabled={!unlockedAreas[area.id] || index === 0}
+                      onClick={() => moveLeg(area.id, index, -1)}
+                      style={{
+                        width: 28,
+                        height: 28,
+                        borderRadius: 6,
+                        border: '1px solid var(--border)',
+                        background: 'var(--surface)',
+                        color: 'var(--text)',
+                        cursor: !unlockedAreas[area.id] || index === 0 ? 'default' : 'pointer',
+                        opacity: !unlockedAreas[area.id] || index === 0 ? 0.35 : 1,
+                      }}
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Move wall down"
+                      disabled={!unlockedAreas[area.id] || index === area.legs.length - 1}
+                      onClick={() => moveLeg(area.id, index, 1)}
+                      style={{
+                        width: 28,
+                        height: 28,
+                        borderRadius: 6,
+                        border: '1px solid var(--border)',
+                        background: 'var(--surface)',
+                        color: 'var(--text)',
+                        cursor: !unlockedAreas[area.id] || index === area.legs.length - 1 ? 'default' : 'pointer',
+                        opacity: !unlockedAreas[area.id] || index === area.legs.length - 1 ? 0.35 : 1,
+                      }}
+                    >
+                      ↓
+                    </button>
+                  </div>
                   <div style={{ fontWeight: 700, paddingBottom: 8 }}>Wall {index + 1}</div>
                   <div>
                     <label style={LABEL}>Turn</label>
@@ -326,6 +405,7 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
                 borderRadius: 12,
                 border: '1px solid var(--border)',
                 background: 'var(--bg)',
+                boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
               }}
             >
               {(() => {
