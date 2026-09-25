@@ -137,12 +137,18 @@ export function traceHouseSurvey(legs: HouseSurveyLeg[]): HouseSurveyTrace {
   }
 }
 
-export function surveySketchPath(trace: HouseSurveyTrace): {
+export interface SurveySketch {
   width: number
   height: number
+  pad: number
+  minX: number
+  minY: number
+  scale: number
   start: { x: number; y: number }
   lines: { legId: string; x1: number; y1: number; x2: number; y2: number }[]
-} | null {
+}
+
+export function surveySketchPath(trace: HouseSurveyTrace): SurveySketch | null {
   if (trace.segments.length === 0) return null
   const points = trace.points
   const xs = points.map(p => p.x)
@@ -165,6 +171,10 @@ export function surveySketchPath(trace: HouseSurveyTrace): {
   return {
     width,
     height,
+    pad,
+    minX,
+    minY,
+    scale,
     start,
     lines: trace.segments.map(segment => {
       const from = project(segment.from)
@@ -172,4 +182,46 @@ export function surveySketchPath(trace: HouseSurveyTrace): {
       return { legId: segment.legId, x1: from.x, y1: from.y, x2: to.x, y2: to.y }
     }),
   }
+}
+
+export function metresToSketch(sketch: SurveySketch, point: SurveyPoint): { x: number; y: number } {
+  return {
+    x: sketch.pad + (point.x - sketch.minX) * sketch.scale,
+    y: sketch.height - sketch.pad - (point.y - sketch.minY) * sketch.scale,
+  }
+}
+
+export function sketchToMetres(sketch: SurveySketch, x: number, y: number): SurveyPoint {
+  return {
+    x: sketch.minX + (x - sketch.pad) / sketch.scale,
+    y: sketch.minY + (sketch.height - sketch.pad - y) / sketch.scale,
+  }
+}
+
+function nearestOnSegment(a: SurveyPoint, b: SurveyPoint, point: SurveyPoint): SurveyPoint {
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  const len2 = dx * dx + dy * dy
+  if (len2 === 0) return { x: a.x, y: a.y }
+  const t = Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / len2))
+  return { x: a.x + t * dx, y: a.y + t * dy }
+}
+
+/** Closest spot on the walls to a click, in metres. */
+export function nearestPointOnSurvey(trace: HouseSurveyTrace, point: SurveyPoint): SurveyPoint | null {
+  let best: SurveyPoint | null = null
+  let bestDistance = Infinity
+  for (const segment of trace.segments) {
+    const snapped = nearestOnSegment(segment.from, segment.to, point)
+    const distance = Math.hypot(snapped.x - point.x, snapped.y - point.y)
+    if (distance < bestDistance) {
+      bestDistance = distance
+      best = snapped
+    }
+  }
+  return best
+}
+
+export function surveyPointDistance(a: SurveyPoint, b: SurveyPoint): number {
+  return Math.round(Math.hypot(a.x - b.x, a.y - b.y) * 100) / 100
 }

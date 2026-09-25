@@ -10,9 +10,14 @@ import {
   normalizeHouseSurvey,
   surveySketchPath,
   traceHouseSurvey,
+  metresToSketch,
+  nearestPointOnSurvey,
+  sketchToMetres,
+  surveyPointDistance,
   type HouseSurveyArea,
   type HouseSurveyCapture,
   type HouseSurveyLeg,
+  type SurveyPoint,
 } from '@/lib/houseSurvey'
 
 interface Props {
@@ -53,6 +58,8 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
   const [openId, setOpenId] = useState<string | null>(saved.areas[0]?.id ?? null)
   const [unlockedAreas, setUnlockedAreas] = useState<Record<string, boolean>>({})
   const [selectedLegId, setSelectedLegId] = useState<string | null>(null)
+  const [measureAreaId, setMeasureAreaId] = useState<string | null>(null)
+  const [measurePoints, setMeasurePoints] = useState<SurveyPoint[]>([])
   const [saving, setSaving] = useState(false)
   const [savedFlash, setSavedFlash] = useState(false)
   const [saveError, setSaveError] = useState('')
@@ -456,7 +463,11 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
                     viewBox={`0 0 ${sketch.width} ${sketch.height}`}
                     width="100%"
                     height={200}
-                    style={{ display: 'block', background: 'var(--surface)', borderRadius: 8 }}
+                    onClick={() => {
+                      setMeasureAreaId(area.id)
+                      setMeasurePoints([])
+                    }}
+                    style={{ display: 'block', background: 'var(--surface)', borderRadius: 8, cursor: 'pointer' }}
                   >
                     {sketch.lines.map(line => {
                       const selected = line.legId === selectedLegId
@@ -470,7 +481,10 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
                           stroke={selected ? '#fbbf24' : '#93c5fd'}
                           strokeWidth={selected ? 6 : 2}
                           strokeLinecap="round"
-                          onClick={() => setSelectedLegId(current => current === line.legId ? null : line.legId)}
+                          onClick={event => {
+                            event.stopPropagation()
+                            setSelectedLegId(current => current === line.legId ? null : line.legId)
+                          }}
                           style={{ cursor: 'pointer' }}
                         />
                       )
@@ -484,6 +498,18 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
                 )
               })()}
               <div style={{ marginTop: 8, fontSize: 13 }}>{areaStatus(plans[areaIndex].trace)}</div>
+              {plans[areaIndex].sketch && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMeasureAreaId(area.id)
+                    setMeasurePoints([])
+                  }}
+                  style={{ marginTop: 8, background: 'none', border: 'none', color: 'var(--accent)', fontWeight: 700, cursor: 'pointer', padding: 0 }}
+                >
+                  Measure a gap
+                </button>
+              )}
             </div>
             </div>
             )}
@@ -503,6 +529,99 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
       >
         Start a new area
       </button>
+      {measureAreaId && (() => {
+        const plan = plans.find(item => item.area.id === measureAreaId)
+        const sketch = plan?.sketch
+        const trace = plan?.trace
+        if (!plan || !sketch || !trace) return null
+        const marks = measurePoints.map(point => metresToSketch(sketch, point))
+        const distance = measurePoints.length === 2
+          ? surveyPointDistance(measurePoints[0], measurePoints[1])
+          : null
+        return (
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 80,
+              background: 'rgba(0,0,0,0.72)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 16,
+            }}
+            onClick={() => setMeasureAreaId(null)}
+          >
+            <div
+              onClick={event => event.stopPropagation()}
+              style={{
+                width: 'min(920px, 100%)',
+                background: 'var(--bg)',
+                border: '1px solid var(--border)',
+                borderRadius: 16,
+                padding: 16,
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 8 }}>
+                <div style={{ fontWeight: 800 }}>{plan.area.title.trim() || 'Area'} — measure</div>
+                <button type="button" onClick={() => setMeasureAreaId(null)} style={{ background: 'none', border: 'none', color: 'var(--text)', fontWeight: 700, cursor: 'pointer' }}>Close</button>
+              </div>
+              <p style={{ fontSize: 14, color: 'var(--text-muted)', marginTop: 0 }}>
+                {measurePoints.length === 0 && 'Click one side of the gap, then the other.'}
+                {measurePoints.length === 1 && 'Click the other side.'}
+                {measurePoints.length === 2 && 'Click again to start a new measure.'}
+              </p>
+              <svg
+                viewBox={`0 0 ${sketch.width} ${sketch.height}`}
+                width="100%"
+                style={{ display: 'block', height: 'min(70vh, 640px)', background: 'var(--surface)', borderRadius: 12, cursor: 'crosshair' }}
+                onClick={event => {
+                  const svg = event.currentTarget
+                  const point = svg.createSVGPoint()
+                  point.x = event.clientX
+                  point.y = event.clientY
+                  const matrix = svg.getScreenCTM()
+                  if (!matrix) return
+                  const local = point.matrixTransform(matrix.inverse())
+                  const snapped = nearestPointOnSurvey(trace, sketchToMetres(sketch, local.x, local.y))
+                  if (!snapped) return
+                  setMeasurePoints(current => current.length >= 2 ? [snapped] : [...current, snapped])
+                }}
+              >
+                {sketch.lines.map(line => (
+                  <line
+                    key={line.legId}
+                    x1={line.x1}
+                    y1={line.y1}
+                    x2={line.x2}
+                    y2={line.y2}
+                    stroke={line.legId === selectedLegId ? '#fbbf24' : '#93c5fd'}
+                    strokeWidth={line.legId === selectedLegId ? 6 : 3}
+                    strokeLinecap="round"
+                  />
+                ))}
+                {marks.length === 2 && (
+                  <line x1={marks[0].x} y1={marks[0].y} x2={marks[1].x} y2={marks[1].y} stroke="#fbbf24" strokeWidth="2" strokeDasharray="4 3" />
+                )}
+                {marks.map((mark, index) => (
+                  <circle key={index} cx={mark.x} cy={mark.y} r="5" fill="#fbbf24" />
+                ))}
+                <circle cx={sketch.start.x} cy={sketch.start.y} r="4" fill="#86efac" />
+              </svg>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>
+                <div style={{ fontSize: 28, fontWeight: 800 }}>{distance == null ? '—' : `${distance} m`}</div>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setMeasurePoints([])}
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
