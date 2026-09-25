@@ -50,6 +50,7 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
     [job.assessment_data?.house_survey],
   )
   const [survey, setSurvey] = useState<HouseSurveyCapture>(saved)
+  const [openId, setOpenId] = useState<string | null>(saved.areas[0]?.id ?? null)
   const [saving, setSaving] = useState(false)
   const [savedFlash, setSavedFlash] = useState(false)
   const [saveError, setSaveError] = useState('')
@@ -68,6 +69,12 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
     if (dirtyRef.current) return
     setSurvey(normalizeHouseSurvey(job.assessment_data?.house_survey))
   }, [job.id, job.assessment_data?.house_survey])
+
+  useEffect(() => {
+    if (openId && !survey.areas.some(area => area.id === openId)) {
+      setOpenId(survey.areas[0]?.id ?? null)
+    }
+  }, [survey.areas, openId])
 
   useEffect(() => {
     if (sameSurvey(survey, saved)) return
@@ -140,35 +147,55 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
   }
 
   return (
-    <div className="house-survey" style={{ paddingBottom: 48 }}>
+    <div className="house-survey" style={{ paddingBottom: 48, maxWidth: 880 }}>
       <style>{`
-        .house-survey-grid { display: grid; gap: 16px; align-items: start; }
-        .house-survey-plan { order: -1; position: sticky; top: 0; z-index: 20; }
+        .house-survey-area-body { display: grid; gap: 16px; align-items: start; }
+        .house-survey-plan { order: -1; }
         @media (min-width: 900px) {
-          .house-survey-grid { grid-template-columns: minmax(0, 1.3fr) minmax(260px, 0.9fr); }
-          .house-survey-plan { order: 0; top: 12px; }
+          .house-survey-area-body { grid-template-columns: minmax(0, 1.3fr) minmax(220px, 0.8fr); }
+          .house-survey-plan { order: 0; position: sticky; top: 12px; }
         }
       `}</style>
-      <div className="house-survey-grid">
-      <div>
-      <p style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.55, marginBottom: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
+      <p style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.55, margin: 0 }}>
         Each area is its own clockwise walk. Title it, describe it, then add walls until that area closes. Start another area for the next part of the house.
       </p>
-      <div style={{ display: 'grid', gap: 16 }}>
+      <span style={{ fontSize: 13, color: saveError ? '#F87171' : 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+        {saveError || (saving ? 'Saving…' : savedFlash ? 'Saved' : '')}
+      </span>
+      </div>
+      <div style={{ display: 'grid', gap: 10 }}>
         {survey.areas.map((area, areaIndex) => (
           <section
             key={area.id}
             style={{
-              display: 'grid',
-              gap: 12,
-              padding: 14,
               borderRadius: 12,
               border: '1px solid var(--border)',
               background: 'var(--surface)',
+              overflow: 'hidden',
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
-              <div style={{ fontWeight: 800 }}>Area {areaIndex + 1}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => setOpenId(current => current === area.id ? null : area.id)}
+                style={{
+                  flex: 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '12px 14px',
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--text)',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                }}
+              >
+                <span style={{ color: 'var(--text-muted)', width: 12 }}>{openId === area.id ? '▾' : '▸'}</span>
+                <span style={{ fontWeight: 800 }}>{area.title.trim() || `Area ${areaIndex + 1}`}</span>
+                <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>{areaStatus(plans[areaIndex].trace)}</span>
+              </button>
               {survey.areas.length > 1 && (
                 <button
                   type="button"
@@ -176,12 +203,15 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
                     setSurvey(prev => ({ ...prev, areas: prev.areas.filter(row => row.id !== area.id) }))
                     touch()
                   }}
-                  style={{ background: 'none', border: 'none', color: '#F87171', fontWeight: 700, cursor: 'pointer' }}
+                  style={{ background: 'none', border: 'none', color: '#F87171', fontWeight: 700, cursor: 'pointer', paddingRight: 14 }}
                 >
-                  Remove area
+                  Remove
                 </button>
               )}
             </div>
+            {openId === area.id && (
+            <div className="house-survey-area-body" style={{ padding: '0 14px 14px' }}>
+            <div style={{ display: 'grid', gap: 12 }}>
             <div>
               <label style={LABEL}>Title</label>
               <input
@@ -288,6 +318,39 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
             >
               + Another wall
             </button>
+            </div>
+            <div
+              className="house-survey-plan"
+              style={{
+                padding: 12,
+                borderRadius: 12,
+                border: '1px solid var(--border)',
+                background: 'var(--bg)',
+              }}
+            >
+              {(() => {
+                const sketch = plans[areaIndex].sketch
+                const start = sketch?.d.split(' ')[0]?.split(',')
+                return sketch ? (
+                  <svg
+                    viewBox={`0 0 ${sketch.width} ${sketch.height}`}
+                    width="100%"
+                    height={200}
+                    style={{ display: 'block', background: 'var(--surface)', borderRadius: 8 }}
+                  >
+                    <polyline points={sketch.d} fill="none" stroke="#93c5fd" strokeWidth="2" />
+                    {start && <circle cx={start[0]} cy={start[1]} r="4" fill="#86efac" />}
+                  </svg>
+                ) : (
+                  <div style={{ height: 140, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', background: 'var(--surface)', borderRadius: 8, textAlign: 'center', padding: 12 }}>
+                    The plan appears here as you add walls.
+                  </div>
+                )
+              })()}
+              <div style={{ marginTop: 8, fontSize: 13 }}>{areaStatus(plans[areaIndex].trace)}</div>
+            </div>
+            </div>
+            )}
           </section>
         ))}
       </div>
@@ -295,55 +358,15 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
         type="button"
         className="btn btn-primary"
         onClick={() => {
-          setSurvey(prev => ({ ...prev, areas: [...prev.areas, newHouseSurveyArea()] }))
+          const area = newHouseSurveyArea()
+          setSurvey(prev => ({ ...prev, areas: [...prev.areas, area] }))
+          setOpenId(area.id)
           touch()
         }}
         style={{ width: '100%', marginTop: 16, padding: 12, fontWeight: 700 }}
       >
         Start a new area
       </button>
-      </div>
-      <div
-        className="house-survey-plan"
-        style={{
-          padding: 12,
-          borderRadius: 12,
-          border: '1px solid var(--border)',
-          background: 'var(--bg)',
-          boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8, fontSize: 13, color: saveError ? '#F87171' : 'var(--text-muted)' }}>
-          {saveError || (saving ? 'Saving…' : savedFlash ? 'Saved' : '')}
-        </div>
-        <div style={{ display: 'grid', gap: 12, maxHeight: '70vh', overflow: 'auto' }}>
-          {plans.map(({ area, trace, sketch }, index) => {
-            const start = sketch?.d.split(' ')[0]?.split(',')
-            return (
-              <div key={area.id}>
-                <div style={{ fontWeight: 700, marginBottom: 6 }}>{area.title.trim() || `Area ${index + 1}`}</div>
-                {sketch ? (
-                  <svg
-                    viewBox={`0 0 ${sketch.width} ${sketch.height}`}
-                    width="100%"
-                    height={180}
-                    style={{ display: 'block', background: 'var(--surface)', borderRadius: 8 }}
-                  >
-                    <polyline points={sketch.d} fill="none" stroke="#93c5fd" strokeWidth="2" />
-                    {start && <circle cx={start[0]} cy={start[1]} r="4" fill="#86efac" />}
-                  </svg>
-                ) : (
-                  <div style={{ height: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', background: 'var(--surface)', borderRadius: 8, textAlign: 'center', padding: 12 }}>
-                    The plan appears here as you add walls.
-                  </div>
-                )}
-                <div style={{ marginTop: 8, fontSize: 13 }}>{areaStatus(trace)}</div>
-              </div>
-            )
-          })}
-        </div>
-      </div>
-      </div>
     </div>
   )
 }
