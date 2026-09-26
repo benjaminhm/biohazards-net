@@ -1098,6 +1098,12 @@ export interface AssessmentData {
     new_invoice_url?: string
     invoice1_adjusted_amount?: number | null
     invoice1_adjusted_includes_gst?: boolean
+    /** Typed invoice 1. The quote document is not the source of this amount. */
+    invoice1_amount?: number | null
+    /** Typed contents invoice. The disposal record is not the source of this amount. */
+    invoice2_amount?: number | null
+    /** When true, every typed amount on the statement includes GST. */
+    charges_gst?: boolean
   }
   /** Job-scoped pathogen / pathophysiology PDF reference library. Used as
    *  grounded biology source by the Assessment Document AI suggester. */
@@ -2038,6 +2044,13 @@ export interface WasteDisposalManifestContent {
   }
 }
 
+export interface StatementLedgerLine {
+  label: string
+  ex: number
+  inc: number
+  strong?: boolean
+}
+
 export interface StatementOfAccountsContent {
   title: string
   reference: string
@@ -2068,6 +2081,10 @@ export interface StatementOfAccountsContent {
   invoice2_owing_inc?: number
   job_total_ex?: number | null
   job_total_inc?: number | null
+  /** Present when the statement dollars were typed, not taken from the quote. */
+  ledger?: boolean
+  has_invoice2?: boolean
+  lines?: StatementLedgerLine[]
   original_invoice_number: string
   original_invoice_url: string
   new_invoice_number: string

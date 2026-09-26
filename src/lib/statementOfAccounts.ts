@@ -1,4 +1,4 @@
-import type { AssessmentData, DisposalManifestCapture, Document, QuoteGstMode } from '@/lib/types'
+import type { AssessmentData, DisposalManifestCapture, Document, QuoteGstMode, StatementLedgerLine } from '@/lib/types'
 import { disposalPriceLines, mergedDisposalManifestCapture } from '@/lib/disposalManifest'
 
 export interface StatementOfAccountsCapture {
@@ -14,6 +14,12 @@ export interface StatementOfAccountsCapture {
   invoice1_adjusted_amount: number | null
   /** The adjusted amount includes GST when the quote charges GST. */
   invoice1_adjusted_includes_gst: boolean
+  /** Issued invoice 1. Typed. Not taken from the quote. */
+  invoice1_amount: number | null
+  /** Contents invoice. Typed. Not taken from the disposal record. */
+  invoice2_amount: number | null
+  /** Every typed amount includes GST. */
+  charges_gst: boolean
 }
 
 export interface StatementFigures {
@@ -45,6 +51,8 @@ export interface StatementFigures {
   invoice2_owing_inc: number
   job_total_ex: number | null
   job_total_inc: number | null
+  has_invoice2: boolean
+  lines: StatementLedgerLine[]
 }
 
 function textField(raw: unknown): string {
@@ -62,6 +70,9 @@ export function emptyStatementCapture(): StatementOfAccountsCapture {
     new_invoice_url: '',
     invoice1_adjusted_amount: null,
     invoice1_adjusted_includes_gst: true,
+    invoice1_amount: null,
+    invoice2_amount: null,
+    charges_gst: true,
   }
 }
 
@@ -78,6 +89,9 @@ export function normalizeStatementCapture(raw: unknown): StatementOfAccountsCapt
     new_invoice_url: textField(o.new_invoice_url),
     invoice1_adjusted_amount: moneyOrNull(o.invoice1_adjusted_amount),
     invoice1_adjusted_includes_gst: o.invoice1_adjusted_includes_gst !== false,
+    invoice1_amount: moneyOrNull(o.invoice1_amount),
+    invoice2_amount: moneyOrNull(o.invoice2_amount),
+    charges_gst: o.charges_gst !== false,
   }
 }
 
@@ -89,17 +103,6 @@ function moneyOrNull(value: unknown): number | null {
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100
-}
-
-function quoteMode(content: Record<string, unknown>): QuoteGstMode {
-  const mode = content.gst_mode
-  if (mode === 'no_gst' || mode === 'inclusive' || mode === 'exclusive') return mode
-  const gst = Number(content.gst ?? 0)
-  const total = Number(content.total ?? 0)
-  const subtotal = Number(content.subtotal ?? 0)
-  if (!Number.isFinite(gst) || gst <= 0) return 'no_gst'
-  if (Math.abs(total - subtotal) < 0.02) return 'inclusive'
-  return 'exclusive'
 }
 
 function latestOfType(documents: Document[], type: Document['type']): Document | null {
@@ -131,46 +134,87 @@ export function disposalTotal(capture: DisposalManifestCapture | null | undefine
   return disposalTotals(capture).ex
 }
 
-/** Quote remainder stays on the original invoice. Contents disposal is the new invoice. */
-export function statementFigures(
-  quote: Document | null,
-  disposal: { ex: number; inc: number } | number,
-  capture: StatementOfAccountsCapture,
-): StatementFigures {
-  const content = (quote?.content ?? {}) as Record<string, unknown>
-  const gst_mode = quote ? quoteMode(content) : 'no_gst'
-  const quote_ex = round2(Math.max(0, Number(content.subtotal ?? content.total ?? 0) || 0))
-  const quote_gst = gst_mode === 'no_gst' ? 0 : round2(Math.max(0, Number(content.gst ?? 0) || 0))
-  const quote_inc = gst_mode === 'no_gst'
-    ? quote_ex
-    : round2(Math.max(0, Number(content.total ?? quote_ex + quote_gst) || 0))
-  const entered = capture.deposit_taken ? Math.max(0, capture.deposit_amount ?? 0) : 0
-  const deposit_ex = gst_mode === 'no_gst' || !capture.deposit_includes_gst
-    ? round2(entered)
-    : round2(entered / 1.1)
-  const deposit_inc = round2(entered)
-  const new_invoice_ex = round2(typeof disposal === 'number' ? disposal : disposal.ex)
-  const new_invoice_inc = round2(typeof disposal === 'number'
-    ? (gst_mode === 'no_gst' ? disposal : disposal * 1.1)
-    : disposal.inc)
+function withNumber(label: string, number: string): string {
+  const trimmed = number.trim()
+  return trimmed ? `${label} (${trimmed})` : label
+}
+
+function positionLine(owingEx: number, owingInc: number, overLabel: string, underLabel: string, evenLabel: string): StatementLedgerLine {
+  if (owingInc > 0.004) return { label: underLabel, ex: owingEx, inc: owingInc, strong: true }
+  if (owingInc < -0.004) return { label: overLabel, ex: round2(-owingEx), inc: round2(-owingInc), strong: true }
+  return { label: evenLabel, ex: 0, inc: 0, strong: true }
+}
+
+/** Dollars are typed on the statement. The quote and disposal record are references only. */
+export function statementFigures(capture: StatementOfAccountsCapture): StatementFigures {
+  const gst_mode: QuoteGstMode = capture.charges_gst ? 'exclusive' : 'no_gst'
+  const pair = (amount: number | null) => amount == null ? null : enteredPair(amount, gst_mode, true)
+  const invoice1 = pair(capture.invoice1_amount) ?? { ex: 0, inc: 0 }
+  const deposit = capture.deposit_taken ? (pair(capture.deposit_amount) ?? { ex: 0, inc: 0 }) : { ex: 0, inc: 0 }
+  const revised = pair(capture.invoice1_adjusted_amount)
+  const invoice2 = pair(capture.invoice2_amount)
+  const quote_ex = invoice1.ex
+  const quote_inc = invoice1.inc
+  const quote_gst = gst_mode === 'no_gst' ? 0 : round2(quote_inc - quote_ex)
+  const deposit_ex = deposit.ex
+  const deposit_inc = deposit.inc
+  const new_invoice_ex = invoice2?.ex ?? 0
+  const new_invoice_inc = invoice2?.inc ?? 0
   const original_owing_ex = round2(quote_ex - deposit_ex)
   const original_owing_inc = round2(quote_inc - deposit_inc)
-  const revised = capture.invoice1_adjusted_amount == null
-    ? null
-    : enteredPair(capture.invoice1_adjusted_amount, gst_mode, capture.invoice1_adjusted_includes_gst)
   const remeasured = revised != null
   const remeasure_ex = revised == null ? 0 : round2(quote_ex - revised.ex)
   const remeasure_inc = revised == null ? 0 : round2(quote_inc - revised.inc)
+  const has_invoice2 = invoice2 != null
   const invoice2_owing_ex = round2(new_invoice_ex - remeasure_ex)
   const invoice2_owing_inc = round2(new_invoice_inc - remeasure_inc)
-  const owing_ex = round2(original_owing_ex + invoice2_owing_ex)
-  const owing_inc = round2(original_owing_inc + invoice2_owing_inc)
+  const owing_ex = has_invoice2
+    ? round2(original_owing_ex + invoice2_owing_ex)
+    : round2(original_owing_ex - remeasure_ex)
+  const owing_inc = has_invoice2
+    ? round2(original_owing_inc + invoice2_owing_inc)
+    : round2(original_owing_inc - remeasure_inc)
+  const priced = revised ?? invoice1
+  const job_total_ex = round2(priced.ex + new_invoice_ex)
+  const job_total_inc = round2(priced.inc + new_invoice_inc)
   const gst = gst_mode === 'no_gst' ? 0 : round2(owing_inc - owing_ex)
-  const reference = typeof content.reference === 'string' && content.reference.trim()
-    ? content.reference.trim()
-    : 'Quote'
+  const lines: StatementLedgerLine[] = [
+    { label: 'Invoice 1', ex: quote_ex, inc: quote_inc },
+    { label: 'Deposit paid', ex: deposit_ex, inc: deposit_inc },
+    positionLine(
+      original_owing_ex,
+      original_owing_inc,
+      'Overpay on invoice 1',
+      withNumber('Underpay. Still to come on invoice 1', capture.original_invoice_number),
+      'Invoice 1 is paid',
+    ),
+  ]
+  if (revised) {
+    lines.push({ label: 'Invoice 1 after adjustment', ex: revised.ex, inc: revised.inc })
+    lines.push(positionLine(
+      -remeasure_ex,
+      -remeasure_inc,
+      'Overpay carried to the next invoice',
+      'Underpay added to the next invoice',
+      'No change from the adjustment',
+    ))
+  }
+  if (invoice2) {
+    lines.push({ label: 'Invoice 2', ex: new_invoice_ex, inc: new_invoice_inc })
+    lines.push(positionLine(
+      invoice2_owing_ex,
+      invoice2_owing_inc,
+      withNumber('Overpay on invoice 2', capture.new_invoice_number),
+      withNumber('Underpay. Owing on invoice 2', capture.new_invoice_number),
+      'Invoice 2 is paid',
+    ))
+  }
+  if (revised || invoice2) {
+    lines.push({ label: 'Job total after adjustments', ex: job_total_ex, inc: job_total_inc, strong: true })
+  }
+  lines.push({ label: 'Total remaining owed', ex: owing_ex, inc: owing_inc, strong: true })
   return {
-    reference,
+    reference: '',
     gst_mode,
     quote_ex,
     quote_gst,
@@ -191,10 +235,12 @@ export function statementFigures(
     invoice1_revised_inc: revised?.inc ?? null,
     remeasure_ex,
     remeasure_inc,
-    invoice2_owing_ex,
-    invoice2_owing_inc,
-    job_total_ex: revised == null ? null : round2(revised.ex + new_invoice_ex),
-    job_total_inc: revised == null ? null : round2(revised.inc + new_invoice_inc),
+    invoice2_owing_ex: has_invoice2 ? invoice2_owing_ex : 0,
+    invoice2_owing_inc: has_invoice2 ? invoice2_owing_inc : 0,
+    job_total_ex,
+    job_total_inc,
+    has_invoice2,
+    lines,
   }
 }
 
@@ -217,5 +263,6 @@ export function statementFromJob(
   assessment: AssessmentData | null | undefined,
 ): StatementFigures {
   const capture = normalizeStatementCapture(assessment?.statement_of_accounts)
-  return statementFigures(latestQuoteDocument(documents), disposalTotals(mergedDisposalManifestCapture(assessment)), capture)
+  const figures = statementFigures(capture)
+  return { ...figures, reference: documentReference(latestQuoteDocument(documents), '—') }
 }

@@ -2652,7 +2652,7 @@ function buildStatementMid(c: StatementOfAccountsContent): string {
     <table>
       <thead><tr><th>Item</th>${beforeHead}<th class="r">Amount</th></tr></thead>
       <tbody>
-        ${remeasured ? `
+        ${c.ledger && Array.isArray(c.lines) ? c.lines.map(line => row(line.label, line.ex, line.inc, line.strong === true)).join('') : remeasured ? `
         ${row('Invoice 1 was an estimate of', c.quote_ex, quoteInc)}
         ${row('You paid a deposit of', depositEx, depositInc)}
         ${row(originalLabel, originalOwingEx, originalOwingInc, true)}
@@ -2661,13 +2661,14 @@ function buildStatementMid(c: StatementOfAccountsContent): string {
         ${row('Contents, invoice 2', newEx, newInc)}
         ${row(newOwingLabel, invoice2OwingEx, invoice2OwingInc, true)}
         ${row('Job total after adjustments', c.job_total_ex ?? 0, c.job_total_inc ?? 0, true)}
+        ${row('Total remaining owed', c.owing_ex, c.owing_inc, true)}
         ` : `
         ${row('This was the original quote', c.quote_ex, quoteInc)}
         ${row('You paid a deposit of', depositEx, depositInc)}
         ${row(legacyOriginalLabel, originalOwingEx, originalOwingInc, true)}
         ${row(legacyNewLabel, newEx, newInc, true)}
-        `}
         ${row('Total remaining owed', c.owing_ex, c.owing_inc, true)}
+        `}
       </tbody>
     </table>
     ${credit}
@@ -2682,7 +2683,7 @@ function buildStatementMid(c: StatementOfAccountsContent): string {
         </tr>
       </tbody>
     </table>
-    <table>
+    ${c.ledger && c.has_invoice2 === false ? '' : `<table>
       <thead><tr><th>Invoice</th><th class="r">Before GST</th><th class="r">After GST</th><th>Link</th></tr></thead>
       <tbody>
         <tr>
@@ -2692,7 +2693,7 @@ function buildStatementMid(c: StatementOfAccountsContent): string {
           <td>${urlCell(c.new_invoice_url)}</td>
         </tr>
       </tbody>
-    </table>
+    </table>`}
   `
 }
 
