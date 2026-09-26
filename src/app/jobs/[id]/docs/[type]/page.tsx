@@ -89,6 +89,16 @@ function DocViewerInner() {
     if (id) setSavedDocId(id)
   }, [searchParams])
 
+  useEffect(() => {
+    const reference = typeof content.reference === 'string' ? content.reference.trim() : ''
+    const clientName = job?.client_name?.trim() ?? ''
+    const title = [reference && reference !== '—' ? reference : '', clientName].filter(Boolean).join(' — ')
+    if (!title) return
+    const previous = document.title
+    document.title = title
+    return () => { document.title = previous }
+  }, [content, job])
+
   function openPrintPreview() {
     if (typeof window === 'undefined') return
     if (printBlobUrlRef.current) {

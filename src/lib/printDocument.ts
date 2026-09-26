@@ -854,7 +854,12 @@ interface WrapBrandedPrintOptions {
   screenActionBar?: boolean
 }
 
-/** Merge bundle flags with screen action bar visibility. */
+function pdfSaveTitle(reference: string, clientName: string | undefined, fallback: string): string {
+  const ref = reference.trim()
+  const name = (clientName ?? '').trim()
+  const raw = [ref && ref !== '—' ? ref : '', name].filter(Boolean).join(' — ') || fallback
+  return raw.replace(/[\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim()
+}
 function wrapBrandedPrintOpts(screenActionBar: boolean, extra?: WrapBrandedPrintOptions): WrapBrandedPrintOptions | undefined {
   if (screenActionBar) return extra
   return { ...extra, screenActionBar: false }
@@ -916,7 +921,7 @@ function wrapBranded(
       </footer>
     </div>
   </div>
-  `, pageTitle, client, printOptions?.screenActionBar !== false)
+  `, pdfSaveTitle(reference, client?.client_name, pageTitle), client, printOptions?.screenActionBar !== false)
 }
 
 // ── Shared fragments ──────────────────────────────────────────────────────────
