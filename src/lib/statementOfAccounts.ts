@@ -10,6 +10,10 @@ export interface StatementOfAccountsCapture {
   original_invoice_url: string
   new_invoice_number: string
   new_invoice_url: string
+  /** Invoice 1 after the surfaces were measured again. Null until staff enter it. */
+  invoice1_adjusted_amount: number | null
+  /** The adjusted amount includes GST when the quote charges GST. */
+  invoice1_adjusted_includes_gst: boolean
 }
 
 export interface StatementFigures {
@@ -29,6 +33,18 @@ export interface StatementFigures {
   original_owing_inc: number
   new_invoice_ex: number
   new_invoice_inc: number
+  /** True once staff enter a remeasured invoice 1. */
+  remeasured: boolean
+  invoice1_revised_ex: number | null
+  invoice1_revised_inc: number | null
+  /** Original invoice 1 minus the remeasure. Positive when the price went down. */
+  remeasure_ex: number
+  remeasure_inc: number
+  /** Contents invoice after the remeasure difference is applied. */
+  invoice2_owing_ex: number
+  invoice2_owing_inc: number
+  job_total_ex: number | null
+  job_total_inc: number | null
 }
 
 function textField(raw: unknown): string {
@@ -44,6 +60,8 @@ export function emptyStatementCapture(): StatementOfAccountsCapture {
     original_invoice_url: '',
     new_invoice_number: '',
     new_invoice_url: '',
+    invoice1_adjusted_amount: null,
+    invoice1_adjusted_includes_gst: true,
   }
 }
 
@@ -58,7 +76,15 @@ export function normalizeStatementCapture(raw: unknown): StatementOfAccountsCapt
     original_invoice_url: textField(o.original_invoice_url),
     new_invoice_number: textField(o.new_invoice_number),
     new_invoice_url: textField(o.new_invoice_url),
+    invoice1_adjusted_amount: moneyOrNull(o.invoice1_adjusted_amount),
+    invoice1_adjusted_includes_gst: o.invoice1_adjusted_includes_gst !== false,
   }
+}
+
+function moneyOrNull(value: unknown): number | null {
+  if (value == null || value === '') return null
+  const amount = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(amount) && amount >= 0 ? amount : null
 }
 
 function round2(n: number): number {
@@ -129,8 +155,16 @@ export function statementFigures(
     : disposal.inc)
   const original_owing_ex = round2(quote_ex - deposit_ex)
   const original_owing_inc = round2(quote_inc - deposit_inc)
-  const owing_ex = round2(original_owing_ex + new_invoice_ex)
-  const owing_inc = round2(original_owing_inc + new_invoice_inc)
+  const revised = capture.invoice1_adjusted_amount == null
+    ? null
+    : enteredPair(capture.invoice1_adjusted_amount, gst_mode, capture.invoice1_adjusted_includes_gst)
+  const remeasured = revised != null
+  const remeasure_ex = revised == null ? 0 : round2(quote_ex - revised.ex)
+  const remeasure_inc = revised == null ? 0 : round2(quote_inc - revised.inc)
+  const invoice2_owing_ex = round2(new_invoice_ex - remeasure_ex)
+  const invoice2_owing_inc = round2(new_invoice_inc - remeasure_inc)
+  const owing_ex = round2(original_owing_ex + invoice2_owing_ex)
+  const owing_inc = round2(original_owing_inc + invoice2_owing_inc)
   const gst = gst_mode === 'no_gst' ? 0 : round2(owing_inc - owing_ex)
   const reference = typeof content.reference === 'string' && content.reference.trim()
     ? content.reference.trim()
@@ -152,7 +186,30 @@ export function statementFigures(
     original_owing_inc,
     new_invoice_ex,
     new_invoice_inc,
+    remeasured,
+    invoice1_revised_ex: revised?.ex ?? null,
+    invoice1_revised_inc: revised?.inc ?? null,
+    remeasure_ex,
+    remeasure_inc,
+    invoice2_owing_ex,
+    invoice2_owing_inc,
+    job_total_ex: revised == null ? null : round2(revised.ex + new_invoice_ex),
+    job_total_inc: revised == null ? null : round2(revised.inc + new_invoice_inc),
   }
+}
+
+/** Split a typed dollar amount into ex GST and inc GST. */
+function enteredPair(amount: number, gstMode: QuoteGstMode, includesGst: boolean): { ex: number; inc: number } {
+  if (gstMode === 'no_gst') {
+    const value = round2(amount)
+    return { ex: value, inc: value }
+  }
+  if (includesGst) {
+    const inc = round2(amount)
+    return { ex: round2(inc / 1.1), inc }
+  }
+  const ex = round2(amount)
+  return { ex, inc: round2(ex * 1.1) }
 }
 
 export function statementFromJob(

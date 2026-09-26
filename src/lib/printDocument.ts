@@ -2613,10 +2613,22 @@ function buildStatementMid(c: StatementOfAccountsContent): string {
   const originalOwingInc = c.original_owing_inc ?? Math.round((quoteInc - depositInc) * 100) / 100
   const newEx = c.new_invoice_ex ?? c.disposal
   const newInc = c.new_invoice_inc ?? (chargesGst ? Math.round(c.disposal * 1.1 * 100) / 100 : c.disposal)
+  const remeasured = c.remeasured === true && c.invoice1_revised_inc != null
+  const remeasureInc = c.remeasure_inc ?? 0
+  const remeasureEx = c.remeasure_ex ?? 0
+  const invoice2OwingEx = c.invoice2_owing_ex ?? newEx
+  const invoice2OwingInc = c.invoice2_owing_inc ?? newInc
+  const priceFell = remeasureInc >= 0
   const originalLabel = c.original_invoice_number
+    ? `Still to come on invoice 1 (${c.original_invoice_number})`
+    : 'Still to come on invoice 1'
+  const newOwingLabel = c.new_invoice_number
+    ? `Owing on invoice 2 (${c.new_invoice_number})`
+    : 'Owing on invoice 2'
+  const legacyOriginalLabel = c.original_invoice_number
     ? `Owing on the original invoice (${c.original_invoice_number})`
     : 'Owing on the original invoice'
-  const newLabel = c.new_invoice_number
+  const legacyNewLabel = c.new_invoice_number
     ? `Owing on the new invoice (${c.new_invoice_number})`
     : 'Owing on the new invoice'
   const row = (label: string, before: number, amount: number, strong = false) => {
@@ -2640,10 +2652,21 @@ function buildStatementMid(c: StatementOfAccountsContent): string {
     <table>
       <thead><tr><th>Item</th>${beforeHead}<th class="r">Amount</th></tr></thead>
       <tbody>
-        ${row('This was the original quote', c.quote_ex, quoteInc)}
+        ${remeasured ? `
+        ${row('Invoice 1 was an estimate of', c.quote_ex, quoteInc)}
         ${row('You paid a deposit of', depositEx, depositInc)}
         ${row(originalLabel, originalOwingEx, originalOwingInc, true)}
-        ${row(newLabel, newEx, newInc, true)}
+        ${row('Surfaces measured again. Invoice 1 is now', c.invoice1_revised_ex ?? 0, c.invoice1_revised_inc ?? 0)}
+        ${row(priceFell ? 'Prepaid on invoice 2' : 'Added onto invoice 2', Math.abs(remeasureEx), Math.abs(remeasureInc))}
+        ${row('Contents, invoice 2', newEx, newInc)}
+        ${row(newOwingLabel, invoice2OwingEx, invoice2OwingInc, true)}
+        ${row('Job total after adjustments', c.job_total_ex ?? 0, c.job_total_inc ?? 0, true)}
+        ` : `
+        ${row('This was the original quote', c.quote_ex, quoteInc)}
+        ${row('You paid a deposit of', depositEx, depositInc)}
+        ${row(legacyOriginalLabel, originalOwingEx, originalOwingInc, true)}
+        ${row(legacyNewLabel, newEx, newInc, true)}
+        `}
         ${row('Total remaining owed', c.owing_ex, c.owing_inc, true)}
       </tbody>
     </table>
@@ -2664,8 +2687,8 @@ function buildStatementMid(c: StatementOfAccountsContent): string {
       <tbody>
         <tr>
           <td>Invoice 2${c.new_invoice_number ? ` ${esc(c.new_invoice_number)}` : ''}</td>
-          <td class="r">${money(newEx)}</td>
-          <td class="r">${money(newInc)}</td>
+          <td class="r">${money(invoice2OwingEx)}</td>
+          <td class="r">${money(invoice2OwingInc)}</td>
           <td>${urlCell(c.new_invoice_url)}</td>
         </tr>
       </tbody>

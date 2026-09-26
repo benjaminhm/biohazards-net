@@ -50,6 +50,8 @@ function capturesEqual(a: StatementOfAccountsCapture, b: StatementOfAccountsCapt
     && a.original_invoice_url === b.original_invoice_url
     && a.new_invoice_number === b.new_invoice_number
     && a.new_invoice_url === b.new_invoice_url
+    && a.invoice1_adjusted_amount === b.invoice1_adjusted_amount
+    && a.invoice1_adjusted_includes_gst === b.invoice1_adjusted_includes_gst
 }
 
 export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: Props) {
@@ -116,12 +118,18 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
   const quoteInc = chargesGst ? figures.quote_inc : figures.quote_ex
   const depositInc = capture.deposit_taken ? figures.deposit_entered : 0
   const depositEx = capture.deposit_taken ? figures.deposit_ex : 0
-  const originalInvoice = capture.original_invoice_number.trim()
-    ? `Owing on the original invoice (${capture.original_invoice_number.trim()})`
-    : 'Owing on the original invoice'
-  const newInvoice = capture.new_invoice_number.trim()
-    ? `Owing on the new invoice (${capture.new_invoice_number.trim()})`
-    : 'Owing on the new invoice'
+  const invoiceNumber = (which: 'original' | 'new', fallback: string) => {
+    const number = which === 'original' ? capture.original_invoice_number : capture.new_invoice_number
+    const trimmed = number.trim()
+    return trimmed ? `${fallback} (${trimmed})` : fallback
+  }
+  const originalInvoice = figures.remeasured
+    ? invoiceNumber('original', 'Still to come on invoice 1')
+    : invoiceNumber('original', 'Owing on the original invoice')
+  const newInvoice = figures.remeasured
+    ? invoiceNumber('new', 'Owing on invoice 2')
+    : invoiceNumber('new', 'Owing on the new invoice')
+  const remeasureDown = figures.remeasure_inc >= 0
   const line = (label: string, before: number, amount: number, strong = false) => (
     <div
       style={{
@@ -146,7 +154,7 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
   return (
     <div style={{ maxWidth: 720, paddingBottom: 120 }}>
       <p style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.55, marginBottom: 16 }}>
-        Each figure is shown before GST and including GST. The remainder of the original quote is owing on the original invoice. Contents removal is owing on the new invoice.
+        Each figure is shown before GST and including GST. The remainder of the original quote stays on invoice 1. When the surfaces are measured again, that difference is settled on invoice 2.
       </p>
 
       {!hasQuote && (
@@ -206,6 +214,48 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
               </label>
             )}
           </div>
+        )}
+      </div>
+
+      <div
+        style={{
+          padding: '14px 16px',
+          borderRadius: 12,
+          border: '1px solid var(--border)',
+          background: 'var(--surface)',
+          marginBottom: 16,
+        }}
+      >
+        <div style={{ fontWeight: 800, fontSize: 13, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 8 }}>
+          Invoice 1 after the surfaces were measured again
+        </div>
+        <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5, margin: '0 0 12px' }}>
+          Leave this blank if invoice 1 has not changed. A lower figure is prepaid on invoice 2. Invoice 1 still shows what was left after the deposit.
+        </p>
+        <div>
+          <label style={LABEL}>Adjusted amount ($)</label>
+          <input
+            type="number"
+            min={0}
+            step="0.01"
+            value={capture.invoice1_adjusted_amount ?? ''}
+            onChange={e => {
+              const raw = e.target.value
+              patch({ invoice1_adjusted_amount: raw === '' ? null : Number(raw) })
+            }}
+            placeholder="Same as the estimate"
+            style={INPUT}
+          />
+        </div>
+        {chargesGst && capture.invoice1_adjusted_amount != null && (
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, marginTop: 12 }}>
+            <input
+              type="checkbox"
+              checked={capture.invoice1_adjusted_includes_gst}
+              onChange={e => patch({ invoice1_adjusted_includes_gst: e.target.checked })}
+            />
+            This amount includes GST
+          </label>
         )}
       </div>
 
@@ -292,10 +342,25 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
           {chargesGst && <span style={{ textAlign: 'right' }}>Before GST</span>}
           <span style={{ textAlign: 'right' }}>Amount</span>
         </div>
-        {line('This was the original quote', figures.quote_ex, quoteInc)}
-        {line('You paid a deposit of', depositEx, depositInc)}
-        {line(originalInvoice, figures.original_owing_ex, figures.original_owing_inc, true)}
-        {line(newInvoice, figures.new_invoice_ex, figures.new_invoice_inc, true)}
+        {figures.remeasured ? (
+          <>
+            {line('Invoice 1 was an estimate of', figures.quote_ex, quoteInc)}
+            {line('You paid a deposit of', depositEx, depositInc)}
+            {line(originalInvoice, figures.original_owing_ex, figures.original_owing_inc, true)}
+            {line('Surfaces measured again. Invoice 1 is now', figures.invoice1_revised_ex ?? 0, figures.invoice1_revised_inc ?? 0)}
+            {line(remeasureDown ? 'Prepaid on invoice 2' : 'Added onto invoice 2', Math.abs(figures.remeasure_ex), Math.abs(figures.remeasure_inc))}
+            {line('Contents, invoice 2', figures.new_invoice_ex, figures.new_invoice_inc)}
+            {line(newInvoice, figures.invoice2_owing_ex, figures.invoice2_owing_inc, true)}
+            {line('Job total after adjustments', figures.job_total_ex ?? 0, figures.job_total_inc ?? 0, true)}
+          </>
+        ) : (
+          <>
+            {line('This was the original quote', figures.quote_ex, quoteInc)}
+            {line('You paid a deposit of', depositEx, depositInc)}
+            {line(originalInvoice, figures.original_owing_ex, figures.original_owing_inc, true)}
+            {line(newInvoice, figures.new_invoice_ex, figures.new_invoice_inc, true)}
+          </>
+        )}
         {line('Total remaining owed', figures.owing_ex, figures.owing_inc, true)}
         {figures.owing_inc < 0 && (
           <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 8 }}>This balance is a credit.</div>
@@ -332,8 +397,8 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 0.8fr 0.8fr 1.4fr', gap: 8, alignItems: 'start' }}>
           <span>Invoice 2{capture.new_invoice_number.trim() ? ` ${capture.new_invoice_number.trim()}` : ''}</span>
-          <span style={{ textAlign: 'right' }}>{formatAud(figures.new_invoice_ex)}</span>
-          <span style={{ textAlign: 'right' }}>{formatAud(figures.new_invoice_inc)}</span>
+          <span style={{ textAlign: 'right' }}>{formatAud(figures.invoice2_owing_ex)}</span>
+          <span style={{ textAlign: 'right' }}>{formatAud(figures.invoice2_owing_inc)}</span>
           <span>{payLink(capture.new_invoice_url)}</span>
         </div>
       </div>

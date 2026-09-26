@@ -1096,6 +1096,8 @@ export interface AssessmentData {
     original_invoice_url?: string
     new_invoice_number?: string
     new_invoice_url?: string
+    invoice1_adjusted_amount?: number | null
+    invoice1_adjusted_includes_gst?: boolean
   }
   /** Job-scoped pathogen / pathophysiology PDF reference library. Used as
    *  grounded biology source by the Assessment Document AI suggester. */
@@ -2057,6 +2059,15 @@ export interface StatementOfAccountsContent {
   original_owing_inc?: number
   new_invoice_ex?: number
   new_invoice_inc?: number
+  remeasured?: boolean
+  invoice1_revised_ex?: number | null
+  invoice1_revised_inc?: number | null
+  remeasure_ex?: number
+  remeasure_inc?: number
+  invoice2_owing_ex?: number
+  invoice2_owing_inc?: number
+  job_total_ex?: number | null
+  job_total_inc?: number | null
   original_invoice_number: string
   original_invoice_url: string
   new_invoice_number: string
