@@ -6,6 +6,20 @@ export interface HouseSurveyLeg {
   length_m: number | null
 }
 
+export type HouseSurveySurface = 'floor' | 'ceiling' | 'walls'
+export type HouseSurveyAdjustmentEffect = 'exclude' | 'add'
+
+/** A rectangle taken off, or added to, one surface before the area is priced. */
+export interface HouseSurveyAdjustment {
+  id: string
+  length_m: number | null
+  width_m: number | null
+  area_m2: number | null
+  effect: HouseSurveyAdjustmentEffect
+  surface: HouseSurveySurface
+  description: string
+}
+
 export interface HouseSurveyArea {
   id: string
   title: string
@@ -13,6 +27,7 @@ export interface HouseSurveyArea {
   start_note: string
   height_m: number | null
   legs: HouseSurveyLeg[]
+  adjustments: HouseSurveyAdjustment[]
 }
 
 export interface HouseSurveyCapture {
@@ -50,6 +65,19 @@ export function newHouseSurveyArea(): HouseSurveyArea {
     start_note: '',
     height_m: null,
     legs: [],
+    adjustments: [],
+  }
+}
+
+export function newHouseSurveyAdjustment(): HouseSurveyAdjustment {
+  return {
+    id: `adj_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+    length_m: null,
+    width_m: null,
+    area_m2: null,
+    effect: 'exclude',
+    surface: 'floor',
+    description: '',
   }
 }
 
@@ -75,9 +103,29 @@ function normalizeLeg(raw: unknown): HouseSurveyLeg {
   }
 }
 
+function finiteMetres(value: unknown): number | null {
+  const n = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(n) && n >= 0 ? n : null
+}
+
+function normalizeAdjustment(raw: unknown): HouseSurveyAdjustment {
+  const row = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {}
+  const surface: HouseSurveySurface = row.surface === 'ceiling' || row.surface === 'walls' ? row.surface : 'floor'
+  return {
+    id: typeof row.id === 'string' && row.id ? row.id : newHouseSurveyAdjustment().id,
+    length_m: finiteMetres(row.length_m),
+    width_m: finiteMetres(row.width_m),
+    area_m2: finiteMetres(row.area_m2),
+    effect: row.effect === 'add' ? 'add' : 'exclude',
+    surface,
+    description: typeof row.description === 'string' ? row.description : '',
+  }
+}
+
 function normalizeArea(raw: unknown): HouseSurveyArea {
   const row = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {}
   const legs = Array.isArray(row.legs) ? row.legs : []
+  const adjustments = Array.isArray(row.adjustments) ? row.adjustments : []
   return {
     id: typeof row.id === 'string' && row.id ? row.id : newHouseSurveyArea().id,
     title: typeof row.title === 'string' ? row.title : '',
@@ -85,6 +133,7 @@ function normalizeArea(raw: unknown): HouseSurveyArea {
     start_note: typeof row.start_note === 'string' ? row.start_note : '',
     height_m: typeof row.height_m === 'number' && Number.isFinite(row.height_m) && row.height_m >= 0 ? row.height_m : null,
     legs: legs.map(normalizeLeg),
+    adjustments: adjustments.map(normalizeAdjustment),
   }
 }
 
@@ -105,6 +154,85 @@ export function normalizeHouseSurvey(raw: unknown): HouseSurveyCapture {
       start_note: o.start_note,
       legs: o.legs,
     })],
+  }
+}
+
+/** Length × width when both are set. Otherwise the typed square metres. */
+export function adjustmentSquareMetres(adjustment: HouseSurveyAdjustment): number | null {
+  const length = adjustment.length_m
+  const width = adjustment.width_m
+  if (length != null && width != null && length > 0 && width > 0) {
+    return Math.round(length * width * 100) / 100
+  }
+  if (adjustment.area_m2 != null && adjustment.area_m2 >= 0) return Math.round(adjustment.area_m2 * 100) / 100
+  return null
+}
+
+export interface SurveyAdjustmentLine {
+  surface: HouseSurveySurface
+  effect: HouseSurveyAdjustmentEffect
+  length_m: number | null
+  width_m: number | null
+  area_m2: number
+  description: string
+}
+
+export interface PricedSurfaces {
+  floor: number | null
+  ceiling: number | null
+  walls: number | null
+  measured: number | null
+  priced: number | null
+  clamped: boolean
+  lines: SurveyAdjustmentLine[]
+}
+
+/** Measured surfaces, then exclusions and additions. A surface never prices below zero. */
+export function pricedSurfaces(
+  surfaces: { floor: number | null; ceiling: number | null; walls: number | null; all: number | null },
+  adjustments: HouseSurveyAdjustment[],
+): PricedSurfaces {
+  const lines: SurveyAdjustmentLine[] = []
+  for (const adjustment of adjustments) {
+    const area = adjustmentSquareMetres(adjustment)
+    if (area == null || area <= 0) continue
+    const fromDimensions = adjustment.length_m != null && adjustment.width_m != null && adjustment.length_m > 0 && adjustment.width_m > 0
+    lines.push({
+      surface: adjustment.surface,
+      effect: adjustment.effect,
+      length_m: fromDimensions ? adjustment.length_m : null,
+      width_m: fromDimensions ? adjustment.width_m : null,
+      area_m2: area,
+      description: adjustment.description.trim(),
+    })
+  }
+
+  let clamped = false
+  const apply = (measured: number | null, surface: HouseSurveySurface): number | null => {
+    const relevant = lines.filter(line => line.surface === surface)
+    if (measured == null && relevant.length === 0) return null
+    let value = measured ?? 0
+    for (const line of relevant) value += line.effect === 'add' ? line.area_m2 : -line.area_m2
+    value = Math.round(value * 100) / 100
+    if (value < 0) {
+      value = 0
+      clamped = true
+    }
+    return value
+  }
+
+  const floor = apply(surfaces.floor, 'floor')
+  const ceiling = apply(surfaces.ceiling, 'ceiling')
+  const walls = apply(surfaces.walls, 'walls')
+  const parts = [floor, ceiling, walls].filter((value): value is number => value != null)
+  return {
+    floor,
+    ceiling,
+    walls,
+    measured: surfaces.all,
+    priced: parts.length === 0 ? null : Math.round(parts.reduce((sum, value) => sum + value, 0) * 100) / 100,
+    clamped,
+    lines,
   }
 }
 
@@ -266,6 +394,9 @@ export interface HouseSurveyDocumentArea {
   ceiling: number | null
   walls: number | null
   all: number | null
+  priced: number | null
+  clamped: boolean
+  adjustments: SurveyAdjustmentLine[]
   price_ex: number | null
   price_inc: number | null
   legs: { index: number; turn: HouseSurveyTurn; length_m: number | null }[]
@@ -283,6 +414,7 @@ export interface HouseSurveyDocumentContent {
     ceiling: number | null
     walls: number | null
     all: number | null
+    priced: number | null
     price_ex: number | null
     price_inc: number | null
   }
@@ -293,7 +425,8 @@ export function houseSurveyDocument(siteAddress: string, reference: string, raw:
   const areas = survey.areas.map((area, index) => {
     const trace = traceHouseSurvey(area.legs)
     const surfaces = areaSurfaces(trace, area.height_m)
-    const price = surveyPrice(surfaces.all, survey.price_per_m2)
+    const priced = pricedSurfaces(surfaces, area.adjustments)
+    const price = surveyPrice(priced.priced, survey.price_per_m2)
     return {
       title: area.title.trim() || `Area ${index + 1}`,
       description: area.description.trim(),
@@ -305,6 +438,9 @@ export function houseSurveyDocument(siteAddress: string, reference: string, raw:
       ceiling: surfaces.ceiling,
       walls: surfaces.walls,
       all: surfaces.all,
+      priced: priced.priced,
+      clamped: priced.clamped,
+      adjustments: priced.lines,
       price_ex: price.ex,
       price_inc: price.inc,
       legs: area.legs.map((leg, legIndex) => ({
@@ -321,7 +457,11 @@ export function houseSurveyDocument(siteAddress: string, reference: string, raw:
     return Math.round(values.reduce<number>((sum, value) => sum + (value ?? 0), 0) * 100) / 100
   }
   const all = total('all')
-  const price = surveyPrice(all, survey.price_per_m2)
+  const pricedValues = areas.map(area => area.priced)
+  const priced = pricedValues.every(value => value == null)
+    ? null
+    : Math.round(pricedValues.reduce<number>((sum, value) => sum + (value ?? 0), 0) * 100) / 100
+  const price = surveyPrice(priced, survey.price_per_m2)
   return {
     title: 'House Survey',
     reference,
@@ -333,6 +473,7 @@ export function houseSurveyDocument(siteAddress: string, reference: string, raw:
       ceiling: total('ceiling'),
       walls: total('walls'),
       all,
+      priced,
       price_ex: price.ex,
       price_inc: price.inc,
     },

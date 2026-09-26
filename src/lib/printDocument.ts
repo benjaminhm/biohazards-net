@@ -2693,27 +2693,54 @@ function surveyWalls(area: { perimeter: number; height_m: number | null; walls: 
   return esc(`${area.walls} m²`)
 }
 
+function surveyAdjustmentLine(line: HouseSurveyDocumentContent['areas'][number]['adjustments'][number]): string {
+  const surface = line.surface === 'walls' ? 'Walls' : line.surface === 'ceiling' ? 'Ceiling' : 'Floor'
+  const effect = line.effect === 'add' ? 'add' : 'exclude'
+  const size = line.length_m != null && line.width_m != null
+    ? `${line.length_m} m × ${line.width_m} m = ${line.area_m2} m²`
+    : `${line.area_m2} m²`
+  const reason = line.description ? ` — ${line.description}` : ''
+  return esc(`${surface} — ${effect} ${size}${reason}`)
+}
+
 function buildHouseSurveyMid(c: HouseSurveyDocumentContent): string {
   const areas = Array.isArray(c.areas) ? c.areas : []
   const rate = c.price_per_m2 != null ? `<p class="body-text">Price per m² ${esc(formatAud(c.price_per_m2))} ex GST.</p>` : ''
   const blocks = areas.map(area => {
-    return `
-      <div class="sow-sec">
-        <div class="sow-sec-title">${esc(area.title)}</div>
-        ${surveyPlanSvg(area.sketch)}
+    const lines = Array.isArray(area.adjustments) ? area.adjustments : []
+    const measured = `
         <table style="margin-top:8px">
-          <thead><tr><th class="r">Floor</th><th class="r">Ceiling</th><th class="r">Walls</th><th class="r">Ex GST</th><th class="r">Inc GST</th></tr></thead>
+          <thead><tr><th class="r">Floor</th><th class="r">Ceiling</th><th class="r">Walls</th>${lines.length === 0 ? '<th class="r">Ex GST</th><th class="r">Inc GST</th>' : '<th class="r">All surfaces</th>'}</tr></thead>
           <tbody><tr>
             <td class="r">${surveyMeasure(area.floor, 'm²')}</td>
             <td class="r">${surveyMeasure(area.ceiling, 'm²')}</td>
             <td class="r">${surveyWalls(area)}</td>
-            <td class="r">${area.price_ex == null ? '—' : esc(formatAud(area.price_ex))}</td>
-            <td class="r">${area.price_inc == null ? '—' : esc(formatAud(area.price_inc))}</td>
+            ${lines.length === 0
+              ? `<td class="r">${area.price_ex == null ? '—' : esc(formatAud(area.price_ex))}</td><td class="r">${area.price_inc == null ? '—' : esc(formatAud(area.price_inc))}</td>`
+              : `<td class="r">${surveyMeasure(area.all, 'm²')}</td>`}
+          </tr></tbody>
+        </table>`
+    const adjustments = lines.length === 0 ? '' : `
+        ${lines.map(line => `<p class="body-text">${surveyAdjustmentLine(line)}</p>`).join('')}
+        <table>
+          <thead><tr><th class="r">Priced</th><th class="r">Ex GST</th><th class="r">Inc GST</th></tr></thead>
+          <tbody><tr>
+            <td class="r"><strong>${surveyMeasure(area.priced ?? area.all, 'm²')}</strong></td>
+            <td class="r"><strong>${area.price_ex == null ? '—' : esc(formatAud(area.price_ex))}</strong></td>
+            <td class="r"><strong>${area.price_inc == null ? '—' : esc(formatAud(area.price_inc))}</strong></td>
           </tr></tbody>
         </table>
+        ${area.clamped ? '<p class="body-text">An exclusion was larger than the measured surface, so the priced area for that surface stops at zero.</p>' : ''}`
+    return `
+      <div class="sow-sec">
+        <div class="sow-sec-title">${esc(area.title)}</div>
+        ${surveyPlanSvg(area.sketch)}
+        ${measured}
+        ${adjustments}
       </div>`
   }).join('')
-  const totals = c.totals ?? { floor: null, ceiling: null, walls: null, all: null, price_ex: null, price_inc: null }
+  const totals = c.totals ?? { floor: null, ceiling: null, walls: null, all: null, priced: null, price_ex: null, price_inc: null }
+  const hasAdjustments = areas.some(area => Array.isArray(area.adjustments) && area.adjustments.length > 0)
   return `
     <p class="body-text">Property: ${esc(c.site_address || '—')}</p>
     ${rate}
@@ -2721,17 +2748,18 @@ function buildHouseSurveyMid(c: HouseSurveyDocumentContent): string {
     <div class="sow-sec">
       <div class="sow-sec-title">All areas</div>
       <table>
-        <thead><tr><th class="r">Floor</th><th class="r">Ceiling</th><th class="r">Walls</th><th class="r">All surfaces</th><th class="r">Ex GST</th><th class="r">Inc GST</th></tr></thead>
+        <thead><tr><th class="r">Floor</th><th class="r">Ceiling</th><th class="r">Walls</th><th class="r">All surfaces</th>${hasAdjustments ? '<th class="r">Priced</th>' : ''}<th class="r">Ex GST</th><th class="r">Inc GST</th></tr></thead>
         <tbody><tr>
           <td class="r">${surveyMeasure(totals.floor, 'm²')}</td>
           <td class="r">${surveyMeasure(totals.ceiling, 'm²')}</td>
           <td class="r">${surveyMeasure(totals.walls, 'm²')}</td>
           <td class="r"><strong>${surveyMeasure(totals.all, 'm²')}</strong></td>
+          ${hasAdjustments ? `<td class="r"><strong>${surveyMeasure(totals.priced ?? totals.all, 'm²')}</strong></td>` : ''}
           <td class="r"><strong>${totals.price_ex == null ? '—' : esc(formatAud(totals.price_ex))}</strong></td>
           <td class="r"><strong>${totals.price_inc == null ? '—' : esc(formatAud(totals.price_inc))}</strong></td>
         </tr></tbody>
       </table>
-      <p class="body-text">Walls are the walk length times the room height. The price is that area’s floor, ceiling, and walls at the rate per m². GST is 10%.</p>
+      <p class="body-text">Walls are the walk length times the room height. The price is that area’s floor, ceiling, and walls at the rate per m²${hasAdjustments ? ', after exclusions and additions' : ''}. GST is 10%.</p>
     </div>
   `
 }

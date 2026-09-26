@@ -7,16 +7,20 @@ import { mergeAssessmentData } from '@/lib/riskDerivation'
 import { useRegisterUnsavedChanges } from '@/lib/unsavedChangesContext'
 import {
   newHouseSurveyArea,
+  newHouseSurveyAdjustment,
   newHouseSurveyLeg,
   normalizeHouseSurvey,
   surveySketchPath,
   traceHouseSurvey,
   areaSurfaces,
+  adjustmentSquareMetres,
+  pricedSurfaces,
   surveyPrice,
   metresToSketch,
   nearestPointOnSurvey,
   sketchToMetres,
   surveyPointDistance,
+  type HouseSurveyAdjustment,
   type HouseSurveyArea,
   type HouseSurveyCapture,
   type HouseSurveyLeg,
@@ -136,6 +140,29 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
 
   function touch() {
     setSavedFlash(false)
+  }
+
+  function patchAdjustment(areaId: string, adjustmentId: string, next: Partial<HouseSurveyAdjustment>) {
+    setSurvey(prev => ({
+      ...prev,
+      areas: prev.areas.map(area => {
+        if (area.id !== areaId) return area
+        return {
+          ...area,
+          adjustments: area.adjustments.map(adjustment => {
+            if (adjustment.id !== adjustmentId) return adjustment
+            const merged = { ...adjustment, ...next }
+            const length = merged.length_m
+            const width = merged.width_m
+            const fromDimensions = length != null && width != null && length > 0 && width > 0
+            return fromDimensions
+              ? { ...merged, area_m2: Math.round(length * width * 100) / 100 }
+              : merged
+          }),
+        }
+      }),
+    }))
+    touch()
   }
 
   function patchArea(id: string, next: Partial<HouseSurveyArea>) {
@@ -310,6 +337,131 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
                 rows={2}
                 style={{ ...INPUT, resize: 'vertical' }}
               />
+            </div>
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                <span style={{ ...LABEL, marginBottom: 0 }}>Excluded or added area</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const adjustment = newHouseSurveyAdjustment()
+                    setSurvey(prev => ({
+                      ...prev,
+                      areas: prev.areas.map(row => row.id === area.id ? { ...row, adjustments: [...row.adjustments, adjustment] } : row),
+                    }))
+                    touch()
+                  }}
+                  style={{ background: 'none', border: 'none', color: 'var(--accent)', fontWeight: 700, cursor: 'pointer', padding: 0 }}
+                >
+                  Add
+                </button>
+              </div>
+              {area.adjustments.length === 0 && (
+                <p style={{ margin: '8px 0 0', fontSize: 13, color: 'var(--text-muted)' }}>
+                  Leave a measured patch off the price, or add area the walk did not include.
+                </p>
+              )}
+              {area.adjustments.map(adjustment => {
+                const fromDimensions = adjustment.length_m != null && adjustment.width_m != null && adjustment.length_m > 0 && adjustment.width_m > 0
+                const squareMetres = adjustmentSquareMetres(adjustment)
+                const metres = (value: number | null) => value ?? ''
+                const setMetres = (key: 'length_m' | 'width_m' | 'area_m2', raw: string) => {
+                  patchAdjustment(area.id, adjustment.id, { [key]: raw === '' ? null : Number(raw) })
+                }
+                return (
+                  <div key={adjustment.id} style={{ display: 'grid', gap: 8, marginTop: 8, padding: 10, border: '1px solid var(--border)', borderRadius: 8 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(90px, 1fr))', gap: 8 }}>
+                      <div>
+                        <label style={LABEL}>Length (m)</label>
+                        <input type="number" min={0} step="0.01" value={metres(adjustment.length_m)} onChange={e => setMetres('length_m', e.target.value)} style={INPUT} />
+                      </div>
+                      <div>
+                        <label style={LABEL}>Width (m)</label>
+                        <input type="number" min={0} step="0.01" value={metres(adjustment.width_m)} onChange={e => setMetres('width_m', e.target.value)} style={INPUT} />
+                      </div>
+                      <div>
+                        <label style={LABEL}>Total (m²)</label>
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          readOnly={fromDimensions}
+                          value={fromDimensions ? (squareMetres ?? '') : metres(adjustment.area_m2)}
+                          onChange={e => setMetres('area_m2', e.target.value)}
+                          placeholder={fromDimensions ? '' : 'Or type m²'}
+                          style={{ ...INPUT, opacity: fromDimensions ? 0.8 : 1 }}
+                        />
+                      </div>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                      <div>
+                        <label style={LABEL}>Price</label>
+                        <select
+                          value={adjustment.effect}
+                          onChange={e => patchAdjustment(area.id, adjustment.id, { effect: e.target.value === 'add' ? 'add' : 'exclude' })}
+                          style={INPUT}
+                        >
+                          <option value="exclude">Exclude from price</option>
+                          <option value="add">Add to price</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label style={LABEL}>Surface</label>
+                        <select
+                          value={adjustment.surface}
+                          onChange={e => patchAdjustment(area.id, adjustment.id, {
+                            surface: e.target.value === 'ceiling' || e.target.value === 'walls' ? e.target.value : 'floor',
+                          })}
+                          style={INPUT}
+                        >
+                          <option value="floor">Floor</option>
+                          <option value="ceiling">Ceiling</option>
+                          <option value="walls">Walls</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                      <label style={LABEL}>Reason</label>
+                      <input
+                        type="text"
+                        value={adjustment.description}
+                        onChange={e => patchAdjustment(area.id, adjustment.id, { description: e.target.value })}
+                        placeholder="Built-in pantry, not treated"
+                        style={INPUT}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSurvey(prev => ({
+                          ...prev,
+                          areas: prev.areas.map(row => row.id === area.id
+                            ? { ...row, adjustments: row.adjustments.filter(item => item.id !== adjustment.id) }
+                            : row),
+                        }))
+                        touch()
+                      }}
+                      style={{ justifySelf: 'start', background: 'none', border: 'none', color: '#F87171', fontWeight: 700, cursor: 'pointer', padding: 0 }}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                )
+              })}
+              {(() => {
+                const priced = pricedSurfaces(areaSurfaces(plans[areaIndex].trace, area.height_m), area.adjustments)
+                if (priced.lines.length === 0 && !priced.clamped) return null
+                return (
+                  <div style={{ marginTop: 8, fontSize: 13 }}>
+                    {priced.priced != null && <div>Priced {priced.priced} m²</div>}
+                    {priced.clamped && (
+                      <div style={{ color: '#F87171', marginTop: 4 }}>
+                        An exclusion is larger than that surface. The priced area stops at zero.
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
             </div>
             <div>
               <label style={LABEL}>Where you started</label>
@@ -641,11 +793,13 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
               <th style={{ padding: '8px 14px', fontWeight: 700 }}>Ceiling</th>
               <th style={{ padding: '8px 14px', fontWeight: 700 }}>Walls</th>
               <th style={{ padding: '8px 14px', fontWeight: 700 }}>All surfaces</th>
+              <th style={{ padding: '8px 14px', fontWeight: 700 }}>Priced</th>
             </tr>
           </thead>
           <tbody>
             {plans.map(({ area, trace }, index) => {
               const surfaces = areaSurfaces(trace, area.height_m)
+              const priced = pricedSurfaces(surfaces, area.adjustments)
               const cell = (value: number | null, unit: string) => value == null ? '—' : `${value} ${unit}`
               return (
                 <tr key={area.id} style={{ borderTop: '1px solid var(--border)' }}>
@@ -655,14 +809,18 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
                   <td style={{ padding: '8px 14px', textAlign: 'right' }}>{cell(surfaces.ceiling, 'm²')}</td>
                   <td style={{ padding: '8px 14px', textAlign: 'right' }}>{cell(surfaces.walls, 'm²')}</td>
                   <td style={{ padding: '8px 14px', textAlign: 'right' }}>{cell(surfaces.all, 'm²')}</td>
+                  <td style={{ padding: '8px 14px', textAlign: 'right' }}>{cell(priced.priced, 'm²')}</td>
                 </tr>
               )
             })}
             <tr style={{ borderTop: '1px solid var(--border)', fontWeight: 800 }}>
               <td style={{ padding: '10px 14px' }}>House</td>
               <td />
-              {(['floor', 'ceiling', 'walls', 'all'] as const).map(key => {
-                const values = plans.map(({ area, trace }) => areaSurfaces(trace, area.height_m)[key])
+              {(['floor', 'ceiling', 'walls', 'all', 'priced'] as const).map(key => {
+                const values = plans.map(({ area, trace }) => {
+                  const surfaces = areaSurfaces(trace, area.height_m)
+                  return key === 'priced' ? pricedSurfaces(surfaces, area.adjustments).priced : surfaces[key]
+                })
                 const total = values.every(value => value == null)
                   ? null
                   : Math.round(values.reduce<number>((sum, value) => sum + (value ?? 0), 0) * 100) / 100
@@ -672,10 +830,10 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
           </tbody>
         </table>
         <div style={{ padding: '12px 14px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', gap: 12, fontWeight: 800 }}>
-          <span>All surfaces from all areas</span>
+          <span>Priced from all areas</span>
           <span>
             {(() => {
-              const values = plans.map(({ area, trace }) => areaSurfaces(trace, area.height_m).all)
+              const values = plans.map(({ area, trace }) => pricedSurfaces(areaSurfaces(trace, area.height_m), area.adjustments).priced)
               if (values.every(value => value == null)) return '—'
               const total = Math.round(values.reduce<number>((sum, value) => sum + (value ?? 0), 0) * 100) / 100
               return `${total} m²`
@@ -686,7 +844,7 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
           <span>Price, ex GST / inc GST</span>
           <span>
             {(() => {
-              const values = plans.map(({ area, trace }) => areaSurfaces(trace, area.height_m).all)
+              const values = plans.map(({ area, trace }) => pricedSurfaces(areaSurfaces(trace, area.height_m), area.adjustments).priced)
               const sqm = values.every(value => value == null)
                 ? null
                 : Math.round(values.reduce<number>((sum, value) => sum + (value ?? 0), 0) * 100) / 100

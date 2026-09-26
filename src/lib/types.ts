@@ -1075,6 +1075,15 @@ export interface AssessmentData {
       start_note: string
       height_m: number | null
       legs: { id: string; turn: 'left' | 'right'; length_m: number | null }[]
+      adjustments?: {
+        id: string
+        length_m: number | null
+        width_m: number | null
+        area_m2: number | null
+        effect: 'exclude' | 'add'
+        surface: 'floor' | 'ceiling' | 'walls'
+        description: string
+      }[]
     }[]
     price_per_m2: number | null
   }
