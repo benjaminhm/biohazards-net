@@ -7,12 +7,11 @@ import { mergeAssessmentData } from '@/lib/riskDerivation'
 import { useRegisterUnsavedChanges } from '@/lib/unsavedChangesContext'
 import { formatAud } from '@/lib/disposalManifest'
 import {
-  documentReference,
-  latestDisposalDocument,
-  latestQuoteDocument,
   normalizeStatementCapture,
   statementFigures,
+  statementReferencePanel,
   type StatementOfAccountsCapture,
+  type StatementReferenceBlock,
 } from '@/lib/statementOfAccounts'
 
 interface Props {
@@ -39,6 +38,118 @@ const LABEL: CSSProperties = {
   textTransform: 'uppercase',
   color: 'var(--text-muted)',
   marginBottom: 6,
+}
+
+function ReferencePanel({
+  survey,
+  quotes,
+  disposal,
+}: {
+  survey: StatementReferenceBlock
+  quotes: StatementReferenceBlock[]
+  disposal: StatementReferenceBlock
+}) {
+  const quoteBlocks = quotes.length > 0
+    ? quotes
+    : [{
+        heading: 'Quote / estimate',
+        reference: '',
+        detail: '',
+        gst_mode: 'no_gst' as const,
+        lines: [],
+        empty: 'No quote or estimate yet.',
+      }]
+  return (
+    <section
+      aria-label="Pricing reference"
+      style={{
+        padding: '14px 16px',
+        borderRadius: 12,
+        border: '1px solid var(--border)',
+        background: 'var(--surface)',
+        marginBottom: 18,
+      }}
+    >
+      <div style={{ fontWeight: 800, fontSize: 13, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>
+        Reference
+      </div>
+      <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5, margin: '0 0 14px' }}>
+        Survey, quote, and contents disposal prices. These stay in this panel. They are not copied into the amounts below.
+      </p>
+      <div className="soa-ref-grid">
+        <ReferenceBlock block={survey} />
+        <div style={{ display: 'grid', gap: 12 }}>
+          {quoteBlocks.map((block, index) => (
+            <ReferenceBlock key={`${block.heading}-${block.reference}-${index}`} block={block} />
+          ))}
+        </div>
+        <ReferenceBlock block={disposal} />
+      </div>
+    </section>
+  )
+}
+
+function ReferenceBlock({ block }: { block: StatementReferenceBlock }) {
+  const showGst = block.gst_mode !== 'no_gst'
+  return (
+    <div
+      style={{
+        padding: '12px 12px 4px',
+        borderRadius: 10,
+        border: '1px solid var(--border)',
+        background: 'var(--surface-2)',
+        minWidth: 0,
+      }}
+    >
+      <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 2 }}>{block.heading}</div>
+      {block.reference && (
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>{block.reference}</div>
+      )}
+      {block.detail && (
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>{block.detail}</div>
+      )}
+      {block.empty && (
+        <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 10 }}>{block.empty}</div>
+      )}
+      {block.lines.length > 0 && (
+        <div style={{ fontSize: 12 }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: showGst ? '1.3fr auto auto' : '1.3fr auto',
+              gap: 8,
+              marginBottom: 6,
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: '0.05em',
+              textTransform: 'uppercase',
+              color: 'var(--text-muted)',
+            }}
+          >
+            <span>Item</span>
+            {showGst && <span style={{ textAlign: 'right' }}>Before GST</span>}
+            <span style={{ textAlign: 'right' }}>{showGst ? 'Inc GST' : 'Amount'}</span>
+          </div>
+          {block.lines.map((line, index) => (
+            <div
+              key={`${line.label}-${index}`}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: showGst ? '1.3fr auto auto' : '1.3fr auto',
+                gap: 8,
+                marginBottom: 6,
+                fontWeight: line.strong ? 700 : 400,
+              }}
+            >
+              <span>{line.label}</span>
+              {showGst && <span style={{ textAlign: 'right' }}>{formatAud(line.ex)}</span>}
+              <span style={{ textAlign: 'right' }}>{formatAud(showGst ? line.inc : line.ex)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function capturesEqual(a: StatementOfAccountsCapture, b: StatementOfAccountsCapture): boolean {
@@ -76,7 +187,10 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
 
   const figures = useMemo(() => statementFigures(capture), [capture])
   const chargesGst = figures.gst_mode !== 'no_gst'
-  const quoteReference = documentReference(latestQuoteDocument(documents), '—')
+  const reference = useMemo(
+    () => statementReferencePanel(job.assessment_data, documents),
+    [job.assessment_data, documents],
+  )
 
   function patch(next: Partial<StatementOfAccountsCapture>) {
     setCapture(prev => ({ ...prev, ...next }))
@@ -136,16 +250,26 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
   }
 
   return (
-    <div style={{ maxWidth: 720, paddingBottom: 120 }}>
+    <div style={{ paddingBottom: 120 }}>
+      <style>{`
+        .soa-ref-grid { display: grid; gap: 12px; }
+        @media (min-width: 760px) {
+          .soa-ref-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; }
+        }
+      `}</style>
       <p style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.55, marginBottom: 16 }}>
-        Type each amount. After every step the statement shows an overpay or an underpay. The quote and the contents record are named here only. Their dollars are not used.
+        Type each amount. After every step the statement shows an overpay or an underpay.
       </p>
 
       <div style={{ fontSize: 14, lineHeight: 1.55, marginBottom: 16 }}>
-        <div style={{ marginBottom: 6 }}><strong>Property:</strong> {job.site_address || '—'}</div>
-        <div style={{ marginBottom: 6 }}><strong>Quote / estimate:</strong> {quoteReference}</div>
-        <div><strong>Contents disposal record:</strong> {documentReference(latestDisposalDocument(documents), '—')}</div>
+        <div><strong>Property:</strong> {job.site_address || '—'}</div>
       </div>
+
+      <ReferencePanel
+        survey={reference.survey}
+        quotes={reference.quotes}
+        disposal={reference.disposal}
+      />
 
       <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 700, marginBottom: 16 }}>
         <input

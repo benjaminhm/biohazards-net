@@ -1,5 +1,15 @@
-import type { AssessmentData, DisposalManifestCapture, Document, QuoteGstMode, StatementLedgerLine } from '@/lib/types'
-import { disposalPriceLines, mergedDisposalManifestCapture } from '@/lib/disposalManifest'
+import type { AssessmentData, DisposalManifestCapture, Document, QuoteGstMode, QuoteSpoke, StatementLedgerLine } from '@/lib/types'
+import { disposalPriceLines, formatAud, loadHasContent, mergedDisposalManifestCapture } from '@/lib/disposalManifest'
+import { houseSurveyDocument } from '@/lib/houseSurvey'
+import { getQuoteSpokes } from '@/lib/quoteSpokes'
+import {
+  areaPricingSectionSubtotal,
+  computeQuoteCaptureTotals,
+  customSectionSubtotal,
+  derivePricingLayoutFromCapture,
+  quoteContentIsEstimate,
+  volumePricingSectionSubtotal,
+} from '@/lib/quoteSections'
 
 export interface StatementOfAccountsCapture {
   deposit_taken: boolean
@@ -122,6 +132,235 @@ export function latestDisposalDocument(documents: Document[]): Document | null {
 export function documentReference(doc: Document | null, fallback: string): string {
   const raw = doc?.content?.reference
   return typeof raw === 'string' && raw.trim() ? raw.trim() : fallback
+}
+
+export interface StatementReferenceLine {
+  label: string
+  ex: number
+  inc: number
+  strong?: boolean
+}
+
+/** One source of prices shown beside the statement. Never written into statement fields. */
+export interface StatementReferenceBlock {
+  heading: string
+  reference: string
+  detail: string
+  /** no_gst quotes show a single amount. Survey and disposal always show both. */
+  gst_mode: QuoteGstMode
+  lines: StatementReferenceLine[]
+  empty: string | null
+}
+
+export interface StatementReferencePanel {
+  survey: StatementReferenceBlock
+  quotes: StatementReferenceBlock[]
+  disposal: StatementReferenceBlock
+}
+
+function quoteMoney(amount: number, gstMode: QuoteGstMode): { ex: number; inc: number } {
+  if (gstMode === 'no_gst') {
+    const value = round2(amount)
+    return { ex: value, inc: value }
+  }
+  if (gstMode === 'inclusive') {
+    const inc = round2(amount)
+    return { ex: round2(inc / 1.1), inc }
+  }
+  const ex = round2(amount)
+  return { ex, inc: round2(ex * 1.1) }
+}
+
+function gstDetail(gstMode: QuoteGstMode): string {
+  if (gstMode === 'inclusive') return 'Amounts include GST'
+  if (gstMode === 'exclusive') return 'GST is added on'
+  return 'No GST'
+}
+
+function quoteDocuments(documents: Document[]): Document[] {
+  return documents
+    .filter(doc => doc.type === 'quote')
+    .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
+}
+
+function referenceForSpoke(docs: Document[], spokeId: string, singleSpoke: boolean): string {
+  const matched = docs.find(doc => doc.content?.quote_id === spokeId)
+  if (matched) return documentReference(matched, '')
+  if (singleSpoke && docs.length === 1) return documentReference(docs[0], '')
+  return ''
+}
+
+function quoteHeading(kind: 'quote' | 'estimate', label: string): string {
+  const name = label.trim()
+  const title = kind === 'estimate' ? 'Estimate' : 'Quote'
+  if (!name || name.toLowerCase() === title.toLowerCase()) return title
+  return `${title} · ${name}`
+}
+
+function blockFromQuoteDocument(doc: Document): StatementReferenceBlock {
+  const content = doc.content ?? {}
+  const subtotal = typeof content.subtotal === 'number' ? content.subtotal : Number(content.subtotal)
+  const total = typeof content.total === 'number' ? content.total : Number(content.total)
+  const gst = typeof content.gst === 'number' ? content.gst : Number(content.gst)
+  const ex = Number.isFinite(subtotal) ? round2(subtotal) : 0
+  const inc = Number.isFinite(total) ? round2(total) : ex
+  const gst_mode: QuoteGstMode = content.gst_mode === 'inclusive' || content.gst_mode === 'exclusive' || content.gst_mode === 'no_gst'
+    ? content.gst_mode
+    : (Number.isFinite(gst) && gst > 0 ? 'exclusive' : 'no_gst')
+  const kind = content.is_estimate === true ? 'estimate' : 'quote'
+  const label = typeof content.quote_label === 'string' ? content.quote_label : ''
+  const priced = ex > 0.004 || inc > 0.004
+  return {
+    heading: quoteHeading(kind, label),
+    reference: documentReference(doc, ''),
+    detail: priced ? gstDetail(gst_mode) : '',
+    gst_mode,
+    lines: priced ? [{ label: 'Total', ex, inc, strong: true }] : [],
+    empty: priced ? null : 'No price on this document yet.',
+  }
+}
+
+function blockFromSpoke(spoke: QuoteSpoke, reference: string): StatementReferenceBlock {
+  const layout = derivePricingLayoutFromCapture(spoke)
+  const gst_mode: QuoteGstMode = spoke.gst_mode === 'inclusive' || spoke.gst_mode === 'exclusive' ? spoke.gst_mode : 'no_gst'
+  const kind = spoke.quote_kind ?? (quoteContentIsEstimate({
+    pricing_layout: layout,
+    volume_pricing: spoke.volume_pricing,
+  }) ? 'estimate' : 'quote')
+  const mobilisation = Math.max(0, Number(spoke.global_mobilisation_fee || 0))
+  const outcomeRows = (spoke.rows ?? []).reduce((sum, row) => sum + Math.max(0, Number(row.price || 0)), 0)
+  const outcomeSum = layout.outcomes_enabled
+    ? mobilisation + ((spoke.rows ?? []).length > 0 ? outcomeRows : 0)
+    : 0
+  const surfaceSum = layout.per_sqm_enabled
+    ? areaPricingSectionSubtotal(spoke.area_pricing, spoke.area_pricing_section_total)
+    : 0
+  const volumeSum = layout.per_m3_enabled
+    ? volumePricingSectionSubtotal(spoke.volume_pricing, spoke.volume_pricing_section_total)
+    : 0
+  const customSum = layout.custom_enabled
+    ? customSectionSubtotal(spoke.custom_section_rows, spoke.custom_section_total)
+    : 0
+  const totals = computeQuoteCaptureTotals(
+    spoke.rows ?? [],
+    spoke.area_pricing,
+    spoke.volume_pricing,
+    layout,
+    gst_mode,
+    mobilisation,
+    Math.max(0, Number(spoke.area_pricing_section_total || 0)),
+    Math.max(0, Number(spoke.volume_pricing_section_total || 0)),
+    spoke.custom_section_rows,
+    Math.max(0, Number(spoke.custom_section_total || 0)),
+  )
+  const sections: { label: string; amount: number }[] = [
+    { label: 'Mobilisation & fees', amount: outcomeSum },
+    { label: 'Contents removal', amount: volumeSum },
+    { label: 'Remediation & cleaning', amount: surfaceSum },
+    { label: (spoke.custom_section_title ?? '').trim() || 'Other', amount: customSum },
+  ]
+  const lines: StatementReferenceLine[] = sections
+    .filter(section => section.amount > 0.004)
+    .map(section => ({ label: section.label, ...quoteMoney(section.amount, gst_mode) }))
+  const priced = totals.total > 0.004 || totals.subtotal > 0.004
+  if (priced) {
+    lines.push({ label: 'Total', ex: totals.subtotal, inc: totals.total, strong: true })
+  }
+  return {
+    heading: quoteHeading(kind, spoke.label),
+    reference,
+    detail: priced ? gstDetail(gst_mode) : '',
+    gst_mode,
+    lines,
+    empty: priced ? null : 'No quote price yet.',
+  }
+}
+
+/** Prices from the survey, each quote or estimate, and the contents disposal record. Display only. */
+export function statementReferencePanel(
+  assessment: AssessmentData | null | undefined,
+  documents: Document[],
+): StatementReferencePanel {
+  const surveyDoc = houseSurveyDocument('', '', assessment?.house_survey)
+  const surveyReference = documentReference(latestOfType(documents, 'house_survey'), '')
+  const surveyLines: StatementReferenceLine[] = surveyDoc.areas
+    .filter(area => area.price_ex != null && area.price_inc != null)
+    .map(area => ({ label: area.title, ex: area.price_ex as number, inc: area.price_inc as number }))
+  const surveyPriced = surveyDoc.totals.price_ex != null && surveyDoc.totals.price_inc != null
+  if (surveyPriced) {
+    surveyLines.push({
+      label: 'Total',
+      ex: surveyDoc.totals.price_ex as number,
+      inc: surveyDoc.totals.price_inc as number,
+      strong: true,
+    })
+  }
+  const rate = surveyDoc.price_per_m2
+  const pricedSqm = surveyDoc.totals.priced
+  const surveyDetail = rate == null
+    ? ''
+    : pricedSqm == null
+      ? `${formatAud(rate)} / m²`
+      : `${pricedSqm} m² at ${formatAud(rate)} / m²`
+
+  const quotes = quoteDocuments(documents)
+  const spokes = getQuoteSpokes(assessment)
+  const quoteBlocks = spokes.length > 0
+    ? spokes.map(spoke => blockFromSpoke(spoke, referenceForSpoke(quotes, spoke.id, spokes.length === 1)))
+    : quotes.map(blockFromQuoteDocument)
+
+  const disposalCapture = mergedDisposalManifestCapture(assessment)
+  const disposalLoads = disposalCapture.loads.filter(loadHasContent)
+  const disposalPrices = disposalPriceLines(disposalLoads, disposalCapture.cost_per_m3, disposalCapture.prepaid_m3)
+  const disposalLines: StatementReferenceLine[] = []
+  if (disposalPrices.skips_inc > 0.004) {
+    disposalLines.push({ label: 'Skip hire', ex: disposalPrices.skips_ex, inc: disposalPrices.skips_inc })
+  }
+  if (disposalPrices.trailers_ex > 0.004) {
+    disposalLines.push({ label: 'Trailers', ex: disposalPrices.trailers_ex, inc: disposalPrices.trailers_inc })
+  }
+  if (disposalPrices.utes_ex > 0.004) {
+    disposalLines.push({ label: 'Utes', ex: disposalPrices.utes_ex, inc: disposalPrices.utes_inc })
+  }
+  if (disposalPrices.dump_fees_inc > 0.004) {
+    disposalLines.push({ label: 'Dump fees', ex: disposalPrices.dump_fees_ex, inc: disposalPrices.dump_fees_inc })
+  }
+  if (disposalPrices.prepaid_ex > 0.004) {
+    disposalLines.push({
+      label: 'Prepaid',
+      ex: round2(-disposalPrices.prepaid_ex),
+      inc: round2(-disposalPrices.prepaid_inc),
+    })
+  }
+  const disposalPriced = disposalLines.length > 0
+  if (disposalPriced) {
+    disposalLines.push({
+      label: 'Total',
+      ex: disposalPrices.total_ex,
+      inc: disposalPrices.total_inc,
+      strong: true,
+    })
+  }
+
+  return {
+    survey: {
+      heading: 'Survey',
+      reference: surveyReference,
+      detail: surveyDetail,
+      gst_mode: 'exclusive',
+      lines: surveyLines,
+      empty: surveyPriced ? null : 'No survey price yet.',
+    },
+    quotes: quoteBlocks,
+    disposal: {
+      heading: 'Contents disposal',
+      reference: documentReference(latestDisposalDocument(documents), ''),
+      detail: '',
+      gst_mode: 'exclusive',
+      lines: disposalLines,
+      empty: disposalPriced ? null : 'No disposal price yet.',
+    },
+  }
 }
 
 export function disposalTotals(capture: DisposalManifestCapture | null | undefined): { ex: number; inc: number } {
