@@ -1076,6 +1076,7 @@ export interface AssessmentData {
       height_m: number | null
       legs: { id: string; turn: 'left' | 'right'; length_m: number | null }[]
     }[]
+    price_per_m2: number | null
   }
   /** Statement of Accounts — deposit taken against the quote, before the balance is worked out. */
   statement_of_accounts?: {

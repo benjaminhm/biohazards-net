@@ -17,6 +17,7 @@ export interface HouseSurveyArea {
 
 export interface HouseSurveyCapture {
   areas: HouseSurveyArea[]
+  price_per_m2: number | null
 }
 
 export interface SurveyPoint {
@@ -53,7 +54,7 @@ export function newHouseSurveyArea(): HouseSurveyArea {
 }
 
 export function emptyHouseSurvey(): HouseSurveyCapture {
-  return { areas: [newHouseSurveyArea()] }
+  return { areas: [newHouseSurveyArea()], price_per_m2: null }
 }
 
 export function newHouseSurveyLeg(turn: HouseSurveyTurn = 'right'): HouseSurveyLeg {
@@ -89,11 +90,14 @@ function normalizeArea(raw: unknown): HouseSurveyArea {
 
 export function normalizeHouseSurvey(raw: unknown): HouseSurveyCapture {
   const o = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {}
+  const price = typeof o.price_per_m2 === 'number' ? o.price_per_m2 : Number(o.price_per_m2)
+  const price_per_m2 = Number.isFinite(price) && price >= 0 ? price : null
   if (Array.isArray(o.areas)) {
     const areas = o.areas.map(normalizeArea)
-    return { areas: areas.length > 0 ? areas : [newHouseSurveyArea()] }
+    return { areas: areas.length > 0 ? areas : [newHouseSurveyArea()], price_per_m2 }
   }
   return {
+    price_per_m2,
     areas: [normalizeArea({
       id: 'area_1',
       title: '',
@@ -102,6 +106,12 @@ export function normalizeHouseSurvey(raw: unknown): HouseSurveyCapture {
       legs: o.legs,
     })],
   }
+}
+
+export function surveyPrice(sqm: number | null, rateEx: number | null): { ex: number | null; inc: number | null } {
+  if (sqm == null || rateEx == null || !Number.isFinite(rateEx) || rateEx < 0) return { ex: null, inc: null }
+  const ex = Math.round(sqm * rateEx * 100) / 100
+  return { ex, inc: Math.round(ex * 1.1 * 100) / 100 }
 }
 
 export function areaSurfaces(trace: HouseSurveyTrace, heightM: number | null): {
@@ -256,6 +266,8 @@ export interface HouseSurveyDocumentArea {
   ceiling: number | null
   walls: number | null
   all: number | null
+  price_ex: number | null
+  price_inc: number | null
   legs: { index: number; turn: HouseSurveyTurn; length_m: number | null }[]
   sketch: SurveySketch | null
 }
@@ -264,8 +276,16 @@ export interface HouseSurveyDocumentContent {
   title: string
   reference: string
   site_address: string
+  price_per_m2: number | null
   areas: HouseSurveyDocumentArea[]
-  totals: { floor: number | null; ceiling: number | null; walls: number | null; all: number | null }
+  totals: {
+    floor: number | null
+    ceiling: number | null
+    walls: number | null
+    all: number | null
+    price_ex: number | null
+    price_inc: number | null
+  }
 }
 
 export function houseSurveyDocument(siteAddress: string, reference: string, raw: unknown): HouseSurveyDocumentContent {
@@ -273,6 +293,7 @@ export function houseSurveyDocument(siteAddress: string, reference: string, raw:
   const areas = survey.areas.map((area, index) => {
     const trace = traceHouseSurvey(area.legs)
     const surfaces = areaSurfaces(trace, area.height_m)
+    const price = surveyPrice(surfaces.all, survey.price_per_m2)
     return {
       title: area.title.trim() || `Area ${index + 1}`,
       description: area.description.trim(),
@@ -284,6 +305,8 @@ export function houseSurveyDocument(siteAddress: string, reference: string, raw:
       ceiling: surfaces.ceiling,
       walls: surfaces.walls,
       all: surfaces.all,
+      price_ex: price.ex,
+      price_inc: price.inc,
       legs: area.legs.map((leg, legIndex) => ({
         index: legIndex + 1,
         turn: leg.turn,
@@ -297,11 +320,21 @@ export function houseSurveyDocument(siteAddress: string, reference: string, raw:
     if (values.every(value => value == null)) return null
     return Math.round(values.reduce<number>((sum, value) => sum + (value ?? 0), 0) * 100) / 100
   }
+  const all = total('all')
+  const price = surveyPrice(all, survey.price_per_m2)
   return {
     title: 'House Survey',
     reference,
     site_address: siteAddress,
+    price_per_m2: survey.price_per_m2,
     areas,
-    totals: { floor: total('floor'), ceiling: total('ceiling'), walls: total('walls'), all: total('all') },
+    totals: {
+      floor: total('floor'),
+      ceiling: total('ceiling'),
+      walls: total('walls'),
+      all,
+      price_ex: price.ex,
+      price_inc: price.inc,
+    },
   }
 }

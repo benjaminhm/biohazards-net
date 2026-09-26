@@ -2680,39 +2680,53 @@ function surveyPlanSvg(sketch: SurveySketch | null): string {
   return `<svg viewBox="0 0 ${sketch.width} ${sketch.height}" width="240" height="165" style="display:block;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px"><circle cx="${sketch.start.x}" cy="${sketch.start.y}" r="4" fill="#16a34a" />${lines}</svg>`
 }
 
+function surveyWalls(area: { perimeter: number; height_m: number | null; walls: number | null }): string {
+  if (area.walls == null) return '—'
+  if (area.perimeter > 0 && area.height_m != null && area.height_m > 0) {
+    return esc(`${area.perimeter} m × ${area.height_m} m = ${area.walls} m²`)
+  }
+  return esc(`${area.walls} m²`)
+}
+
 function buildHouseSurveyMid(c: HouseSurveyDocumentContent): string {
   const areas = Array.isArray(c.areas) ? c.areas : []
+  const rate = c.price_per_m2 != null ? `<p class="body-text">Price per m² ${esc(formatAud(c.price_per_m2))} ex GST.</p>` : ''
   const blocks = areas.map(area => {
     return `
       <div class="sow-sec">
         <div class="sow-sec-title">${esc(area.title)}</div>
         ${surveyPlanSvg(area.sketch)}
         <table style="margin-top:8px">
-          <thead><tr><th class="r">Floor</th><th class="r">Ceiling</th><th class="r">Walls</th></tr></thead>
+          <thead><tr><th class="r">Floor</th><th class="r">Ceiling</th><th class="r">Walls</th><th class="r">Ex GST</th><th class="r">Inc GST</th></tr></thead>
           <tbody><tr>
             <td class="r">${surveyMeasure(area.floor, 'm²')}</td>
             <td class="r">${surveyMeasure(area.ceiling, 'm²')}</td>
-            <td class="r">${surveyMeasure(area.walls, 'm²')}</td>
+            <td class="r">${surveyWalls(area)}</td>
+            <td class="r">${area.price_ex == null ? '—' : esc(formatAud(area.price_ex))}</td>
+            <td class="r">${area.price_inc == null ? '—' : esc(formatAud(area.price_inc))}</td>
           </tr></tbody>
         </table>
       </div>`
   }).join('')
-  const totals = c.totals ?? { floor: null, ceiling: null, walls: null, all: null }
+  const totals = c.totals ?? { floor: null, ceiling: null, walls: null, all: null, price_ex: null, price_inc: null }
   return `
     <p class="body-text">Property: ${esc(c.site_address || '—')}</p>
+    ${rate}
     ${blocks || '<p class="body-text">No areas surveyed yet.</p>'}
     <div class="sow-sec">
       <div class="sow-sec-title">All areas</div>
       <table>
-        <thead><tr><th class="r">Floor</th><th class="r">Ceiling</th><th class="r">Walls</th><th class="r">All surfaces</th></tr></thead>
+        <thead><tr><th class="r">Floor</th><th class="r">Ceiling</th><th class="r">Walls</th><th class="r">All surfaces</th><th class="r">Ex GST</th><th class="r">Inc GST</th></tr></thead>
         <tbody><tr>
           <td class="r">${surveyMeasure(totals.floor, 'm²')}</td>
           <td class="r">${surveyMeasure(totals.ceiling, 'm²')}</td>
           <td class="r">${surveyMeasure(totals.walls, 'm²')}</td>
           <td class="r"><strong>${surveyMeasure(totals.all, 'm²')}</strong></td>
+          <td class="r"><strong>${totals.price_ex == null ? '—' : esc(formatAud(totals.price_ex))}</strong></td>
+          <td class="r"><strong>${totals.price_inc == null ? '—' : esc(formatAud(totals.price_inc))}</strong></td>
         </tr></tbody>
       </table>
-      <p class="body-text">Floor, ceiling, and walls for the whole house. Wall area includes doorways.</p>
+      <p class="body-text">Walls are the walk length times the room height. The price is that area’s floor, ceiling, and walls at the rate per m². GST is 10%.</p>
     </div>
   `
 }

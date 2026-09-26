@@ -12,6 +12,7 @@ import {
   surveySketchPath,
   traceHouseSurvey,
   areaSurfaces,
+  surveyPrice,
   metresToSketch,
   nearestPointOnSurvey,
   sketchToMetres,
@@ -612,7 +613,25 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
         ))}
       </div>
       <section style={{ marginTop: 20, border: '1px solid var(--border)', borderRadius: 12, background: 'var(--surface)', overflow: 'auto' }}>
-        <div style={{ padding: '12px 14px', fontWeight: 800 }}>Summary</div>
+        <div style={{ padding: '12px 14px', display: 'grid', gap: 8 }}>
+          <div style={{ fontWeight: 800 }}>Summary</div>
+          <div style={{ maxWidth: 280 }}>
+            <label style={LABEL}>Price per m² (ex GST) ($)</label>
+            <input
+              type="number"
+              min={0}
+              step="0.01"
+              value={survey.price_per_m2 ?? ''}
+              onChange={e => {
+                const raw = e.target.value
+                setSurvey(prev => ({ ...prev, price_per_m2: raw === '' ? null : Number(raw) }))
+                setSavedFlash(false)
+              }}
+              placeholder="0.00"
+              style={INPUT}
+            />
+          </div>
+        </div>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
           <thead>
             <tr style={{ color: 'var(--text-muted)', textAlign: 'right' }}>
@@ -660,6 +679,20 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
               if (values.every(value => value == null)) return '—'
               const total = Math.round(values.reduce<number>((sum, value) => sum + (value ?? 0), 0) * 100) / 100
               return `${total} m²`
+            })()}
+          </span>
+        </div>
+        <div style={{ padding: '0 14px 12px', display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+          <span>Price, ex GST / inc GST</span>
+          <span>
+            {(() => {
+              const values = plans.map(({ area, trace }) => areaSurfaces(trace, area.height_m).all)
+              const sqm = values.every(value => value == null)
+                ? null
+                : Math.round(values.reduce<number>((sum, value) => sum + (value ?? 0), 0) * 100) / 100
+              const price = surveyPrice(sqm, survey.price_per_m2)
+              if (price.ex == null || price.inc == null) return '—'
+              return `$${price.ex.toFixed(2)} / $${price.inc.toFixed(2)}`
             })()}
           </span>
         </div>
