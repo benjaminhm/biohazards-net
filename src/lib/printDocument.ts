@@ -30,6 +30,7 @@ import type {
   PostRemediationEvaluationContent, PreScopeLineResolved,
 } from './types'
 import { DOC_TYPE_LABELS } from './types'
+import type { HouseSurveyDocumentContent, SurveySketch } from './houseSurvey'
 import { filterGroupedStages, groupPhotosByRoomAndStage, isQuoteAppendixPhoto, type RoomPhotoGroup } from './photoGroups'
 import { photosForComposedReports } from '@/lib/photosForComposedReports'
 import { docketStatusLabel, dimensionTrioToMetres, formatAud, formatDistanceLegs, formatKg, formatM3 } from '@/lib/disposalManifest'
@@ -2667,6 +2668,68 @@ function buildStatementMid(c: StatementOfAccountsContent): string {
   `
 }
 
+function surveyMeasure(value: number | null, unit: string): string {
+  return value == null ? '—' : esc(`${value} ${unit}`)
+}
+
+function surveyPlanSvg(sketch: SurveySketch | null): string {
+  if (!sketch) return '<p class="body-text">No closed walls to draw yet.</p>'
+  const lines = sketch.lines.map(line =>
+    `<line x1="${line.x1}" y1="${line.y1}" x2="${line.x2}" y2="${line.y2}" stroke="#1e3a5f" stroke-width="2" stroke-linecap="round" />`,
+  ).join('')
+  return `<svg viewBox="0 0 ${sketch.width} ${sketch.height}" width="240" height="165" style="display:block;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px"><circle cx="${sketch.start.x}" cy="${sketch.start.y}" r="4" fill="#16a34a" />${lines}</svg>`
+}
+
+function buildHouseSurveyMid(c: HouseSurveyDocumentContent): string {
+  const areas = Array.isArray(c.areas) ? c.areas : []
+  const blocks = areas.map(area => {
+    const walls = (area.legs ?? []).map(leg =>
+      `<tr><td>Wall ${leg.index}</td><td>${esc(leg.turn === 'left' ? 'Left' : 'Right')}</td><td class="r">${leg.length_m == null ? '—' : esc(`${leg.length_m} m`)}</td></tr>`,
+    ).join('')
+    return `
+      <div class="sow-sec">
+        <div class="sow-sec-title">${esc(area.title)}</div>
+        ${area.description ? `<p class="body-text">${esc(area.description)}</p>` : ''}
+        ${area.start_note ? `<p class="body-text">Started at ${esc(area.start_note)}.</p>` : ''}
+        <p class="body-text">${area.closed ? 'Closed walk.' : 'Open walk.'} Perimeter ${esc(String(area.perimeter))} m.</p>
+        ${surveyPlanSvg(area.sketch)}
+        <table style="margin-top:8px">
+          <thead><tr><th>Height</th><th class="r">Floor</th><th class="r">Ceiling</th><th class="r">Walls</th><th class="r">All surfaces</th></tr></thead>
+          <tbody><tr>
+            <td>${surveyMeasure(area.height_m, 'm')}</td>
+            <td class="r">${surveyMeasure(area.floor, 'm²')}</td>
+            <td class="r">${surveyMeasure(area.ceiling, 'm²')}</td>
+            <td class="r">${surveyMeasure(area.walls, 'm²')}</td>
+            <td class="r">${surveyMeasure(area.all, 'm²')}</td>
+          </tr></tbody>
+        </table>
+        ${walls ? `<table><thead><tr><th>Wall</th><th>Turn</th><th class="r">Length</th></tr></thead><tbody>${walls}</tbody></table>` : ''}
+      </div>`
+  }).join('')
+  const totals = c.totals ?? { floor: null, ceiling: null, walls: null, all: null }
+  return `
+    <p class="body-text">Property: ${esc(c.site_address || '—')}</p>
+    ${blocks || '<p class="body-text">No areas surveyed yet.</p>'}
+    <div class="sow-sec">
+      <div class="sow-sec-title">All areas</div>
+      <table>
+        <thead><tr><th class="r">Floor</th><th class="r">Ceiling</th><th class="r">Walls</th><th class="r">All surfaces</th></tr></thead>
+        <tbody><tr>
+          <td class="r">${surveyMeasure(totals.floor, 'm²')}</td>
+          <td class="r">${surveyMeasure(totals.ceiling, 'm²')}</td>
+          <td class="r">${surveyMeasure(totals.walls, 'm²')}</td>
+          <td class="r"><strong>${surveyMeasure(totals.all, 'm²')}</strong></td>
+        </tr></tbody>
+      </table>
+      <p class="body-text">Wall area is the full face of the walls, including doorways. Ceiling matches the floor once a walk closes.</p>
+    </div>
+  `
+}
+
+function buildHouseSurveyHTML(c: HouseSurveyDocumentContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
+  return wrapBranded(buildHouseSurveyMid(c), c.title || 'House Survey', c.title || 'House Survey', c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
+}
+
 function buildStatementHTML(c: StatementOfAccountsContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
   const mid = buildStatementMid(c)
   return wrapBranded(mid, c.title || 'Statement of Accounts', c.title || 'Statement of Accounts', c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
@@ -2976,6 +3039,8 @@ export function buildPrintMidHTML(
       return buildWDMMid(c as unknown as WasteDisposalManifestContent)
     case 'statement_of_accounts':
       return buildStatementMid(c as unknown as StatementOfAccountsContent)
+    case 'house_survey':
+      return buildHouseSurveyMid(c as unknown as HouseSurveyDocumentContent)
     case 'jsa':
       return buildJSAMid(c as unknown as JSAContent)
     case 'nda':
@@ -3074,6 +3139,7 @@ export function buildPrintHTML(
     case 'certificate_of_decontamination': return buildCODHTML(c as unknown as CertificateOfDecontaminationContent, company, client, screenActionBar)
     case 'waste_disposal_manifest':    return buildWDMHTML(c as unknown as WasteDisposalManifestContent, company, client, screenActionBar)
     case 'statement_of_accounts':      return buildStatementHTML(c as unknown as StatementOfAccountsContent, company, client, screenActionBar)
+    case 'house_survey':               return buildHouseSurveyHTML(c as unknown as HouseSurveyDocumentContent, company, client, screenActionBar)
     case 'jsa':                        return buildJSAHTML(c as unknown as JSAContent, company, client, screenActionBar)
     case 'nda':                        return buildNDAHTML(c as unknown as NDAContent, company, client, screenActionBar)
     case 'risk_assessment':            return buildRAHTML(c as unknown as RiskAssessmentContent, company, client, screenActionBar)

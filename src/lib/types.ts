@@ -52,6 +52,7 @@ export type DocType =
   | 'certificate_of_decontamination'
   | 'waste_disposal_manifest'
   | 'statement_of_accounts'
+  | 'house_survey'
   | 'jsa'
   | 'nda'
   | 'risk_assessment'
@@ -69,6 +70,7 @@ export const DOC_TYPE_LABELS: Record<DocType, string> = {
   certificate_of_decontamination: 'Certificate of Decontamination',
   waste_disposal_manifest:    'Contents Disposal Record',
   statement_of_accounts:      'Statement of Accounts',
+  house_survey:               'House Survey',
   jsa:                        'Job Safety Analysis',
   nda:                        'Non-Disclosure Agreement',
   risk_assessment:            'Risk Assessment',
@@ -115,7 +117,7 @@ export const DOC_TYPE_GROUPS: DocTypeGroup[] = [
   {
     id: 'onsite_assessment',
     label: '2. Onsite Assessment',
-    types: ['assessment_document'],
+    types: ['assessment_document', 'house_survey'],
   },
   {
     id: 'scope_of_work',

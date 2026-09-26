@@ -244,3 +244,64 @@ export function nearestPointOnSurvey(trace: HouseSurveyTrace, point: SurveyPoint
 export function surveyPointDistance(a: SurveyPoint, b: SurveyPoint): number {
   return Math.round(Math.hypot(a.x - b.x, a.y - b.y) * 100) / 100
 }
+
+export interface HouseSurveyDocumentArea {
+  title: string
+  description: string
+  start_note: string
+  height_m: number | null
+  closed: boolean
+  perimeter: number
+  floor: number | null
+  ceiling: number | null
+  walls: number | null
+  all: number | null
+  legs: { index: number; turn: HouseSurveyTurn; length_m: number | null }[]
+  sketch: SurveySketch | null
+}
+
+export interface HouseSurveyDocumentContent {
+  title: string
+  reference: string
+  site_address: string
+  areas: HouseSurveyDocumentArea[]
+  totals: { floor: number | null; ceiling: number | null; walls: number | null; all: number | null }
+}
+
+export function houseSurveyDocument(siteAddress: string, reference: string, raw: unknown): HouseSurveyDocumentContent {
+  const survey = normalizeHouseSurvey(raw)
+  const areas = survey.areas.map((area, index) => {
+    const trace = traceHouseSurvey(area.legs)
+    const surfaces = areaSurfaces(trace, area.height_m)
+    return {
+      title: area.title.trim() || `Area ${index + 1}`,
+      description: area.description.trim(),
+      start_note: area.start_note.trim(),
+      height_m: area.height_m,
+      closed: trace.closed,
+      perimeter: trace.perimeter,
+      floor: surfaces.floor,
+      ceiling: surfaces.ceiling,
+      walls: surfaces.walls,
+      all: surfaces.all,
+      legs: area.legs.map((leg, legIndex) => ({
+        index: legIndex + 1,
+        turn: leg.turn,
+        length_m: leg.length_m,
+      })),
+      sketch: surveySketchPath(trace),
+    }
+  })
+  const total = (key: 'floor' | 'ceiling' | 'walls' | 'all') => {
+    const values = areas.map(area => area[key])
+    if (values.every(value => value == null)) return null
+    return Math.round(values.reduce<number>((sum, value) => sum + (value ?? 0), 0) * 100) / 100
+  }
+  return {
+    title: 'House Survey',
+    reference,
+    site_address: siteAddress,
+    areas,
+    totals: { floor: total('floor'), ceiling: total('ceiling'), walls: total('walls'), all: total('all') },
+  }
+}

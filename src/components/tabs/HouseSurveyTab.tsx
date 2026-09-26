@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useRouter } from 'next/navigation'
 import type { Job } from '@/lib/types'
 import { mergeAssessmentData } from '@/lib/riskDerivation'
 import { useRegisterUnsavedChanges } from '@/lib/unsavedChangesContext'
@@ -51,6 +52,7 @@ function sameSurvey(a: HouseSurveyCapture, b: HouseSurveyCapture): boolean {
 }
 
 export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
+  const router = useRouter()
   const saved = useMemo(
     () => normalizeHouseSurvey(job.assessment_data?.house_survey),
     [job.assessment_data?.house_survey],
@@ -674,6 +676,18 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
         style={{ width: '100%', marginTop: 16, padding: 12, fontWeight: 700 }}
       >
         Start a new area
+      </button>
+      <button
+        type="button"
+        className="btn btn-secondary"
+        onClick={() => {
+          void save(survey).then(ok => {
+            if (ok) router.push(`/jobs/${job.id}/docs/house_survey?compose=1`)
+          })
+        }}
+        style={{ width: '100%', marginTop: 8, padding: 12, fontWeight: 700 }}
+      >
+        Generate document
       </button>
       {measureAreaId && (() => {
         const plan = plans.find(item => item.area.id === measureAreaId)

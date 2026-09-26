@@ -65,6 +65,7 @@ import {
   vehicleTypeLabel,
   vehicleVolumeM3,
 } from '@/lib/disposalManifest'
+import { houseSurveyDocument } from '@/lib/houseSurvey'
 import { collectExcludedSurfaces } from '@/lib/areaSurfaces'
 import { effectiveAreaDimensions } from '@/lib/areaSubzones'
 import {
@@ -129,6 +130,7 @@ function refPrefix(type: DocType, jobId: string): string {
     sow: 'SOW',
     quote: 'QUO',
     statement_of_accounts: 'SOA',
+    house_survey: 'SUR',
     report: 'RPT',
     swms: 'SWMS',
     authority_to_proceed: 'ATP',
@@ -1083,6 +1085,13 @@ function composeIaqMulti(
   }
 }
 
+function composeHouseSurvey(job: Job): ComposeDocumentResult {
+  return {
+    content: houseSurveyDocument(job.site_address || '', refPrefix('house_survey', job.id), job.assessment_data?.house_survey) as unknown as Record<string, unknown>,
+    source: 'assessment_capture',
+  }
+}
+
 function composeStatement(job: Job, documents: Document[]): ComposeDocumentResult {
   const figures = statementFromJob(documents, job.assessment_data)
   const capture = normalizeStatementCapture(job.assessment_data?.statement_of_accounts)
@@ -1149,6 +1158,8 @@ export function composeDocumentContent(type: DocType, job: Job, options?: Compos
       return composeWdm(job)
     case 'statement_of_accounts':
       return composeStatement(job, options?.documents ?? [])
+    case 'house_survey':
+      return composeHouseSurvey(job)
     case 'jsa':
       return composeJsa(job, equipment, chems)
     case 'nda':

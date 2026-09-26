@@ -106,7 +106,7 @@ function ref(type: DocType, job: Job): string {
     iaq_multi: 'IAQ',
     quote: 'QTE', sow: 'SOW', assessment_document: 'ASD', swms: 'SWMS', authority_to_proceed: 'ATP',
     engagement_agreement: 'ENG', report: 'RPT', certificate_of_decontamination: 'COD',
-    waste_disposal_manifest: 'CDR', statement_of_accounts: 'SOA', jsa: 'JSA', nda: 'NDA', risk_assessment: 'RA',
+    waste_disposal_manifest: 'CDR', statement_of_accounts: 'SOA', house_survey: 'SUR', jsa: 'JSA', nda: 'NDA', risk_assessment: 'RA',
     company_letter: 'LTR',
   }
   const d = new Date()
@@ -371,6 +371,16 @@ Include realistic items based on the job type and assessment data. This is a cus
   "new_invoice_url": ""
 }
 This document is composed from the saved quote and the contents disposal record. Do not invent amounts.`,
+
+    house_survey: `Return ONLY valid JSON:
+{
+  "title": "House Survey",
+  "reference": "${r}",
+  "site_address": "",
+  "areas": [],
+  "totals": { "floor": null, "ceiling": null, "walls": null, "all": null }
+}
+This document is composed from the saved house survey. Do not invent measurements.`,
 
     jsa: `Return ONLY valid JSON:
 {
