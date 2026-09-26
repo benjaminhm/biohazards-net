@@ -43,7 +43,7 @@ import type { CustomPricingRow, SectionTerms, VolumeDisposalFeeMode, VolumePrici
 /** Matches the navy header when `company` is missing (meta grid used to show "—" while header showed this name). */
 const DEFAULT_PRINT_ORG_NAME = 'Brisbane Biohazard Cleaning'
 import { proseHasPrintableContent, richBodyHtmlForPrint } from '@/lib/richTextPrint'
-import { presentStatementDocument, statementClientLines, statementPhone, type StatementPresentation } from '@/lib/statementOfAccounts'
+import { presentStatementDocument, statementClientLines, statementPhone, StatementReconciliationError, type StatementPresentation } from '@/lib/statementOfAccounts'
 
 // en-AU locale produces comma separators and dollar sign (e.g. $4,500.00)
 const fmtMoney = (n: number) =>
@@ -2734,8 +2734,34 @@ function statementMetaValue(lines: string[]): string {
   return lines.filter(Boolean).map(line => `<div>${esc(line)}</div>`).join('')
 }
 
+function loadStatementView(c: StatementOfAccountsContent): StatementPresentation | string {
+  try {
+    return presentStatementDocument(c)
+  } catch (err) {
+    if (err instanceof StatementReconciliationError) return err.message
+    throw err
+  }
+}
+
+function statementFailureHtml(message: string): string {
+  return `<p class="body-text"><strong>This statement could not be generated.</strong> ${esc(message)}</p>`
+}
+
 function buildStatementHTML(c: StatementOfAccountsContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
-  const view = presentStatementDocument(c)
+  const loaded = loadStatementView(c)
+  if (typeof loaded === 'string') {
+    return wrapBranded(
+      statementFailureHtml(loaded),
+      c.title || 'Statement of Accounts',
+      c.title || 'Statement of Accounts',
+      c.reference,
+      company,
+      client,
+      defaultBrandedMeta(company, client),
+      wrapBrandedPrintOpts(screenActionBar),
+    )
+  }
+  const view = loaded
   const clientName = (client?.client_organization_name || client?.client_name || '').trim()
   const clientLines = statementClientLines(clientName)
   const contactPhone = statementPhone(client?.client_phone || '')
@@ -3174,7 +3200,9 @@ export function buildPrintMidHTML(
       return buildWDMMid(c as unknown as WasteDisposalManifestContent)
     case 'statement_of_accounts': {
       const statement = c as unknown as StatementOfAccountsContent
-      return statementPropertyHtml(statement) + buildStatementMid(presentStatementDocument(statement))
+      const loaded = loadStatementView(statement)
+      if (typeof loaded === 'string') return statementFailureHtml(loaded)
+      return statementPropertyHtml(statement) + buildStatementMid(loaded)
     }
     case 'house_survey':
       return buildHouseSurveyMid(c as unknown as HouseSurveyDocumentContent)

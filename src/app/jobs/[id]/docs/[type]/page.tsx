@@ -13,9 +13,10 @@
 
 import { useEffect, useState, useRef, Suspense } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
-import type { AreaPricingRow, CompanyProfile, CustomPricingRow, DocType, Document, Job, OutcomeQuoteRow, Photo, ProgressNote, ProgressRoomNote, QuoteContent, QuoteLineItemRow, QuotePricingLayout, SectionTerms, VolumeDisposalFeeMode, VolumePricingBlock } from '@/lib/types'
+import type { AreaPricingRow, CompanyProfile, CustomPricingRow, DocType, Document, Job, OutcomeQuoteRow, Photo, ProgressNote, ProgressRoomNote, QuoteContent, QuoteLineItemRow, QuotePricingLayout, SectionTerms, StatementOfAccountsContent, VolumeDisposalFeeMode, VolumePricingBlock } from '@/lib/types'
 import { DOC_TYPE_LABELS } from '@/lib/types'
 import { composeDocumentContent, buildComposedPreviewHtml, type ComposeDocumentOptions } from '@/lib/composeDocument'
+import { presentStatementDocument, StatementReconciliationError } from '@/lib/statementOfAccounts'
 import { mergeQuoteLineItemsIntoDocContent } from '@/lib/quoteLineItemsForDocuments'
 import { applyTradingBrand } from '@/lib/tradingNames'
 
@@ -57,6 +58,7 @@ function DocViewerInner() {
   const [saveErr,          setSaveErr]         = useState('')
   const [isMobile,         setIsMobile]        = useState(false)
   const [composedPreviewHtml, setComposedPreviewHtml] = useState<string | null>(null)
+  const [previewError, setPreviewError] = useState('')
   const lastComposeKeyRef = useRef<string | null>(null)
 
   const docLabel   = DOC_TYPE_LABELS[docType] ?? docType
@@ -296,27 +298,42 @@ function DocViewerInner() {
   useEffect(() => {
     if (!job || !hasContent) {
       setComposedPreviewHtml(null)
+      setPreviewError('')
       return
     }
     const origin = typeof window !== 'undefined' ? window.location.origin : ''
-    setComposedPreviewHtml(
-      buildComposedPreviewHtml(
-        docType,
-        content,
-        photos,
-        job.assessment_data?.areas ?? [],
-        company,
-        jobId,
-        origin,
-        {
-          client_name: job.client_name,
-          client_organization_name: job.client_organization_name,
-          client_email: job.client_email,
-          client_phone: job.client_phone,
-          site_address: job.site_address,
-        },
-      ),
-    )
+    try {
+      if (docType === 'statement_of_accounts') {
+        presentStatementDocument(content as StatementOfAccountsContent)
+      }
+      setComposedPreviewHtml(
+        buildComposedPreviewHtml(
+          docType,
+          content,
+          photos,
+          job.assessment_data?.areas ?? [],
+          company,
+          jobId,
+          origin,
+          {
+            client_name: job.client_name,
+            client_organization_name: job.client_organization_name,
+            client_email: job.client_email,
+            client_phone: job.client_phone,
+            site_address: job.site_address,
+          },
+        ),
+      )
+      setPreviewError('')
+    } catch (err) {
+      if (err instanceof StatementReconciliationError) {
+        setComposedPreviewHtml(null)
+        setPreviewError(err.message)
+        return
+      }
+      setComposedPreviewHtml(null)
+      setPreviewError(err instanceof Error ? err.message : 'This document could not be generated.')
+    }
   }, [job, docType, content, photos, company, jobId, hasContent])
 
   async function save(andOpen = false) {
@@ -358,7 +375,20 @@ function DocViewerInner() {
         minHeight: 0,
       }}
     >
-      {!hasContent ? (
+      {previewError ? (
+        <div style={{ maxWidth: 560, margin: isMobile ? '32px auto' : '56px auto', textAlign: 'center', padding: '0 16px' }}>
+          <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--text)', marginBottom: 8 }}>This statement could not be generated</div>
+          <div style={{ fontSize: 14, lineHeight: 1.5, color: 'var(--text-muted)', marginBottom: 16 }}>{previewError}</div>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => router.push(`/jobs/${jobId}?tab=home&section=statement`)}
+            style={{ padding: '10px 16px', fontWeight: 700 }}
+          >
+            Back to the statement
+          </button>
+        </div>
+      ) : !hasContent ? (
         <div style={{ maxWidth: 560, margin: isMobile ? '32px auto' : '56px auto', textAlign: 'center', color: 'var(--text-muted)', padding: '0 16px' }}>
           <div style={{ fontSize: 40, marginBottom: 12 }}>📄</div>
           <div style={{ fontWeight: 600, fontSize: 15, color: 'var(--text)', marginBottom: 8 }}>No document content</div>

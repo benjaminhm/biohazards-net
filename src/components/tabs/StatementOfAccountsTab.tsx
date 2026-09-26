@@ -226,6 +226,10 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
   }
 
   async function saveAndCompose() {
+    if (capture.invoice1_adjusted_amount != null && !capture.adjustment_reason.trim()) {
+      setSaveError('Enter why invoice 1 changed. The statement needs that reason before it can be generated.')
+      return
+    }
     const ok = await save()
     if (ok) router.push(`/jobs/${job.id}/docs/statement_of_accounts?compose=1`)
   }

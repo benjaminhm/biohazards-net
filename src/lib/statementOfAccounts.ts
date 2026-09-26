@@ -757,7 +757,7 @@ export function presentStatementDocument(c: StatementOfAccountsContent): Stateme
   if (credit > 0.004 || increase > 0.004) {
     const reason = (c.adjustment_reason ?? '').trim()
     if (!reason) {
-      throw new StatementReconciliationError('An adjustment is on this statement, but no reason was entered.')
+      throw new StatementReconciliationError('Enter why invoice 1 changed. The statement needs that reason before it can be generated.')
     }
     const amount = moneyLabel(credit || increase)
     if (credit > 0.004 && hasInvoice2) {
