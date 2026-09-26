@@ -23,7 +23,7 @@ import type {
   DocType, Photo, PhotoCategory, CompanyProfile, Area,
   QuoteContent, SOWContent, AssessmentDocumentContent, SWMSContent, AuthorityToProceedContent,
   EngagementAgreementContent, ReportContent, CertificateOfDecontaminationContent,
-  WasteDisposalManifestContent, StatementOfAccountsContent, StatementLedgerLine, JSAContent, NDAContent, RiskAssessmentContent,
+  WasteDisposalManifestContent, StatementOfAccountsContent, JSAContent, NDAContent, RiskAssessmentContent,
   WasteDisposalManifestVehicleSnapshot,
   WorkStep, RiskRow, WasteItem, OutcomeQuoteRow,
   PathophysiologyRow,
@@ -43,6 +43,7 @@ import type { CustomPricingRow, SectionTerms, VolumeDisposalFeeMode, VolumePrici
 /** Matches the navy header when `company` is missing (meta grid used to show "—" while header showed this name). */
 const DEFAULT_PRINT_ORG_NAME = 'Brisbane Biohazard Cleaning'
 import { proseHasPrintableContent, richBodyHtmlForPrint } from '@/lib/richTextPrint'
+import { presentStatementDocument, statementClientLines, statementPhone, type StatementPresentation } from '@/lib/statementOfAccounts'
 
 // en-AU locale produces comma separators and dollar sign (e.g. $4,500.00)
 const fmtMoney = (n: number) =>
@@ -154,6 +155,60 @@ function cssSowPrint(): string {
     .sow-root .sow-meta-cell:last-child { border-right: none; }
     .sow-root .sow-meta-label { font-size: 7pt; text-transform: uppercase; letter-spacing: 1px; color: var(--sow-muted); margin-bottom: 3px; }
     .sow-root .sow-meta-value { font-size: 9pt; font-weight: 500; color: var(--sow-navy); word-break: break-word; }
+    .sow-root.soa-doc .sow-meta { grid-template-columns: 1fr 1fr; }
+    .sow-root.soa-doc .sow-meta-value,
+    .sow-root.soa-doc .soa-email,
+    .sow-root.soa-doc .soa-phone {
+      word-break: normal;
+      overflow-wrap: normal;
+      white-space: normal;
+    }
+    .sow-root.soa-doc .soa-email { display: block; }
+    .sow-root.soa-doc .soa-summary {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1.15fr;
+      gap: 12px;
+      margin: 0 0 8px;
+      padding: 14px 16px;
+      background: var(--sow-blue-xs);
+      border: 1px solid var(--sow-rule);
+    }
+    .sow-root.soa-doc .soa-summary-label {
+      font-size: 8pt;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      color: var(--sow-muted);
+      margin-bottom: 4px;
+    }
+    .sow-root.soa-doc .soa-summary-num { font-size: 14pt; font-weight: 700; color: var(--sow-navy); letter-spacing: 0; }
+    .sow-root.soa-doc .soa-summary-due .soa-summary-num { font-size: 18pt; }
+    .sow-root.soa-doc .soa-gst { font-size: 9pt; color: var(--sow-mid); margin: 0 0 16px; }
+    .sow-root.soa-doc tr.soa-balance td { border-top: 2px solid var(--sow-navy); font-weight: 700; }
+    .sow-root.soa-doc .soa-inv-title {
+      font-size: 11pt;
+      font-weight: 700;
+      letter-spacing: 0;
+      text-transform: none;
+      color: var(--sow-navy);
+      margin: 16px 0 6px;
+    }
+    .sow-root.soa-doc .label { letter-spacing: 0.02em; }
+    .sow-root.soa-doc .soa-pay {
+      display: inline-block;
+      margin: 4px 0 12px;
+      padding: 8px 14px;
+      background: var(--sow-navy);
+      color: #fff;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 10pt;
+      letter-spacing: 0;
+      border-radius: 6px;
+    }
+    .sow-root.soa-doc .soa-note { margin-top: 8px; }
+    .sow-root.soa-doc .sow-foot { flex-wrap: wrap; }
+    .sow-root.soa-doc .soa-foot-note { flex: 1 0 100%; margin-bottom: 6px; font-size: 8.5pt; letter-spacing: 0; color: #e8eef6; }
     .sow-root .sow-summary {
       background: var(--sow-blue-lt);
       border-left: 3px solid var(--sow-blue);
@@ -852,6 +907,14 @@ interface WrapBrandedPrintOptions {
   bundlePartCount?: number
   /** When false, omit the screen-only action bar (e.g. in-app preview iframe). Default true. */
   screenActionBar?: boolean
+  /** Extra class on the document root, e.g. statement-specific layout. */
+  rootClass?: string
+  /** Inserted after the document title and before the client grid. */
+  afterTitleHtml?: string
+  /** Replaces the four-cell meta grid. */
+  metaHtml?: string
+  /** Line above the confidential footer. */
+  footerNote?: string
 }
 
 function pdfSaveTitle(reference: string, clientName: string | undefined, fallback: string): string {
@@ -888,7 +951,16 @@ function wrapBranded(
     printOptions?.composedBundle && bundleParts > 0
       ? `${esc(reference)} · ${bundleParts} part${bundleParts === 1 ? '' : 's'}`
       : `${esc(reference)} · Page 1 of 1`
-  const rootClass = printOptions?.composedBundle ? 'sow-root sow-root--composed-bundle' : 'sow-root'
+  const rootClass = ['sow-root', printOptions?.composedBundle ? 'sow-root--composed-bundle' : '', printOptions?.rootClass ?? '']
+    .filter(Boolean)
+    .join(' ')
+  const metaHtml = printOptions?.metaHtml ?? `
+        <div class="sow-meta">
+          <div class="sow-meta-cell"><div class="sow-meta-label">${esc(meta.leftTitle)}</div><div class="sow-meta-value">${esc(meta.leftValue)}</div></div>
+          <div class="sow-meta-cell"><div class="sow-meta-label">${esc(meta.leftSubTitle)}</div><div class="sow-meta-value">${esc(meta.leftSubValue)}</div></div>
+          <div class="sow-meta-cell"><div class="sow-meta-label">${esc(meta.rightTitle)}</div><div class="sow-meta-value">${esc(meta.rightValue)}</div></div>
+          <div class="sow-meta-cell"><div class="sow-meta-label">${esc(meta.rightSubTitle)}</div><div class="sow-meta-value">${esc(meta.rightSubValue)}</div></div>
+        </div>`
   return wrapSow(`
   <div class="${rootClass}">
     <div class="sow-sheet">
@@ -907,15 +979,12 @@ function wrapBranded(
       </header>
       <div class="sow-mid">
         <div class="sow-doc-title">${esc(documentHeading)}</div>
-        <div class="sow-meta">
-          <div class="sow-meta-cell"><div class="sow-meta-label">${esc(meta.leftTitle)}</div><div class="sow-meta-value">${esc(meta.leftValue)}</div></div>
-          <div class="sow-meta-cell"><div class="sow-meta-label">${esc(meta.leftSubTitle)}</div><div class="sow-meta-value">${esc(meta.leftSubValue)}</div></div>
-          <div class="sow-meta-cell"><div class="sow-meta-label">${esc(meta.rightTitle)}</div><div class="sow-meta-value">${esc(meta.rightValue)}</div></div>
-          <div class="sow-meta-cell"><div class="sow-meta-label">${esc(meta.rightSubTitle)}</div><div class="sow-meta-value">${esc(meta.rightSubValue)}</div></div>
-        </div>
+        ${printOptions?.afterTitleHtml ?? ''}
+        ${metaHtml}
         ${midBodyHtml}
       </div>
       <footer class="sow-foot">
+        ${printOptions?.footerNote ? `<span class="soa-foot-note">${printOptions.footerNote}</span>` : ''}
         <span>${esc(coName)} — Confidential</span>
         <span>${footerRef}</span>
       </footer>
@@ -2603,147 +2672,100 @@ function buildWDMMid(c: WasteDisposalManifestContent): string {
   `
 }
 
-function buildStatementMid(c: StatementOfAccountsContent): string {
-  const money = (n: number) => esc(fmtMoney(n))
-  const chargesGst = c.gst_mode !== 'no_gst'
-  const quoteInc = chargesGst ? c.quote_inc : c.quote_ex
-  const depositInc = c.deposit_taken ? c.deposit_entered : 0
-  const depositEx = c.deposit_taken ? c.deposit_ex : 0
-  const originalOwingEx = c.original_owing_ex ?? Math.round((c.quote_ex - depositEx) * 100) / 100
-  const originalOwingInc = c.original_owing_inc ?? Math.round((quoteInc - depositInc) * 100) / 100
-  const newEx = c.new_invoice_ex ?? c.disposal
-  const newInc = c.new_invoice_inc ?? (chargesGst ? Math.round(c.disposal * 1.1 * 100) / 100 : c.disposal)
-  const remeasured = c.remeasured === true && c.invoice1_revised_inc != null
-  const remeasureInc = c.remeasure_inc ?? 0
-  const remeasureEx = c.remeasure_ex ?? 0
-  const invoice2OwingEx = c.invoice2_owing_ex ?? newEx
-  const invoice2OwingInc = c.invoice2_owing_inc ?? newInc
-  const priceFell = remeasureInc >= 0
-  const originalLabel = c.original_invoice_number
-    ? `Still to come on invoice 1 (${c.original_invoice_number})`
-    : 'Still to come on invoice 1'
-  const newOwingLabel = c.new_invoice_number
-    ? `Owing on invoice 2 (${c.new_invoice_number})`
-    : 'Owing on invoice 2'
-  const legacyOriginalLabel = c.original_invoice_number
-    ? `Owing on the original invoice (${c.original_invoice_number})`
-    : 'Owing on the original invoice'
-  const legacyNewLabel = c.new_invoice_number
-    ? `Owing on the new invoice (${c.new_invoice_number})`
-    : 'Owing on the new invoice'
-  const row = (label: string, before: number, amount: number, strong = false) => {
-    const weight = strong ? ' style="font-weight:700"' : ''
-    const beforeCell = chargesGst ? `<td class="r"${weight}>${money(before)}</td>` : ''
-    return `<tr><td${weight}>${esc(label)}</td>${beforeCell}<td class="r"${weight}>${money(amount)}</td></tr>`
-  }
-  const urlCell = (url: string) => {
-    const href = (url || '').trim()
-    if (!/^https?:\/\//i.test(href)) return '—'
-    return `<a href="${esc(href)}">${esc(href)}</a>`
-  }
-  const credit = c.owing_inc < 0 ? `<p class="body-text">This balance is a credit.</p>` : ''
-  const beforeHead = chargesGst ? `<th class="r">Before GST</th>` : ''
-  const meta = `
+function statementMoney(n: number): string {
+  return esc(fmtMoney(Math.abs(n)))
+}
+
+function statementSummaryHtml(view: StatementPresentation): string {
+  const summary = view.summary
+  const gst = summary.gst != null ? `<p class="soa-gst">Includes GST of ${statementMoney(summary.gst)}</p>` : ''
+  return `
+    <div class="soa-summary">
+      <div>
+        <div class="soa-summary-label">Total job value</div>
+        <div class="soa-summary-num">${statementMoney(summary.jobTotalInc)}</div>
+      </div>
+      <div>
+        <div class="soa-summary-label">Paid to date</div>
+        <div class="soa-summary-num">${statementMoney(summary.paidInc)}</div>
+      </div>
+      <div class="soa-summary-due">
+        <div class="soa-summary-label">Balance due</div>
+        <div class="soa-summary-num">${statementMoney(summary.balanceInc)}</div>
+      </div>
+    </div>
+    ${gst}`
+}
+
+function buildStatementMid(view: StatementPresentation, includeSummary = true): string {
+  for (const warning of view.warnings) console.warn(warning)
+  const amountCell = (n: number) => n < -0.004 ? `(${statementMoney(n)})` : statementMoney(n)
+  const blocks = view.invoices.map(invoice => {
+    const amountHead = view.summary.gst != null ? 'Amount (inc GST)' : 'Amount'
+    const rows = invoice.rows.map(row => {
+      const weight = row.strong ? ' style="font-weight:700"' : ''
+      return `<tr class="${row.strong ? 'soa-balance' : ''}"><td${weight}>${esc(row.label)}</td><td class="r"${weight}>${amountCell(row.amountInc)}</td></tr>`
+    }).join('')
+    const pay = invoice.payHref && invoice.payLabel
+      ? `<a class="soa-pay" href="${esc(invoice.payHref)}">${esc(invoice.payLabel)}</a>`
+      : ''
+    return `
+      <div class="soa-inv-title">${esc(invoice.heading)}</div>
+      <table>
+        <thead><tr><th>Item</th><th class="r">${amountHead}</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      ${pay}`
+  }).join('')
+  const note = view.adjustmentNote
+    ? `<p class="body-text soa-note"><strong>Adjustment note.</strong> ${esc(view.adjustmentNote)}</p>`
+    : ''
+  return `${includeSummary ? statementSummaryHtml(view) : ''}${blocks}${note}`
+}
+
+function statementPropertyHtml(c: StatementOfAccountsContent): string {
+  return `
     <p class="body-text"><strong>Property:</strong> ${esc(c.site_address || '—')}</p>
     <p class="body-text"><strong>Quote / estimate:</strong> ${esc(c.quote_reference || '—')}</p>
     <p class="body-text"><strong>Contents disposal record:</strong> ${esc(c.disposal_reference || '—')}</p>`
-  const ledgerLines = c.ledger && Array.isArray(c.lines) ? c.lines : null
-  const carryLabels = new Set([
-    'Overpay carried to the next invoice',
-    'Underpay added to the next invoice',
-    'No change from the adjustment',
-  ])
-  const summaryLabels = new Set(['Job total after adjustments', 'Total remaining owed'])
-  const invoice1Lines: StatementLedgerLine[] = []
-  const invoice2Lines: StatementLedgerLine[] = []
-  const tieLines: StatementLedgerLine[] = []
-  if (ledgerLines) {
-    const hasInvoice2 = ledgerLines.some(line => line.label === 'Invoice 2')
-    let side: 'left' | 'right' = 'left'
-    for (const line of ledgerLines) {
-      const onInvoice2 = line.label === 'Invoice 2'
-        || line.label === 'Invoice 2 is paid'
-        || line.label.startsWith('Overpay on invoice 2')
-        || line.label.startsWith('Underpay. Owing on invoice 2')
-      if (onInvoice2) side = 'right'
-      if (summaryLabels.has(line.label) || (hasInvoice2 && carryLabels.has(line.label))) {
-        tieLines.push(line)
-        continue
-      }
-      if (side === 'right') invoice2Lines.push(line)
-      else invoice1Lines.push(line)
-    }
-  }
-  const lineRows = (lines: StatementLedgerLine[]) => lines.map(line => row(line.label, line.ex, line.inc, line.strong === true)).join('')
-  const moneyTable = (title: string, lines: StatementLedgerLine[]) => `
-    <div class="label">${esc(title)}</div>
-    <table>
-      <thead><tr><th>Item</th>${beforeHead}<th class="r">Amount</th></tr></thead>
-      <tbody>${lineRows(lines)}</tbody>
-    </table>`
-  const payNote = (balance: number, url: string) => {
-    const link = urlCell(url)
-    return `<p class="body-text" style="word-break:break-all"><strong>Pay:</strong> ${money(balance)}${link === '—' ? '' : `<br>${link}`}</p>`
-  }
-  const split = invoice2Lines.length > 0
-    ? `
-    ${moneyTable(`Invoice 1${c.original_invoice_number ? ` ${c.original_invoice_number}` : ''}`, invoice1Lines)}
-    ${payNote(originalOwingInc, c.original_invoice_url)}
-    ${moneyTable(`Invoice 2${c.new_invoice_number ? ` ${c.new_invoice_number}` : ''}`, invoice2Lines)}
-    ${payNote(invoice2OwingInc, c.new_invoice_url)}
-    ${tieLines.length ? moneyTable('Both invoices', tieLines) : ''}
-    ${credit}`
+}
+
+function statementMetaValue(lines: string[]): string {
+  return lines.filter(Boolean).map(line => `<div>${esc(line)}</div>`).join('')
+}
+
+function buildStatementHTML(c: StatementOfAccountsContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
+  const view = presentStatementDocument(c)
+  const clientName = (client?.client_organization_name || client?.client_name || '').trim()
+  const clientLines = statementClientLines(clientName)
+  const contactPhone = statementPhone(client?.client_phone || '')
+  const contactEmail = (client?.client_email || '').trim()
+  const businessPhone = statementPhone(company?.phone || '')
+  const businessEmail = (company?.email || '').trim()
+  const metaHtml = `
+        <div class="sow-meta">
+          <div class="sow-meta-cell"><div class="sow-meta-label">Client</div><div class="sow-meta-value">${statementMetaValue([clientLines.line1 || '—', clientLines.line2])}</div></div>
+          <div class="sow-meta-cell"><div class="sow-meta-label">Client contact</div><div class="sow-meta-value">${contactPhone ? `<div class="soa-phone">${esc(contactPhone)}</div>` : ''}${contactEmail ? `<div class="soa-email">${esc(contactEmail)}</div>` : ''}${!contactPhone && !contactEmail ? '—' : ''}</div></div>
+          <div class="sow-meta-cell"><div class="sow-meta-label">Company</div><div class="sow-meta-value">${esc(company?.name?.trim() || 'Brisbane Biohazard Cleaning')}</div></div>
+          <div class="sow-meta-cell"><div class="sow-meta-label">Business details</div><div class="sow-meta-value">${businessPhone ? `<div class="soa-phone">${esc(businessPhone)}</div>` : ''}${businessEmail ? `<div class="soa-email">${esc(businessEmail)}</div>` : ''}${(company?.address || '').trim() ? `<div>${esc(company?.address?.trim() || '')}</div>` : ''}${!businessPhone && !businessEmail && !(company?.address || '').trim() ? '—' : ''}</div></div>
+        </div>`
+  const property = statementPropertyHtml(c)
+  const questions = businessPhone || businessEmail
+    ? `Questions about this statement? ${businessPhone ? `Call ${esc(businessPhone)}` : ''}${businessPhone && businessEmail ? ' or ' : ''}${businessEmail ? `email ${esc(businessEmail)}` : ''}.`
     : ''
-  const singleBody = ledgerLines
-    ? lineRows(ledgerLines)
-    : remeasured
-      ? `
-        ${row('Invoice 1 was an estimate of', c.quote_ex, quoteInc)}
-        ${row('You paid a deposit of', depositEx, depositInc)}
-        ${row(originalLabel, originalOwingEx, originalOwingInc, true)}
-        ${row('Surfaces measured again. Invoice 1 is now', c.invoice1_revised_ex ?? 0, c.invoice1_revised_inc ?? 0)}
-        ${row(priceFell ? 'Prepaid on invoice 2' : 'Added onto invoice 2', Math.abs(remeasureEx), Math.abs(remeasureInc))}
-        ${row('Contents, invoice 2', newEx, newInc)}
-        ${row(newOwingLabel, invoice2OwingEx, invoice2OwingInc, true)}
-        ${row('Job total after adjustments', c.job_total_ex ?? 0, c.job_total_inc ?? 0, true)}
-        ${row('Total remaining owed', c.owing_ex, c.owing_inc, true)}`
-      : `
-        ${row('This was the original quote', c.quote_ex, quoteInc)}
-        ${row('You paid a deposit of', depositEx, depositInc)}
-        ${row(legacyOriginalLabel, originalOwingEx, originalOwingInc, true)}
-        ${row(legacyNewLabel, newEx, newInc, true)}
-        ${row('Total remaining owed', c.owing_ex, c.owing_inc, true)}`
-  return `
-    ${meta}
-    ${split || `
-    <table>
-      <thead><tr><th>Item</th>${beforeHead}<th class="r">Amount</th></tr></thead>
-      <tbody>${singleBody}</tbody>
-    </table>
-    ${credit}
-    <h3 style="margin:18px 0 8px;font-size:13px">Make a payment</h3>
-    <table>
-      <thead><tr><th>Invoice</th><th class="r">Remaining</th><th>Link</th></tr></thead>
-      <tbody>
-        <tr>
-          <td>Invoice 1${c.original_invoice_number ? ` ${esc(c.original_invoice_number)}` : ''}</td>
-          <td class="r">${money(originalOwingInc)}</td>
-          <td>${urlCell(c.original_invoice_url)}</td>
-        </tr>
-      </tbody>
-    </table>
-    ${c.ledger && c.has_invoice2 === false ? '' : `<table>
-      <thead><tr><th>Invoice</th><th class="r">Before GST</th><th class="r">After GST</th><th>Link</th></tr></thead>
-      <tbody>
-        <tr>
-          <td>Invoice 2${c.new_invoice_number ? ` ${esc(c.new_invoice_number)}` : ''}</td>
-          <td class="r">${money(invoice2OwingEx)}</td>
-          <td class="r">${money(invoice2OwingInc)}</td>
-          <td>${urlCell(c.new_invoice_url)}</td>
-        </tr>
-      </tbody>
-    </table>`}`}
-  `
+  const due = (c.due_date || '').trim() ? `Due ${esc(c.due_date?.trim() || '')}.` : ''
+  const terms = (c.payment_terms || '').trim() ? esc(c.payment_terms?.trim() || '') : ''
+  const footerNote = [questions, due, terms].filter(Boolean).join(' ')
+  return wrapBranded(
+    property + buildStatementMid(view, false),
+    c.title || 'Statement of Accounts',
+    c.title || 'Statement of Accounts',
+    c.reference,
+    company,
+    client,
+    defaultBrandedMeta(company, client),
+    { ...wrapBrandedPrintOpts(screenActionBar), rootClass: 'soa-doc', afterTitleHtml: statementSummaryHtml(view), metaHtml, footerNote },
+  )
 }
 
 function surveyMeasure(value: number | null, unit: string): string {
@@ -2846,11 +2868,6 @@ function buildHouseSurveyMid(c: HouseSurveyDocumentContent): string {
 
 function buildHouseSurveyHTML(c: HouseSurveyDocumentContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
   return wrapBranded(buildHouseSurveyMid(c), c.title || 'House Survey', c.title || 'House Survey', c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
-}
-
-function buildStatementHTML(c: StatementOfAccountsContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
-  const mid = buildStatementMid(c)
-  return wrapBranded(mid, c.title || 'Statement of Accounts', c.title || 'Statement of Accounts', c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
 function buildWDMHTML(c: WasteDisposalManifestContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
@@ -3155,8 +3172,10 @@ export function buildPrintMidHTML(
       return buildCODMid(c as unknown as CertificateOfDecontaminationContent)
     case 'waste_disposal_manifest':
       return buildWDMMid(c as unknown as WasteDisposalManifestContent)
-    case 'statement_of_accounts':
-      return buildStatementMid(c as unknown as StatementOfAccountsContent)
+    case 'statement_of_accounts': {
+      const statement = c as unknown as StatementOfAccountsContent
+      return statementPropertyHtml(statement) + buildStatementMid(presentStatementDocument(statement))
+    }
     case 'house_survey':
       return buildHouseSurveyMid(c as unknown as HouseSurveyDocumentContent)
     case 'jsa':

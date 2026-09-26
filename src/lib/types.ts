@@ -1104,6 +1104,9 @@ export interface AssessmentData {
     invoice2_amount?: number | null
     /** When true, every typed amount on the statement includes GST. */
     charges_gst?: boolean
+    deposit_date?: string
+    /** Required when invoice 1 has been adjusted. Printed on the statement. */
+    adjustment_reason?: string
   }
   /** Job-scoped pathogen / pathophysiology PDF reference library. Used as
    *  grounded biology source by the Assessment Document AI suggester. */
@@ -2089,6 +2092,14 @@ export interface StatementOfAccountsContent {
   original_invoice_url: string
   new_invoice_number: string
   new_invoice_url: string
+  deposit_date?: string
+  adjustment_reason?: string
+  /** Xero AmountDue for invoice 1, when the caller has it. Compared, not fetched. */
+  xero_original_amount_due?: number | null
+  /** Xero AmountDue for invoice 2, when the caller has it. Compared, not fetched. */
+  xero_new_amount_due?: number | null
+  payment_terms?: string
+  due_date?: string
 }
 
 export interface JSAContent {

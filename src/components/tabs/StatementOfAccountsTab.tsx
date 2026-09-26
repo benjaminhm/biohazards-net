@@ -165,6 +165,8 @@ function capturesEqual(a: StatementOfAccountsCapture, b: StatementOfAccountsCapt
     && a.invoice1_amount === b.invoice1_amount
     && a.invoice2_amount === b.invoice2_amount
     && a.charges_gst === b.charges_gst
+    && a.deposit_date === b.deposit_date
+    && a.adjustment_reason === b.adjustment_reason
 }
 
 export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: Props) {
@@ -328,6 +330,13 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
                 placeholder="0.00"
                 style={INPUT}
               />
+              <label style={{ ...LABEL, marginTop: 10 }}>Date received</label>
+              <input
+                type="date"
+                value={capture.deposit_date}
+                onChange={e => patch({ deposit_date: e.target.value })}
+                style={INPUT}
+              />
             </div>
           )}
           <div>
@@ -344,6 +353,18 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
               placeholder="Leave blank if invoice 1 has not changed"
               style={INPUT}
             />
+            {capture.invoice1_adjusted_amount != null && (
+              <div style={{ marginTop: 10 }}>
+                <label style={LABEL}>Why invoice 1 changed</label>
+                <input
+                  type="text"
+                  value={capture.adjustment_reason}
+                  onChange={e => patch({ adjustment_reason: e.target.value })}
+                  placeholder="Required before the statement can be generated"
+                  style={INPUT}
+                />
+              </div>
+            )}
           </div>
           <div>
             <label style={LABEL}>Invoice 2 amount ($)</label>

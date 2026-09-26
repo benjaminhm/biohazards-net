@@ -1133,6 +1133,8 @@ function composeStatement(job: Job, documents: Document[]): ComposeDocumentResul
       original_invoice_url: capture.original_invoice_url,
       new_invoice_number: capture.new_invoice_number,
       new_invoice_url: capture.new_invoice_url,
+      deposit_date: capture.deposit_date,
+      adjustment_reason: capture.adjustment_reason,
     },
     source: 'assessment_capture',
   }

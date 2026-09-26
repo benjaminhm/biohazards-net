@@ -1,4 +1,5 @@
-import type { AssessmentData, DisposalManifestCapture, Document, QuoteGstMode, QuoteSpoke, StatementLedgerLine } from '@/lib/types'
+import type { AssessmentData, DisposalManifestCapture, Document, QuoteGstMode, QuoteSpoke, StatementLedgerLine, StatementOfAccountsContent } from '@/lib/types'
+import { parsePhoneNumberFromString } from 'libphonenumber-js'
 import { disposalPriceLines, formatAud, loadHasContent, mergedDisposalManifestCapture } from '@/lib/disposalManifest'
 import { houseSurveyDocument } from '@/lib/houseSurvey'
 import { getQuoteSpokes } from '@/lib/quoteSpokes'
@@ -30,6 +31,10 @@ export interface StatementOfAccountsCapture {
   invoice2_amount: number | null
   /** Every typed amount includes GST. */
   charges_gst: boolean
+  /** When the deposit was received, shown on the statement as the payment date. */
+  deposit_date: string
+  /** Why invoice 1 was adjusted. Required before an adjusted statement can be generated. */
+  adjustment_reason: string
 }
 
 export interface StatementFigures {
@@ -83,6 +88,8 @@ export function emptyStatementCapture(): StatementOfAccountsCapture {
     invoice1_amount: null,
     invoice2_amount: null,
     charges_gst: true,
+    deposit_date: '',
+    adjustment_reason: '',
   }
 }
 
@@ -102,6 +109,8 @@ export function normalizeStatementCapture(raw: unknown): StatementOfAccountsCapt
     invoice1_amount: moneyOrNull(o.invoice1_amount),
     invoice2_amount: moneyOrNull(o.invoice2_amount),
     charges_gst: o.charges_gst !== false,
+    deposit_date: textField(o.deposit_date),
+    adjustment_reason: textField(o.adjustment_reason),
   }
 }
 
@@ -504,4 +513,279 @@ export function statementFromJob(
   const capture = normalizeStatementCapture(assessment?.statement_of_accounts)
   const figures = statementFigures(capture)
   return { ...figures, reference: documentReference(latestQuoteDocument(documents), '—') }
+}
+
+export class StatementReconciliationError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'StatementReconciliationError'
+  }
+}
+
+export interface StatementLedgerDisplayRow {
+  label: string
+  /** GST-inclusive. Negative rows are deductions and print in brackets. */
+  amountInc: number
+  strong?: boolean
+}
+
+export interface StatementInvoiceBlock {
+  heading: string
+  rows: StatementLedgerDisplayRow[]
+  balanceInc: number
+  payHref: string | null
+  payLabel: string | null
+}
+
+export interface StatementPresentation {
+  summary: {
+    jobTotalInc: number
+    paidInc: number
+    balanceInc: number
+    /** GST included in the job total. Null when the statement does not charge GST. */
+    gst: number | null
+  }
+  invoices: StatementInvoiceBlock[]
+  adjustmentNote: string | null
+  warnings: string[]
+}
+
+function closeMoney(a: number, b: number): boolean {
+  return Math.abs(round2(a) - round2(b)) < 0.02
+}
+
+function moneyLabel(n: number): string {
+  return '$' + round2(n).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+/** Drop tracking parameters so the pay link is the invoice, not a campaign URL. */
+export function statementPayHref(raw: string): string | null {
+  const href = raw.trim()
+  if (!/^https?:\/\//i.test(href)) return null
+  try {
+    const url = new URL(href)
+    for (const key of [...url.searchParams.keys()]) {
+      if (key.toLowerCase().startsWith('utm_')) url.searchParams.delete(key)
+    }
+    return url.toString()
+  } catch {
+    return href
+  }
+}
+
+/** Legal name on the first line, ACN on the second, when the client string includes one. */
+export function statementClientLines(name: string): { line1: string; line2: string } {
+  const trimmed = name.trim()
+  const match = trimmed.match(/\bACN\s*([0-9][0-9\s]*)/i)
+  if (!match || match.index == null) return { line1: trimmed, line2: '' }
+  const line1 = trimmed.slice(0, match.index).replace(/[\s,–—-]+$/, '').trim()
+  const digits = match[1].replace(/\s/g, '')
+  const grouped = digits.length === 9
+    ? `${digits.slice(0, 3)} ${digits.slice(3, 6)} ${digits.slice(6)}`
+    : match[1].trim()
+  return { line1: line1 || trimmed, line2: `ACN ${grouped}` }
+}
+
+function spacedAustralian(nationalNine: string): string {
+  if (/^[2378]/.test(nationalNine)) {
+    return `+61 ${nationalNine[0]} ${nationalNine.slice(1, 5)} ${nationalNine.slice(5)}`
+  }
+  return `+61 ${nationalNine.slice(0, 3)} ${nationalNine.slice(3, 6)} ${nationalNine.slice(6)}`
+}
+
+/** +61404143284 → +61 404 143 284. Unknown numbers are returned trimmed. */
+export function statementPhone(raw: string): string {
+  const trimmed = raw.trim()
+  if (!trimmed) return ''
+  try {
+    const phone = parsePhoneNumberFromString(trimmed, 'AU')
+    if (phone?.isValid()) {
+      const intl = phone.formatInternational()
+      if (intl.includes(' ')) return intl
+    }
+  } catch {
+    /* fall through to a spaced Australian pattern */
+  }
+  const digits = trimmed.replace(/[^\d+]/g, '')
+  const international = digits.match(/^\+?61(\d{9})$/)
+  if (international) return spacedAustralian(international[1])
+  const local = digits.match(/^0(\d{9})$/)
+  if (local) return spacedAustralian(local[1])
+  return trimmed
+}
+
+function paymentDateLabel(raw: string | undefined): string {
+  const value = (raw ?? '').trim()
+  if (!value) return 'Less: payment received'
+  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (!iso) return `Less: payment received ${value}`
+  const date = new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]))
+  if (Number.isNaN(date.getTime())) return `Less: payment received ${value}`
+  return `Less: payment received ${date.toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })}`
+}
+
+function invoiceHeading(number: string, label: string): string {
+  const num = number.trim()
+  return num ? `${num} — ${label}` : label
+}
+
+function balanceLabel(number: string, fallback: string): string {
+  const num = number.trim()
+  return `Balance due on ${num || fallback}`
+}
+
+interface BuiltInvoice {
+  heading: string
+  amountInc: number
+  rows: StatementLedgerDisplayRow[]
+  balanceInc: number
+  payHref: string | null
+}
+
+function buildInvoice(input: {
+  heading: string
+  balanceName: string
+  amountInc: number
+  balanceInc: number
+  deductions: StatementLedgerDisplayRow[]
+  payUrl: string
+}): BuiltInvoice {
+  const signed = input.deductions.reduce((sum, row) => sum + row.amountInc, 0)
+  const computed = round2(input.amountInc + signed)
+  if (!closeMoney(computed, input.balanceInc)) {
+    throw new StatementReconciliationError(
+      `${input.heading} does not reconcile. ${moneyLabel(input.amountInc)} plus the rows shown (${moneyLabel(signed)}) is ${moneyLabel(computed)}, but the balance is ${moneyLabel(input.balanceInc)}.`,
+    )
+  }
+  const balance = round2(input.balanceInc)
+  const payHref = balance > 0.004 ? statementPayHref(input.payUrl) : null
+  return {
+    heading: input.heading,
+    amountInc: round2(input.amountInc),
+    rows: [
+      { label: 'Invoice amount', amountInc: round2(input.amountInc) },
+      ...input.deductions.map(row => ({ ...row, amountInc: round2(row.amountInc) })),
+      { label: balanceLabel(input.balanceName, input.heading), amountInc: balance, strong: true },
+    ],
+    balanceInc: balance,
+    payHref,
+  }
+}
+
+function xeroWarning(number: string, balance: number, xeroDue: number | null | undefined, warnings: string[]) {
+  if (xeroDue == null || !Number.isFinite(xeroDue)) return
+  if (closeMoney(balance, xeroDue)) return
+  const name = number.trim() || 'Invoice'
+  warnings.push(`${name} balance on this statement is ${moneyLabel(balance)}. The Xero invoice amount due is ${moneyLabel(xeroDue)}.`)
+}
+
+/**
+ * Client-facing statement. Calculations stay as typed on the job.
+ * Each invoice balance is its amount plus the signed rows above it, and the
+ * summary balance is the job total minus what has been paid.
+ */
+export function presentStatementDocument(c: StatementOfAccountsContent): StatementPresentation {
+  const chargesGst = c.gst_mode !== 'no_gst'
+  const invoice1Amount = round2(chargesGst ? c.quote_inc : c.quote_ex)
+  const paid = round2(c.deposit_taken ? c.deposit_entered : 0)
+  const hasInvoice2 = c.has_invoice2 === true
+  const invoice2Amount = round2(hasInvoice2 ? (c.new_invoice_inc ?? 0) : 0)
+  const remeasure = round2(c.remeasured ? (c.remeasure_inc ?? 0) : 0)
+  const credit = remeasure > 0.004 ? remeasure : 0
+  const increase = remeasure < -0.004 ? round2(-remeasure) : 0
+  const sourceNumber = c.original_invoice_number?.trim() || 'Invoice 1'
+  const targetNumber = c.new_invoice_number?.trim() || 'Invoice 2'
+  const increaseOnSource = !hasInvoice2 && increase > 0
+  const sourceBalance = round2(hasInvoice2 ? (c.original_owing_inc ?? invoice1Amount - paid) : c.owing_inc)
+  const targetBalance = hasInvoice2 ? round2(c.invoice2_owing_inc ?? invoice2Amount - credit + increase) : 0
+  const creditReflectedOnSource = credit > 0.004 && closeMoney(sourceBalance, round2(invoice1Amount - paid - credit))
+  const jobTotal = round2(c.job_total_inc ?? (hasInvoice2 ? invoice1Amount - credit + increase + invoice2Amount : invoice1Amount - credit + increase))
+  const balance = round2(c.owing_inc)
+  const sourceRows: StatementLedgerDisplayRow[] = []
+  if (paid > 0.004) sourceRows.push({ label: paymentDateLabel(c.deposit_date), amountInc: round2(-paid) })
+  if (creditReflectedOnSource) {
+    sourceRows.push({
+      label: hasInvoice2 ? `Less: credit transferred to ${targetNumber}` : 'Less: adjustment',
+      amountInc: round2(-credit),
+    })
+  }
+  if (increaseOnSource) sourceRows.push({ label: 'Added from adjustment', amountInc: increase })
+  const source = buildInvoice({
+    heading: invoiceHeading(c.original_invoice_number ?? '', 'Invoice 1 (initial works)'),
+    balanceName: (c.original_invoice_number ?? '').trim() || 'invoice 1',
+    amountInc: invoice1Amount,
+    balanceInc: sourceBalance,
+    deductions: sourceRows,
+    payUrl: c.original_invoice_url ?? '',
+  })
+  const invoices: BuiltInvoice[] = [source]
+  if (hasInvoice2) {
+    const targetRows: StatementLedgerDisplayRow[] = []
+    if (credit > 0.004) {
+      targetRows.push({
+        label: `Less: credit from ${sourceNumber} adjustment (${moneyLabel(credit)})`,
+        amountInc: round2(-credit),
+      })
+    }
+    if (increase > 0.004) {
+      targetRows.push({
+        label: `Added from ${sourceNumber} adjustment`,
+        amountInc: increase,
+      })
+    }
+    invoices.push(buildInvoice({
+      heading: invoiceHeading(c.new_invoice_number ?? '', 'Invoice 2 (contents)'),
+      balanceName: (c.new_invoice_number ?? '').trim() || 'invoice 2',
+      amountInc: invoice2Amount,
+      balanceInc: targetBalance,
+      deductions: targetRows,
+      payUrl: c.new_invoice_url ?? '',
+    }))
+  }
+  const summed = round2(invoices.reduce((sum, invoice) => sum + invoice.balanceInc, 0))
+  if (!closeMoney(summed, balance)) {
+    throw new StatementReconciliationError(
+      `Invoice balances add to ${moneyLabel(summed)}, but the statement balance due is ${moneyLabel(balance)}.`,
+    )
+  }
+  if (!closeMoney(round2(jobTotal - paid), balance)) {
+    throw new StatementReconciliationError(
+      `Total job value ${moneyLabel(jobTotal)} minus paid to date ${moneyLabel(paid)} is ${moneyLabel(round2(jobTotal - paid))}, but the balance due is ${moneyLabel(balance)}.`,
+    )
+  }
+  let adjustmentNote: string | null = null
+  if (credit > 0.004 || increase > 0.004) {
+    const reason = (c.adjustment_reason ?? '').trim()
+    if (!reason) {
+      throw new StatementReconciliationError('An adjustment is on this statement, but no reason was entered.')
+    }
+    const amount = moneyLabel(credit || increase)
+    if (credit > 0.004 && hasInvoice2) {
+      adjustmentNote = `${sourceNumber} was reduced by ${amount} (inc GST) because ${reason}. This credit has been applied to ${targetNumber}.`
+    } else if (increase > 0.004 && hasInvoice2) {
+      adjustmentNote = `${sourceNumber} was increased by ${amount} (inc GST) because ${reason}. This amount has been added to ${targetNumber}.`
+    } else if (credit > 0.004) {
+      adjustmentNote = `${sourceNumber} was reduced by ${amount} (inc GST) because ${reason}.`
+    } else {
+      adjustmentNote = `${sourceNumber} was increased by ${amount} (inc GST) because ${reason}.`
+    }
+  }
+  const warnings: string[] = []
+  xeroWarning(sourceNumber, source.balanceInc, c.xero_original_amount_due, warnings)
+  if (hasInvoice2) xeroWarning(targetNumber, targetBalance, c.xero_new_amount_due, warnings)
+  const gst = chargesGst && c.job_total_ex != null && c.job_total_inc != null
+    ? round2(c.job_total_inc - c.job_total_ex)
+    : null
+  return {
+    summary: { jobTotalInc: jobTotal, paidInc: paid, balanceInc: balance, gst },
+    invoices: invoices.map(invoice => ({
+      heading: invoice.heading,
+      rows: invoice.rows,
+      balanceInc: invoice.balanceInc,
+      payHref: invoice.payHref,
+      payLabel: invoice.payHref ? `Pay ${moneyLabel(invoice.balanceInc)} online` : null,
+    })),
+    adjustmentNote,
+    warnings,
+  }
 }
