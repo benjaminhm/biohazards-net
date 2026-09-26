@@ -23,7 +23,7 @@ import type {
   DocType, Photo, PhotoCategory, CompanyProfile, Area,
   QuoteContent, SOWContent, AssessmentDocumentContent, SWMSContent, AuthorityToProceedContent,
   EngagementAgreementContent, ReportContent, CertificateOfDecontaminationContent,
-  WasteDisposalManifestContent, StatementOfAccountsContent, JSAContent, NDAContent, RiskAssessmentContent,
+  WasteDisposalManifestContent, StatementOfAccountsContent, StatementLedgerLine, JSAContent, NDAContent, RiskAssessmentContent,
   WasteDisposalManifestVehicleSnapshot,
   WorkStep, RiskRow, WasteItem, OutcomeQuoteRow,
   PathophysiologyRow,
@@ -2647,12 +2647,57 @@ function buildStatementMid(c: StatementOfAccountsContent): string {
     <p class="body-text"><strong>Property:</strong> ${esc(c.site_address || '—')}</p>
     <p class="body-text"><strong>Quote / estimate:</strong> ${esc(c.quote_reference || '—')}</p>
     <p class="body-text"><strong>Contents disposal record:</strong> ${esc(c.disposal_reference || '—')}</p>`
-  return `
-    ${meta}
+  const ledgerLines = c.ledger && Array.isArray(c.lines) ? c.lines : null
+  const carryLabels = new Set([
+    'Overpay carried to the next invoice',
+    'Underpay added to the next invoice',
+    'No change from the adjustment',
+  ])
+  const summaryLabels = new Set(['Job total after adjustments', 'Total remaining owed'])
+  const invoice1Lines: StatementLedgerLine[] = []
+  const invoice2Lines: StatementLedgerLine[] = []
+  const tieLines: StatementLedgerLine[] = []
+  if (ledgerLines) {
+    const hasInvoice2 = ledgerLines.some(line => line.label === 'Invoice 2')
+    let side: 'left' | 'right' = 'left'
+    for (const line of ledgerLines) {
+      const onInvoice2 = line.label === 'Invoice 2'
+        || line.label === 'Invoice 2 is paid'
+        || line.label.startsWith('Overpay on invoice 2')
+        || line.label.startsWith('Underpay. Owing on invoice 2')
+      if (onInvoice2) side = 'right'
+      if (summaryLabels.has(line.label) || (hasInvoice2 && carryLabels.has(line.label))) {
+        tieLines.push(line)
+        continue
+      }
+      if (side === 'right') invoice2Lines.push(line)
+      else invoice1Lines.push(line)
+    }
+  }
+  const lineRows = (lines: StatementLedgerLine[]) => lines.map(line => row(line.label, line.ex, line.inc, line.strong === true)).join('')
+  const moneyTable = (title: string, lines: StatementLedgerLine[]) => `
+    <div class="label">${esc(title)}</div>
     <table>
       <thead><tr><th>Item</th>${beforeHead}<th class="r">Amount</th></tr></thead>
-      <tbody>
-        ${c.ledger && Array.isArray(c.lines) ? c.lines.map(line => row(line.label, line.ex, line.inc, line.strong === true)).join('') : remeasured ? `
+      <tbody>${lineRows(lines)}</tbody>
+    </table>`
+  const payNote = (balance: number, url: string) => {
+    const link = urlCell(url)
+    return `<p class="body-text" style="word-break:break-all"><strong>Pay:</strong> ${money(balance)}${link === '—' ? '' : `<br>${link}`}</p>`
+  }
+  const split = invoice2Lines.length > 0
+    ? `
+    ${moneyTable(`Invoice 1${c.original_invoice_number ? ` ${c.original_invoice_number}` : ''}`, invoice1Lines)}
+    ${payNote(originalOwingInc, c.original_invoice_url)}
+    ${moneyTable(`Invoice 2${c.new_invoice_number ? ` ${c.new_invoice_number}` : ''}`, invoice2Lines)}
+    ${payNote(invoice2OwingInc, c.new_invoice_url)}
+    ${tieLines.length ? moneyTable('Both invoices', tieLines) : ''}
+    ${credit}`
+    : ''
+  const singleBody = ledgerLines
+    ? lineRows(ledgerLines)
+    : remeasured
+      ? `
         ${row('Invoice 1 was an estimate of', c.quote_ex, quoteInc)}
         ${row('You paid a deposit of', depositEx, depositInc)}
         ${row(originalLabel, originalOwingEx, originalOwingInc, true)}
@@ -2661,15 +2706,19 @@ function buildStatementMid(c: StatementOfAccountsContent): string {
         ${row('Contents, invoice 2', newEx, newInc)}
         ${row(newOwingLabel, invoice2OwingEx, invoice2OwingInc, true)}
         ${row('Job total after adjustments', c.job_total_ex ?? 0, c.job_total_inc ?? 0, true)}
-        ${row('Total remaining owed', c.owing_ex, c.owing_inc, true)}
-        ` : `
+        ${row('Total remaining owed', c.owing_ex, c.owing_inc, true)}`
+      : `
         ${row('This was the original quote', c.quote_ex, quoteInc)}
         ${row('You paid a deposit of', depositEx, depositInc)}
         ${row(legacyOriginalLabel, originalOwingEx, originalOwingInc, true)}
         ${row(legacyNewLabel, newEx, newInc, true)}
-        ${row('Total remaining owed', c.owing_ex, c.owing_inc, true)}
-        `}
-      </tbody>
+        ${row('Total remaining owed', c.owing_ex, c.owing_inc, true)}`
+  return `
+    ${meta}
+    ${split || `
+    <table>
+      <thead><tr><th>Item</th>${beforeHead}<th class="r">Amount</th></tr></thead>
+      <tbody>${singleBody}</tbody>
     </table>
     ${credit}
     <h3 style="margin:18px 0 8px;font-size:13px">Make a payment</h3>
@@ -2693,7 +2742,7 @@ function buildStatementMid(c: StatementOfAccountsContent): string {
           <td>${urlCell(c.new_invoice_url)}</td>
         </tr>
       </tbody>
-    </table>`}
+    </table>`}`}
   `
 }
 
