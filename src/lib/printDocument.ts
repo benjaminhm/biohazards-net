@@ -2695,12 +2695,18 @@ function surveyWalls(area: { perimeter: number; height_m: number | null; walls: 
 
 function surveyAdjustmentLine(line: HouseSurveyDocumentContent['areas'][number]['adjustments'][number]): string {
   const surface = line.surface === 'walls' ? 'Walls' : line.surface === 'ceiling' ? 'Ceiling' : 'Floor'
-  const effect = line.effect === 'add' ? 'add' : 'exclude'
   const size = line.length_m != null && line.width_m != null
     ? `${line.length_m} m × ${line.width_m} m = ${line.area_m2} m²`
     : `${line.area_m2} m²`
   const reason = line.description ? ` — ${line.description}` : ''
-  return esc(`${surface} — ${effect} ${size}${reason}`)
+  return esc(`${surface} — ${size}${reason}`)
+}
+
+function surveyAdjustmentGroup(title: string, lines: HouseSurveyDocumentContent['areas'][number]['adjustments']): string {
+  if (lines.length === 0) return ''
+  return `
+        <div class="sow-sec-title" style="margin-top:14px">${esc(title)}</div>
+        ${lines.map(line => `<p class="body-text">${surveyAdjustmentLine(line)}</p>`).join('')}`
 }
 
 function buildHouseSurveyMid(c: HouseSurveyDocumentContent): string {
@@ -2721,7 +2727,8 @@ function buildHouseSurveyMid(c: HouseSurveyDocumentContent): string {
           </tr></tbody>
         </table>`
     const adjustments = lines.length === 0 ? '' : `
-        ${lines.map(line => `<p class="body-text">${surveyAdjustmentLine(line)}</p>`).join('')}
+        ${surveyAdjustmentGroup('Area not charged for', lines.filter(line => line.effect !== 'add'))}
+        ${surveyAdjustmentGroup('Area added to the price', lines.filter(line => line.effect === 'add'))}
         <table>
           <thead><tr><th class="r">Priced</th><th class="r">Ex GST</th><th class="r">Inc GST</th></tr></thead>
           <tbody><tr>
