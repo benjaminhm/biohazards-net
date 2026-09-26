@@ -2683,27 +2683,18 @@ function surveyPlanSvg(sketch: SurveySketch | null): string {
 function buildHouseSurveyMid(c: HouseSurveyDocumentContent): string {
   const areas = Array.isArray(c.areas) ? c.areas : []
   const blocks = areas.map(area => {
-    const walls = (area.legs ?? []).map(leg =>
-      `<tr><td>Wall ${leg.index}</td><td>${esc(leg.turn === 'left' ? 'Left' : 'Right')}</td><td class="r">${leg.length_m == null ? '—' : esc(`${leg.length_m} m`)}</td></tr>`,
-    ).join('')
     return `
       <div class="sow-sec">
         <div class="sow-sec-title">${esc(area.title)}</div>
-        ${area.description ? `<p class="body-text">${esc(area.description)}</p>` : ''}
-        ${area.start_note ? `<p class="body-text">Started at ${esc(area.start_note)}.</p>` : ''}
-        <p class="body-text">${area.closed ? 'Closed walk.' : 'Open walk.'} Perimeter ${esc(String(area.perimeter))} m.</p>
         ${surveyPlanSvg(area.sketch)}
         <table style="margin-top:8px">
-          <thead><tr><th>Height</th><th class="r">Floor</th><th class="r">Ceiling</th><th class="r">Walls</th><th class="r">All surfaces</th></tr></thead>
+          <thead><tr><th class="r">Floor</th><th class="r">Ceiling</th><th class="r">Walls</th></tr></thead>
           <tbody><tr>
-            <td>${surveyMeasure(area.height_m, 'm')}</td>
             <td class="r">${surveyMeasure(area.floor, 'm²')}</td>
             <td class="r">${surveyMeasure(area.ceiling, 'm²')}</td>
             <td class="r">${surveyMeasure(area.walls, 'm²')}</td>
-            <td class="r">${surveyMeasure(area.all, 'm²')}</td>
           </tr></tbody>
         </table>
-        ${walls ? `<table><thead><tr><th>Wall</th><th>Turn</th><th class="r">Length</th></tr></thead><tbody>${walls}</tbody></table>` : ''}
       </div>`
   }).join('')
   const totals = c.totals ?? { floor: null, ceiling: null, walls: null, all: null }
@@ -2721,7 +2712,7 @@ function buildHouseSurveyMid(c: HouseSurveyDocumentContent): string {
           <td class="r"><strong>${surveyMeasure(totals.all, 'm²')}</strong></td>
         </tr></tbody>
       </table>
-      <p class="body-text">Wall area is the full face of the walls, including doorways. Ceiling matches the floor once a walk closes.</p>
+      <p class="body-text">Floor, ceiling, and walls for the whole house. Wall area includes doorways.</p>
     </div>
   `
 }
