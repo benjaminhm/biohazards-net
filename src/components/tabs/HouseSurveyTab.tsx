@@ -619,6 +619,7 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
               <th style={{ padding: '8px 14px', fontWeight: 700 }}>Floor</th>
               <th style={{ padding: '8px 14px', fontWeight: 700 }}>Ceiling</th>
               <th style={{ padding: '8px 14px', fontWeight: 700 }}>Walls</th>
+              <th style={{ padding: '8px 14px', fontWeight: 700 }}>All surfaces</th>
             </tr>
           </thead>
           <tbody>
@@ -632,13 +633,14 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
                   <td style={{ padding: '8px 14px', textAlign: 'right' }}>{cell(surfaces.floor, 'm²')}</td>
                   <td style={{ padding: '8px 14px', textAlign: 'right' }}>{cell(surfaces.ceiling, 'm²')}</td>
                   <td style={{ padding: '8px 14px', textAlign: 'right' }}>{cell(surfaces.walls, 'm²')}</td>
+                  <td style={{ padding: '8px 14px', textAlign: 'right' }}>{cell(surfaces.all, 'm²')}</td>
                 </tr>
               )
             })}
             <tr style={{ borderTop: '1px solid var(--border)', fontWeight: 800 }}>
               <td style={{ padding: '10px 14px' }}>House</td>
               <td />
-              {(['floor', 'ceiling', 'walls'] as const).map(key => {
+              {(['floor', 'ceiling', 'walls', 'all'] as const).map(key => {
                 const values = plans.map(({ area, trace }) => areaSurfaces(trace, area.height_m)[key])
                 const total = values.every(value => value == null)
                   ? null
@@ -648,6 +650,17 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
             </tr>
           </tbody>
         </table>
+        <div style={{ padding: '12px 14px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', gap: 12, fontWeight: 800 }}>
+          <span>All surfaces from all areas</span>
+          <span>
+            {(() => {
+              const values = plans.map(({ area, trace }) => areaSurfaces(trace, area.height_m).all)
+              if (values.every(value => value == null)) return '—'
+              const total = Math.round(values.reduce<number>((sum, value) => sum + (value ?? 0), 0) * 100) / 100
+              return `${total} m²`
+            })()}
+          </span>
+        </div>
       </section>
       <button
         type="button"

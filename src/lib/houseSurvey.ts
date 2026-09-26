@@ -108,11 +108,18 @@ export function areaSurfaces(trace: HouseSurveyTrace, heightM: number | null): {
   floor: number | null
   ceiling: number | null
   walls: number | null
+  all: number | null
 } {
   const floor = trace.closed ? trace.area : null
   const height = heightM != null && Number.isFinite(heightM) && heightM > 0 ? heightM : null
   const walls = height == null || trace.perimeter <= 0 ? null : Math.round(trace.perimeter * height * 100) / 100
-  return { floor, ceiling: floor, walls }
+  const parts = [floor, floor, walls].filter((value): value is number => value != null)
+  return {
+    floor,
+    ceiling: floor,
+    walls,
+    all: parts.length === 0 ? null : Math.round(parts.reduce((sum, value) => sum + value, 0) * 100) / 100,
+  }
 }
 export function traceHouseSurvey(legs: HouseSurveyLeg[]): HouseSurveyTrace {
   let x = 0
