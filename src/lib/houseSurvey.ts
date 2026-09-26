@@ -11,6 +11,7 @@ export interface HouseSurveyArea {
   title: string
   description: string
   start_note: string
+  height_m: number | null
   legs: HouseSurveyLeg[]
 }
 
@@ -46,6 +47,7 @@ export function newHouseSurveyArea(): HouseSurveyArea {
     title: '',
     description: '',
     start_note: '',
+    height_m: null,
     legs: [],
   }
 }
@@ -80,6 +82,7 @@ function normalizeArea(raw: unknown): HouseSurveyArea {
     title: typeof row.title === 'string' ? row.title : '',
     description: typeof row.description === 'string' ? row.description : '',
     start_note: typeof row.start_note === 'string' ? row.start_note : '',
+    height_m: typeof row.height_m === 'number' && Number.isFinite(row.height_m) && row.height_m >= 0 ? row.height_m : null,
     legs: legs.map(normalizeLeg),
   }
 }
@@ -101,7 +104,16 @@ export function normalizeHouseSurvey(raw: unknown): HouseSurveyCapture {
   }
 }
 
-/** Clockwise interior walk. Right is a 90° clockwise turn, left is 90° the other way. */
+export function areaSurfaces(trace: HouseSurveyTrace, heightM: number | null): {
+  floor: number | null
+  ceiling: number | null
+  walls: number | null
+} {
+  const floor = trace.closed ? trace.area : null
+  const height = heightM != null && Number.isFinite(heightM) && heightM > 0 ? heightM : null
+  const walls = height == null || trace.perimeter <= 0 ? null : Math.round(trace.perimeter * height * 100) / 100
+  return { floor, ceiling: floor, walls }
+}
 export function traceHouseSurvey(legs: HouseSurveyLeg[]): HouseSurveyTrace {
   let x = 0
   let y = 0

@@ -10,6 +10,7 @@ import {
   normalizeHouseSurvey,
   surveySketchPath,
   traceHouseSurvey,
+  areaSurfaces,
   metresToSketch,
   nearestPointOnSurvey,
   sketchToMetres,
@@ -317,6 +318,21 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
                 style={INPUT}
               />
             </div>
+            <div>
+              <label style={LABEL}>Height (m)</label>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                value={area.height_m ?? ''}
+                onChange={e => {
+                  const raw = e.target.value
+                  patchArea(area.id, { height_m: raw === '' ? null : Number(raw) })
+                }}
+                placeholder="2.40"
+                style={INPUT}
+              />
+            </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
               <span style={{ ...LABEL, marginBottom: 0 }}>Walls</span>
               <button
@@ -593,6 +609,46 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
           </section>
         ))}
       </div>
+      <section style={{ marginTop: 20, border: '1px solid var(--border)', borderRadius: 12, background: 'var(--surface)', overflow: 'auto' }}>
+        <div style={{ padding: '12px 14px', fontWeight: 800 }}>Summary</div>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+          <thead>
+            <tr style={{ color: 'var(--text-muted)', textAlign: 'right' }}>
+              <th style={{ textAlign: 'left', padding: '8px 14px', fontWeight: 700 }}>Area</th>
+              <th style={{ padding: '8px 14px', fontWeight: 700 }}>Height</th>
+              <th style={{ padding: '8px 14px', fontWeight: 700 }}>Floor</th>
+              <th style={{ padding: '8px 14px', fontWeight: 700 }}>Ceiling</th>
+              <th style={{ padding: '8px 14px', fontWeight: 700 }}>Walls</th>
+            </tr>
+          </thead>
+          <tbody>
+            {plans.map(({ area, trace }, index) => {
+              const surfaces = areaSurfaces(trace, area.height_m)
+              const cell = (value: number | null, unit: string) => value == null ? '—' : `${value} ${unit}`
+              return (
+                <tr key={area.id} style={{ borderTop: '1px solid var(--border)' }}>
+                  <td style={{ padding: '8px 14px', fontWeight: 700 }}>{area.title.trim() || `Area ${index + 1}`}</td>
+                  <td style={{ padding: '8px 14px', textAlign: 'right' }}>{cell(area.height_m, 'm')}</td>
+                  <td style={{ padding: '8px 14px', textAlign: 'right' }}>{cell(surfaces.floor, 'm²')}</td>
+                  <td style={{ padding: '8px 14px', textAlign: 'right' }}>{cell(surfaces.ceiling, 'm²')}</td>
+                  <td style={{ padding: '8px 14px', textAlign: 'right' }}>{cell(surfaces.walls, 'm²')}</td>
+                </tr>
+              )
+            })}
+            <tr style={{ borderTop: '1px solid var(--border)', fontWeight: 800 }}>
+              <td style={{ padding: '10px 14px' }}>House</td>
+              <td />
+              {(['floor', 'ceiling', 'walls'] as const).map(key => {
+                const values = plans.map(({ area, trace }) => areaSurfaces(trace, area.height_m)[key])
+                const total = values.every(value => value == null)
+                  ? null
+                  : Math.round(values.reduce<number>((sum, value) => sum + (value ?? 0), 0) * 100) / 100
+                return <td key={key} style={{ padding: '10px 14px', textAlign: 'right' }}>{total == null ? '—' : `${total} m²`}</td>
+              })}
+            </tr>
+          </tbody>
+        </table>
+      </section>
       <button
         type="button"
         className="btn btn-primary"

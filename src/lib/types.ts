@@ -1071,6 +1071,7 @@ export interface AssessmentData {
       title: string
       description: string
       start_note: string
+      height_m: number | null
       legs: { id: string; turn: 'left' | 'right'; length_m: number | null }[]
     }[]
   }
