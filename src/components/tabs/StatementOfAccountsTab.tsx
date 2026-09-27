@@ -64,6 +64,7 @@ function ReferencePanel({
   return (
     <section
       aria-label="Pricing reference"
+      className="soa-ref-float"
       style={{
         padding: '14px 16px',
         borderRadius: 12,
@@ -296,6 +297,14 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
     <div style={{ paddingBottom: 120 }}>
       <style>{`
         .soa-ref-grid { display: grid; gap: 12px; }
+        .soa-ref-float {
+          position: sticky;
+          top: 116px;
+          z-index: 8;
+          max-height: calc(100vh - 116px - 84px);
+          overflow: auto;
+          box-shadow: 0 10px 28px rgba(15, 23, 42, 0.12);
+        }
         @media (min-width: 760px) {
           .soa-ref-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; }
         }
