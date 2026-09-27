@@ -35,9 +35,12 @@ export interface StatementOfAccountsCapture {
   invoice1_cleaning: number | null
   /** Quantity on invoice 2. Not a dollar amount. */
   invoice2_m3: number | null
-  /** How invoice 2 is made up. Blank lines are omitted. Filled lines must add up to invoice 2. */
+  /** How invoice 2 is made up. Blank lines are omitted. Filled lines must add up to invoice 2. Prepaid is taken off. */
   invoice2_skips: number | null
+  invoice2_trailers: number | null
+  invoice2_utes: number | null
   invoice2_tip_receipts: number | null
+  invoice2_prepaid: number | null
   /** Every typed amount includes GST. */
   charges_gst: boolean
   /** When the deposit was received, shown on the statement as the payment date. */
@@ -101,7 +104,10 @@ export function emptyStatementCapture(): StatementOfAccountsCapture {
     invoice1_cleaning: null,
     invoice2_m3: null,
     invoice2_skips: null,
+    invoice2_trailers: null,
+    invoice2_utes: null,
     invoice2_tip_receipts: null,
+    invoice2_prepaid: null,
     charges_gst: true,
     deposit_date: '',
     adjustment_reason: '',
@@ -128,7 +134,10 @@ export function normalizeStatementCapture(raw: unknown): StatementOfAccountsCapt
     invoice1_cleaning: moneyOrNull(o.invoice1_cleaning),
     invoice2_m3: moneyOrNull(o.invoice2_m3),
     invoice2_skips: moneyOrNull(o.invoice2_skips),
+    invoice2_trailers: moneyOrNull(o.invoice2_trailers),
+    invoice2_utes: moneyOrNull(o.invoice2_utes),
     invoice2_tip_receipts: moneyOrNull(o.invoice2_tip_receipts),
+    invoice2_prepaid: moneyOrNull(o.invoice2_prepaid),
     charges_gst: o.charges_gst !== false,
     deposit_date: textField(o.deposit_date),
     adjustment_reason: textField(o.adjustment_reason),
@@ -855,10 +864,15 @@ export function presentStatementDocument(c: StatementOfAccountsContent): Stateme
       })
     }
     const targetHeading = invoiceHeading(c.new_invoice_number ?? '', 'Invoice 2 (contents)')
-    const targetParts = moneyParts([
-      ['Skips', c.invoice2_skips],
-      ['Tip receipts', c.invoice2_tip_receipts],
-    ])
+    const targetParts = [
+      ...moneyParts([
+        ['Skips', c.invoice2_skips],
+        ['Trailers', c.invoice2_trailers],
+        ['Utes', c.invoice2_utes],
+        ['Tip receipts', c.invoice2_tip_receipts],
+      ]),
+      ...moneyParts([['Prepaid', c.invoice2_prepaid]]).map(row => ({ ...row, amountInc: round2(-row.amountInc) })),
+    ]
     assertExplained(targetHeading, targetParts, invoice2Amount)
     const metres = metresRow(c.invoice2_m3)
     invoices.push(buildInvoice({

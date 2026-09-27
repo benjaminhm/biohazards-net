@@ -200,7 +200,10 @@ function capturesEqual(a: StatementOfAccountsCapture, b: StatementOfAccountsCapt
     && a.invoice1_cleaning === b.invoice1_cleaning
     && a.invoice2_m3 === b.invoice2_m3
     && a.invoice2_skips === b.invoice2_skips
+    && a.invoice2_trailers === b.invoice2_trailers
+    && a.invoice2_utes === b.invoice2_utes
     && a.invoice2_tip_receipts === b.invoice2_tip_receipts
+    && a.invoice2_prepaid === b.invoice2_prepaid
     && a.charges_gst === b.charges_gst
     && a.deposit_date === b.deposit_date
     && a.adjustment_reason === b.adjustment_reason
@@ -454,7 +457,7 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
               style={INPUT}
             />
             <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Skips and tip receipts must add up to this invoice. Cubic metres is a quantity.</div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Skips, trailers, utes, and tip receipts, less prepaid, must add up to this invoice. Cubic metres is a quantity.</div>
               <div>
                 <label style={LABEL}>Cubic metres removed</label>
                 <input
@@ -472,7 +475,10 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
               </div>
               {([
                 ['Skips ($)', 'invoice2_skips'],
+                ['Trailers ($)', 'invoice2_trailers'],
+                ['Utes ($)', 'invoice2_utes'],
                 ['Tip receipts ($)', 'invoice2_tip_receipts'],
+                ['Prepaid ($)', 'invoice2_prepaid'],
               ] as const).map(([label, key]) => (
                 <div key={key}>
                   <label style={LABEL}>{label}</label>

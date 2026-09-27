@@ -1107,7 +1107,11 @@ export interface AssessmentData {
     invoice1_cleaning?: number | null
     invoice2_m3?: number | null
     invoice2_skips?: number | null
+    invoice2_trailers?: number | null
+    invoice2_utes?: number | null
     invoice2_tip_receipts?: number | null
+    /** Typed as a positive amount. Taken off invoice 2. */
+    invoice2_prepaid?: number | null
     /** When true, every typed amount on the statement includes GST. */
     charges_gst?: boolean
     deposit_date?: string
@@ -2107,7 +2111,11 @@ export interface StatementOfAccountsContent {
   /** Cubic metres on invoice 2. Not included in the dollar total. */
   invoice2_m3?: number | null
   invoice2_skips?: number | null
+  invoice2_trailers?: number | null
+  invoice2_utes?: number | null
   invoice2_tip_receipts?: number | null
+  /** Positive dollars taken off invoice 2. */
+  invoice2_prepaid?: number | null
   deposit_date?: string
   adjustment_reason?: string
   /** Xero AmountDue for invoice 1, when the caller has it. Compared, not fetched. */

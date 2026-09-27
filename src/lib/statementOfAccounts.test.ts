@@ -148,6 +148,22 @@ test('invoice breakdowns explain the amount and must add up', () => {
     ['Invoice amount', 6237.46],
   ])
   assert.equal(second.balanceInc, 5981.88)
+  const split = presentStatementDocument(contentFor(fixture(), {
+    invoice2_skips: 1650,
+    invoice2_trailers: 4591.95,
+    invoice2_utes: 508.20,
+    invoice2_tip_receipts: 1137.31,
+    invoice2_prepaid: 1650,
+  }))
+  assert.deepEqual(split.invoices[1].rows.slice(0, 6).map(row => [row.label, row.amountInc]), [
+    ['Skips', 1650],
+    ['Trailers', 4591.95],
+    ['Utes', 508.20],
+    ['Tip receipts', 1137.31],
+    ['Prepaid', -1650],
+    ['Invoice amount', 6237.46],
+  ])
+  assert.equal(split.invoices[1].balanceInc, 5981.88)
   assert.throws(
     () => presentStatementDocument(contentFor(fixture(), { invoice1_callout: 100 })),
     (error: unknown) => error instanceof StatementReconciliationError && /call out/.test(error.message),
