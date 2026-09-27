@@ -185,6 +185,8 @@ function cssSowPrint(): string {
     .sow-root.soa-doc .soa-summary-due .soa-summary-num { font-size: 18pt; }
     .sow-root.soa-doc .soa-gst { font-size: 9pt; color: var(--sow-mid); margin: 0 0 16px; }
     .sow-root.soa-doc tr.soa-balance td { border-top: 2px solid var(--sow-navy); font-weight: 700; }
+    .sow-root.soa-doc tr.soa-explain td { color: var(--sow-mid); }
+    .sow-root.soa-doc tr.soa-charge td { border-top: 1px solid var(--sow-rule); font-weight: 600; }
     .sow-root.soa-doc .soa-inv-title {
       font-size: 11pt;
       font-weight: 700;
@@ -2704,7 +2706,9 @@ function buildStatementMid(view: StatementPresentation, includeSummary = true): 
     const amountHead = view.summary.gst != null ? 'Amount (inc GST)' : 'Amount'
     const rows = invoice.rows.map(row => {
       const weight = row.strong ? ' style="font-weight:700"' : ''
-      return `<tr class="${row.strong ? 'soa-balance' : ''}"><td${weight}>${esc(row.label)}</td><td class="r"${weight}>${amountCell(row.amountInc)}</td></tr>`
+      const cls = [row.strong ? 'soa-balance' : '', row.explain ? 'soa-explain' : '', row.charge ? 'soa-charge' : ''].filter(Boolean).join(' ')
+      const shown = row.display ?? amountCell(row.amountInc)
+      return `<tr class="${cls}"><td${weight}>${esc(row.label)}</td><td class="r"${weight}>${esc(shown)}</td></tr>`
     }).join('')
     const pay = invoice.payHref && invoice.payLabel
       ? `<a class="soa-pay" href="${esc(invoice.payHref)}">${esc(invoice.payLabel)}</a>`

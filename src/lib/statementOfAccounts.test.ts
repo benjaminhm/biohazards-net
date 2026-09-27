@@ -99,7 +99,8 @@ test('SOA-20260926-CFA2 reconciles for a non-accountant layout', () => {
   const summed = Math.round(view.invoices.reduce((sum, invoice) => sum + invoice.balanceInc, 0) * 100) / 100
   assert.equal(summed, view.summary.balanceInc)
   for (const invoice of view.invoices) {
-    const above = invoice.rows.slice(0, -1).reduce((sum, row) => sum + row.amountInc, 0)
+    const ledger = invoice.rows.filter(row => !row.explain)
+    const above = ledger.slice(0, -1).reduce((sum, row) => sum + row.amountInc, 0)
     assert.equal(Math.round(above * 100) / 100, invoice.balanceInc)
   }
   assert.match(view.adjustmentNote ?? '', /INV-0244 was reduced by \$255\.58/)
@@ -121,6 +122,39 @@ test('Xero amount due warns when it differs and stays quiet when it matches', ()
   assert.equal(drifted.warnings.length, 1)
   assert.match(drifted.warnings[0], /INV-0244/)
   assert.match(drifted.warnings[0], /8,000\.00/)
+})
+
+test('invoice breakdowns explain the amount and must add up', () => {
+  const view = presentStatementDocument(contentFor(fixture(), {
+    invoice1_callout: 2000,
+    invoice1_contents: 5339.30,
+    invoice1_cleaning: 10000,
+    invoice2_m3: 12.5,
+    invoice2_skips: 4000,
+    invoice2_tip_receipts: 2237.46,
+  }))
+  const [first, second] = view.invoices
+  assert.deepEqual(first.rows.slice(0, 4).map(row => [row.label, row.display ?? row.amountInc]), [
+    ['Call out', 2000],
+    ['Contents', 5339.30],
+    ['Cleaning', 10000],
+    ['Invoice amount', 17339.30],
+  ])
+  assert.equal(first.balanceInc, 8669.65)
+  assert.deepEqual(second.rows.slice(0, 4).map(row => [row.label, row.display ?? row.amountInc]), [
+    ['Cubic metres removed', '12.5 m³'],
+    ['Skips', 4000],
+    ['Tip receipts', 2237.46],
+    ['Invoice amount', 6237.46],
+  ])
+  assert.equal(second.balanceInc, 5981.88)
+  assert.throws(
+    () => presentStatementDocument(contentFor(fixture(), { invoice1_callout: 100 })),
+    (error: unknown) => error instanceof StatementReconciliationError && /call out/.test(error.message),
+  )
+  const metresOnly = presentStatementDocument(contentFor(fixture(), { invoice2_m3: 8 }))
+  assert.equal(metresOnly.invoices[1].rows[0].display, '8 m³')
+  assert.equal(metresOnly.invoices[1].balanceInc, 5981.88)
 })
 
 test('an adjustment without a reason fails the build', () => {

@@ -29,6 +29,15 @@ export interface StatementOfAccountsCapture {
   invoice1_amount: number | null
   /** Contents invoice. Typed. Not taken from the disposal record. */
   invoice2_amount: number | null
+  /** How invoice 1 is made up. Blank lines are omitted. Filled lines must add up to invoice 1. */
+  invoice1_callout: number | null
+  invoice1_contents: number | null
+  invoice1_cleaning: number | null
+  /** Quantity on invoice 2. Not a dollar amount. */
+  invoice2_m3: number | null
+  /** How invoice 2 is made up. Blank lines are omitted. Filled lines must add up to invoice 2. */
+  invoice2_skips: number | null
+  invoice2_tip_receipts: number | null
   /** Every typed amount includes GST. */
   charges_gst: boolean
   /** When the deposit was received, shown on the statement as the payment date. */
@@ -87,6 +96,12 @@ export function emptyStatementCapture(): StatementOfAccountsCapture {
     invoice1_adjusted_includes_gst: true,
     invoice1_amount: null,
     invoice2_amount: null,
+    invoice1_callout: null,
+    invoice1_contents: null,
+    invoice1_cleaning: null,
+    invoice2_m3: null,
+    invoice2_skips: null,
+    invoice2_tip_receipts: null,
     charges_gst: true,
     deposit_date: '',
     adjustment_reason: '',
@@ -108,6 +123,12 @@ export function normalizeStatementCapture(raw: unknown): StatementOfAccountsCapt
     invoice1_adjusted_includes_gst: o.invoice1_adjusted_includes_gst !== false,
     invoice1_amount: moneyOrNull(o.invoice1_amount),
     invoice2_amount: moneyOrNull(o.invoice2_amount),
+    invoice1_callout: moneyOrNull(o.invoice1_callout),
+    invoice1_contents: moneyOrNull(o.invoice1_contents),
+    invoice1_cleaning: moneyOrNull(o.invoice1_cleaning),
+    invoice2_m3: moneyOrNull(o.invoice2_m3),
+    invoice2_skips: moneyOrNull(o.invoice2_skips),
+    invoice2_tip_receipts: moneyOrNull(o.invoice2_tip_receipts),
     charges_gst: o.charges_gst !== false,
     deposit_date: textField(o.deposit_date),
     adjustment_reason: textField(o.adjustment_reason),
@@ -531,6 +552,12 @@ export interface StatementLedgerDisplayRow {
   /** GST-inclusive. Negative rows are deductions and print in brackets. */
   amountInc: number
   strong?: boolean
+  /** Shown instead of the dollar amount. Used for quantities such as cubic metres. */
+  display?: string
+  /** Explains the invoice amount. Printed above it, and left out of the balance. */
+  explain?: boolean
+  /** The invoice amount row, once a breakdown is shown above it. */
+  charge?: boolean
 }
 
 export interface StatementInvoiceBlock {
@@ -646,12 +673,37 @@ interface BuiltInvoice {
   payHref: string | null
 }
 
+function moneyParts(pairs: Array<[string, number | null | undefined]>): StatementLedgerDisplayRow[] {
+  return pairs.flatMap(([label, amount]) => {
+    if (amount == null || !Number.isFinite(amount)) return []
+    return [{ label, amountInc: round2(amount), explain: true }]
+  })
+}
+
+function metresRow(amount: number | null | undefined): StatementLedgerDisplayRow | null {
+  if (amount == null || !Number.isFinite(amount)) return null
+  const text = round2(amount).toLocaleString('en-AU', { maximumFractionDigits: 2 })
+  return { label: 'Cubic metres removed', amountInc: 0, display: `${text} m³`, explain: true }
+}
+
+/** Filled dollar lines must equal the invoice. An empty breakdown is left off the page. */
+function assertExplained(heading: string, parts: StatementLedgerDisplayRow[], invoiceAmount: number) {
+  if (parts.length === 0) return
+  const sum = round2(parts.reduce((total, row) => total + row.amountInc, 0))
+  if (closeMoney(sum, invoiceAmount)) return
+  const names = parts.map(row => row.label.toLowerCase()).join(', ')
+  throw new StatementReconciliationError(
+    `${heading}: ${names} add to ${moneyLabel(sum)}, but the invoice amount is ${moneyLabel(invoiceAmount)}.`,
+  )
+}
+
 function buildInvoice(input: {
   heading: string
   balanceName: string
   amountInc: number
   balanceInc: number
   deductions: StatementLedgerDisplayRow[]
+  explanation: StatementLedgerDisplayRow[]
   payUrl: string
 }): BuiltInvoice {
   const signed = input.deductions.reduce((sum, row) => sum + row.amountInc, 0)
@@ -663,11 +715,13 @@ function buildInvoice(input: {
   }
   const balance = round2(input.balanceInc)
   const payHref = balance > 0.004 ? statementPayHref(input.payUrl) : null
+  const explained = input.explanation.length > 0
   return {
     heading: input.heading,
     amountInc: round2(input.amountInc),
     rows: [
-      { label: 'Invoice amount', amountInc: round2(input.amountInc) },
+      ...input.explanation,
+      { label: 'Invoice amount', amountInc: round2(input.amountInc), charge: explained },
       ...input.deductions.map(row => ({ ...row, amountInc: round2(row.amountInc) })),
       { label: balanceLabel(input.balanceName, input.heading), amountInc: balance, strong: true },
     ],
@@ -714,12 +768,20 @@ export function presentStatementDocument(c: StatementOfAccountsContent): Stateme
     })
   }
   if (increaseOnSource) sourceRows.push({ label: 'Added from adjustment', amountInc: increase })
+  const sourceHeading = invoiceHeading(c.original_invoice_number ?? '', 'Invoice 1 (initial works)')
+  const sourceParts = moneyParts([
+    ['Call out', c.invoice1_callout],
+    ['Contents', c.invoice1_contents],
+    ['Cleaning', c.invoice1_cleaning],
+  ])
+  assertExplained(sourceHeading, sourceParts, invoice1Amount)
   const source = buildInvoice({
-    heading: invoiceHeading(c.original_invoice_number ?? '', 'Invoice 1 (initial works)'),
+    heading: sourceHeading,
     balanceName: (c.original_invoice_number ?? '').trim() || 'invoice 1',
     amountInc: invoice1Amount,
     balanceInc: sourceBalance,
     deductions: sourceRows,
+    explanation: sourceParts,
     payUrl: c.original_invoice_url ?? '',
   })
   const invoices: BuiltInvoice[] = [source]
@@ -737,12 +799,20 @@ export function presentStatementDocument(c: StatementOfAccountsContent): Stateme
         amountInc: increase,
       })
     }
+    const targetHeading = invoiceHeading(c.new_invoice_number ?? '', 'Invoice 2 (contents)')
+    const targetParts = moneyParts([
+      ['Skips', c.invoice2_skips],
+      ['Tip receipts', c.invoice2_tip_receipts],
+    ])
+    assertExplained(targetHeading, targetParts, invoice2Amount)
+    const metres = metresRow(c.invoice2_m3)
     invoices.push(buildInvoice({
-      heading: invoiceHeading(c.new_invoice_number ?? '', 'Invoice 2 (contents)'),
+      heading: targetHeading,
       balanceName: (c.new_invoice_number ?? '').trim() || 'invoice 2',
       amountInc: invoice2Amount,
       balanceInc: targetBalance,
       deductions: targetRows,
+      explanation: metres ? [metres, ...targetParts] : targetParts,
       payUrl: c.new_invoice_url ?? '',
     }))
   }

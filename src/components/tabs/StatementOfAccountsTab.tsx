@@ -164,6 +164,12 @@ function capturesEqual(a: StatementOfAccountsCapture, b: StatementOfAccountsCapt
     && a.invoice1_adjusted_includes_gst === b.invoice1_adjusted_includes_gst
     && a.invoice1_amount === b.invoice1_amount
     && a.invoice2_amount === b.invoice2_amount
+    && a.invoice1_callout === b.invoice1_callout
+    && a.invoice1_contents === b.invoice1_contents
+    && a.invoice1_cleaning === b.invoice1_cleaning
+    && a.invoice2_m3 === b.invoice2_m3
+    && a.invoice2_skips === b.invoice2_skips
+    && a.invoice2_tip_receipts === b.invoice2_tip_receipts
     && a.charges_gst === b.charges_gst
     && a.deposit_date === b.deposit_date
     && a.adjustment_reason === b.adjustment_reason
@@ -310,6 +316,30 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
               placeholder="0.00"
               style={INPUT}
             />
+            <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>How this invoice is made up. Leave a line blank to omit it. The amounts must add up to the invoice.</div>
+              {([
+                ['Call out ($)', 'invoice1_callout'],
+                ['Contents ($)', 'invoice1_contents'],
+                ['Cleaning ($)', 'invoice1_cleaning'],
+              ] as const).map(([label, key]) => (
+                <div key={key}>
+                  <label style={LABEL}>{label}</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={capture[key] ?? ''}
+                    onChange={e => {
+                      const raw = e.target.value
+                      patch({ [key]: raw === '' ? null : Number(raw) })
+                    }}
+                    placeholder="0.00"
+                    style={INPUT}
+                  />
+                </div>
+              ))}
+            </div>
           </div>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 700 }}>
             <input
@@ -384,6 +414,44 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
               placeholder="Leave blank until the next invoice"
               style={INPUT}
             />
+            <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Skips and tip receipts must add up to this invoice. Cubic metres is a quantity.</div>
+              <div>
+                <label style={LABEL}>Cubic metres removed</label>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={capture.invoice2_m3 ?? ''}
+                  onChange={e => {
+                    const raw = e.target.value
+                    patch({ invoice2_m3: raw === '' ? null : Number(raw) })
+                  }}
+                  placeholder="0"
+                  style={INPUT}
+                />
+              </div>
+              {([
+                ['Skips ($)', 'invoice2_skips'],
+                ['Tip receipts ($)', 'invoice2_tip_receipts'],
+              ] as const).map(([label, key]) => (
+                <div key={key}>
+                  <label style={LABEL}>{label}</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={capture[key] ?? ''}
+                    onChange={e => {
+                      const raw = e.target.value
+                      patch({ [key]: raw === '' ? null : Number(raw) })
+                    }}
+                    placeholder="0.00"
+                    style={INPUT}
+                  />
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </div>

@@ -1102,6 +1102,12 @@ export interface AssessmentData {
     invoice1_amount?: number | null
     /** Typed contents invoice. The disposal record is not the source of this amount. */
     invoice2_amount?: number | null
+    invoice1_callout?: number | null
+    invoice1_contents?: number | null
+    invoice1_cleaning?: number | null
+    invoice2_m3?: number | null
+    invoice2_skips?: number | null
+    invoice2_tip_receipts?: number | null
     /** When true, every typed amount on the statement includes GST. */
     charges_gst?: boolean
     deposit_date?: string
@@ -2094,6 +2100,14 @@ export interface StatementOfAccountsContent {
   original_invoice_url: string
   new_invoice_number: string
   new_invoice_url: string
+  /** GST-inclusive parts of invoice 1. Omitted lines are blank. */
+  invoice1_callout?: number | null
+  invoice1_contents?: number | null
+  invoice1_cleaning?: number | null
+  /** Cubic metres on invoice 2. Not included in the dollar total. */
+  invoice2_m3?: number | null
+  invoice2_skips?: number | null
+  invoice2_tip_receipts?: number | null
   deposit_date?: string
   adjustment_reason?: string
   /** Xero AmountDue for invoice 1, when the caller has it. Compared, not fetched. */
