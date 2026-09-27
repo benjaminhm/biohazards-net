@@ -55,6 +55,7 @@ function ReferencePanel({
         heading: 'Quote / estimate',
         reference: '',
         detail: '',
+        facts: [],
         gst_mode: 'no_gst' as const,
         lines: [],
         empty: 'No quote or estimate yet.',
@@ -74,7 +75,7 @@ function ReferencePanel({
         Reference
       </div>
       <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5, margin: '0 0 14px' }}>
-        Survey, quote, and contents disposal prices. These stay in this panel. They are not copied into the amounts below.
+        Survey area, quote prices, and contents disposal quantities and fees. These stay in this panel. They are not copied into the amounts below.
       </p>
       <div className="soa-ref-grid">
         <ReferenceBlock block={survey} />
@@ -107,6 +108,19 @@ function ReferenceBlock({ block }: { block: StatementReferenceBlock }) {
       )}
       {block.detail && (
         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>{block.detail}</div>
+      )}
+      {block.facts.length > 0 && (
+        <div style={{ marginBottom: 8 }}>
+          {block.facts.map(fact => (
+            <div
+              key={fact.label}
+              style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 13, marginBottom: 4 }}
+            >
+              <span style={{ color: 'var(--text-muted)' }}>{fact.label}</span>
+              <span style={{ fontWeight: 700 }}>{fact.value}</span>
+            </div>
+          ))}
+        </div>
       )}
       {block.empty && (
         <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 10 }}>{block.empty}</div>

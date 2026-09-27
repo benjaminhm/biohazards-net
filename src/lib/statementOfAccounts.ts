@@ -1,6 +1,6 @@
 import type { AssessmentData, DisposalManifestCapture, Document, QuoteGstMode, QuoteSpoke, StatementLedgerLine, StatementOfAccountsContent } from '@/lib/types'
 import { parsePhoneNumberFromString } from 'libphonenumber-js'
-import { disposalPriceLines, formatAud, loadHasContent, mergedDisposalManifestCapture } from '@/lib/disposalManifest'
+import { computeDisposalTotals, disposalPriceLines, formatAud, formatKg, formatM3, loadHasContent, mergedDisposalManifestCapture } from '@/lib/disposalManifest'
 import { houseSurveyDocument } from '@/lib/houseSurvey'
 import { getQuoteSpokes } from '@/lib/quoteSpokes'
 import {
@@ -145,6 +145,30 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100
 }
 
+function formatSqm(n: number): string {
+  const text = round2(n).toLocaleString('en-AU', { maximumFractionDigits: 2 })
+  return `${text} m²`
+}
+
+/** Square metres typed on a load or its vehicles. Volume is not treated as area. */
+function recordedWasteSqm(loads: Parameters<typeof computeDisposalTotals>[0]): number | null {
+  let sum = 0
+  let recorded = 0
+  for (const load of loads) {
+    const vehicleSqm = load.vehicles
+      .map(vehicle => vehicle.waste_sqm)
+      .filter((value): value is number => value != null && Number.isFinite(value))
+    if (vehicleSqm.length > 0) {
+      sum += vehicleSqm.reduce((total, value) => total + value, 0)
+      recorded += vehicleSqm.length
+    } else if (load.waste_sqm != null && Number.isFinite(load.waste_sqm)) {
+      sum += load.waste_sqm
+      recorded += 1
+    }
+  }
+  return recorded > 0 ? round2(sum) : null
+}
+
 function latestOfType(documents: Document[], type: Document['type']): Document | null {
   const rows = documents.filter(d => d.type === type)
   if (!rows.length) return null
@@ -180,6 +204,8 @@ export interface StatementReferenceBlock {
   heading: string
   reference: string
   detail: string
+  /** Quantities beside the prices. Display only. */
+  facts: { label: string; value: string }[]
   /** no_gst quotes show a single amount. Survey and disposal always show both. */
   gst_mode: QuoteGstMode
   lines: StatementReferenceLine[]
@@ -248,6 +274,7 @@ function blockFromQuoteDocument(doc: Document): StatementReferenceBlock {
     heading: quoteHeading(kind, label),
     reference: documentReference(doc, ''),
     detail: priced ? gstDetail(gst_mode) : '',
+    facts: [],
     gst_mode,
     lines: priced ? [{ label: 'Total', ex, inc, strong: true }] : [],
     empty: priced ? null : 'No price on this document yet.',
@@ -304,6 +331,7 @@ function blockFromSpoke(spoke: QuoteSpoke, reference: string): StatementReferenc
     heading: quoteHeading(kind, spoke.label),
     reference,
     detail: priced ? gstDetail(gst_mode) : '',
+    facts: [],
     gst_mode,
     lines,
     empty: priced ? null : 'No quote price yet.',
@@ -336,6 +364,7 @@ export function statementReferencePanel(
     : pricedSqm == null
       ? `${formatAud(rate)} / m²`
       : `${pricedSqm} m² at ${formatAud(rate)} / m²`
+  const surveyFacts = pricedSqm == null ? [] : [{ label: 'Area', value: formatSqm(pricedSqm) }]
 
   const quotes = quoteDocuments(documents)
   const spokes = getQuoteSpokes(assessment)
@@ -366,6 +395,12 @@ export function statementReferencePanel(
       inc: round2(-disposalPrices.prepaid_inc),
     })
   }
+  const disposalTotals = computeDisposalTotals(disposalLoads)
+  const wasteSqm = recordedWasteSqm(disposalLoads)
+  const disposalFacts: { label: string; value: string }[] = []
+  if (wasteSqm != null) disposalFacts.push({ label: 'Area', value: formatSqm(wasteSqm) })
+  if (disposalTotals.volume_recorded > 0) disposalFacts.push({ label: 'Cubic metres', value: formatM3(disposalTotals.volume_m3) })
+  if (disposalTotals.weight_recorded > 0) disposalFacts.push({ label: 'Weight', value: formatKg(disposalTotals.weight_kg) })
   const disposalPriced = disposalLines.length > 0
   if (disposalPriced) {
     disposalLines.push({
@@ -381,18 +416,20 @@ export function statementReferencePanel(
       heading: 'Survey',
       reference: surveyReference,
       detail: surveyDetail,
+      facts: surveyFacts,
       gst_mode: 'exclusive',
       lines: surveyLines,
-      empty: surveyPriced ? null : 'No survey price yet.',
+      empty: surveyPriced || surveyFacts.length > 0 ? null : 'No survey price yet.',
     },
     quotes: quoteBlocks,
     disposal: {
       heading: 'Contents disposal',
       reference: documentReference(latestDisposalDocument(documents), ''),
       detail: '',
+      facts: disposalFacts,
       gst_mode: 'exclusive',
       lines: disposalLines,
-      empty: disposalPriced ? null : 'No disposal price yet.',
+      empty: disposalPriced || disposalFacts.length > 0 ? null : 'No disposal price yet.',
     },
   }
 }
