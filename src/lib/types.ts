@@ -2059,6 +2059,8 @@ export interface StatementOfAccountsContent {
   reference: string
   site_address: string
   quote_reference: string
+  /** Code of the latest saved house survey, when one exists. */
+  survey_reference?: string
   disposal_reference: string
   gst_mode: QuoteGstMode
   quote_ex: number

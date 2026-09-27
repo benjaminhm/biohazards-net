@@ -138,6 +138,10 @@ export function latestDisposalDocument(documents: Document[]): Document | null {
   return latestOfType(documents, 'waste_disposal_manifest')
 }
 
+export function latestSurveyDocument(documents: Document[]): Document | null {
+  return latestOfType(documents, 'house_survey')
+}
+
 export function documentReference(doc: Document | null, fallback: string): string {
   const raw = doc?.content?.reference
   return typeof raw === 'string' && raw.trim() ? raw.trim() : fallback

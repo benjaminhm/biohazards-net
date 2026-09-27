@@ -2726,6 +2726,7 @@ function buildStatementMid(view: StatementPresentation, includeSummary = true): 
 function statementPropertyHtml(c: StatementOfAccountsContent): string {
   return `
     <p class="body-text"><strong>Property:</strong> ${esc(c.site_address || '—')}</p>
+    <p class="body-text"><strong>Survey:</strong> ${esc(c.survey_reference || '—')}</p>
     <p class="body-text"><strong>Quote / estimate:</strong> ${esc(c.quote_reference || '—')}</p>
     <p class="body-text"><strong>Contents disposal record:</strong> ${esc(c.disposal_reference || '—')}</p>`
 }
