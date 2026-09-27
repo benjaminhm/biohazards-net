@@ -220,7 +220,7 @@ export interface StatementReferenceBlock {
   detail: string
   /** Quantities beside the prices. Display only. */
   facts: { label: string; value: string }[]
-  /** Survey and disposal: item, quantity, ex GST. The total adds inc GST in brackets. */
+  /** Survey and disposal: item, quantity, ex GST, and inc GST. */
   quantityColumn?: boolean
   itemHeading?: string
   quantityHeading?: string

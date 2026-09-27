@@ -92,16 +92,16 @@ function ReferencePanel({
   )
 }
 
-function referenceExPrice(line: StatementReferenceLine, showGst: boolean): string {
-  if (!Number.isFinite(line.ex)) return '—'
-  if (line.strong && showGst && Number.isFinite(line.inc)) return `${formatAud(line.ex)} (${formatAud(line.inc)})`
-  return formatAud(line.ex)
+function referenceMoney(amount: number): string {
+  return Number.isFinite(amount) ? formatAud(amount) : '—'
 }
 
 function ReferenceBlock({ block }: { block: StatementReferenceBlock }) {
   const showGst = block.gst_mode !== 'no_gst'
   const quantity = block.quantityColumn === true
-  const columns = quantity ? '1.1fr auto auto' : showGst ? '1.3fr auto auto' : '1.3fr auto'
+  const columns = quantity
+    ? showGst ? 'minmax(0, 1.1fr) auto auto auto' : 'minmax(0, 1.1fr) auto auto'
+    : showGst ? '1.3fr auto auto' : '1.3fr auto'
   return (
     <div
       style={{
@@ -152,8 +152,9 @@ function ReferenceBlock({ block }: { block: StatementReferenceBlock }) {
           >
             <span>{block.itemHeading || 'Item'}</span>
             {quantity && <span style={{ textAlign: 'right' }}>{block.quantityHeading || 'Quantity'}</span>}
+            {quantity && showGst && <span style={{ textAlign: 'right' }}>Ex GST</span>}
             {showGst && !quantity && <span style={{ textAlign: 'right' }}>Before GST</span>}
-            <span style={{ textAlign: 'right' }}>{quantity ? 'Ex GST' : showGst ? 'Inc GST' : 'Amount'}</span>
+            <span style={{ textAlign: 'right' }}>{quantity && !showGst ? 'Ex GST' : showGst ? 'Inc GST' : 'Amount'}</span>
           </div>
           {block.lines.map((line, index) => (
             <div
@@ -170,11 +171,9 @@ function ReferenceBlock({ block }: { block: StatementReferenceBlock }) {
             >
               <span>{line.label}</span>
               {quantity && <span style={{ textAlign: 'right' }}>{line.quantity || '—'}</span>}
-              {showGst && !quantity && <span style={{ textAlign: 'right' }}>{formatAud(line.ex)}</span>}
+              {showGst && <span style={{ textAlign: 'right' }}>{referenceMoney(line.ex)}</span>}
               <span style={{ textAlign: 'right' }}>
-                {quantity
-                  ? referenceExPrice(line, showGst)
-                  : formatAud(showGst ? line.inc : line.ex)}
+                {referenceMoney(showGst ? line.inc : line.ex)}
               </span>
             </div>
           ))}
