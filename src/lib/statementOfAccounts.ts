@@ -1,6 +1,6 @@
 import type { AssessmentData, DisposalManifestCapture, Document, QuoteGstMode, QuoteSpoke, StatementLedgerLine, StatementOfAccountsContent } from '@/lib/types'
 import { parsePhoneNumberFromString } from 'libphonenumber-js'
-import { computeDisposalTotals, disposalPriceLines, formatAud, formatKg, formatM3, loadHasContent, mergedDisposalManifestCapture } from '@/lib/disposalManifest'
+import { computeDisposalTotals, disposalPriceLines, formatAud, formatKg, formatM3, loadHasContent, mergedDisposalManifestCapture, vehicleVolumeM3 } from '@/lib/disposalManifest'
 import { houseSurveyDocument } from '@/lib/houseSurvey'
 import { getQuoteSpokes } from '@/lib/quoteSpokes'
 import {
@@ -150,23 +150,35 @@ function formatSqm(n: number): string {
   return `${text} m²`
 }
 
-/** Square metres typed on a load or its vehicles. Volume is not treated as area. */
-function recordedWasteSqm(loads: Parameters<typeof computeDisposalTotals>[0]): number | null {
-  let sum = 0
-  let recorded = 0
+/** Cubic metres from each vehicle's length, width, and height, split the same way as the price. */
+function disposalVolumes(loads: Parameters<typeof computeDisposalTotals>[0]): { skip: string; trailer: string; ute: string } {
+  let skip = 0
+  let trailer = 0
+  let ute = 0
+  let skipN = 0
+  let trailerN = 0
+  let uteN = 0
   for (const load of loads) {
-    const vehicleSqm = load.vehicles
-      .map(vehicle => vehicle.waste_sqm)
-      .filter((value): value is number => value != null && Number.isFinite(value))
-    if (vehicleSqm.length > 0) {
-      sum += vehicleSqm.reduce((total, value) => total + value, 0)
-      recorded += vehicleSqm.length
-    } else if (load.waste_sqm != null && Number.isFinite(load.waste_sqm)) {
-      sum += load.waste_sqm
-      recorded += 1
+    for (const vehicle of load.vehicles) {
+      const volume = vehicleVolumeM3(vehicle)
+      if (volume == null) continue
+      if (vehicle.type === 'skip') {
+        skip += volume
+        skipN += 1
+      } else if (vehicle.type === 'ute') {
+        ute += volume
+        uteN += 1
+      } else {
+        trailer += volume
+        trailerN += 1
+      }
     }
   }
-  return recorded > 0 ? round2(sum) : null
+  return {
+    skip: skipN > 0 ? formatM3(round2(skip)) : '',
+    trailer: trailerN > 0 ? formatM3(round2(trailer)) : '',
+    ute: uteN > 0 ? formatM3(round2(ute)) : '',
+  }
 }
 
 function latestOfType(documents: Document[], type: Document['type']): Document | null {
@@ -197,6 +209,8 @@ export interface StatementReferenceLine {
   ex: number
   inc: number
   strong?: boolean
+  /** Cubic metres or weight shown beside this price. */
+  quantity?: string
 }
 
 /** One source of prices shown beside the statement. Never written into statement fields. */
@@ -206,6 +220,8 @@ export interface StatementReferenceBlock {
   detail: string
   /** Quantities beside the prices. Display only. */
   facts: { label: string; value: string }[]
+  /** Disposal rows: item, quantity, inc GST. Survey and quotes keep the GST columns. */
+  quantityColumn?: boolean
   /** no_gst quotes show a single amount. Survey and disposal always show both. */
   gst_mode: QuoteGstMode
   lines: StatementReferenceLine[]
@@ -375,32 +391,30 @@ export function statementReferencePanel(
   const disposalCapture = mergedDisposalManifestCapture(assessment)
   const disposalLoads = disposalCapture.loads.filter(loadHasContent)
   const disposalPrices = disposalPriceLines(disposalLoads, disposalCapture.cost_per_m3, disposalCapture.prepaid_m3)
+  const volumes = disposalVolumes(disposalLoads)
+  const disposalTotals = computeDisposalTotals(disposalLoads)
+  const weight = disposalTotals.weight_recorded > 0 ? formatKg(disposalTotals.weight_kg) : ''
   const disposalLines: StatementReferenceLine[] = []
-  if (disposalPrices.skips_inc > 0.004) {
-    disposalLines.push({ label: 'Skip hire', ex: disposalPrices.skips_ex, inc: disposalPrices.skips_inc })
+  const priced = (amount: number) => amount > 0.004
+  if (priced(disposalPrices.skips_inc) || volumes.skip) {
+    disposalLines.push({ label: 'Skip', ex: disposalPrices.skips_ex, inc: disposalPrices.skips_inc, quantity: volumes.skip })
   }
-  if (disposalPrices.trailers_ex > 0.004) {
-    disposalLines.push({ label: 'Trailers', ex: disposalPrices.trailers_ex, inc: disposalPrices.trailers_inc })
+  if (priced(disposalPrices.trailers_ex) || volumes.trailer) {
+    disposalLines.push({ label: 'Trailer', ex: disposalPrices.trailers_ex, inc: disposalPrices.trailers_inc, quantity: volumes.trailer })
   }
-  if (disposalPrices.utes_ex > 0.004) {
-    disposalLines.push({ label: 'Utes', ex: disposalPrices.utes_ex, inc: disposalPrices.utes_inc })
+  if (priced(disposalPrices.utes_ex) || volumes.ute) {
+    disposalLines.push({ label: 'Ute', ex: disposalPrices.utes_ex, inc: disposalPrices.utes_inc, quantity: volumes.ute })
   }
-  if (disposalPrices.dump_fees_inc > 0.004) {
-    disposalLines.push({ label: 'Dump fees', ex: disposalPrices.dump_fees_ex, inc: disposalPrices.dump_fees_inc })
+  if (priced(disposalPrices.dump_fees_inc) || weight) {
+    disposalLines.push({ label: 'Tip fees', ex: disposalPrices.dump_fees_ex, inc: disposalPrices.dump_fees_inc, quantity: weight })
   }
-  if (disposalPrices.prepaid_ex > 0.004) {
+  if (priced(disposalPrices.prepaid_ex)) {
     disposalLines.push({
       label: 'Prepaid',
       ex: round2(-disposalPrices.prepaid_ex),
       inc: round2(-disposalPrices.prepaid_inc),
     })
   }
-  const disposalTotals = computeDisposalTotals(disposalLoads)
-  const wasteSqm = recordedWasteSqm(disposalLoads)
-  const disposalFacts: { label: string; value: string }[] = []
-  if (wasteSqm != null) disposalFacts.push({ label: 'Area', value: formatSqm(wasteSqm) })
-  if (disposalTotals.volume_recorded > 0) disposalFacts.push({ label: 'Cubic metres', value: formatM3(disposalTotals.volume_m3) })
-  if (disposalTotals.weight_recorded > 0) disposalFacts.push({ label: 'Weight', value: formatKg(disposalTotals.weight_kg) })
   const disposalPriced = disposalLines.length > 0
   if (disposalPriced) {
     disposalLines.push({
@@ -426,10 +440,11 @@ export function statementReferencePanel(
       heading: 'Contents disposal',
       reference: documentReference(latestDisposalDocument(documents), ''),
       detail: '',
-      facts: disposalFacts,
+      facts: [],
+      quantityColumn: true,
       gst_mode: 'exclusive',
       lines: disposalLines,
-      empty: disposalPriced || disposalFacts.length > 0 ? null : 'No disposal price yet.',
+      empty: disposalPriced ? null : 'No disposal price yet.',
     },
   }
 }

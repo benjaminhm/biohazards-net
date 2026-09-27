@@ -92,6 +92,8 @@ function ReferencePanel({
 
 function ReferenceBlock({ block }: { block: StatementReferenceBlock }) {
   const showGst = block.gst_mode !== 'no_gst'
+  const quantity = block.quantityColumn === true
+  const columns = quantity ? '1.1fr auto auto' : showGst ? '1.3fr auto auto' : '1.3fr auto'
   return (
     <div
       style={{
@@ -130,7 +132,7 @@ function ReferenceBlock({ block }: { block: StatementReferenceBlock }) {
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: showGst ? '1.3fr auto auto' : '1.3fr auto',
+              gridTemplateColumns: columns,
               gap: 8,
               marginBottom: 6,
               fontSize: 10,
@@ -141,23 +143,27 @@ function ReferenceBlock({ block }: { block: StatementReferenceBlock }) {
             }}
           >
             <span>Item</span>
-            {showGst && <span style={{ textAlign: 'right' }}>Before GST</span>}
-            <span style={{ textAlign: 'right' }}>{showGst ? 'Inc GST' : 'Amount'}</span>
+            {quantity && <span style={{ textAlign: 'right' }}>Quantity</span>}
+            {showGst && !quantity && <span style={{ textAlign: 'right' }}>Before GST</span>}
+            <span style={{ textAlign: 'right' }}>{showGst || quantity ? 'Inc GST' : 'Amount'}</span>
           </div>
           {block.lines.map((line, index) => (
             <div
               key={`${line.label}-${index}`}
               style={{
                 display: 'grid',
-                gridTemplateColumns: showGst ? '1.3fr auto auto' : '1.3fr auto',
+                gridTemplateColumns: columns,
                 gap: 8,
                 marginBottom: 6,
                 fontWeight: line.strong ? 700 : 400,
+                borderTop: line.strong ? '1px solid var(--border)' : undefined,
+                paddingTop: line.strong ? 6 : undefined,
               }}
             >
               <span>{line.label}</span>
-              {showGst && <span style={{ textAlign: 'right' }}>{formatAud(line.ex)}</span>}
-              <span style={{ textAlign: 'right' }}>{formatAud(showGst ? line.inc : line.ex)}</span>
+              {quantity && <span style={{ textAlign: 'right' }}>{line.quantity || '—'}</span>}
+              {showGst && !quantity && <span style={{ textAlign: 'right' }}>{formatAud(line.ex)}</span>}
+              <span style={{ textAlign: 'right' }}>{formatAud(showGst || quantity ? line.inc : line.ex)}</span>
             </div>
           ))}
         </div>
