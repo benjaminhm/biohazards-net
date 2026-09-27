@@ -12,6 +12,7 @@ import {
   statementReferencePanel,
   type StatementOfAccountsCapture,
   type StatementReferenceBlock,
+  type StatementReferenceLine,
 } from '@/lib/statementOfAccounts'
 
 interface Props {
@@ -90,6 +91,12 @@ function ReferencePanel({
   )
 }
 
+function referenceExPrice(line: StatementReferenceLine, showGst: boolean): string {
+  if (!Number.isFinite(line.ex)) return '—'
+  if (line.strong && showGst && Number.isFinite(line.inc)) return `${formatAud(line.ex)} (${formatAud(line.inc)})`
+  return formatAud(line.ex)
+}
+
 function ReferenceBlock({ block }: { block: StatementReferenceBlock }) {
   const showGst = block.gst_mode !== 'no_gst'
   const quantity = block.quantityColumn === true
@@ -142,10 +149,10 @@ function ReferenceBlock({ block }: { block: StatementReferenceBlock }) {
               color: 'var(--text-muted)',
             }}
           >
-            <span>Item</span>
-            {quantity && <span style={{ textAlign: 'right' }}>Quantity</span>}
+            <span>{block.itemHeading || 'Item'}</span>
+            {quantity && <span style={{ textAlign: 'right' }}>{block.quantityHeading || 'Quantity'}</span>}
             {showGst && !quantity && <span style={{ textAlign: 'right' }}>Before GST</span>}
-            <span style={{ textAlign: 'right' }}>{showGst || quantity ? 'Inc GST' : 'Amount'}</span>
+            <span style={{ textAlign: 'right' }}>{quantity ? 'Ex GST' : showGst ? 'Inc GST' : 'Amount'}</span>
           </div>
           {block.lines.map((line, index) => (
             <div
@@ -163,7 +170,11 @@ function ReferenceBlock({ block }: { block: StatementReferenceBlock }) {
               <span>{line.label}</span>
               {quantity && <span style={{ textAlign: 'right' }}>{line.quantity || '—'}</span>}
               {showGst && !quantity && <span style={{ textAlign: 'right' }}>{formatAud(line.ex)}</span>}
-              <span style={{ textAlign: 'right' }}>{formatAud(showGst || quantity ? line.inc : line.ex)}</span>
+              <span style={{ textAlign: 'right' }}>
+                {quantity
+                  ? referenceExPrice(line, showGst)
+                  : formatAud(showGst ? line.inc : line.ex)}
+              </span>
             </div>
           ))}
         </div>

@@ -220,8 +220,10 @@ export interface StatementReferenceBlock {
   detail: string
   /** Quantities beside the prices. Display only. */
   facts: { label: string; value: string }[]
-  /** Disposal rows: item, quantity, inc GST. Survey and quotes keep the GST columns. */
+  /** Survey and disposal: item, quantity, ex GST. The total adds inc GST in brackets. */
   quantityColumn?: boolean
+  itemHeading?: string
+  quantityHeading?: string
   /** no_gst quotes show a single amount. Survey and disposal always show both. */
   gst_mode: QuoteGstMode
   lines: StatementReferenceLine[]
@@ -362,25 +364,23 @@ export function statementReferencePanel(
   const surveyDoc = houseSurveyDocument('', '', assessment?.house_survey)
   const surveyReference = documentReference(latestOfType(documents, 'house_survey'), '')
   const surveyLines: StatementReferenceLine[] = surveyDoc.areas
-    .filter(area => area.price_ex != null && area.price_inc != null)
-    .map(area => ({ label: area.title, ex: area.price_ex as number, inc: area.price_inc as number }))
-  const surveyPriced = surveyDoc.totals.price_ex != null && surveyDoc.totals.price_inc != null
-  if (surveyPriced) {
+    .filter(area => area.priced != null || area.price_ex != null)
+    .map(area => ({
+      label: area.title,
+      ex: area.price_ex ?? Number.NaN,
+      inc: area.price_inc ?? Number.NaN,
+      quantity: area.priced == null ? '' : formatSqm(area.priced),
+    }))
+  const surveyPriced = surveyLines.length > 0
+  if (surveyDoc.totals.price_ex != null && surveyDoc.totals.price_inc != null) {
     surveyLines.push({
       label: 'Total',
-      ex: surveyDoc.totals.price_ex as number,
-      inc: surveyDoc.totals.price_inc as number,
+      ex: surveyDoc.totals.price_ex,
+      inc: surveyDoc.totals.price_inc,
+      quantity: surveyDoc.totals.priced == null ? '' : formatSqm(surveyDoc.totals.priced),
       strong: true,
     })
   }
-  const rate = surveyDoc.price_per_m2
-  const pricedSqm = surveyDoc.totals.priced
-  const surveyDetail = rate == null
-    ? ''
-    : pricedSqm == null
-      ? `${formatAud(rate)} / m²`
-      : `${pricedSqm} m² at ${formatAud(rate)} / m²`
-  const surveyFacts = pricedSqm == null ? [] : [{ label: 'Area', value: formatSqm(pricedSqm) }]
 
   const quotes = quoteDocuments(documents)
   const spokes = getQuoteSpokes(assessment)
@@ -429,11 +429,14 @@ export function statementReferencePanel(
     survey: {
       heading: 'Survey',
       reference: surveyReference,
-      detail: surveyDetail,
-      facts: surveyFacts,
+      detail: '',
+      facts: [],
+      quantityColumn: true,
+      itemHeading: 'Room',
+      quantityHeading: 'Area',
       gst_mode: 'exclusive',
       lines: surveyLines,
-      empty: surveyPriced || surveyFacts.length > 0 ? null : 'No survey price yet.',
+      empty: surveyPriced ? null : 'No survey price yet.',
     },
     quotes: quoteBlocks,
     disposal: {
