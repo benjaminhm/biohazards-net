@@ -805,15 +805,16 @@ function areaRows(areas: StatementSurveyArea[] | null | undefined): StatementLed
     const label = area.label.trim()
     if (!label || area.sqm == null || !Number.isFinite(area.sqm)) continue
     sqm += area.sqm
-    const hasTotal = area.total != null && Number.isFinite(area.total)
+    const total = area.total
+    const hasTotal = total != null && Number.isFinite(total)
     if (hasTotal) {
-      price += area.total
+      price += total
       priced += 1
     }
     rows.push({
       label,
       quantity: formatSqm(area.sqm),
-      amountInc: hasTotal ? round2(area.total as number) : 0,
+      amountInc: hasTotal ? round2(total) : 0,
       display: hasTotal ? undefined : '—',
       explain: true,
     })
@@ -937,7 +938,11 @@ export function presentStatementDocument(c: StatementOfAccountsContent): Stateme
     amountInc: invoice1Amount,
     balanceInc: sourceBalance,
     deductions: sourceRows,
-    explanation: explanationWithAreas(sourceParts, areaRows(c.survey_areas)),
+    explanation: explanationWithAreas(sourceParts, areaRows(c.survey_areas?.map(area => ({
+      label: area.label,
+      sqm: area.sqm,
+      total: area.total ?? null,
+    })))),
     payUrl: c.original_invoice_url ?? '',
   })
   const invoices: BuiltInvoice[] = [source]
