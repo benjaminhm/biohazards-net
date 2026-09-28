@@ -1105,6 +1105,8 @@ export interface AssessmentData {
     invoice1_callout?: number | null
     invoice1_contents?: number | null
     invoice1_cleaning?: number | null
+    /** Square metres by survey area. Null follows the saved survey. An empty list prints nothing. */
+    survey_areas?: { label: string; sqm: number | null }[] | null
     invoice2_m3?: number | null
     invoice2_skips?: number | null
     invoice2_trailers?: number | null
@@ -2104,6 +2106,8 @@ export interface StatementOfAccountsContent {
   original_invoice_url: string
   new_invoice_number: string
   new_invoice_url: string
+  /** Square metres by survey area. Printed above invoice 1 and left out of the balance. */
+  survey_areas?: { label: string; sqm: number | null }[] | null
   /** GST-inclusive parts of invoice 1. Omitted lines are blank. */
   invoice1_callout?: number | null
   invoice1_contents?: number | null

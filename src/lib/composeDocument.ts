@@ -76,7 +76,7 @@ import {
   volumePricingHasContent,
 } from '@/lib/quoteSections'
 import { buildPrintHTML, type ClientInfo } from '@/lib/printDocument'
-import { latestDisposalDocument, latestSurveyDocument, documentReference, normalizeStatementCapture, statementFromJob } from '@/lib/statementOfAccounts'
+import { latestDisposalDocument, latestSurveyDocument, documentReference, normalizeStatementCapture, statementFromJob, surveyAreaQuantities } from '@/lib/statementOfAccounts'
 import type { CompanyProfile } from '@/lib/types'
 import {
   presentingHealthHazardsFromAssessment,
@@ -1137,6 +1137,7 @@ function composeStatement(job: Job, documents: Document[]): ComposeDocumentResul
       invoice1_callout: capture.invoice1_callout,
       invoice1_contents: capture.invoice1_contents,
       invoice1_cleaning: capture.invoice1_cleaning,
+      survey_areas: capture.survey_areas ?? surveyAreaQuantities(job.assessment_data),
       invoice2_m3: capture.invoice2_m3,
       invoice2_skips: capture.invoice2_skips,
       invoice2_trailers: capture.invoice2_trailers,

@@ -12,6 +12,11 @@ import {
   volumePricingSectionSubtotal,
 } from '@/lib/quoteSections'
 
+export interface StatementSurveyArea {
+  label: string
+  sqm: number | null
+}
+
 export interface StatementOfAccountsCapture {
   deposit_taken: boolean
   /** Dollars received. Includes GST when deposit_includes_gst is true and the quote charges GST. */
@@ -33,6 +38,8 @@ export interface StatementOfAccountsCapture {
   invoice1_callout: number | null
   invoice1_contents: number | null
   invoice1_cleaning: number | null
+  /** Square metres by area. Null uses the saved survey. Not a dollar amount. */
+  survey_areas: StatementSurveyArea[] | null
   /** Quantity on invoice 2. Not a dollar amount. */
   invoice2_m3: number | null
   /** How invoice 2 is made up. Blank lines are omitted. Filled lines must add up to invoice 2. Prepaid is taken off. */
@@ -102,6 +109,7 @@ export function emptyStatementCapture(): StatementOfAccountsCapture {
     invoice1_callout: null,
     invoice1_contents: null,
     invoice1_cleaning: null,
+    survey_areas: null,
     invoice2_m3: null,
     invoice2_skips: null,
     invoice2_trailers: null,
@@ -132,6 +140,7 @@ export function normalizeStatementCapture(raw: unknown): StatementOfAccountsCapt
     invoice1_callout: moneyOrNull(o.invoice1_callout),
     invoice1_contents: moneyOrNull(o.invoice1_contents),
     invoice1_cleaning: moneyOrNull(o.invoice1_cleaning),
+    survey_areas: surveyAreasOrNull(o.survey_areas),
     invoice2_m3: moneyOrNull(o.invoice2_m3),
     invoice2_skips: moneyOrNull(o.invoice2_skips),
     invoice2_trailers: moneyOrNull(o.invoice2_trailers),
@@ -142,6 +151,27 @@ export function normalizeStatementCapture(raw: unknown): StatementOfAccountsCapt
     deposit_date: textField(o.deposit_date),
     adjustment_reason: textField(o.adjustment_reason),
   }
+}
+
+function surveyAreasOrNull(value: unknown): StatementSurveyArea[] | null {
+  if (!Array.isArray(value)) return null
+  return value.flatMap(item => {
+    if (!item || typeof item !== 'object') return []
+    const row = item as Record<string, unknown>
+    const label = textField(row.label)
+    const sqm = moneyOrNull(row.sqm)
+    if (!label && sqm == null) return []
+    return [{ label, sqm }]
+  })
+}
+
+/** Priced square metres for each survey area. The statement prints these, and does not add them to the invoice. */
+export function surveyAreaQuantities(assessment: AssessmentData | null | undefined): StatementSurveyArea[] {
+  const survey = houseSurveyDocument('', '', assessment?.house_survey)
+  return survey.areas.flatMap(area => {
+    if (area.priced == null || !Number.isFinite(area.priced)) return []
+    return [{ label: area.title, sqm: area.priced }]
+  })
 }
 
 function moneyOrNull(value: unknown): number | null {
@@ -744,6 +774,22 @@ function moneyParts(pairs: Array<[string, number | null | undefined]>): Statemen
   })
 }
 
+function areaRows(areas: StatementSurveyArea[] | null | undefined): StatementLedgerDisplayRow[] {
+  if (!areas || areas.length === 0) return []
+  const rows: StatementLedgerDisplayRow[] = []
+  let total = 0
+  for (const area of areas) {
+    const label = area.label.trim()
+    if (!label || area.sqm == null || !Number.isFinite(area.sqm)) continue
+    total += area.sqm
+    rows.push({ label, amountInc: 0, display: formatSqm(area.sqm), explain: true })
+  }
+  if (rows.length > 1) {
+    rows.push({ label: 'Total area', amountInc: 0, display: formatSqm(round2(total)), explain: true })
+  }
+  return rows
+}
+
 function metresRow(amount: number | null | undefined): StatementLedgerDisplayRow | null {
   if (amount == null || !Number.isFinite(amount)) return null
   const text = round2(amount).toLocaleString('en-AU', { maximumFractionDigits: 2 })
@@ -845,7 +891,7 @@ export function presentStatementDocument(c: StatementOfAccountsContent): Stateme
     amountInc: invoice1Amount,
     balanceInc: sourceBalance,
     deductions: sourceRows,
-    explanation: sourceParts,
+    explanation: [...areaRows(c.survey_areas), ...sourceParts],
     payUrl: c.original_invoice_url ?? '',
   })
   const invoices: BuiltInvoice[] = [source]

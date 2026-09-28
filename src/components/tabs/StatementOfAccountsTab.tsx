@@ -10,7 +10,9 @@ import {
   normalizeStatementCapture,
   statementFigures,
   statementReferencePanel,
+  surveyAreaQuantities,
   type StatementOfAccountsCapture,
+  type StatementSurveyArea,
   type StatementReferenceBlock,
   type StatementReferenceLine,
 } from '@/lib/statementOfAccounts'
@@ -183,6 +185,11 @@ function ReferenceBlock({ block }: { block: StatementReferenceBlock }) {
   )
 }
 
+function surveyAreasEqual(a: StatementSurveyArea[] | null, b: StatementSurveyArea[] | null): boolean {
+  if (a == null || b == null) return a == null && b == null
+  return a.length === b.length && a.every((area, index) => area.label === b[index].label && area.sqm === b[index].sqm)
+}
+
 function capturesEqual(a: StatementOfAccountsCapture, b: StatementOfAccountsCapture): boolean {
   return a.deposit_taken === b.deposit_taken
     && a.deposit_amount === b.deposit_amount
@@ -198,6 +205,7 @@ function capturesEqual(a: StatementOfAccountsCapture, b: StatementOfAccountsCapt
     && a.invoice1_callout === b.invoice1_callout
     && a.invoice1_contents === b.invoice1_contents
     && a.invoice1_cleaning === b.invoice1_cleaning
+    && surveyAreasEqual(a.survey_areas, b.survey_areas)
     && a.invoice2_m3 === b.invoice2_m3
     && a.invoice2_skips === b.invoice2_skips
     && a.invoice2_trailers === b.invoice2_trailers
@@ -233,10 +241,19 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
     () => statementReferencePanel(job.assessment_data, documents),
     [job.assessment_data, documents],
   )
+  const surveySeed = useMemo(
+    () => surveyAreaQuantities(job.assessment_data),
+    [job.assessment_data],
+  )
+  const surveyAreas = capture.survey_areas ?? surveySeed
 
   function patch(next: Partial<StatementOfAccountsCapture>) {
     setCapture(prev => ({ ...prev, ...next }))
     setSavedFlash(false)
+  }
+
+  function setSurveyAreas(next: StatementSurveyArea[]) {
+    patch({ survey_areas: next })
   }
 
   async function save(next = capture): Promise<boolean> {
@@ -359,6 +376,56 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
               style={INPUT}
             />
             <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Survey area for each room. These print on the statement and are not added to the invoice.</div>
+              {surveyAreas.map((area, index) => (
+                <div key={index} style={{ display: 'grid', gridTemplateColumns: '1fr 120px auto', gap: 8, alignItems: 'end' }}>
+                  <div>
+                    <label style={LABEL}>Area</label>
+                    <input
+                      type="text"
+                      value={area.label}
+                      onChange={e => {
+                        const next = surveyAreas.map((row, rowIndex) => rowIndex === index ? { ...row, label: e.target.value } : row)
+                        setSurveyAreas(next)
+                      }}
+                      placeholder="Room"
+                      style={INPUT}
+                    />
+                  </div>
+                  <div>
+                    <label style={LABEL}>m²</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={area.sqm ?? ''}
+                      onChange={e => {
+                        const raw = e.target.value
+                        const next = surveyAreas.map((row, rowIndex) => (
+                          rowIndex === index ? { ...row, sqm: raw === '' ? null : Number(raw) } : row
+                        ))
+                        setSurveyAreas(next)
+                      }}
+                      placeholder="0"
+                      style={INPUT}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSurveyAreas(surveyAreas.filter((_, rowIndex) => rowIndex !== index))}
+                    style={{ ...INPUT, width: 'auto', padding: '8px 10px', cursor: 'pointer' }}
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => setSurveyAreas([...surveyAreas, { label: '', sqm: null }])}
+                style={{ ...INPUT, width: 'auto', justifySelf: 'start', padding: '8px 12px', cursor: 'pointer' }}
+              >
+                Add area
+              </button>
               <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>How this invoice is made up. Leave a line blank to omit it. The amounts must add up to the invoice.</div>
               {([
                 ['Call out ($)', 'invoice1_callout'],

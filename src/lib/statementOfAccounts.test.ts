@@ -141,6 +141,20 @@ test('invoice breakdowns explain the amount and must add up', () => {
     ['Invoice amount', 17339.30],
   ])
   assert.equal(first.balanceInc, 8669.65)
+  const withAreas = presentStatementDocument(contentFor(fixture(), {
+    survey_areas: [
+      { label: 'Granny Flat', sqm: 190.12 },
+      { label: 'Ground Floor Main Dwelling', sqm: 380.2 },
+      { label: 'Level 2 Main Dwelling', sqm: 220.05 },
+    ],
+  }))
+  assert.deepEqual(withAreas.invoices[0].rows.slice(0, 4).map(row => [row.label, row.display]), [
+    ['Granny Flat', '190.12 m²'],
+    ['Ground Floor Main Dwelling', '380.2 m²'],
+    ['Level 2 Main Dwelling', '220.05 m²'],
+    ['Total area', '790.37 m²'],
+  ])
+  assert.equal(withAreas.invoices[0].balanceInc, 8669.65)
   assert.deepEqual(second.rows.slice(0, 4).map(row => [row.label, row.display ?? row.amountInc]), [
     ['Cubic metres removed', '12.5 m³'],
     ['Skips', 4000],
