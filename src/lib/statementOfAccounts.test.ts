@@ -51,6 +51,8 @@ function contentFor(
     new_invoice_url: capture.new_invoice_url,
     deposit_date: capture.deposit_date,
     adjustment_reason: capture.adjustment_reason,
+    manual_adjustment_inc: capture.manual_adjustment,
+    manual_adjustment_reason: capture.manual_adjustment_reason,
     ...extra,
   }
 }
@@ -201,6 +203,29 @@ test('an adjustment without a reason fails the build', () => {
   assert.throws(
     () => presentStatementDocument(contentFor(capture)),
     (error: unknown) => error instanceof StatementReconciliationError && /reason/.test(error.message),
+  )
+})
+
+test('a manual line changes the last invoice total', () => {
+  const reduced = fixture()
+  reduced.manual_adjustment = -100
+  reduced.manual_adjustment_reason = 'agreed reduction'
+  const view = presentStatementDocument(contentFor(reduced))
+  assert.equal(view.invoices[0].balanceInc, 8669.65)
+  assert.equal(view.invoices[1].balanceInc, 5881.88)
+  assert.equal(view.summary.balanceInc, 14551.53)
+  assert.equal(view.summary.jobTotalInc, 23221.18)
+  const adjustment = view.invoices[1].rows.find(row => row.label === 'agreed reduction')
+  assert.equal(adjustment?.amountInc, -100)
+  const balance = view.invoices[1].rows.at(-1)
+  assert.equal(balance?.label, 'Balance due on INV-0256')
+  assert.equal(balance?.amountInc, 5881.88)
+  const blank = fixture()
+  blank.manual_adjustment = -50
+  blank.manual_adjustment_reason = '  '
+  assert.throws(
+    () => presentStatementDocument(contentFor(blank)),
+    (error: unknown) => error instanceof StatementReconciliationError && /last invoice/.test(error.message),
   )
 })
 

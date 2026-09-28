@@ -1145,6 +1145,8 @@ function composeStatement(job: Job, documents: Document[]): ComposeDocumentResul
       invoice2_utes: capture.invoice2_utes,
       invoice2_tip_receipts: capture.invoice2_tip_receipts,
       invoice2_prepaid: capture.invoice2_prepaid,
+      manual_adjustment_inc: capture.manual_adjustment,
+      manual_adjustment_reason: capture.manual_adjustment_reason,
       deposit_date: capture.deposit_date,
       adjustment_reason: capture.adjustment_reason,
     },

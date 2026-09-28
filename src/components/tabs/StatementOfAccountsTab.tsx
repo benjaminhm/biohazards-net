@@ -213,6 +213,8 @@ function capturesEqual(a: StatementOfAccountsCapture, b: StatementOfAccountsCapt
     && a.invoice2_utes === b.invoice2_utes
     && a.invoice2_tip_receipts === b.invoice2_tip_receipts
     && a.invoice2_prepaid === b.invoice2_prepaid
+    && a.manual_adjustment === b.manual_adjustment
+    && a.manual_adjustment_reason === b.manual_adjustment_reason
     && a.charges_gst === b.charges_gst
     && a.deposit_date === b.deposit_date
     && a.adjustment_reason === b.adjustment_reason
@@ -286,6 +288,10 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
   async function saveAndCompose() {
     if (capture.invoice1_adjusted_amount != null && !capture.adjustment_reason.trim()) {
       setSaveError('Enter why invoice 1 changed. The statement needs that reason before it can be generated.')
+      return
+    }
+    if (capture.manual_adjustment != null && !capture.manual_adjustment_reason.trim()) {
+      setSaveError('Enter why the last invoice total changed. The statement needs that reason before it can be generated.')
       return
     }
     const ok = await save()
@@ -571,6 +577,33 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
                   />
                 </div>
               ))}
+            </div>
+          </div>
+          <div>
+            <label style={LABEL}>Adjustment on the last invoice ($)</label>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+              Changes the balance due on the last invoice. A negative amount reduces it. The reason is printed on that line.
+            </div>
+            <input
+              type="number"
+              step="0.01"
+              value={capture.manual_adjustment ?? ''}
+              onChange={e => {
+                const raw = e.target.value
+                patch({ manual_adjustment: raw === '' ? null : Number(raw) })
+              }}
+              placeholder="0.00"
+              style={INPUT}
+            />
+            <div style={{ marginTop: 10 }}>
+              <label style={LABEL}>Reason</label>
+              <input
+                type="text"
+                value={capture.manual_adjustment_reason}
+                onChange={e => patch({ manual_adjustment_reason: e.target.value })}
+                placeholder="Required when an adjustment is entered"
+                style={INPUT}
+              />
             </div>
           </div>
         </div>

@@ -50,6 +50,10 @@ export interface StatementOfAccountsCapture {
   invoice2_utes: number | null
   invoice2_tip_receipts: number | null
   invoice2_prepaid: number | null
+  /** Signed dollars on the last invoice only. Negative reduces its balance. Includes GST when the statement charges GST. */
+  manual_adjustment: number | null
+  /** Required when a manual adjustment is entered. Printed as that line. */
+  manual_adjustment_reason: string
   /** Every typed amount includes GST. */
   charges_gst: boolean
   /** When the deposit was received, shown on the statement as the payment date. */
@@ -118,6 +122,8 @@ export function emptyStatementCapture(): StatementOfAccountsCapture {
     invoice2_utes: null,
     invoice2_tip_receipts: null,
     invoice2_prepaid: null,
+    manual_adjustment: null,
+    manual_adjustment_reason: '',
     charges_gst: true,
     deposit_date: '',
     adjustment_reason: '',
@@ -149,6 +155,8 @@ export function normalizeStatementCapture(raw: unknown): StatementOfAccountsCapt
     invoice2_utes: moneyOrNull(o.invoice2_utes),
     invoice2_tip_receipts: moneyOrNull(o.invoice2_tip_receipts),
     invoice2_prepaid: moneyOrNull(o.invoice2_prepaid),
+    manual_adjustment: signedMoneyOrNull(o.manual_adjustment),
+    manual_adjustment_reason: textField(o.manual_adjustment_reason),
     charges_gst: o.charges_gst !== false,
     deposit_date: textField(o.deposit_date),
     adjustment_reason: textField(o.adjustment_reason),
@@ -197,6 +205,13 @@ function moneyOrNull(value: unknown): number | null {
   if (value == null || value === '') return null
   const amount = typeof value === 'number' ? value : Number(value)
   return Number.isFinite(amount) && amount >= 0 ? amount : null
+}
+
+function signedMoneyOrNull(value: unknown): number | null {
+  if (value == null || value === '') return null
+  const amount = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(amount) || Math.abs(amount) < 0.004) return null
+  return amount
 }
 
 function round2(n: number): number {
@@ -564,17 +579,20 @@ export function statementFigures(capture: StatementOfAccountsCapture): Statement
   const remeasure_ex = revised == null ? 0 : round2(quote_ex - revised.ex)
   const remeasure_inc = revised == null ? 0 : round2(quote_inc - revised.inc)
   const has_invoice2 = invoice2 != null
-  const invoice2_owing_ex = round2(new_invoice_ex - remeasure_ex)
-  const invoice2_owing_inc = round2(new_invoice_inc - remeasure_inc)
+  const manual = capture.manual_adjustment == null ? null : enteredPair(capture.manual_adjustment, gst_mode, true)
+  const manual_ex = manual?.ex ?? 0
+  const manual_inc = manual?.inc ?? 0
+  const invoice2_owing_ex = round2(new_invoice_ex - remeasure_ex + (has_invoice2 ? manual_ex : 0))
+  const invoice2_owing_inc = round2(new_invoice_inc - remeasure_inc + (has_invoice2 ? manual_inc : 0))
   const owing_ex = has_invoice2
     ? round2(original_owing_ex + invoice2_owing_ex)
-    : round2(original_owing_ex - remeasure_ex)
+    : round2(original_owing_ex - remeasure_ex + manual_ex)
   const owing_inc = has_invoice2
     ? round2(original_owing_inc + invoice2_owing_inc)
-    : round2(original_owing_inc - remeasure_inc)
+    : round2(original_owing_inc - remeasure_inc + manual_inc)
   const priced = revised ?? invoice1
-  const job_total_ex = round2(priced.ex + new_invoice_ex)
-  const job_total_inc = round2(priced.inc + new_invoice_inc)
+  const job_total_ex = round2(priced.ex + new_invoice_ex + manual_ex)
+  const job_total_inc = round2(priced.inc + new_invoice_inc + manual_inc)
   const gst = gst_mode === 'no_gst' ? 0 : round2(owing_inc - owing_ex)
   const lines: StatementLedgerLine[] = [
     { label: 'Invoice 1', ex: quote_ex, inc: quote_inc },
@@ -599,6 +617,15 @@ export function statementFigures(capture: StatementOfAccountsCapture): Statement
   }
   if (invoice2) {
     lines.push({ label: 'Invoice 2', ex: new_invoice_ex, inc: new_invoice_inc })
+  }
+  if (manual) {
+    lines.push({
+      label: capture.manual_adjustment_reason.trim() || 'Adjustment',
+      ex: manual_ex,
+      inc: manual_inc,
+    })
+  }
+  if (invoice2) {
     lines.push(positionLine(
       invoice2_owing_ex,
       invoice2_owing_inc,
@@ -607,7 +634,7 @@ export function statementFigures(capture: StatementOfAccountsCapture): Statement
       'Invoice 2 is paid',
     ))
   }
-  if (revised || invoice2) {
+  if (revised || invoice2 || manual) {
     lines.push({ label: 'Job total after adjustments', ex: job_total_ex, inc: job_total_inc, strong: true })
   }
   lines.push({ label: 'Total remaining owed', ex: owing_ex, inc: owing_inc, strong: true })
@@ -925,7 +952,17 @@ export function presentStatementDocument(c: StatementOfAccountsContent): Stateme
   const increaseOnSource = !hasInvoice2 && increase > 0
   const sourceBalance = round2(hasInvoice2 ? (c.original_owing_inc ?? invoice1Amount - paid) : c.owing_inc)
   const targetBalance = hasInvoice2 ? round2(c.invoice2_owing_inc ?? invoice2Amount - credit + increase) : 0
-  const creditReflectedOnSource = credit > 0.004 && closeMoney(sourceBalance, round2(invoice1Amount - paid - credit))
+  const manualInc = round2(c.manual_adjustment_inc ?? 0)
+  const manualReason = (c.manual_adjustment_reason ?? '').trim()
+  const manualRow: StatementLedgerDisplayRow | null = Math.abs(manualInc) < 0.004
+    ? null
+    : manualReason
+      ? { label: manualReason, amountInc: manualInc }
+      : (() => {
+          throw new StatementReconciliationError('Enter why the last invoice total changed. The statement needs that reason before it can be generated.')
+        })()
+  const balanceForCreditCheck = hasInvoice2 ? sourceBalance : round2(sourceBalance - manualInc)
+  const creditReflectedOnSource = credit > 0.004 && closeMoney(balanceForCreditCheck, round2(invoice1Amount - paid - credit))
   const jobTotal = round2(c.job_total_inc ?? (hasInvoice2 ? invoice1Amount - credit + increase + invoice2Amount : invoice1Amount - credit + increase))
   const balance = round2(c.owing_inc)
   const sourceRows: StatementLedgerDisplayRow[] = []
@@ -937,6 +974,7 @@ export function presentStatementDocument(c: StatementOfAccountsContent): Stateme
     })
   }
   if (increaseOnSource) sourceRows.push({ label: 'Added from adjustment', amountInc: increase })
+  if (!hasInvoice2 && manualRow) sourceRows.push(manualRow)
   const sourceHeading = invoiceHeading(c.original_invoice_number ?? '', 'Invoice 1 (initial works)')
   const sourceParts = moneyParts([
     ['Call out', c.invoice1_callout],
@@ -972,6 +1010,7 @@ export function presentStatementDocument(c: StatementOfAccountsContent): Stateme
         amountInc: increase,
       })
     }
+    if (manualRow) targetRows.push(manualRow)
     const targetHeading = invoiceHeading(c.new_invoice_number ?? '', 'Invoice 2 (contents)')
     const targetParts = [
       ...moneyParts([

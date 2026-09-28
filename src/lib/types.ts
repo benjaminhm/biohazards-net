@@ -1114,6 +1114,9 @@ export interface AssessmentData {
     invoice2_tip_receipts?: number | null
     /** Typed as a positive amount. Taken off invoice 2. */
     invoice2_prepaid?: number | null
+    /** Signed dollars applied to the last invoice balance. Negative reduces it. */
+    manual_adjustment?: number | null
+    manual_adjustment_reason?: string
     /** When true, every typed amount on the statement includes GST. */
     charges_gst?: boolean
     deposit_date?: string
@@ -2126,6 +2129,9 @@ export interface StatementOfAccountsContent {
   invoice2_tip_receipts?: number | null
   /** Positive dollars taken off invoice 2. */
   invoice2_prepaid?: number | null
+  /** Signed dollars on the last invoice balance. Printed with its reason. */
+  manual_adjustment_inc?: number | null
+  manual_adjustment_reason?: string
   deposit_date?: string
   adjustment_reason?: string
   /** Xero AmountDue for invoice 1, when the caller has it. Compared, not fetched. */
