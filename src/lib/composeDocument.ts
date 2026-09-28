@@ -818,6 +818,7 @@ function composePre(
       : undefined,
     technician_signoff: (pre.technician_signoff ?? '').trim() || undefined,
     completed_by: (pre.technician_signoff ?? '').trim() || undefined,
+    unsigned_copy: pre.unsigned_copy === true,
   }
   return { content: { ...c }, source: 'assessment_capture' }
 }

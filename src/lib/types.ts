@@ -1940,6 +1940,8 @@ export interface PostRemediationEvaluation {
   closing_rich_html?: string
   /** Free-text sign-off line (technician name, date, etc.). */
   technician_signoff?: string
+  /** When true, the printed report is watermarked as an unsigned copy. Use while the invoice is unpaid. */
+  unsigned_copy?: boolean
   created_at: string
   updated_at: string
   last_suggested_at?: string
@@ -1980,6 +1982,8 @@ export interface PostRemediationEvaluationContent {
   closing_html?: string
   technician_signoff?: string
   completed_by?: string
+  /** Printed as a watermark when the invoice is unpaid. */
+  unsigned_copy?: boolean
 }
 
 /** A PRE scope line with the quoted text context snapshot baked in for printing. */

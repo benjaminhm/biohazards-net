@@ -631,6 +631,21 @@ export default function PostRemediationEvaluationTab({ job, photos, documents, o
         fixedAreaRef=""
       />
 
+      <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginTop: 8 }}>
+        <input
+          type="checkbox"
+          checked={pre.unsigned_copy === true}
+          onChange={e => patchPre(p => ({ ...p, unsigned_copy: e.target.checked }))}
+          style={{ marginTop: 3 }}
+        />
+        <span>
+          <span style={{ display: 'block', fontWeight: 700, fontSize: 14 }}>Unsigned copy</span>
+          <span style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.45 }}>
+            Watermark the report “NOT FOR OFFICIAL USE - UNSIGNED COPY”. Use this while the invoice is unpaid.
+          </span>
+        </span>
+      </label>
+
       {/* Sign-off */}
       <div style={sectionHeading}>Technician sign-off</div>
       <input

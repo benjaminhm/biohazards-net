@@ -1012,6 +1012,39 @@ function PreNavyHeading({ children }: { children: string }) {
   return <Text style={[styles.sectionLabel, { color: PRE_NAVY }]}>{children}</Text>
 }
 
+function UnsignedCopyWatermark() {
+  return (
+    <View
+      fixed
+      style={{
+        position: 'absolute',
+        top: 340,
+        left: 30,
+        right: 30,
+        alignItems: 'center',
+      }}
+    >
+      <Text
+        style={{
+          fontSize: 14,
+          fontFamily: 'Helvetica-Bold',
+          color: '#991b1b',
+          opacity: 0.35,
+          letterSpacing: 0.4,
+          textAlign: 'center',
+          borderWidth: 2,
+          borderColor: '#991b1b',
+          paddingVertical: 6,
+          paddingHorizontal: 8,
+          transform: 'rotate(-28deg)',
+        }}
+      >
+        NOT FOR OFFICIAL USE - UNSIGNED COPY
+      </Text>
+    </View>
+  )
+}
+
 /** v2 completion report — standardised 9-section client-facing layout. */
 function CompletionReportPDF({
   content,
@@ -1129,6 +1162,7 @@ function CompletionReportPDF({
       ) : null}
 
       <Footer company={company} />
+      {c.unsigned_copy ? <UnsignedCopyWatermark /> : null}
     </Page>
   )
 }
@@ -1253,6 +1287,7 @@ function PrePDF({
       {content.technician_signoff ? <Section label="Sign-off" text={content.technician_signoff} /> : null}
 
       <Footer company={company} />
+      {content.unsigned_copy ? <UnsignedCopyWatermark /> : null}
     </Page>
   )
 }

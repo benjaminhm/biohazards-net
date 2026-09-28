@@ -101,6 +101,28 @@ function cssSowPrint(): string {
       flex-direction: column;
       box-sizing: border-box;
     }
+    .sow-root .sow-watermark {
+      position: fixed;
+      top: 42%;
+      left: 0;
+      right: 0;
+      z-index: 40;
+      display: flex;
+      justify-content: center;
+      pointer-events: none;
+    }
+    .sow-root .sow-watermark span {
+      display: inline-block;
+      transform: rotate(-28deg);
+      font-size: 18pt;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      color: rgba(153, 27, 27, 0.32);
+      border: 3px solid rgba(153, 27, 27, 0.38);
+      padding: 8px 14px;
+      background: transparent;
+      white-space: nowrap;
+    }
     .sow-root .sow-top {
       background: var(--sow-navy);
       padding: 16px 18mm;
@@ -918,6 +940,8 @@ interface WrapBrandedPrintOptions {
   metaHtml?: string
   /** Line above the confidential footer. */
   footerNote?: string
+  /** Diagonal stamp repeated across the printed pages. */
+  watermark?: string
 }
 
 function pdfSaveTitle(reference: string, clientName: string | undefined, fallback: string): string {
@@ -954,7 +978,8 @@ function wrapBranded(
     printOptions?.composedBundle && bundleParts > 0
       ? `${esc(reference)} · ${bundleParts} part${bundleParts === 1 ? '' : 's'}`
       : `${esc(reference)} · Page 1 of 1`
-  const rootClass = ['sow-root', printOptions?.composedBundle ? 'sow-root--composed-bundle' : '', printOptions?.rootClass ?? '']
+  const watermark = (printOptions?.watermark ?? '').trim()
+  const rootClass = ['sow-root', printOptions?.composedBundle ? 'sow-root--composed-bundle' : '', watermark ? 'unsigned-copy' : '', printOptions?.rootClass ?? '']
     .filter(Boolean)
     .join(' ')
   const metaHtml = printOptions?.metaHtml ?? `
@@ -967,6 +992,7 @@ function wrapBranded(
   return wrapSow(`
   <div class="${rootClass}">
     <div class="sow-sheet">
+      ${watermark ? `<div class="sow-watermark" aria-hidden="true"><span>${esc(watermark)}</span></div>` : ''}
       <header class="sow-top">
         <div class="sow-top-left">
           ${logo}
@@ -2627,7 +2653,16 @@ function buildPreHTML(
   screenActionBar: boolean,
 ): string {
   const mid = buildPreMid(c, photos)
-  return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
+  return wrapBranded(
+    mid,
+    c.title,
+    c.title,
+    c.reference,
+    company,
+    client,
+    defaultBrandedMeta(company, client),
+    wrapBrandedPrintOpts(screenActionBar, c.unsigned_copy ? { watermark: 'NOT FOR OFFICIAL USE - UNSIGNED COPY' } : undefined),
+  )
 }
 
 /** A composed `report` document is a PRE when it carries scope_lines. */
