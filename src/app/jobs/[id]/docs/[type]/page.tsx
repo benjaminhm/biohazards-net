@@ -108,7 +108,8 @@ function DocViewerInner() {
       printBlobUrlRef.current = null
     }
     if (savedDocId) {
-      window.open(`${window.location.origin}/api/print/${savedDocId}`, '_blank', 'noopener,noreferrer')
+      const images = includePhotos ? 'on' : 'off'
+      window.open(`${window.location.origin}/api/print/${savedDocId}?images=${images}`, '_blank', 'noopener,noreferrer')
       return
     }
     if (composedPreviewHtml) {

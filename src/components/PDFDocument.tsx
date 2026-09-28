@@ -1068,7 +1068,7 @@ function CompletionReportPDF({
         ([, v]) => (v ?? '').trim(),
       )
     : []
-  const appendixPhotos = photos.filter(
+  const appendixPhotos = (c.include_photos === false ? [] : photos).filter(
     p => p.capture_phase === 'progress' || (p.capture_phase !== 'assessment' && (p.category === 'during' || p.category === 'after')),
   )
 
@@ -1182,7 +1182,7 @@ function PrePDF({
   }
 
   const today = new Date().toLocaleDateString('en-AU', { day: '2-digit', month: 'long', year: 'numeric' })
-  const byId = new Map(photos.map(p => [p.id, p]))
+  const byId = new Map((content.include_photos === false ? [] : photos).map(p => [p.id, p]))
   const resolve = (ids?: string[]) => (ids ?? []).map(id => byId.get(id)).filter((p): p is PhotoWithData => !!p)
 
   const fromQuote = content.scope_lines.filter(

@@ -2554,7 +2554,7 @@ function buildCompletionReportMid(c: PostRemediationEvaluationContent, photos: P
     ${(c.recommendations ?? []).filter(Boolean).length ? `${navyHeading('08', 'Recommendations')}<div class="body-text" style="margin:6px 0 0">The following was noted on site and is outside the cleaning scope. It is flagged here for the client to action:</div>${bullets(c.recommendations)}` : ''}
     ${c.compliance ? `${navyHeading('09', 'Compliance')}${preProseBlock(c.compliance)}` : ''}
     ${c.limitations ? `${navyHeading('—', 'Limitations & Scope Notice')}${preProseBlock(c.limitations)}` : ''}
-    ${preCompletionPhotoAppendix(photos)}
+    ${c.include_photos !== false ? preCompletionPhotoAppendix(photos) : ''}
     ${c.technician_signoff ? `<div class="label" style="margin-top:22px;color:#0a1f44">Sign-off</div><div class="body-text">${esc(c.technician_signoff)}</div>` : ''}
   `
 }
@@ -2562,7 +2562,7 @@ function buildCompletionReportMid(c: PostRemediationEvaluationContent, photos: P
 function buildPreMid(c: PostRemediationEvaluationContent, photos: Photo[]): string {
   if (c.report_format === 'completion_v2') return buildCompletionReportMid(c, photos)
 
-  const byId = new Map(photos.map(p => [p.id, p]))
+  const byId = new Map((c.include_photos === false ? [] : photos).map(p => [p.id, p]))
 
   // Group from_quote lines by their section label, preserving first-seen order.
   const fromQuote = c.scope_lines.filter((l): l is Extract<PreScopeLineResolved, { kind: 'from_quote' }> => l.kind === 'from_quote')

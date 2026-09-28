@@ -1984,6 +1984,8 @@ export interface PostRemediationEvaluationContent {
   completed_by?: string
   /** Printed as a watermark when the invoice is unpaid. */
   unsigned_copy?: boolean
+  /** When false, the printed report omits photos. Unset means photos are included. */
+  include_photos?: boolean
 }
 
 /** A PRE scope line with the quoted text context snapshot baked in for printing. */
