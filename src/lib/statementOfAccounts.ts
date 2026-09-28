@@ -1,7 +1,7 @@
 import type { AssessmentData, DisposalManifestCapture, Document, QuoteGstMode, QuoteSpoke, StatementLedgerLine, StatementOfAccountsContent } from '@/lib/types'
 import { parsePhoneNumberFromString } from 'libphonenumber-js'
 import { computeDisposalTotals, disposalPriceLines, formatAud, formatKg, formatM3, loadHasContent, mergedDisposalManifestCapture, vehicleVolumeM3 } from '@/lib/disposalManifest'
-import { houseSurveyDocument } from '@/lib/houseSurvey'
+import { houseSurveyDocument, surveyPrice } from '@/lib/houseSurvey'
 import { getQuoteSpokes } from '@/lib/quoteSpokes'
 import {
   areaPricingSectionSubtotal,
@@ -15,6 +15,8 @@ import {
 export interface StatementSurveyArea {
   label: string
   sqm: number | null
+  /** GST-inclusive price of this area. Printed beside the square metres, not added to the invoice. */
+  total: number | null
 }
 
 export interface StatementOfAccountsCapture {
@@ -160,17 +162,34 @@ function surveyAreasOrNull(value: unknown): StatementSurveyArea[] | null {
     const row = item as Record<string, unknown>
     const label = textField(row.label)
     const sqm = moneyOrNull(row.sqm)
-    if (!label && sqm == null) return []
-    return [{ label, sqm }]
+    const total = moneyOrNull(row.total)
+    if (!label && sqm == null && total == null) return []
+    return [{ label, sqm, total }]
   })
 }
 
-/** Priced square metres for each survey area. The statement prints these, and does not add them to the invoice. */
+/** Priced square metres and inc-GST total for each survey area. Printed under Cleaning, not added to the invoice. */
 export function surveyAreaQuantities(assessment: AssessmentData | null | undefined): StatementSurveyArea[] {
   const survey = houseSurveyDocument('', '', assessment?.house_survey)
   return survey.areas.flatMap(area => {
     if (area.priced == null || !Number.isFinite(area.priced)) return []
-    return [{ label: area.title, sqm: area.priced }]
+    return [{ label: area.title, sqm: area.priced, total: area.price_inc }]
+  })
+}
+
+/** Saved rows win. A missing total is taken from the survey, or from the survey rate when the square metres changed. */
+export function statementSurveyAreas(
+  saved: StatementSurveyArea[] | null,
+  assessment: AssessmentData | null | undefined,
+): StatementSurveyArea[] {
+  const seeded = surveyAreaQuantities(assessment)
+  if (saved == null) return seeded
+  const rate = houseSurveyDocument('', '', assessment?.house_survey).price_per_m2
+  return saved.map(area => {
+    if (area.total != null && Number.isFinite(area.total)) return area
+    const match = seeded.find(row => row.label === area.label && row.sqm === area.sqm)
+    if (match?.total != null) return { ...area, total: match.total }
+    return { ...area, total: surveyPrice(area.sqm, rate).inc }
   })
 }
 
@@ -648,6 +667,8 @@ export interface StatementLedgerDisplayRow {
   strong?: boolean
   /** Shown instead of the dollar amount. Used for quantities such as cubic metres. */
   display?: string
+  /** Square metres printed between the item and the amount. */
+  quantity?: string
   /** Explains the invoice amount. Printed above it, and left out of the balance. */
   explain?: boolean
   /** The invoice amount row, once a breakdown is shown above it. */
@@ -777,17 +798,42 @@ function moneyParts(pairs: Array<[string, number | null | undefined]>): Statemen
 function areaRows(areas: StatementSurveyArea[] | null | undefined): StatementLedgerDisplayRow[] {
   if (!areas || areas.length === 0) return []
   const rows: StatementLedgerDisplayRow[] = []
-  let total = 0
+  let sqm = 0
+  let price = 0
+  let priced = 0
   for (const area of areas) {
     const label = area.label.trim()
     if (!label || area.sqm == null || !Number.isFinite(area.sqm)) continue
-    total += area.sqm
-    rows.push({ label, amountInc: 0, display: formatSqm(area.sqm), explain: true })
+    sqm += area.sqm
+    const hasTotal = area.total != null && Number.isFinite(area.total)
+    if (hasTotal) {
+      price += area.total
+      priced += 1
+    }
+    rows.push({
+      label,
+      quantity: formatSqm(area.sqm),
+      amountInc: hasTotal ? round2(area.total as number) : 0,
+      display: hasTotal ? undefined : '—',
+      explain: true,
+    })
   }
   if (rows.length > 1) {
-    rows.push({ label: 'Total area', amountInc: 0, display: formatSqm(round2(total)), explain: true })
+    rows.push({
+      label: 'Total area',
+      quantity: formatSqm(round2(sqm)),
+      amountInc: round2(price),
+      display: priced > 0 ? undefined : '—',
+      explain: true,
+    })
   }
   return rows
+}
+
+function explanationWithAreas(parts: StatementLedgerDisplayRow[], areas: StatementLedgerDisplayRow[]): StatementLedgerDisplayRow[] {
+  const cleaning = parts.findIndex(row => row.label === 'Cleaning')
+  if (cleaning < 0) return [...parts, ...areas]
+  return [...parts.slice(0, cleaning + 1), ...areas, ...parts.slice(cleaning + 1)]
 }
 
 function metresRow(amount: number | null | undefined): StatementLedgerDisplayRow | null {
@@ -891,7 +937,7 @@ export function presentStatementDocument(c: StatementOfAccountsContent): Stateme
     amountInc: invoice1Amount,
     balanceInc: sourceBalance,
     deductions: sourceRows,
-    explanation: [...areaRows(c.survey_areas), ...sourceParts],
+    explanation: explanationWithAreas(sourceParts, areaRows(c.survey_areas)),
     payUrl: c.original_invoice_url ?? '',
   })
   const invoices: BuiltInvoice[] = [source]

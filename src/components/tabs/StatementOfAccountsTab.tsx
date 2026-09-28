@@ -10,6 +10,7 @@ import {
   normalizeStatementCapture,
   statementFigures,
   statementReferencePanel,
+  statementSurveyAreas,
   surveyAreaQuantities,
   type StatementOfAccountsCapture,
   type StatementSurveyArea,
@@ -187,7 +188,7 @@ function ReferenceBlock({ block }: { block: StatementReferenceBlock }) {
 
 function surveyAreasEqual(a: StatementSurveyArea[] | null, b: StatementSurveyArea[] | null): boolean {
   if (a == null || b == null) return a == null && b == null
-  return a.length === b.length && a.every((area, index) => area.label === b[index].label && area.sqm === b[index].sqm)
+  return a.length === b.length && a.every((area, index) => area.label === b[index].label && area.sqm === b[index].sqm && area.total === b[index].total)
 }
 
 function capturesEqual(a: StatementOfAccountsCapture, b: StatementOfAccountsCapture): boolean {
@@ -376,9 +377,9 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
               style={INPUT}
             />
             <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Survey area for each room. These print on the statement and are not added to the invoice.</div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Survey area for each room. These print under Cleaning with the area total. They are not added to the invoice.</div>
               {surveyAreas.map((area, index) => (
-                <div key={index} style={{ display: 'grid', gridTemplateColumns: '1fr 120px auto', gap: 8, alignItems: 'end' }}>
+                <div key={index} style={{ display: 'grid', gridTemplateColumns: '1fr 120px 120px auto', gap: 8, alignItems: 'end' }}>
                   <div>
                     <label style={LABEL}>Area</label>
                     <input
@@ -401,14 +402,21 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
                       value={area.sqm ?? ''}
                       onChange={e => {
                         const raw = e.target.value
+                        const sqm = raw === '' ? null : Number(raw)
                         const next = surveyAreas.map((row, rowIndex) => (
-                          rowIndex === index ? { ...row, sqm: raw === '' ? null : Number(raw) } : row
+                          rowIndex === index
+                            ? statementSurveyAreas([{ ...row, sqm, total: null }], job.assessment_data)[0]
+                            : row
                         ))
                         setSurveyAreas(next)
                       }}
                       placeholder="0"
                       style={INPUT}
                     />
+                  </div>
+                  <div>
+                    <label style={LABEL}>Total</label>
+                    <div style={{ ...INPUT, textAlign: 'right' }}>{area.total == null ? '—' : formatAud(area.total)}</div>
                   </div>
                   <button
                     type="button"
@@ -421,7 +429,7 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
               ))}
               <button
                 type="button"
-                onClick={() => setSurveyAreas([...surveyAreas, { label: '', sqm: null }])}
+                onClick={() => setSurveyAreas([...surveyAreas, { label: '', sqm: null, total: null }])}
                 style={{ ...INPUT, width: 'auto', justifySelf: 'start', padding: '8px 12px', cursor: 'pointer' }}
               >
                 Add area

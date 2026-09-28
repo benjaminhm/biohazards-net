@@ -186,6 +186,7 @@ function cssSowPrint(): string {
     .sow-root.soa-doc .soa-gst { font-size: 9pt; color: var(--sow-mid); margin: 0 0 16px; }
     .sow-root.soa-doc tr.soa-balance td { border-top: 2px solid var(--sow-navy); font-weight: 700; }
     .sow-root.soa-doc tr.soa-explain td { color: var(--sow-mid); }
+    .sow-root.soa-doc tr.soa-area td:first-child { padding-left: 14px; }
     .sow-root.soa-doc tr.soa-charge td { border-top: 1px solid var(--sow-rule); font-weight: 600; }
     .sow-root.soa-doc .soa-inv-title {
       font-size: 11pt;
@@ -2704,11 +2705,13 @@ function buildStatementMid(view: StatementPresentation, includeSummary = true): 
   const amountCell = (n: number) => n < -0.004 ? `(${statementMoney(n)})` : statementMoney(n)
   const blocks = view.invoices.map(invoice => {
     const amountHead = view.summary.gst != null ? 'Amount (inc GST)' : 'Amount'
+    const hasArea = invoice.rows.some(row => row.quantity)
     const rows = invoice.rows.map(row => {
       const weight = row.strong ? ' style="font-weight:700"' : ''
-      const cls = [row.strong ? 'soa-balance' : '', row.explain ? 'soa-explain' : '', row.charge ? 'soa-charge' : ''].filter(Boolean).join(' ')
+      const cls = [row.strong ? 'soa-balance' : '', row.explain ? 'soa-explain' : '', row.quantity ? 'soa-area' : '', row.charge ? 'soa-charge' : ''].filter(Boolean).join(' ')
       const shown = row.display ?? amountCell(row.amountInc)
-      return `<tr class="${cls}"><td${weight}>${esc(row.label)}</td><td class="r"${weight}>${esc(shown)}</td></tr>`
+      const area = hasArea ? `<td class="r"${weight}>${esc(row.quantity ?? '')}</td>` : ''
+      return `<tr class="${cls}"><td${weight}>${esc(row.label)}</td>${area}<td class="r"${weight}>${esc(shown)}</td></tr>`
     }).join('')
     const pay = invoice.payHref && invoice.payLabel
       ? `<a class="soa-pay" href="${esc(invoice.payHref)}">${esc(invoice.payLabel)}</a>`
@@ -2716,7 +2719,7 @@ function buildStatementMid(view: StatementPresentation, includeSummary = true): 
     return `
       <div class="soa-inv-title">${esc(invoice.heading)}</div>
       <table>
-        <thead><tr><th>Item</th><th class="r">${amountHead}</th></tr></thead>
+        <thead><tr><th>Item</th>${hasArea ? '<th class="r">Area</th>' : ''}<th class="r">${amountHead}</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
       ${pay}`

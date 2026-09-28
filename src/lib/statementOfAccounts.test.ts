@@ -142,17 +142,24 @@ test('invoice breakdowns explain the amount and must add up', () => {
   ])
   assert.equal(first.balanceInc, 8669.65)
   const withAreas = presentStatementDocument(contentFor(fixture(), {
+    invoice1_callout: 2000,
+    invoice1_contents: 5339.30,
+    invoice1_cleaning: 10000,
     survey_areas: [
-      { label: 'Granny Flat', sqm: 190.12 },
-      { label: 'Ground Floor Main Dwelling', sqm: 380.2 },
-      { label: 'Level 2 Main Dwelling', sqm: 220.05 },
+      { label: 'Granny Flat', sqm: 182.21, total: 2733.87 },
+      { label: 'Ground Floor Main Dwelling', sqm: 367.9, total: 5519.98 },
+      { label: 'Level 2 Main Dwelling', sqm: 240.26, total: 3604.87 },
     ],
   }))
-  assert.deepEqual(withAreas.invoices[0].rows.slice(0, 4).map(row => [row.label, row.display]), [
-    ['Granny Flat', '190.12 m²'],
-    ['Ground Floor Main Dwelling', '380.2 m²'],
-    ['Level 2 Main Dwelling', '220.05 m²'],
-    ['Total area', '790.37 m²'],
+  assert.deepEqual(withAreas.invoices[0].rows.slice(0, 8).map(row => [row.label, row.quantity ?? null, row.display ?? row.amountInc]), [
+    ['Call out', null, 2000],
+    ['Contents', null, 5339.30],
+    ['Cleaning', null, 10000],
+    ['Granny Flat', '182.21 m²', 2733.87],
+    ['Ground Floor Main Dwelling', '367.9 m²', 5519.98],
+    ['Level 2 Main Dwelling', '240.26 m²', 3604.87],
+    ['Total area', '790.37 m²', 11858.72],
+    ['Invoice amount', null, 17339.30],
   ])
   assert.equal(withAreas.invoices[0].balanceInc, 8669.65)
   assert.deepEqual(second.rows.slice(0, 4).map(row => [row.label, row.display ?? row.amountInc]), [
