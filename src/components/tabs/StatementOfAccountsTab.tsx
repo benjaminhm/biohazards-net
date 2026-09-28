@@ -239,7 +239,7 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
   const figures = useMemo(() => statementFigures(capture), [capture])
   const chargesGst = figures.gst_mode !== 'no_gst'
   const reference = useMemo(
-    () => statementReferencePanel(job.assessment_data, documents),
+    () => statementReferencePanel(job.assessment_data, documents, job.id),
     [job.assessment_data, documents],
   )
   const surveySeed = useMemo(

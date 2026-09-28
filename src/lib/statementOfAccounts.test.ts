@@ -8,6 +8,7 @@ import {
   statementFigures,
   statementPayHref,
   statementPhone,
+  surveyDocumentCode,
   StatementReconciliationError,
   type StatementOfAccountsCapture,
 } from '@/lib/statementOfAccounts'
@@ -201,6 +202,19 @@ test('an adjustment without a reason fails the build', () => {
     () => presentStatementDocument(contentFor(capture)),
     (error: unknown) => error instanceof StatementReconciliationError && /reason/.test(error.message),
   )
+})
+
+test('survey code falls back to the same code a survey document would get', () => {
+  const on = new Date('2026-09-28T01:00:00.000Z')
+  assert.equal(surveyDocumentCode('cfa2d3c7-5399-43bf-bd6b-0103768e1718', [], on), 'SUR-20260928-CFA2')
+  assert.equal(surveyDocumentCode('cfa2d3c7-5399-43bf-bd6b-0103768e1718', [{
+    id: '1',
+    job_id: 'cfa2d3c7-5399-43bf-bd6b-0103768e1718',
+    type: 'house_survey',
+    content: { reference: 'SUR-20260924-CFA2' },
+    file_url: null,
+    created_at: '2026-09-24T00:00:00.000Z',
+  }], on), 'SUR-20260924-CFA2')
 })
 
 test('client name, phone, and pay links stay readable', () => {

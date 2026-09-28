@@ -262,6 +262,15 @@ export function documentReference(doc: Document | null, fallback: string): strin
   return typeof raw === 'string' && raw.trim() ? raw.trim() : fallback
 }
 
+/** Saved survey document code, or the code a survey document saved today would use. */
+export function surveyDocumentCode(jobId: string, documents: Document[], on = new Date()): string {
+  const saved = documentReference(latestSurveyDocument(documents), '')
+  if (saved) return saved
+  const tail = jobId.replace(/-/g, '').slice(0, 4).toUpperCase()
+  const day = on.toISOString().slice(0, 10).replace(/-/g, '')
+  return `SUR-${day}-${tail}`
+}
+
 export interface StatementReferenceLine {
   label: string
   ex: number
@@ -418,9 +427,12 @@ function blockFromSpoke(spoke: QuoteSpoke, reference: string): StatementReferenc
 export function statementReferencePanel(
   assessment: AssessmentData | null | undefined,
   documents: Document[],
+  jobId = '',
 ): StatementReferencePanel {
   const surveyDoc = houseSurveyDocument('', '', assessment?.house_survey)
-  const surveyReference = documentReference(latestOfType(documents, 'house_survey'), '')
+  const surveyReference = jobId
+    ? surveyDocumentCode(jobId, documents)
+    : documentReference(latestOfType(documents, 'house_survey'), '')
   const surveyLines: StatementReferenceLine[] = surveyDoc.areas
     .filter(area => area.priced != null || area.price_ex != null)
     .map(area => ({
