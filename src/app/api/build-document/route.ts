@@ -109,6 +109,7 @@ function ref(type: DocType, job: Job): string {
     waste_disposal_manifest: 'CDR', statement_of_accounts: 'SOA', house_survey: 'SUR', jsa: 'JSA', nda: 'NDA', risk_assessment: 'RA',
     company_letter: 'LTR',
     contents_clearance_quote: 'CCQ',
+    surface_area_cleaning_quote: 'SACQ',
   }
   const d = new Date()
   return `${prefix[type]}-${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}-${job.id.slice(0,6).toUpperCase()}`
@@ -435,6 +436,8 @@ Include 6–10 realistic risks based on the job type, contamination level, and s
       '(Not used — Company Letter has its own flow in /api/jobs/[id]/suggest-letter-body and is not built via this endpoint.)',
     contents_clearance_quote:
       '(Not used — Contents Clearance Quote is composed from the job quantities and the fixed schema.)',
+    surface_area_cleaning_quote:
+      '(Not used — Surface Area Cleaning Quote is composed from the job quantities and the fixed schema.)',
   }
 
   const rules = getDocumentRulesForBuild(type, company, platformDbRules)

@@ -241,6 +241,9 @@ function DocViewerInner() {
         if (docType === 'contents_clearance_quote') {
           composeOpts = { ...composeOpts, contentsClearanceStandards: co?.contents_clearance_standards ?? null }
         }
+        if (docType === 'surface_area_cleaning_quote') {
+          composeOpts = { ...composeOpts, surfaceAreaCleaningStandards: co?.surface_area_cleaning_standards ?? null }
+        }
         if (docType === 'statement_of_accounts') {
           const docsRes = await fetch(`/api/documents?jobId=${jobId}`).then(r => r.json())
           composeOpts = { ...composeOpts, documents: (docsRes.documents ?? []) as Document[] }

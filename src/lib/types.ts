@@ -58,6 +58,7 @@ export type DocType =
   | 'risk_assessment'
   | 'company_letter'
   | 'contents_clearance_quote'
+  | 'surface_area_cleaning_quote'
 
 export const DOC_TYPE_LABELS: Record<DocType, string> = {
   iaq_multi:                  'Assessment / Scope / Quote',
@@ -77,6 +78,7 @@ export const DOC_TYPE_LABELS: Record<DocType, string> = {
   risk_assessment:            'Risk Assessment',
   company_letter:             'Company Letter',
   contents_clearance_quote:   'Contents Clearance Quote',
+  surface_area_cleaning_quote: 'Surface Area Cleaning Quote',
 }
 
 /**
@@ -129,7 +131,7 @@ export const DOC_TYPE_GROUPS: DocTypeGroup[] = [
   {
     id: 'quote',
     label: '4. Quote',
-    types: ['quote', 'contents_clearance_quote'],
+    types: ['quote', 'contents_clearance_quote', 'surface_area_cleaning_quote'],
   },
   {
     id: 'legal',
@@ -1124,6 +1126,21 @@ export interface AssessmentData {
     /** Ex GST. Attendance and setup. Blank or zero stays off the quote. */
     mobilisation_fee?: number | null
   }
+  /** Surface Area Cleaning Quote — estimated square metres. Rates and clauses are schema. */
+  surface_area_cleaning_quote?: {
+    /** surface | squalor. Printed as the client document title. */
+    cleaning_kind?: 'surface' | 'squalor'
+    estimated_m2: number | null
+    /** Labour days the client is buying. */
+    labour_days?: number | null
+    /** Ex GST dollars. */
+    rate_per_m2?: number | null
+    rate_per_labour_day?: number | null
+    /** Null follows the job site address. */
+    job_address?: string | null
+    /** Ex GST. Attendance and setup. Blank or zero stays off the quote. */
+    mobilisation_fee?: number | null
+  }
   /** Statement of Accounts — deposit taken against the quote, before the balance is worked out. */
   statement_of_accounts?: {
     deposit_taken: boolean
@@ -1407,6 +1424,14 @@ export interface CompanyProfile {
   chemicals_catalogue?: ChemicalCatalogueItem[]
   /** Contents Clearance Quote clauses reused on every job. Lists are one item per line. */
   contents_clearance_standards?: {
+    inclusions: string
+    exclusions: string
+    assumptions: string
+    payment_terms: string
+    engagement_agreement: string
+  } | null
+  /** Surface Area Cleaning Quote clauses reused on every job. Lists are one item per line. */
+  surface_area_cleaning_standards?: {
     inclusions: string
     exclusions: string
     assumptions: string

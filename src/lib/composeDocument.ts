@@ -36,6 +36,7 @@ import type {
 import { preHasV2Content, resolveQuotedLineContext } from '@/lib/postRemediationEvaluations'
 import { richBodyHtmlForPrint, proseHasPrintableContent } from '@/lib/richTextPrint'
 import { contentsClearanceQuoteContent, normalizeContentsClearanceCapture, type ContentsClearanceStandards } from '@/lib/contentsClearanceQuote'
+import { normalizeSurfaceAreaCleaningCapture, surfaceAreaCleaningQuoteContent, type SurfaceAreaCleaningStandards } from '@/lib/surfaceAreaCleaningQuote'
 import { mergedSowCapture, staffSowHasContent } from '@/lib/sowCapture'
 import { mergedCompletionReportCapture, completionReportCaptureHasContent } from '@/lib/completionReportCapture'
 import {
@@ -122,6 +123,8 @@ export interface ComposeDocumentOptions {
   documents?: Document[]
   /** Org-wide clauses for the contents clearance quote. */
   contentsClearanceStandards?: ContentsClearanceStandards | null
+  /** Org-wide clauses for the surface area cleaning quote. */
+  surfaceAreaCleaningStandards?: SurfaceAreaCleaningStandards | null
 }
 
 const todayRef = () => new Date().toISOString().slice(0, 10).replace(/-/g, '')
@@ -145,6 +148,7 @@ function refPrefix(type: DocType, jobId: string): string {
     risk_assessment: 'RA',
     assessment_document: 'ASD',
     contents_clearance_quote: 'CCQ',
+    surface_area_cleaning_quote: 'SACQ',
   }
   const p = map[type] ?? 'DOC'
   return `${p}-${todayRef()}-${tail}`
@@ -1107,6 +1111,23 @@ function composeContentsClearanceQuote(
   }
 }
 
+function composeSurfaceAreaCleaningQuote(
+  job: Job,
+  standards?: ComposeDocumentOptions['surfaceAreaCleaningStandards'],
+): ComposeDocumentResult {
+  const capture = normalizeSurfaceAreaCleaningCapture(job.assessment_data?.surface_area_cleaning_quote)
+  return {
+    content: surfaceAreaCleaningQuoteContent({
+      reference: refPrefix('surface_area_cleaning_quote', job.id),
+      clientName: job.client_name || '',
+      siteAddress: job.site_address || '',
+      capture,
+      standards,
+    }) as unknown as Record<string, unknown>,
+    source: 'assessment_capture',
+  }
+}
+
 function composeHouseSurvey(job: Job): ComposeDocumentResult {
   return {
     content: houseSurveyDocument(job.site_address || '', refPrefix('house_survey', job.id), job.assessment_data?.house_survey) as unknown as Record<string, unknown>,
@@ -1217,6 +1238,8 @@ export function composeDocumentContent(type: DocType, job: Job, options?: Compos
       return composeRiskAssessment(job, equipment, chems)
     case 'contents_clearance_quote':
       return composeContentsClearanceQuote(job, options?.contentsClearanceStandards)
+    case 'surface_area_cleaning_quote':
+      return composeSurfaceAreaCleaningQuote(job, options?.surfaceAreaCleaningStandards)
     case 'company_letter':
       // Company Letter is composed in CompanyLetterTab and persisted through /api/documents;
       // it intentionally doesn't use the deterministic composer pipeline.

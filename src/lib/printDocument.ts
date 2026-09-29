@@ -45,6 +45,7 @@ const DEFAULT_PRINT_ORG_NAME = 'Brisbane Biohazard Cleaning'
 import { proseHasPrintableContent, richBodyHtmlForPrint } from '@/lib/richTextPrint'
 import { presentStatementDocument, statementClientLines, statementPhone, StatementReconciliationError, type StatementPresentation } from '@/lib/statementOfAccounts'
 import type { ContentsClearanceQuoteContent } from '@/lib/contentsClearanceQuote'
+import { SURFACE_AREA_LABOUR_NOTE, type SurfaceAreaCleaningQuoteContent } from '@/lib/surfaceAreaCleaningQuote'
 
 // en-AU locale produces comma separators and dollar sign (e.g. $4,500.00)
 const fmtMoney = (n: number) =>
@@ -3460,6 +3461,67 @@ function buildContentsClearanceHTML(
   return wrapBranded(mid, title, title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
+function buildSurfaceAreaCleaningMid(c: SurfaceAreaCleaningQuoteContent): string {
+  const estimated = [
+    { label: 'Surface', quantity: clearanceQty(c.estimated_m2, 'm²'), rate: `${fmtMoney(c.rate_per_m2)} / m²`, amount: c.area_amount },
+  ]
+  const fixed: { label: string; quantity: string; note?: string; rate: string; amount: number }[] = []
+  if ((c.mobilisation_fee ?? 0) > 0) {
+    fixed.push({
+      label: 'Mobilisation',
+      quantity: '1 fee',
+      rate: fmtMoney(c.mobilisation_fee),
+      amount: c.mobilisation_fee,
+    })
+  }
+  fixed.push({
+    label: 'Labour',
+    quantity: clearanceQty(c.labour_days, c.labour_days === 1 ? 'labour day' : 'labour days'),
+    note: SURFACE_AREA_LABOUR_NOTE,
+    rate: 'Fixed',
+    amount: c.labour_amount,
+  })
+  const sectionAmount = (lines: { amount: number }[]) =>
+    Math.round(lines.reduce((sum, line) => sum + line.amount, 0) * 100) / 100
+  return `
+    <div class="sow-summary" style="margin-bottom:20px;">
+      <div class="sow-meta-label" style="margin-bottom:6px;">Client</div>
+      <div class="body-text" style="font-weight:500;color:var(--sow-navy);">${esc(c.client_name || '—')}</div>
+      <div class="sow-meta-label" style="margin:10px 0 6px;">Job address</div>
+      <div class="body-text" style="font-weight:500;color:var(--sow-navy);">${esc(c.job_address || c.site_address || '—')}</div>
+    </div>
+    <div class="label">Estimated quantities</div>
+    ${clearanceTable('Estimated quantities', estimated)}
+    ${clearanceSectionSubtotal('Estimated subtotal (ex GST)', sectionAmount(estimated))}
+    <div class="label" style="margin-top:18px">Fixed Rate Quotations</div>
+    ${clearanceTable('Quantity', fixed)}
+    ${clearanceSectionSubtotal('Fixed subtotal (ex GST)', sectionAmount(fixed))}
+    <div class="totals">
+      <div class="tot-row"><span>Subtotal (ex GST)</span><span class="amt">${fmtMoney(c.subtotal)}</span></div>
+      <div class="tot-row"><span>GST (10%)</span><span class="amt">${fmtMoney(c.gst)}</span></div>
+      <div class="tot-row grand"><span>TOTAL (INC GST)</span><span class="amt">${fmtMoney(c.total)}</span></div>
+    </div>
+    ${clearanceList('Inclusions', c.inclusions ?? [])}
+    ${clearanceList('Exclusions', c.exclusions ?? [])}
+    ${clearanceList('Assumptions', c.assumptions ?? [])}
+    ${section('Payment terms', c.terms)}
+    ${section('Engagement agreement', c.engagement_agreement)}
+    ${section('Authority', c.authority)}
+    ${section('Acceptance', c.acceptance)}
+  `
+}
+
+function buildSurfaceAreaCleaningHTML(
+  c: SurfaceAreaCleaningQuoteContent,
+  company: CompanyProfile | null,
+  client: ClientInfo | undefined,
+  screenActionBar: boolean,
+): string {
+  const mid = buildSurfaceAreaCleaningMid(c)
+  const title = clearancePrintTitle(c.title) || 'Surface Area Cleaning'
+  return wrapBranded(mid, title, title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
+}
+
 /** Mid-body HTML only (no shell). Used for composed bundles. */
 export function buildPrintMidHTML(
   type: DocType,
@@ -3510,6 +3572,8 @@ export function buildPrintMidHTML(
       return buildAssessmentDocumentMid(c as unknown as AssessmentDocumentContent, areas, photos, groups)
     case 'contents_clearance_quote':
       return buildContentsClearanceMid(c as unknown as ContentsClearanceQuoteContent)
+    case 'surface_area_cleaning_quote':
+      return buildSurfaceAreaCleaningMid(c as unknown as SurfaceAreaCleaningQuoteContent)
     default:
       return `<p class="body-text">${esc('Unknown document type')}</p>`
   }
@@ -3606,6 +3670,7 @@ export function buildPrintHTML(
     case 'risk_assessment':            return buildRAHTML(c as unknown as RiskAssessmentContent, company, client, screenActionBar)
     case 'assessment_document':        return buildAssessmentDocumentHTML(c as unknown as AssessmentDocumentContent, company, client, areas, photos, groups, screenActionBar)
     case 'contents_clearance_quote':   return buildContentsClearanceHTML(c as unknown as ContentsClearanceQuoteContent, company, client, screenActionBar)
+    case 'surface_area_cleaning_quote': return buildSurfaceAreaCleaningHTML(c as unknown as SurfaceAreaCleaningQuoteContent, company, client, screenActionBar)
     case 'iaq_multi': {
       const partsRaw = c.parts
       const bundleTitle =
