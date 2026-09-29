@@ -12,13 +12,13 @@ export const CONTENTS_CLEARANCE_SCHEMA = {
   ratePerM3: 0,
   /** Ex GST. */
   ratePerKm: 0,
-  /** Ex GST. One labour day is `m3PerLabourDay` cubic metres. */
+  /** Ex GST. One man day is `m3PerLabourDay` cubic metres for one person. */
   ratePerLabourDay: 0,
   m3PerLabourDay: M3_PER_LABOUR_DAY,
   inclusions: [
     'Contents clearance of the stated volume at the standard rate per cubic metre.',
     'Travel at the standard rate per kilometre.',
-    `Labour at one day for every ${M3_PER_LABOUR_DAY} cubic metres, at the standard daily rate.`,
+    `Labour at one man day for every ${M3_PER_LABOUR_DAY} cubic metres, at the standard rate per person per day.`,
   ],
   exclusions: [
     'Surface cleaning, sanitising, and remediation.',
@@ -26,12 +26,12 @@ export const CONTENTS_CLEARANCE_SCHEMA = {
     'Work beyond the quantities on this quote.',
   ],
   assumptions: [
-    `Cubic metres are an estimate. The measured volume replaces the estimate, and labour days are that volume divided by ${M3_PER_LABOUR_DAY}.`,
+    `Cubic metres are an estimate. The measured volume replaces the estimate, and man days are that volume divided by ${M3_PER_LABOUR_DAY}, rounded to a whole day.`,
     'Kilometres are an estimate of the travel for this clearance.',
     'The technician decides on site how the contents leave the property.',
   ],
   terms:
-    'A deposit of 50% of this estimate is requested before the clearance starts. The balance is the measured cubic metres, the kilometres, and the labour days that follow the measured volume, at the rates on this quote. GST is 10%.',
+    'A deposit of 50% of this estimate is requested before the clearance starts. The balance is the measured cubic metres, the kilometres, and the man days that follow the measured volume, at the rates on this quote. GST is 10%.',
   authority:
     'Acceptance authorises contents clearance at the address on this quote, at the rates shown.',
   acceptance:
@@ -153,6 +153,20 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100
 }
 
+/** Cubic metres divided by the volume one person clears in a day, rounded to a whole man day. */
+export function wholeManDays(m3: number, m3PerDay: number): number {
+  if (!(m3 > 0) || !(m3PerDay > 0)) return 0
+  return Math.round(m3 / m3PerDay)
+}
+
+/** How the man days can be crewed. Four man days is four days with one person, or one day with four persons. */
+export function contentsClearanceTimeFrame(manDays: number): string {
+  const days = Math.max(0, Math.round(manDays))
+  if (days <= 0) return ''
+  if (days === 1) return '1 man day (1 day with 1 person)'
+  return `${days} man days (${days} days with 1 person or 1 day with ${days} persons)`
+}
+
 function quantityOrZero(value: number | null | undefined): number {
   const n = Number(value)
   return Number.isFinite(n) && n > 0 ? n : 0
@@ -244,7 +258,7 @@ export function normalizeContentsClearanceCapture(raw: unknown): ContentsClearan
   }
 }
 
-/** Labour days are the cubic metres divided by the standard volume per day. */
+/** Man days are the cubic metres divided by the volume one person clears in a day, rounded to a whole day. */
 export function contentsClearanceFigures(
   m3: number | null | undefined,
   km: number | null | undefined,
@@ -270,7 +284,7 @@ export function contentsClearanceFigures(
   const disposal_rate_per_tonne = round2(quantityOrZero(trip.ratePerTonne))
   const disposal_amount = round2(estimated_tonnes * disposal_rate_per_tonne)
   const perDay = schema.m3PerLabourDay > 0 ? schema.m3PerLabourDay : 6
-  const labour_days = round2(estimated_m3 / perDay)
+  const labour_days = wholeManDays(estimated_m3, perDay)
   const lines: ContentsClearanceLine[] = [
     {
       label: 'Contents',
@@ -289,7 +303,7 @@ export function contentsClearanceFigures(
     {
       label: 'Labour',
       quantity: labour_days,
-      unit: labour_days === 1 ? 'day' : 'days',
+      unit: labour_days === 1 ? 'man day' : 'man days',
       rate: schema.ratePerLabourDay,
       amount: round2(labour_days * schema.ratePerLabourDay),
     },

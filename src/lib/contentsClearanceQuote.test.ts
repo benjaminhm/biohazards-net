@@ -1,16 +1,19 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { contentsClearanceFigures, contentsClearanceQuoteContent, defaultContentsClearanceStandards, emptyContentsClearanceCapture } from '@/lib/contentsClearanceQuote'
+import { contentsClearanceFigures, contentsClearanceQuoteContent, contentsClearanceTimeFrame, defaultContentsClearanceStandards, emptyContentsClearanceCapture } from '@/lib/contentsClearanceQuote'
 import { buildPrintHTML } from '@/lib/printDocument'
 
-test('18 cubic metres is 3 labour days and 24 is 4', () => {
+test('18 cubic metres is 3 man days and 24 is 4', () => {
   const estimated = contentsClearanceFigures(18, 0)
   assert.equal(estimated.labour_days, 3)
   assert.equal(estimated.lines[2].quantity, 3)
+  assert.equal(estimated.lines[2].unit, 'man days')
   const measured = contentsClearanceFigures(24, 0)
   assert.equal(measured.labour_days, 4)
   assert.equal(measured.lines[0].quantity, 24)
   assert.equal(measured.lines[1].amount, 0)
+  assert.equal(contentsClearanceFigures(28, 0).labour_days, 5)
+  assert.equal(contentsClearanceTimeFrame(4), '4 man days (4 days with 1 person or 1 day with 4 persons)')
 })
 
 test('each line is quantity times its rate, then GST', () => {
@@ -73,7 +76,10 @@ test('the quote prints quantities, then clauses, terms, authority, and acceptanc
     { screenActionBar: false },
   )
   const labels = [...html.matchAll(/class="label"[^>]*>([^<]+)/g)].map(match => match[1])
-  assert.deepEqual(labels, ['Quantities', 'Inclusions', 'Exclusions', 'Assumptions', 'Payment terms', 'Engagement agreement', 'Authority', 'Acceptance'])
+  assert.deepEqual(labels, ['Estimated quantities', 'Inclusions', 'Exclusions', 'Assumptions', 'Payment terms', 'Engagement agreement', 'Authority', 'Acceptance'])
+  assert.match(html, /Estimated quantities/)
+  assert.match(html, /3 man days \(3 days with 1 person or 1 day with 3 persons\)/)
+  assert.match(html, /\/ person \/ day/)
   assert.match(html, /The client engages the contractor for this clearance\./)
   assert.match(html, /Acme Pty Ltd/)
   assert.match(html, /1 Example Street/)

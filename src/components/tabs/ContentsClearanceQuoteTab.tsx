@@ -14,6 +14,7 @@ import {
   CONTENTS_CLEARANCE_SCHEMA,
   clauseLines,
   contentsClearanceFigures,
+  contentsClearanceTimeFrame,
   defaultContentsClearanceStandards,
   emptyContentsClearanceCapture,
   normalizeContentsClearanceCapture,
@@ -550,7 +551,10 @@ export default function ContentsClearanceQuoteTab({ job, onJobUpdate }: Props) {
             style={INPUT}
           />
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
-            {CONTENTS_CLEARANCE_SCHEMA.m3PerLabourDay} m³ is one labour day.
+            {CONTENTS_CLEARANCE_SCHEMA.m3PerLabourDay} m³ is one man day, for one person.
+            {figures.labour_days > 0 && (
+              <div>Estimated time frame: {contentsClearanceTimeFrame(figures.labour_days)}.</div>
+            )}
           </div>
         </div>
       </div>
@@ -586,7 +590,7 @@ export default function ContentsClearanceQuoteTab({ job, onJobUpdate }: Props) {
           />
         </div>
         <div>
-          <label style={LABEL}>Rate per labour day ($)</label>
+          <label style={LABEL}>Rate per person per day ($)</label>
           <input
             type="number"
             min={0}

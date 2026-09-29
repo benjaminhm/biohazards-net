@@ -44,7 +44,7 @@ import type { CustomPricingRow, SectionTerms, VolumeDisposalFeeMode, VolumePrici
 const DEFAULT_PRINT_ORG_NAME = 'Brisbane Biohazard Cleaning'
 import { proseHasPrintableContent, richBodyHtmlForPrint } from '@/lib/richTextPrint'
 import { presentStatementDocument, statementClientLines, statementPhone, StatementReconciliationError, type StatementPresentation } from '@/lib/statementOfAccounts'
-import type { ContentsClearanceQuoteContent } from '@/lib/contentsClearanceQuote'
+import { contentsClearanceTimeFrame, type ContentsClearanceQuoteContent } from '@/lib/contentsClearanceQuote'
 
 // en-AU locale produces comma separators and dollar sign (e.g. $4,500.00)
 const fmtMoney = (n: number) =>
@@ -3224,7 +3224,7 @@ function buildContentsClearanceMid(c: ContentsClearanceQuoteContent): string {
   const lines = [
     { label: 'Contents', quantity: clearanceQty(c.estimated_m3, 'm³'), rate: `${fmtMoney(c.rate_per_m3)} / m³`, amount: c.volume_amount },
     { label: 'Distance', quantity: clearanceQty(c.estimated_km, 'km'), rate: `${fmtMoney(c.rate_per_km)} / km`, amount: c.distance_amount },
-    { label: 'Labour', quantity: clearanceQty(c.labour_days, c.labour_days === 1 ? 'day' : 'days'), rate: `${fmtMoney(c.rate_per_labour_day)} / day`, amount: c.labour_amount },
+    { label: 'Labour', quantity: clearanceQty(c.labour_days, c.labour_days === 1 ? 'man day' : 'man days'), rate: `${fmtMoney(c.rate_per_labour_day)} / person / day`, amount: c.labour_amount },
   ]
   if ((c.estimated_tonnes ?? 0) > 0 || (c.disposal_rate_per_tonne ?? 0) > 0) {
     lines.push({
@@ -3251,19 +3251,19 @@ function buildContentsClearanceMid(c: ContentsClearanceQuoteContent): string {
       <div class="sow-meta-label" style="margin:10px 0 6px;">Tip address</div>
       <div class="body-text" style="font-weight:500;color:var(--sow-navy);">${esc(c.tip_address || '—')}</div>
     </div>
-    <div class="label">Quantities</div>
+    <div class="label">Estimated quantities</div>
     <table>
       <thead>
         <tr>
           <th>Item</th>
-          <th class="r">Quantity</th>
+          <th class="r">Estimated quantities</th>
           <th class="r">Rate (ex GST)</th>
           <th class="r">Amount</th>
         </tr>
       </thead>
       <tbody>${body}</tbody>
     </table>
-    <div class="body-text" style="margin-top:8px;font-style:italic;color:var(--sow-muted)">Labour days are the cubic metres divided by ${esc(String(perDay))}. When the measured volume replaces this estimate, the labour days move with it.</div>
+    <div class="body-text" style="margin-top:8px;font-style:italic;color:var(--sow-muted)">Estimated time frame: ${esc(contentsClearanceTimeFrame(c.labour_days) || '—')}. One man day is ${esc(String(perDay))} m³ for one person. When the measured volume replaces this estimate, the man days move with it.</div>
     ${(c.return_trips ?? 0) > 0 ? `<div class="body-text" style="margin-top:4px;font-style:italic;color:var(--sow-muted)">Distance is ${esc(String(c.return_trips))} return ${c.return_trips === 1 ? 'trip' : 'trips'} of ${esc(String(c.return_trip_km))} km between the job and the tip.</div>` : ''}
     <div class="totals">
       <div class="tot-row"><span>Subtotal (ex GST)</span><span class="amt">${fmtMoney(c.subtotal)}</span></div>
