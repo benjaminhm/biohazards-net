@@ -35,6 +35,7 @@ import type {
 } from '@/lib/types'
 import { preHasV2Content, resolveQuotedLineContext } from '@/lib/postRemediationEvaluations'
 import { richBodyHtmlForPrint, proseHasPrintableContent } from '@/lib/richTextPrint'
+import { contentsClearanceQuoteContent, normalizeContentsClearanceCapture } from '@/lib/contentsClearanceQuote'
 import { mergedSowCapture, staffSowHasContent } from '@/lib/sowCapture'
 import { mergedCompletionReportCapture, completionReportCaptureHasContent } from '@/lib/completionReportCapture'
 import {
@@ -141,6 +142,7 @@ function refPrefix(type: DocType, jobId: string): string {
     nda: 'NDA',
     risk_assessment: 'RA',
     assessment_document: 'ASD',
+    contents_clearance_quote: 'CCQ',
   }
   const p = map[type] ?? 'DOC'
   return `${p}-${todayRef()}-${tail}`
@@ -1086,6 +1088,20 @@ function composeIaqMulti(
   }
 }
 
+function composeContentsClearanceQuote(job: Job): ComposeDocumentResult {
+  const capture = normalizeContentsClearanceCapture(job.assessment_data?.contents_clearance_quote)
+  return {
+    content: contentsClearanceQuoteContent({
+      reference: refPrefix('contents_clearance_quote', job.id),
+      clientName: job.client_name || '',
+      siteAddress: job.site_address || '',
+      m3: capture.estimated_m3,
+      km: capture.estimated_km,
+    }) as unknown as Record<string, unknown>,
+    source: capture.estimated_m3 != null || capture.estimated_km != null ? 'assessment_capture' : 'skeleton',
+  }
+}
+
 function composeHouseSurvey(job: Job): ComposeDocumentResult {
   return {
     content: houseSurveyDocument(job.site_address || '', refPrefix('house_survey', job.id), job.assessment_data?.house_survey) as unknown as Record<string, unknown>,
@@ -1194,6 +1210,8 @@ export function composeDocumentContent(type: DocType, job: Job, options?: Compos
       return composeNda(job)
     case 'risk_assessment':
       return composeRiskAssessment(job, equipment, chems)
+    case 'contents_clearance_quote':
+      return composeContentsClearanceQuote(job)
     case 'company_letter':
       // Company Letter is composed in CompanyLetterTab and persisted through /api/documents;
       // it intentionally doesn't use the deterministic composer pipeline.

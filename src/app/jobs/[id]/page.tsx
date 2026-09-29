@@ -53,6 +53,7 @@ import ScopeOfWorkTab from '@/components/tabs/ScopeOfWorkTab'
 import AssessmentDocumentTab from '@/components/tabs/AssessmentDocumentTab'
 import HouseSurveyTab from '@/components/tabs/HouseSurveyTab'
 import QuoteCaptureTab from '@/components/tabs/QuoteCaptureTab'
+import ContentsClearanceQuoteTab from '@/components/tabs/ContentsClearanceQuoteTab'
 import IaqBundleCaptureTab from '@/components/tabs/IaqBundleCaptureTab'
 import MessagesTab from '@/components/tabs/MessagesTab'
 import InvoiceTab from '@/components/tabs/InvoiceTab'
@@ -1752,6 +1753,8 @@ export default function JobPage() {
           <ScopeOfWorkTab job={job} documents={documents} onJobUpdate={setJob} />
         )}
         {showQuote && (
+          <>
+          <ContentsClearanceQuoteTab job={job} onJobUpdate={setJob} />
           <QuoteCaptureTab
             job={job}
             documents={documents}
@@ -1763,6 +1766,7 @@ export default function JobPage() {
               else requestTabChange('scope_capture')
             }}
           />
+          </>
         )}
         {showPRC && (
           <PreRemediationChecklistTab job={job} onJobUpdate={setJob} />

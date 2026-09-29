@@ -57,6 +57,7 @@ export type DocType =
   | 'nda'
   | 'risk_assessment'
   | 'company_letter'
+  | 'contents_clearance_quote'
 
 export const DOC_TYPE_LABELS: Record<DocType, string> = {
   iaq_multi:                  'Assessment / Scope / Quote',
@@ -75,6 +76,7 @@ export const DOC_TYPE_LABELS: Record<DocType, string> = {
   nda:                        'Non-Disclosure Agreement',
   risk_assessment:            'Risk Assessment',
   company_letter:             'Company Letter',
+  contents_clearance_quote:   'Contents Clearance Quote',
 }
 
 /**
@@ -127,7 +129,7 @@ export const DOC_TYPE_GROUPS: DocTypeGroup[] = [
   {
     id: 'quote',
     label: '4. Quote',
-    types: ['quote'],
+    types: ['quote', 'contents_clearance_quote'],
   },
   {
     id: 'legal',
@@ -1086,6 +1088,11 @@ export interface AssessmentData {
       }[]
     }[]
     price_per_m2: number | null
+  }
+  /** Contents Clearance Quote — estimated cubic metres and kilometres. Rates and clauses are schema. */
+  contents_clearance_quote?: {
+    estimated_m3: number | null
+    estimated_km: number | null
   }
   /** Statement of Accounts — deposit taken against the quote, before the balance is worked out. */
   statement_of_accounts?: {

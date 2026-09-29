@@ -44,6 +44,7 @@ import type { CustomPricingRow, SectionTerms, VolumeDisposalFeeMode, VolumePrici
 const DEFAULT_PRINT_ORG_NAME = 'Brisbane Biohazard Cleaning'
 import { proseHasPrintableContent, richBodyHtmlForPrint } from '@/lib/richTextPrint'
 import { presentStatementDocument, statementClientLines, statementPhone, StatementReconciliationError, type StatementPresentation } from '@/lib/statementOfAccounts'
+import type { ContentsClearanceQuoteContent } from '@/lib/contentsClearanceQuote'
 
 // en-AU locale produces comma separators and dollar sign (e.g. $4,500.00)
 const fmtMoney = (n: number) =>
@@ -3209,6 +3210,75 @@ function buildAssessmentDocumentHTML(
   return wrapBranded(mid, title, title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
+function clearanceQty(n: number, unit: string): string {
+  return `${n.toLocaleString('en-AU', { maximumFractionDigits: 2 })} ${unit}`
+}
+
+function clearanceList(label: string, items: string[]): string {
+  const rows = items.filter(item => item.trim())
+  if (!rows.length) return ''
+  return `<div class="label" style="margin-top:18px">${label}</div><ul class="body-text">${rows.map(item => `<li>${esc(item)}</li>`).join('')}</ul>`
+}
+
+function buildContentsClearanceMid(c: ContentsClearanceQuoteContent): string {
+  const lines = [
+    { label: 'Contents', quantity: clearanceQty(c.estimated_m3, 'm³'), rate: `${fmtMoney(c.rate_per_m3)} / m³`, amount: c.volume_amount },
+    { label: 'Distance', quantity: clearanceQty(c.estimated_km, 'km'), rate: `${fmtMoney(c.rate_per_km)} / km`, amount: c.distance_amount },
+    { label: 'Labour', quantity: clearanceQty(c.labour_days, c.labour_days === 1 ? 'day' : 'days'), rate: `${fmtMoney(c.rate_per_labour_day)} / day`, amount: c.labour_amount },
+  ]
+  const body = lines.map(line => `
+    <tr>
+      <td>${esc(line.label)}</td>
+      <td class="r">${esc(line.quantity)}</td>
+      <td class="r">${esc(line.rate)}</td>
+      <td class="r">${fmtMoney(line.amount)}</td>
+    </tr>`).join('')
+  const perDay = c.m3_per_labour_day || 6
+  return `
+    <div class="sow-summary" style="margin-bottom:20px;">
+      <div class="sow-meta-label" style="margin-bottom:6px;">Client</div>
+      <div class="body-text" style="font-weight:500;color:var(--sow-navy);">${esc(c.client_name || '—')}</div>
+      <div class="sow-meta-label" style="margin:10px 0 6px;">Site address</div>
+      <div class="body-text" style="font-weight:500;color:var(--sow-navy);">${esc(c.site_address || '—')}</div>
+    </div>
+    <div class="label">Quantities</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th class="r">Quantity</th>
+          <th class="r">Rate (ex GST)</th>
+          <th class="r">Amount</th>
+        </tr>
+      </thead>
+      <tbody>${body}</tbody>
+    </table>
+    <div class="body-text" style="margin-top:8px;font-style:italic;color:var(--sow-muted)">Labour days are the cubic metres divided by ${esc(String(perDay))}. When the measured volume replaces this estimate, the labour days move with it.</div>
+    <div class="totals">
+      <div class="tot-row"><span>Subtotal (ex GST)</span><span class="amt">${fmtMoney(c.subtotal)}</span></div>
+      <div class="tot-row"><span>GST (10%)</span><span class="amt">${fmtMoney(c.gst)}</span></div>
+      <div class="tot-row grand"><span>TOTAL (INC GST)</span><span class="amt">${fmtMoney(c.total)}</span></div>
+    </div>
+    ${clearanceList('Inclusions', c.inclusions ?? [])}
+    ${clearanceList('Exclusions', c.exclusions ?? [])}
+    ${clearanceList('Assumptions', c.assumptions ?? [])}
+    ${section('Terms', c.terms)}
+    ${section('Authority', c.authority)}
+    ${section('Acceptance', c.acceptance)}
+  `
+}
+
+function buildContentsClearanceHTML(
+  c: ContentsClearanceQuoteContent,
+  company: CompanyProfile | null,
+  client: ClientInfo | undefined,
+  screenActionBar: boolean,
+): string {
+  const mid = buildContentsClearanceMid(c)
+  const title = c.title?.trim() || 'Contents Clearance Quote'
+  return wrapBranded(mid, title, title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
+}
+
 /** Mid-body HTML only (no shell). Used for composed bundles. */
 export function buildPrintMidHTML(
   type: DocType,
@@ -3257,6 +3327,8 @@ export function buildPrintMidHTML(
       return buildRAMid(c as unknown as RiskAssessmentContent)
     case 'assessment_document':
       return buildAssessmentDocumentMid(c as unknown as AssessmentDocumentContent, areas, photos, groups)
+    case 'contents_clearance_quote':
+      return buildContentsClearanceMid(c as unknown as ContentsClearanceQuoteContent)
     default:
       return `<p class="body-text">${esc('Unknown document type')}</p>`
   }
@@ -3352,6 +3424,7 @@ export function buildPrintHTML(
     case 'nda':                        return buildNDAHTML(c as unknown as NDAContent, company, client, screenActionBar)
     case 'risk_assessment':            return buildRAHTML(c as unknown as RiskAssessmentContent, company, client, screenActionBar)
     case 'assessment_document':        return buildAssessmentDocumentHTML(c as unknown as AssessmentDocumentContent, company, client, areas, photos, groups, screenActionBar)
+    case 'contents_clearance_quote':   return buildContentsClearanceHTML(c as unknown as ContentsClearanceQuoteContent, company, client, screenActionBar)
     case 'iaq_multi': {
       const partsRaw = c.parts
       const bundleTitle =
