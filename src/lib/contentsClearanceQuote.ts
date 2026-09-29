@@ -12,7 +12,7 @@ export const CONTENTS_CLEARANCE_SCHEMA = {
   ratePerM3: 0,
   /** Ex GST. */
   ratePerKm: 0,
-  /** Ex GST. One man day is `m3PerLabourDay` cubic metres for one person. */
+  /** Ex GST. The labour days typed on the quote are the quantity. */
   ratePerLabourDay: 0,
   m3PerLabourDay: M3_PER_LABOUR_DAY,
   /** Days the printed quote stays open. Display only. */
@@ -20,22 +20,23 @@ export const CONTENTS_CLEARANCE_SCHEMA = {
   /** Share of the inc-GST total shown as the deposit. Display only. */
   depositFraction: 0.5,
   inclusions: [
-    'Contents clearance of the stated volume at the standard rate per cubic metre.',
-    'Travel at the standard rate per kilometre.',
-    `Labour at one labour day for every ${M3_PER_LABOUR_DAY} cubic metres, at the standard rate per person per day.`,
+    'Contents clearance of the estimated volume at the rate per cubic metre on this quote.',
+    'Travel at the rate per kilometre on this quote.',
+    'Labour for the labour days on this quote, at the rate per person per day.',
   ],
   exclusions: [
     'Surface cleaning, sanitising, and remediation.',
     'Repairs, rebuilding, and restoration of contents.',
-    'Work beyond the quantities on this quote.',
+    'Work other than contents clearance, travel, and the labour days on this quote.',
   ],
   assumptions: [
-    `Cubic metres are an estimate. The measured volume replaces the estimate, and labour days are that volume divided by ${M3_PER_LABOUR_DAY}, rounded to a whole day.`,
+    'Cubic metres are an estimate of the pile. The measured volume replaces that estimate, at the rate per cubic metre on this quote.',
+    'The labour days on this quote are the labour for this clearance.',
     'Kilometres are an estimate of the travel for this clearance.',
     'The technician decides on site how the contents leave the property.',
   ],
   terms:
-    'A deposit of 50% of this estimate is requested before the clearance starts. The balance is the measured cubic metres, the kilometres, and the labour days that follow the measured volume, at the rates on this quote. GST is 10%.',
+    'A deposit of 50% of this estimate is requested before the clearance starts. The balance is the measured cubic metres, the kilometres, and the labour days on this quote, at the rates on this quote. GST is 10%.',
   authority:
     'Acceptance authorises contents clearance at the address on this quote, at the rates shown.',
   acceptance:
@@ -254,11 +255,72 @@ export function clauseLines(text: string): string[] {
   return text.split('\n').map(line => line.trim()).filter(Boolean)
 }
 
+function clauseLinesJoined(lines: readonly string[]): string {
+  return lines.join('\n')
+}
+
+/** Earlier defaults that tied labour days to the volume. A saved copy of these is replaced. Edited clauses stay. */
+const LEGACY_CONTENTS_CLEARANCE_CLAUSES: Partial<Record<keyof ContentsClearanceStandards, readonly string[]>> = {
+  inclusions: [
+    clauseLinesJoined([
+      'Contents clearance of the stated volume at the standard rate per cubic metre.',
+      'Travel at the standard rate per kilometre.',
+      'Labour at one labour day for every 6 cubic metres, at the standard rate per person per day.',
+    ]),
+    clauseLinesJoined([
+      'Contents clearance of the stated volume at the standard rate per cubic metre.',
+      'Travel at the standard rate per kilometre.',
+      'Labour at one man day for every 6 cubic metres, at the standard rate per person per day.',
+    ]),
+    clauseLinesJoined([
+      'Contents clearance of the stated volume at the standard rate per cubic metre.',
+      'Travel at the standard rate per kilometre.',
+      'Labour at one day for every 6 cubic metres, at the standard daily rate.',
+    ]),
+  ],
+  exclusions: [
+    clauseLinesJoined([
+      'Surface cleaning, sanitising, and remediation.',
+      'Repairs, rebuilding, and restoration of contents.',
+      'Work beyond the quantities on this quote.',
+    ]),
+  ],
+  assumptions: [
+    clauseLinesJoined([
+      'Cubic metres are an estimate. The measured volume replaces the estimate, and labour days are that volume divided by 6, rounded to a whole day.',
+      'Kilometres are an estimate of the travel for this clearance.',
+      'The technician decides on site how the contents leave the property.',
+    ]),
+    clauseLinesJoined([
+      'Cubic metres are an estimate. The measured volume replaces the estimate, and man days are that volume divided by 6, rounded to a whole day.',
+      'Kilometres are an estimate of the travel for this clearance.',
+      'The technician decides on site how the contents leave the property.',
+    ]),
+    clauseLinesJoined([
+      'Cubic metres are an estimate. The measured volume replaces the estimate, and labour days are that volume divided by 6.',
+      'Kilometres are an estimate of the travel for this clearance.',
+      'The technician decides on site how the contents leave the property.',
+    ]),
+  ],
+  payment_terms: [
+    'A deposit of 50% of this estimate is requested before the clearance starts. The balance is the measured cubic metres, the kilometres, and the labour days that follow the measured volume, at the rates on this quote. GST is 10%.',
+    'A deposit of 50% of this estimate is requested before the clearance starts. The balance is the measured cubic metres, the kilometres, and the man days that follow the measured volume, at the rates on this quote. GST is 10%.',
+  ],
+}
+
+function sameClause(a: string, b: string): boolean {
+  return a.replace(/\s+/g, ' ').trim() === b.replace(/\s+/g, ' ').trim()
+}
+
 export function normalizeContentsClearanceStandards(raw: unknown): ContentsClearanceStandards {
   const fallback = defaultContentsClearanceStandards()
   const o = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {}
-  const text = (key: keyof ContentsClearanceStandards) =>
-    typeof o[key] === 'string' ? o[key] : fallback[key]
+  const text = (key: keyof ContentsClearanceStandards) => {
+    if (typeof o[key] !== 'string') return fallback[key]
+    const saved = o[key]
+    const legacy = LEGACY_CONTENTS_CLEARANCE_CLAUSES[key] ?? []
+    return legacy.some(previous => sameClause(previous, saved)) ? fallback[key] : saved
+  }
   return {
     inclusions: text('inclusions'),
     exclusions: text('exclusions'),

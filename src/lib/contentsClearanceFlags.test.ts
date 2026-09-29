@@ -18,18 +18,24 @@ function figures(manDays: number, m3 = 18) {
   return contentsClearanceFigures(m3, 0, RATES, { maximumManDays: manDays })
 }
 
-test('default clauses flag when the typed labour days are not the volume divided by 6', () => {
+test('honest clauses leave the labour days as the number on the quote', () => {
   const flags = clearanceClauseFlags(figures(6), defaultContentsClearanceStandards())
-  const labour = flags.filter(flag => flag.code === 'labour_tracks_volume').map(flag => flag.clause)
-  assert.deepEqual(labour, ['inclusions', 'assumptions', 'payment_terms'])
+  assert.equal(flags.some(flag => flag.code === 'labour_tracks_volume'), false)
   assert.equal(flags.some(flag => flag.code === 'man_day_wording'), false)
   assert.equal(flags.some(flag => flag.code === 'gst_mismatch'), false)
   assert.equal(flags.some(flag => flag.code === 'deposit_mismatch'), false)
 })
 
-test('labour clauses are quiet when the typed days match the volume', () => {
-  const flags = clearanceClauseFlags(figures(3), defaultContentsClearanceStandards())
-  assert.equal(flags.some(flag => flag.code === 'labour_tracks_volume'), false)
+test('a clause that still ties labour days to the volume is flagged', () => {
+  const standards: ContentsClearanceStandards = {
+    ...defaultContentsClearanceStandards(),
+    inclusions: 'Labour at one labour day for every 6 cubic metres, at the standard rate per person per day.',
+    assumptions: 'Cubic metres are an estimate. The measured volume replaces the estimate, and labour days are that volume divided by 6, rounded to a whole day.',
+    payment_terms: 'The balance is the measured cubic metres and the labour days that follow the measured volume. A deposit of 50% is requested. GST is 10%.',
+  }
+  const flags = clearanceClauseFlags(figures(6), standards)
+  const labour = flags.filter(flag => flag.code === 'labour_tracks_volume').map(flag => flag.clause)
+  assert.deepEqual(labour, ['inclusions', 'assumptions', 'payment_terms'])
 })
 
 test('man day, a wrong rate, deposit, and GST are flagged on the clause that says them', () => {
@@ -63,7 +69,10 @@ test('a rate that is already on the quote is not a mismatch', () => {
 })
 
 test('the model may only return a code and a clause, and only when the figures still disagree', () => {
-  const standards = defaultContentsClearanceStandards()
+  const standards: ContentsClearanceStandards = {
+    ...defaultContentsClearanceStandards(),
+    assumptions: 'Cubic metres are an estimate. The measured volume replaces the estimate, and labour days are that volume divided by 6, rounded to a whole day.',
+  }
   const raw = {
     flags: [
       { code: 'labour_tracks_volume', clause: 'assumptions', detail: 'Rewrite this clause.' },

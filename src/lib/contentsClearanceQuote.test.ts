@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { contentsClearanceFigures, contentsClearanceQuoteContent, contentsClearanceTimeFrame, defaultContentsClearanceStandards, emptyContentsClearanceCapture } from '@/lib/contentsClearanceQuote'
+import { contentsClearanceFigures, contentsClearanceQuoteContent, contentsClearanceTimeFrame, defaultContentsClearanceStandards, emptyContentsClearanceCapture, normalizeContentsClearanceStandards } from '@/lib/contentsClearanceQuote'
 import { buildPrintHTML } from '@/lib/printDocument'
 
 test('18 cubic metres is 3 man days and 24 is 4', () => {
@@ -217,6 +217,10 @@ test('the quote prints quantities, then clauses, terms, authority, and acceptanc
   assert.match(html, /GST \(10%\)/)
   assert.match(html, /\$3,656\.40/)
   assert.match(html, /18 m³/)
+  assert.match(html, /The measured volume replaces that estimate/)
+  assert.match(html, /The labour days on this quote are the labour for this clearance/)
+  assert.doesNotMatch(html, /divided by/)
+  assert.doesNotMatch(html, /for every 6/)
   assert.equal(content.title, 'Contents Clearance Quote')
 })
 
@@ -235,4 +239,37 @@ test('the client clearance name is the generated document title', () => {
   })
   assert.equal(hoarding.title, 'Hoarding Clearance Quote')
   assert.equal(estate.title, 'Estate Clearance Quote')
+})
+
+test('a saved copy of the old labour-follows-volume clauses is replaced, and an edit is kept', () => {
+  const refreshed = normalizeContentsClearanceStandards({
+    inclusions: [
+      'Contents clearance of the stated volume at the standard rate per cubic metre.',
+      'Travel at the standard rate per kilometre.',
+      'Labour at one man day for every 6 cubic metres, at the standard rate per person per day.',
+    ].join('\n'),
+    assumptions: [
+      'Cubic metres are an estimate. The measured volume replaces the estimate, and labour days are that volume divided by 6, rounded to a whole day.',
+      'Kilometres are an estimate of the travel for this clearance.',
+      'The technician decides on site how the contents leave the property.',
+    ].join('\n'),
+    payment_terms: 'A deposit of 50% of this estimate is requested before the clearance starts. The balance is the measured cubic metres, the kilometres, and the labour days that follow the measured volume, at the rates on this quote. GST is 10%.',
+    exclusions: [
+      'Surface cleaning, sanitising, and remediation.',
+      'Repairs, rebuilding, and restoration of contents.',
+      'Work beyond the quantities on this quote.',
+    ].join('\n'),
+    engagement_agreement: 'Kept.',
+  })
+  const current = defaultContentsClearanceStandards()
+  assert.equal(refreshed.inclusions, current.inclusions)
+  assert.equal(refreshed.assumptions, current.assumptions)
+  assert.equal(refreshed.payment_terms, current.payment_terms)
+  assert.equal(refreshed.exclusions, current.exclusions)
+  assert.equal(refreshed.engagement_agreement, 'Kept.')
+  const edited = normalizeContentsClearanceStandards({
+    inclusions: 'Contents clearance of the garage only.',
+  })
+  assert.equal(edited.inclusions, 'Contents clearance of the garage only.')
+  assert.equal(edited.assumptions, current.assumptions)
 })

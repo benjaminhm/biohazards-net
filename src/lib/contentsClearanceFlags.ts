@@ -211,7 +211,9 @@ export function clearanceClauseFlags(
 }
 
 function modelLabourIsAboutVolume(text: string): boolean {
-  return /\b(volume|cubic|divided|measured|follow|every|calculated|calculation|worked out)\b/i.test(text)
+  const aboutLabour = /\b(labour|labor|man[\s-]?days?|crew|person-?days?)\b/i.test(text)
+  const derivedFromVolume = /\b(divided|for every|calculated|calculation|worked out|follow)\b/i.test(text)
+  return assertsLabourFromVolume(text) || (aboutLabour && derivedFromVolume)
 }
 
 function modelRateHasNumber(text: string): boolean {
