@@ -198,8 +198,15 @@ test('the quote prints quantities, then clauses, terms, authority, and acceptanc
     { screenActionBar: false },
   )
   const labels = [...html.matchAll(/class="label"[^>]*>([^<]+)/g)].map(match => match[1])
-  assert.deepEqual(labels, ['Estimated quantities', 'Inclusions', 'Exclusions', 'Assumptions', 'Payment terms', 'Engagement agreement', 'Authority', 'Acceptance'])
-  assert.match(html, /Contents Clearance Quote/)
+  assert.deepEqual(labels, ['Estimated quantities', 'Fixed Rate Quotations', 'Inclusions', 'Exclusions', 'Assumptions', 'Payment terms', 'Engagement agreement', 'Authority', 'Acceptance'])
+  assert.match(html, /class="sow-doc-title">Contents Clearance</)
+  assert.doesNotMatch(html, /sow-doc-title">[^<]*Quote/)
+  assert.match(html, /Estimated subtotal \(ex GST\)/)
+  assert.match(html, /\$1,824\.00/)
+  assert.match(html, /Fixed subtotal \(ex GST\)/)
+  assert.match(html, /\$1,500\.00/)
+  assert.ok(html.indexOf('Estimated quantities') < html.indexOf('Fixed Rate Quotations'))
+  assert.ok(html.indexOf('Fixed Rate Quotations') < html.indexOf('>Labour<'))
   assert.doesNotMatch(html, /5 days with 1 person or 1 day with 5 persons/)
   assert.doesNotMatch(html, /days with 1 person/)
   assert.match(html, /3 labour days/)
@@ -221,7 +228,7 @@ test('the quote prints quantities, then clauses, terms, authority, and acceptanc
   assert.match(html, /The labour days on this quote are the labour for this clearance/)
   assert.doesNotMatch(html, /divided by/)
   assert.doesNotMatch(html, /for every 6/)
-  assert.equal(content.title, 'Contents Clearance Quote')
+  assert.equal(content.title, 'Contents Clearance')
 })
 
 test('the client clearance name is the generated document title', () => {
@@ -237,8 +244,8 @@ test('the client clearance name is the generated document title', () => {
     siteAddress: '1 Example Street',
     capture: { ...emptyContentsClearanceCapture(), clearance_kind: 'estate' },
   })
-  assert.equal(hoarding.title, 'Hoarding Clearance Quote')
-  assert.equal(estate.title, 'Estate Clearance Quote')
+  assert.equal(hoarding.title, 'Hoarding Clearance')
+  assert.equal(estate.title, 'Estate Clearance')
 })
 
 test('a saved copy of the old labour-follows-volume clauses is replaced, and an edit is kept', () => {

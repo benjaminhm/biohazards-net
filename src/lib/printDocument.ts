@@ -3332,40 +3332,15 @@ function clearanceQty(n: number, unit: string): string {
   return `${n.toLocaleString('en-AU', { maximumFractionDigits: 2 })} ${unit}`
 }
 
-function clearanceList(label: string, items: string[]): string {
-  const rows = items.filter(item => item.trim())
-  if (!rows.length) return ''
-  return `<div class="label" style="margin-top:18px">${label}</div><ul class="body-text">${rows.map(item => `<li>${esc(item)}</li>`).join('')}</ul>`
+function clearancePrintTitle(title: string | null | undefined): string {
+  const stripped = (title ?? '').trim().replace(/ Quote$/i, '')
+  return stripped || 'Contents Clearance'
 }
 
-function buildContentsClearanceMid(c: ContentsClearanceQuoteContent): string {
-  const lines: { label: string; quantity: string; rate: string; amount: number }[] = []
-  if ((c.mobilisation_fee ?? 0) > 0) {
-    lines.push({
-      label: 'Mobilisation',
-      quantity: '1 fee',
-      rate: fmtMoney(c.mobilisation_fee),
-      amount: c.mobilisation_fee,
-    })
-  }
-  lines.push(
-    { label: 'Contents', quantity: clearanceQty(c.estimated_m3, 'm³'), rate: `${fmtMoney(c.rate_per_m3)} / m³`, amount: c.volume_amount },
-    { label: 'Distance', quantity: clearanceQty(c.estimated_km, 'km'), rate: `${fmtMoney(c.rate_per_km)} / km`, amount: c.distance_amount },
-    {
-      label: 'Labour',
-      quantity: clearanceQty(c.labour_days, c.labour_days === 1 ? 'labour day' : 'labour days'),
-      rate: `${fmtMoney(c.rate_per_labour_day)} / labour day`,
-      amount: c.labour_amount,
-    },
-  )
-  if ((c.estimated_tonnes ?? 0) > 0 || (c.disposal_rate_per_tonne ?? 0) > 0) {
-    lines.push({
-      label: 'Disposal',
-      quantity: clearanceQty(c.estimated_tonnes ?? 0, (c.estimated_tonnes ?? 0) === 1 ? 'tonne' : 'tonnes'),
-      rate: `${fmtMoney(c.disposal_rate_per_tonne ?? 0)} / tonne`,
-      amount: c.disposal_amount ?? 0,
-    })
-  }
+function clearanceTable(
+  quantityHeader: string,
+  lines: { label: string; quantity: string; rate: string; amount: number }[],
+): string {
   const body = lines.map(line => `
     <tr>
       <td>${esc(line.label)}</td>
@@ -3373,6 +3348,61 @@ function buildContentsClearanceMid(c: ContentsClearanceQuoteContent): string {
       <td class="r">${esc(line.rate)}</td>
       <td class="r">${fmtMoney(line.amount)}</td>
     </tr>`).join('')
+  return `<table>
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th class="r">${quantityHeader}</th>
+          <th class="r">Rate (ex GST)</th>
+          <th class="r">Amount</th>
+        </tr>
+      </thead>
+      <tbody>${body}</tbody>
+    </table>`
+}
+
+function clearanceSectionSubtotal(label: string, amount: number): string {
+  return `<div class="totals" style="margin-top:8px;">
+      <div class="tot-row"><span>${label}</span><span class="amt">${fmtMoney(amount)}</span></div>
+    </div>`
+}
+
+function clearanceList(label: string, items: string[]): string {
+  const rows = items.filter(item => item.trim())
+  if (!rows.length) return ''
+  return `<div class="label" style="margin-top:18px">${label}</div><ul class="body-text">${rows.map(item => `<li>${esc(item)}</li>`).join('')}</ul>`
+}
+
+function buildContentsClearanceMid(c: ContentsClearanceQuoteContent): string {
+  const estimated: { label: string; quantity: string; rate: string; amount: number }[] = [
+    { label: 'Contents', quantity: clearanceQty(c.estimated_m3, 'm³'), rate: `${fmtMoney(c.rate_per_m3)} / m³`, amount: c.volume_amount },
+    { label: 'Distance', quantity: clearanceQty(c.estimated_km, 'km'), rate: `${fmtMoney(c.rate_per_km)} / km`, amount: c.distance_amount },
+  ]
+  if ((c.estimated_tonnes ?? 0) > 0 || (c.disposal_rate_per_tonne ?? 0) > 0) {
+    estimated.push({
+      label: 'Disposal',
+      quantity: clearanceQty(c.estimated_tonnes ?? 0, (c.estimated_tonnes ?? 0) === 1 ? 'tonne' : 'tonnes'),
+      rate: `${fmtMoney(c.disposal_rate_per_tonne ?? 0)} / tonne`,
+      amount: c.disposal_amount ?? 0,
+    })
+  }
+  const fixed: { label: string; quantity: string; rate: string; amount: number }[] = []
+  if ((c.mobilisation_fee ?? 0) > 0) {
+    fixed.push({
+      label: 'Mobilisation',
+      quantity: '1 fee',
+      rate: fmtMoney(c.mobilisation_fee),
+      amount: c.mobilisation_fee,
+    })
+  }
+  fixed.push({
+    label: 'Labour',
+    quantity: clearanceQty(c.labour_days, c.labour_days === 1 ? 'labour day' : 'labour days'),
+    rate: `${fmtMoney(c.rate_per_labour_day)} / labour day`,
+    amount: c.labour_amount,
+  })
+  const sectionAmount = (lines: { amount: number }[]) =>
+    Math.round(lines.reduce((sum, line) => sum + line.amount, 0) * 100) / 100
   const tripNotes = [
     (c.return_trips ?? 0) > 0
       ? `Distance is ${c.return_trips} return ${c.return_trips === 1 ? 'trip' : 'trips'} of ${c.return_trip_km} km between the job and the tip.`
@@ -3394,18 +3424,12 @@ function buildContentsClearanceMid(c: ContentsClearanceQuoteContent): string {
       <div class="body-text" style="font-weight:500;color:var(--sow-navy);">${esc(c.tip_address || '—')}</div>
     </div>
     <div class="label">Estimated quantities</div>
-    <table>
-      <thead>
-        <tr>
-          <th>Item</th>
-          <th class="r">Estimated quantities</th>
-          <th class="r">Rate (ex GST)</th>
-          <th class="r">Amount</th>
-        </tr>
-      </thead>
-      <tbody>${body}</tbody>
-    </table>
+    ${clearanceTable('Estimated quantities', estimated)}
     ${tripNotes.map(note => `<div class="body-text" style="margin-top:4px;font-style:italic;color:var(--sow-muted)">${esc(note)}</div>`).join('')}
+    ${clearanceSectionSubtotal('Estimated subtotal (ex GST)', sectionAmount(estimated))}
+    <div class="label" style="margin-top:18px">Fixed Rate Quotations</div>
+    ${clearanceTable('Quantity', fixed)}
+    ${clearanceSectionSubtotal('Fixed subtotal (ex GST)', sectionAmount(fixed))}
     <div class="totals">
       <div class="tot-row"><span>Subtotal (ex GST)</span><span class="amt">${fmtMoney(c.subtotal)}</span></div>
       <div class="tot-row"><span>GST (10%)</span><span class="amt">${fmtMoney(c.gst)}</span></div>
@@ -3428,7 +3452,7 @@ function buildContentsClearanceHTML(
   screenActionBar: boolean,
 ): string {
   const mid = buildContentsClearanceMid(c)
-  const title = c.title?.trim() || 'Contents Clearance Quote'
+  const title = clearancePrintTitle(c.title)
   return wrapBranded(mid, title, title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
