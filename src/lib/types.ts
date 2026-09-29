@@ -1091,6 +1091,8 @@ export interface AssessmentData {
   }
   /** Contents Clearance Quote — estimated cubic metres and kilometres. Rates and clauses are schema. */
   contents_clearance_quote?: {
+    /** contents | hoarding | estate. Printed as the client document title. */
+    clearance_kind?: 'contents' | 'hoarding' | 'estate'
     estimated_m3: number | null
     /** Older captures stored a single kilometre total. New captures use return trips. */
     estimated_km: number | null
@@ -1399,6 +1401,7 @@ export interface CompanyProfile {
     exclusions: string
     assumptions: string
     payment_terms: string
+    engagement_agreement: string
   } | null
 }
 

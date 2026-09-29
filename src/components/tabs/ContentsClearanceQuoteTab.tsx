@@ -3,12 +3,14 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
 import AddressAutocomplete from '@/components/AddressAutocomplete'
+import RichTextEditor from '@/components/RichTextEditor'
 import type { Job } from '@/lib/types'
 import { browserDrivingRoundTripKm, browserGeocodeAddress, type MapWaypoint } from '@/lib/geocodeBrowser'
 import { mergeAssessmentData } from '@/lib/riskDerivation'
 import { useRegisterUnsavedChanges } from '@/lib/unsavedChangesContext'
 import { formatAud } from '@/lib/disposalManifest'
 import {
+  CONTENTS_CLEARANCE_CLIENT_TITLES,
   CONTENTS_CLEARANCE_SCHEMA,
   clauseLines,
   contentsClearanceFigures,
@@ -173,7 +175,8 @@ export default function ContentsClearanceQuoteTab({ job, onJobUpdate }: Props) {
     setCapture(normalizeContentsClearanceCapture(job.assessment_data?.contents_clearance_quote))
   }, [job.id, job.updated_at])
 
-  const isDirty = capture.estimated_m3 !== saved.estimated_m3
+  const isDirty = capture.clearance_kind !== saved.clearance_kind
+    || capture.estimated_m3 !== saved.estimated_m3
     || capture.estimated_km !== saved.estimated_km
     || capture.rate_per_m3 !== saved.rate_per_m3
     || capture.rate_per_km !== saved.rate_per_km
@@ -378,6 +381,18 @@ export default function ContentsClearanceQuoteTab({ job, onJobUpdate }: Props) {
     >
       <div style={{ fontWeight: 800, fontSize: 13, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 12 }}>
         Contents Clearance Quote
+      </div>
+      <div style={{ marginBottom: 12, maxWidth: 360 }}>
+        <label style={LABEL}>For the client, this is</label>
+        <select
+          value={capture.clearance_kind}
+          onChange={e => patch({ clearance_kind: e.target.value as ContentsClearanceCapture['clearance_kind'] })}
+          style={INPUT}
+        >
+          {CONTENTS_CLEARANCE_CLIENT_TITLES.map(option => (
+            <option key={option.id} value={option.id}>{option.title}</option>
+          ))}
+        </select>
       </div>
       <div style={{ fontSize: 14, marginBottom: 12 }}>
         <div style={LABEL}>Client</div>
@@ -603,6 +618,16 @@ export default function ContentsClearanceQuoteTab({ job, onJobUpdate }: Props) {
         <ClickToEditText label="Exclusions" asList value={standards.exclusions} onChange={exclusions => editStandards({ exclusions })} />
         <ClickToEditText label="Assumptions" asList value={standards.assumptions} onChange={assumptions => editStandards({ assumptions })} />
         <ClickToEditText label="Payment terms" value={standards.payment_terms} onChange={payment_terms => editStandards({ payment_terms })} />
+        <div>
+          <div style={LABEL}>Engagement agreement</div>
+          {standardsReady && (
+            <RichTextEditor
+              value={standards.engagement_agreement}
+              onChange={engagement_agreement => editStandards({ engagement_agreement })}
+              minHeight={240}
+            />
+          )}
+        </div>
       </div>
       {saveError && <div style={{ color: 'var(--danger, #f87171)', fontSize: 13, marginTop: 10 }}>{saveError}</div>}
       <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>

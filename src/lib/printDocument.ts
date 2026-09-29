@@ -3274,6 +3274,7 @@ function buildContentsClearanceMid(c: ContentsClearanceQuoteContent): string {
     ${clearanceList('Exclusions', c.exclusions ?? [])}
     ${clearanceList('Assumptions', c.assumptions ?? [])}
     ${section('Payment terms', c.terms)}
+    ${section('Engagement agreement', c.engagement_agreement)}
     ${section('Authority', c.authority)}
     ${section('Acceptance', c.acceptance)}
   `

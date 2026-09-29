@@ -46,9 +46,26 @@ export interface ContentsClearanceStandards {
   /** One assumption per line. */
   assumptions: string
   payment_terms: string
+  engagement_agreement: string
+}
+
+/** Internal work is always a contents clearance. The client document uses one of these titles. */
+export const CONTENTS_CLEARANCE_CLIENT_TITLES = [
+  { id: 'contents', title: 'Contents Clearance Quote' },
+  { id: 'hoarding', title: 'Hoarding Clearance Quote' },
+  { id: 'estate', title: 'Estate Clearance Quote' },
+] as const
+
+export type ContentsClearanceKind = (typeof CONTENTS_CLEARANCE_CLIENT_TITLES)[number]['id']
+
+export function contentsClearanceDocumentTitle(kind: string | null | undefined): string {
+  return CONTENTS_CLEARANCE_CLIENT_TITLES.find(option => option.id === kind)?.title
+    ?? CONTENTS_CLEARANCE_CLIENT_TITLES[0].title
 }
 
 export interface ContentsClearanceCapture {
+  /** Which client-facing title to print. The page itself stays Contents Clearance. */
+  clearance_kind: ContentsClearanceKind
   estimated_m3: number | null
   /** Kept for quotes saved before return trips. */
   estimated_km: number | null
@@ -127,6 +144,7 @@ export interface ContentsClearanceQuoteContent {
   exclusions: string[]
   assumptions: string[]
   terms: string
+  engagement_agreement: string
   authority: string
   acceptance: string
 }
@@ -142,6 +160,7 @@ function quantityOrZero(value: number | null | undefined): number {
 
 export function emptyContentsClearanceCapture(): ContentsClearanceCapture {
   return {
+    clearance_kind: 'contents',
     estimated_m3: null,
     estimated_km: null,
     rate_per_m3: null,
@@ -167,6 +186,7 @@ export function defaultContentsClearanceStandards(): ContentsClearanceStandards 
     exclusions: CONTENTS_CLEARANCE_SCHEMA.exclusions.join('\n'),
     assumptions: CONTENTS_CLEARANCE_SCHEMA.assumptions.join('\n'),
     payment_terms: CONTENTS_CLEARANCE_SCHEMA.terms,
+    engagement_agreement: '',
   }
 }
 
@@ -184,6 +204,7 @@ export function normalizeContentsClearanceStandards(raw: unknown): ContentsClear
     exclusions: text('exclusions'),
     assumptions: text('assumptions'),
     payment_terms: text('payment_terms'),
+    engagement_agreement: text('engagement_agreement'),
   }
 }
 
@@ -199,7 +220,11 @@ export function normalizeContentsClearanceCapture(raw: unknown): ContentsClearan
     const n = typeof value === 'number' ? value : Number(value)
     return Number.isFinite(n) ? n : null
   }
+  const kind = CONTENTS_CLEARANCE_CLIENT_TITLES.some(option => option.id === o.clearance_kind)
+    ? o.clearance_kind as ContentsClearanceKind
+    : 'contents'
   return {
+    clearance_kind: kind,
     estimated_m3: qty(o.estimated_m3),
     estimated_km: qty(o.estimated_km),
     rate_per_m3: qty(o.rate_per_m3),
@@ -325,7 +350,7 @@ export function contentsClearanceQuoteContent(input: {
   const labour = figures.lines.find(line => line.label === 'Labour')
   const jobAddress = (capture.job_address ?? input.siteAddress).trim()
   return {
-    title: 'Contents Clearance Quote',
+    title: contentsClearanceDocumentTitle(capture.clearance_kind),
     reference: input.reference,
     client_name: input.clientName.trim(),
     site_address: jobAddress,
@@ -353,6 +378,7 @@ export function contentsClearanceQuoteContent(input: {
     exclusions: clauseLines(standards.exclusions),
     assumptions: clauseLines(standards.assumptions),
     terms: standards.payment_terms.trim(),
+    engagement_agreement: standards.engagement_agreement.trim(),
     authority: CONTENTS_CLEARANCE_SCHEMA.authority,
     acceptance: CONTENTS_CLEARANCE_SCHEMA.acceptance,
   }

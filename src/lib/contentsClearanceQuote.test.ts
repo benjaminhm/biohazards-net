@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { contentsClearanceFigures, contentsClearanceQuoteContent, emptyContentsClearanceCapture } from '@/lib/contentsClearanceQuote'
+import { contentsClearanceFigures, contentsClearanceQuoteContent, defaultContentsClearanceStandards, emptyContentsClearanceCapture } from '@/lib/contentsClearanceQuote'
 import { buildPrintHTML } from '@/lib/printDocument'
 
 test('18 cubic metres is 3 labour days and 24 is 4', () => {
@@ -56,6 +56,10 @@ test('the quote prints quantities, then clauses, terms, authority, and acceptanc
       rate_per_labour_day: 500,
       tip_address: 'Tip Road',
     },
+    standards: {
+      ...defaultContentsClearanceStandards(),
+      engagement_agreement: 'The client engages the contractor for this clearance.',
+    },
   })
   const html = buildPrintHTML(
     'contents_clearance_quote',
@@ -69,7 +73,8 @@ test('the quote prints quantities, then clauses, terms, authority, and acceptanc
     { screenActionBar: false },
   )
   const labels = [...html.matchAll(/class="label"[^>]*>([^<]+)/g)].map(match => match[1])
-  assert.deepEqual(labels, ['Quantities', 'Inclusions', 'Exclusions', 'Assumptions', 'Payment terms', 'Authority', 'Acceptance'])
+  assert.deepEqual(labels, ['Quantities', 'Inclusions', 'Exclusions', 'Assumptions', 'Payment terms', 'Engagement agreement', 'Authority', 'Acceptance'])
+  assert.match(html, /The client engages the contractor for this clearance\./)
   assert.match(html, /Acme Pty Ltd/)
   assert.match(html, /1 Example Street/)
   assert.match(html, /Tip Road/)
@@ -79,4 +84,22 @@ test('the quote prints quantities, then clauses, terms, authority, and acceptanc
   assert.equal(content.distance_amount, 24)
   assert.equal(content.labour_amount, 1500)
   assert.match(html, /\$100\.00 \/ m³/)
+  assert.equal(content.title, 'Contents Clearance Quote')
+})
+
+test('the client clearance name is the generated document title', () => {
+  const hoarding = contentsClearanceQuoteContent({
+    reference: 'CCQ-TEST',
+    clientName: 'Acme Pty Ltd',
+    siteAddress: '1 Example Street',
+    capture: { ...emptyContentsClearanceCapture(), clearance_kind: 'hoarding' },
+  })
+  const estate = contentsClearanceQuoteContent({
+    reference: 'CCQ-TEST',
+    clientName: 'Acme Pty Ltd',
+    siteAddress: '1 Example Street',
+    capture: { ...emptyContentsClearanceCapture(), clearance_kind: 'estate' },
+  })
+  assert.equal(hoarding.title, 'Hoarding Clearance Quote')
+  assert.equal(estate.title, 'Estate Clearance Quote')
 })

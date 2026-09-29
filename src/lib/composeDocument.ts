@@ -35,7 +35,7 @@ import type {
 } from '@/lib/types'
 import { preHasV2Content, resolveQuotedLineContext } from '@/lib/postRemediationEvaluations'
 import { richBodyHtmlForPrint, proseHasPrintableContent } from '@/lib/richTextPrint'
-import { contentsClearanceQuoteContent, normalizeContentsClearanceCapture } from '@/lib/contentsClearanceQuote'
+import { contentsClearanceQuoteContent, normalizeContentsClearanceCapture, type ContentsClearanceStandards } from '@/lib/contentsClearanceQuote'
 import { mergedSowCapture, staffSowHasContent } from '@/lib/sowCapture'
 import { mergedCompletionReportCapture, completionReportCaptureHasContent } from '@/lib/completionReportCapture'
 import {
@@ -121,12 +121,7 @@ export interface ComposeDocumentOptions {
   /** Saved documents, so the statement can read the latest quote. */
   documents?: Document[]
   /** Org-wide clauses for the contents clearance quote. */
-  contentsClearanceStandards?: {
-    inclusions: string
-    exclusions: string
-    assumptions: string
-    payment_terms: string
-  } | null
+  contentsClearanceStandards?: ContentsClearanceStandards | null
 }
 
 const todayRef = () => new Date().toISOString().slice(0, 10).replace(/-/g, '')
