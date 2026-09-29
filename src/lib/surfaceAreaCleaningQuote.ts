@@ -45,7 +45,7 @@ export const SURFACE_AREA_ESTIMATE_NOTE =
 const PREVIOUS_SURFACE_AREA_ASSUMPTIONS =
   'Square metres are an estimate of the area. The measured area replaces that estimate, at the rate per square metre on this quote.\nThe labour days on this quote are the labour for this cleaning.'
 
-/** Typical room sizes for a quote made from a description, before anyone has measured the site. Height is 2.4 m except the garage. */
+/** Typical sizes shown as a reference. The quote page does not fill a room from this list. Height is 2.4 m except the garage. */
 export const SURFACE_AREA_ROOM_PRESETS = [
   { id: 'bedroom', name: 'Bedroom', length_m: 3.5, width_m: 3, height_m: 2.4 },
   { id: 'main_bedroom', name: 'Main bedroom', length_m: 4, width_m: 3.6, height_m: 2.4 },
@@ -59,8 +59,6 @@ export const SURFACE_AREA_ROOM_PRESETS = [
   { id: 'hall', name: 'Hall', length_m: 6, width_m: 1.2, height_m: 2.4 },
   { id: 'garage', name: 'Garage', length_m: 6, width_m: 3, height_m: 2.7 },
 ] as const
-
-export type SurfaceAreaRoomPresetId = (typeof SURFACE_AREA_ROOM_PRESETS)[number]['id']
 
 export interface SurfaceAreaRoom {
   id: string
@@ -171,14 +169,13 @@ export function newSurfaceAreaRoomId(): string {
   return `room_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
 }
 
-export function newSurfaceAreaRoom(presetId?: SurfaceAreaRoomPresetId): SurfaceAreaRoom {
-  const preset = SURFACE_AREA_ROOM_PRESETS.find(option => option.id === presetId)
+export function newSurfaceAreaRoom(): SurfaceAreaRoom {
   return {
     id: newSurfaceAreaRoomId(),
-    name: preset?.name ?? '',
-    length_m: preset?.length_m ?? null,
-    width_m: preset?.width_m ?? null,
-    height_m: preset?.height_m ?? 2.4,
+    name: '',
+    length_m: null,
+    width_m: null,
+    height_m: null,
   }
 }
 

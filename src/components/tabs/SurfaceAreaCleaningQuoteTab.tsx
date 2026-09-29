@@ -23,7 +23,6 @@ import {
   surfaceAreaCleaningFigures,
   type SurfaceAreaCleaningCapture,
   type SurfaceAreaCleaningStandards,
-  type SurfaceAreaRoomPresetId,
 } from '@/lib/surfaceAreaCleaningQuote'
 
 interface Props {
@@ -310,8 +309,24 @@ export default function SurfaceAreaCleaningQuoteTab({ job, onJobUpdate }: Props)
       </div>
       <div style={{ marginBottom: 12 }}>
         <div style={LABEL}>Rooms</div>
-        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
-          Length, width, and height. A typical size is enough when the room has not been seen. The total is the floor, the ceiling, and the walls.
+        <div style={{
+          border: '1px solid var(--border)',
+          borderRadius: 8,
+          padding: '10px 12px',
+          marginBottom: 10,
+        }}>
+          <div style={LABEL}>Average rooms</div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+            A guide when the room has not been seen. Type the name and the length, width, and height below. The total is the floor, the ceiling, and the walls.
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '4px 16px', fontSize: 13 }}>
+            {SURFACE_AREA_ROOM_PRESETS.map(room => (
+              <div key={room.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                <span>{room.name}</span>
+                <span style={{ color: 'var(--text-muted)' }}>{room.length_m} × {room.width_m} × {room.height_m} m</span>
+              </div>
+            ))}
+          </div>
         </div>
         <div style={{ display: 'grid', gap: 8 }}>
           {capture.rooms.map(room => {
@@ -356,22 +371,9 @@ export default function SurfaceAreaCleaningQuoteTab({ job, onJobUpdate }: Props)
           })}
         </div>
         <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
-          <select
-            value=""
-            onChange={e => {
-              const value = e.target.value
-              if (!value) return
-              const preset = value === 'custom' ? undefined : value as SurfaceAreaRoomPresetId
-              setRooms([...capture.rooms, newSurfaceAreaRoom(preset)])
-            }}
-            style={{ ...INPUT, maxWidth: 280 }}
-          >
-            <option value="">Add a room…</option>
-            <option value="custom">Blank room</option>
-            {SURFACE_AREA_ROOM_PRESETS.map(preset => (
-              <option key={preset.id} value={preset.id}>{preset.name} · {preset.length_m} × {preset.width_m} × {preset.height_m} m</option>
-            ))}
-          </select>
+          <button type="button" className="btn" onClick={() => setRooms([...capture.rooms, newSurfaceAreaRoom()])}>
+            Add a room
+          </button>
           {roomsSurfaceTotal(capture.rooms) != null && (
             <span style={{ fontSize: 13, fontWeight: 700 }}>
               {roomsSurfaceTotal(capture.rooms)?.toLocaleString('en-AU', { maximumFractionDigits: 2 })} m²

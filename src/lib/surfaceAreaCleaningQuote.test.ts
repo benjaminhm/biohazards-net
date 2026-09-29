@@ -3,7 +3,7 @@ import test from 'node:test'
 import { buildPrintHTML } from '@/lib/printDocument'
 import {
   emptySurfaceAreaCleaningCapture,
-  newSurfaceAreaRoom,
+  SURFACE_AREA_ROOM_PRESETS,
   roomSurfaceArea,
   roomsSurfaceTotal,
   surfaceAreaCleaningFigures,
@@ -103,9 +103,12 @@ test('length, width, and height estimate the room surface', () => {
   assert.equal(measure?.ceiling, 12)
   assert.equal(measure?.walls, 33.6)
   assert.equal(measure?.total, 57.6)
-  const bedroom = newSurfaceAreaRoom('bedroom')
-  const bathroom = newSurfaceAreaRoom('bathroom')
-  assert.equal(roomsSurfaceTotal([bedroom, bathroom]), 79.32)
+  const sized = (id: string) => {
+    const preset = SURFACE_AREA_ROOM_PRESETS.find(room => room.id === id)
+    if (!preset) throw new Error(id)
+    return { id, name: preset.name, length_m: preset.length_m, width_m: preset.width_m, height_m: preset.height_m }
+  }
+  assert.equal(roomsSurfaceTotal([sized('bedroom'), sized('bathroom')]), 79.32)
 })
 
 test('the quote uses the room total and lists each room', () => {
