@@ -101,6 +101,9 @@ export interface ContentsClearanceCapture {
   estimated_tonnes: number | null
   /** Ex GST. Attendance and setup. Blank or zero stays off the quote. */
   mobilisation_fee: number | null
+  /** When set, the fee is not charged and the reason is printed instead. */
+  mobilisation_waived: boolean
+  mobilisation_reason: string
 }
 
 export interface ContentsClearanceLine {
@@ -142,6 +145,7 @@ export interface ContentsClearanceQuoteContent {
   site_address: string
   job_address: string
   tip_address: string
+  mobilisation_reason: string
   estimated_m3: number
   estimated_km: number
   return_trip_km: number
@@ -238,6 +242,8 @@ export function emptyContentsClearanceCapture(): ContentsClearanceCapture {
     disposal_rate_per_tonne: null,
     estimated_tonnes: null,
     mobilisation_fee: null,
+    mobilisation_waived: false,
+    mobilisation_reason: '',
   }
 }
 
@@ -374,6 +380,8 @@ export function normalizeContentsClearanceCapture(raw: unknown): ContentsClearan
     disposal_rate_per_tonne: qty(o.disposal_rate_per_tonne),
     estimated_tonnes: qty(o.estimated_tonnes),
     mobilisation_fee: qty(o.mobilisation_fee),
+    mobilisation_waived: o.mobilisation_waived === true,
+    mobilisation_reason: typeof o.mobilisation_reason === 'string' ? o.mobilisation_reason : '',
   }
 }
 
@@ -395,6 +403,7 @@ export function contentsClearanceFigures(
     tonnes?: number | null
     ratePerTonne?: number | null
     mobilisationFee?: number | null
+    mobilisationWaived?: boolean
     maximumManDays?: number | null
   } = {},
 ): ContentsClearanceFigures {
@@ -412,7 +421,7 @@ export function contentsClearanceFigures(
   const estimated_tonnes = round2(quantityOrZero(trip.tonnes))
   const disposal_rate_per_tonne = round2(quantityOrZero(trip.ratePerTonne))
   const disposal_amount = round2(estimated_tonnes * disposal_rate_per_tonne)
-  const mobilisation_fee = round2(quantityOrZero(trip.mobilisationFee))
+  const mobilisation_fee = trip.mobilisationWaived ? 0 : round2(quantityOrZero(trip.mobilisationFee))
   const perDay = schema.m3PerLabourDay > 0 ? schema.m3PerLabourDay : 6
   const maximum_man_days = Math.round(quantityOrZero(trip.maximumManDays))
   const paced_days = wholeManDays(estimated_m3, perDay)
@@ -508,6 +517,7 @@ export function contentsClearanceQuoteContent(input: {
     tonnes: capture.estimated_tonnes,
     ratePerTonne: capture.disposal_rate_per_tonne,
     mobilisationFee: capture.mobilisation_fee,
+    mobilisationWaived: capture.mobilisation_waived,
     maximumManDays: capture.maximum_man_days,
   })
   const contents = figures.lines.find(line => line.label === 'Contents')
@@ -532,6 +542,7 @@ export function contentsClearanceQuoteContent(input: {
     disposal_rate_per_tonne: figures.disposal_rate_per_tonne,
     disposal_amount: figures.disposal_amount,
     mobilisation_fee: figures.mobilisation_fee,
+    mobilisation_reason: capture.mobilisation_waived ? capture.mobilisation_reason.trim() : '',
     labour_days: figures.labour_days,
     m3_per_labour_day: figures.m3_per_labour_day,
     maximum_man_days: figures.maximum_man_days,

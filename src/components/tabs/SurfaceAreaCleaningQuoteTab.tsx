@@ -129,6 +129,8 @@ export default function SurfaceAreaCleaningQuoteTab({ job, onJobUpdate }: Props)
     || capture.rate_per_labour_day !== saved.rate_per_labour_day
     || capture.job_address !== saved.job_address
     || capture.mobilisation_fee !== saved.mobilisation_fee
+    || capture.mobilisation_waived !== saved.mobilisation_waived
+    || capture.mobilisation_reason !== saved.mobilisation_reason
     || JSON.stringify(capture.rooms) !== JSON.stringify(saved.rooms)
   useRegisterUnsavedChanges('surface-area-cleaning-quote', isDirty)
 
@@ -139,6 +141,7 @@ export default function SurfaceAreaCleaningQuoteTab({ job, onJobUpdate }: Props)
     }, {
       labourDays: capture.labour_days,
       mobilisationFee: capture.mobilisation_fee,
+      mobilisationWaived: capture.mobilisation_waived,
     }),
     [capture],
   )
@@ -259,23 +262,43 @@ export default function SurfaceAreaCleaningQuoteTab({ job, onJobUpdate }: Props)
         <div style={LABEL}>Client</div>
         <div>{job.client_name || '—'}</div>
       </div>
-      <div style={{ marginBottom: 12, maxWidth: 360 }}>
-        <label style={LABEL}>Mobilisation fee ($)</label>
-        <input
-          type="number"
-          min={0}
-          step="0.01"
-          value={capture.mobilisation_fee ?? ''}
-          onChange={e => {
-            const raw = e.target.value
-            patch({ mobilisation_fee: raw === '' ? null : Number(raw) })
-          }}
-          placeholder="0.00"
-          style={INPUT}
-        />
-        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
-          Attendance and setup, ex GST. It is added to the quote when the amount is more than zero.
-        </div>
+      <div style={{ marginBottom: 12, maxWidth: 480 }}>
+        <label style={{ ...LABEL, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <input
+            type="checkbox"
+            checked={capture.mobilisation_waived}
+            onChange={e => patch({ mobilisation_waived: e.target.checked })}
+          />
+          No call-out charge
+        </label>
+        {capture.mobilisation_waived ? (
+          <textarea
+            value={capture.mobilisation_reason}
+            onChange={e => patch({ mobilisation_reason: e.target.value })}
+            rows={2}
+            placeholder="No call-out charge, as already onsite for the hoarding removal."
+            style={{ ...INPUT, marginTop: 8, resize: 'vertical', lineHeight: 1.5, fontFamily: 'inherit' }}
+          />
+        ) : (
+          <>
+            <label style={{ ...LABEL, marginTop: 8 }}>Mobilisation fee ($)</label>
+            <input
+              type="number"
+              min={0}
+              step="0.01"
+              value={capture.mobilisation_fee ?? ''}
+              onChange={e => {
+                const raw = e.target.value
+                patch({ mobilisation_fee: raw === '' ? null : Number(raw) })
+              }}
+              placeholder="0.00"
+              style={INPUT}
+            />
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
+              Attendance and setup, ex GST. It is added to the quote when the amount is more than zero.
+            </div>
+          </>
+        )}
       </div>
       <div style={{ marginBottom: 12 }}>
         <label style={LABEL}>Job address</label>

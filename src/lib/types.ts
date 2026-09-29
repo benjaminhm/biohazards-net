@@ -1125,6 +1125,8 @@ export interface AssessmentData {
     estimated_tonnes?: number | null
     /** Ex GST. Attendance and setup. Blank or zero stays off the quote. */
     mobilisation_fee?: number | null
+    mobilisation_waived?: boolean
+    mobilisation_reason?: string
   }
   /** Surface Area Cleaning Quote — estimated square metres. Rates and clauses are schema. */
   surface_area_cleaning_quote?: {
@@ -1140,6 +1142,8 @@ export interface AssessmentData {
     job_address?: string | null
     /** Ex GST. Attendance and setup. Blank or zero stays off the quote. */
     mobilisation_fee?: number | null
+    mobilisation_waived?: boolean
+    mobilisation_reason?: string
     /** Rectangular rooms. Length, width, and height estimate the surface area. */
     rooms?: {
       id: string

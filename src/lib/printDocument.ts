@@ -3434,6 +3434,7 @@ function buildContentsClearanceMid(c: ContentsClearanceQuoteContent): string {
     ${clearanceSectionSubtotal('Estimated subtotal (ex GST)', sectionAmount(estimated))}
     <div class="label" style="margin-top:18px">Fixed Rate Quotations</div>
     ${clearanceTable('Quantity', fixed)}
+    ${c.mobilisation_reason ? `<div class="body-text" style="margin-top:4px;font-style:italic;color:var(--sow-muted)">${esc(c.mobilisation_reason)}</div>` : ''}
     ${clearanceSectionSubtotal('Fixed subtotal (ex GST)', sectionAmount(fixed))}
     <div class="totals">
       <div class="tot-row"><span>Subtotal (ex GST)</span><span class="amt">${fmtMoney(c.subtotal)}</span></div>
@@ -3503,6 +3504,7 @@ function buildSurfaceAreaCleaningMid(c: SurfaceAreaCleaningQuoteContent): string
     ${clearanceSectionSubtotal('Estimated subtotal (ex GST)', sectionAmount(estimated))}
     <div class="label" style="margin-top:18px">Fixed Rate Quotations</div>
     ${clearanceTable('Quantity', fixed)}
+    ${c.mobilisation_reason ? `<div class="body-text" style="margin-top:4px;font-style:italic;color:var(--sow-muted)">${esc(c.mobilisation_reason)}</div>` : ''}
     ${clearanceSectionSubtotal('Fixed subtotal (ex GST)', sectionAmount(fixed))}
     <div class="totals">
       <div class="tot-row"><span>Subtotal (ex GST)</span><span class="amt">${fmtMoney(c.subtotal)}</span></div>

@@ -86,6 +86,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       tonnes: capture.estimated_tonnes,
       ratePerTonne: capture.disposal_rate_per_tonne,
       mobilisationFee: capture.mobilisation_fee,
+      mobilisationWaived: capture.mobilisation_waived,
       maximumManDays: capture.maximum_man_days,
     })
     const exact = clearanceClauseFlags(figures, standards)

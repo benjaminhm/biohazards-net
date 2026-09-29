@@ -97,6 +97,9 @@ export interface SurfaceAreaCleaningCapture {
   job_address: string | null
   /** Ex GST. Attendance and setup. Blank or zero stays off the quote. */
   mobilisation_fee: number | null
+  /** When set, the fee is not charged and the reason is printed instead. */
+  mobilisation_waived: boolean
+  mobilisation_reason: string
   /** Rooms that make up the estimated square metres. Empty keeps the typed total. */
   rooms: SurfaceAreaRoom[]
 }
@@ -136,6 +139,7 @@ export interface SurfaceAreaCleaningQuoteContent {
   rate_per_labour_day: number
   labour_amount: number
   mobilisation_fee: number
+  mobilisation_reason: string
   rooms: { name: string; detail: string; area_m2: number }[]
   subtotal: number
   gst: number
@@ -187,6 +191,8 @@ export function emptySurfaceAreaCleaningCapture(): SurfaceAreaCleaningCapture {
     rate_per_labour_day: null,
     job_address: null,
     mobilisation_fee: null,
+    mobilisation_waived: false,
+    mobilisation_reason: '',
     rooms: [],
   }
 }
@@ -269,6 +275,8 @@ export function normalizeSurfaceAreaCleaningCapture(raw: unknown): SurfaceAreaCl
     rate_per_labour_day: qty(o.rate_per_labour_day),
     job_address: typeof o.job_address === 'string' ? o.job_address : null,
     mobilisation_fee: qty(o.mobilisation_fee),
+    mobilisation_waived: o.mobilisation_waived === true,
+    mobilisation_reason: typeof o.mobilisation_reason === 'string' ? o.mobilisation_reason : '',
     rooms,
   }
 }
@@ -292,10 +300,10 @@ function normalizeSurfaceAreaRoom(raw: unknown): SurfaceAreaRoom {
 export function surfaceAreaCleaningFigures(
   m2: number | null | undefined,
   schema: { ratePerM2: number; ratePerLabourDay: number } = SURFACE_AREA_SCHEMA,
-  extras: { labourDays?: number | null; mobilisationFee?: number | null } = {},
+  extras: { labourDays?: number | null; mobilisationFee?: number | null; mobilisationWaived?: boolean } = {},
 ): SurfaceAreaCleaningFigures {
   const estimated_m2 = round2(quantityOrZero(m2))
-  const mobilisation_fee = round2(quantityOrZero(extras.mobilisationFee))
+  const mobilisation_fee = extras.mobilisationWaived ? 0 : round2(quantityOrZero(extras.mobilisationFee))
   const labour_days = Math.round(quantityOrZero(extras.labourDays))
   const rate_per_m2 = schema.ratePerM2
   const rate_per_labour_day = schema.ratePerLabourDay
@@ -346,6 +354,7 @@ export function surfaceAreaCleaningQuoteContent(input: {
   }, {
     labourDays: capture.labour_days,
     mobilisationFee: capture.mobilisation_fee,
+    mobilisationWaived: capture.mobilisation_waived,
   })
   const jobAddress = (capture.job_address ?? input.siteAddress).trim()
   const rooms = (capture.rooms ?? []).flatMap(room => {
@@ -370,6 +379,7 @@ export function surfaceAreaCleaningQuoteContent(input: {
     rate_per_labour_day: figures.rate_per_labour_day,
     labour_amount: figures.labour_amount,
     mobilisation_fee: figures.mobilisation_fee,
+    mobilisation_reason: capture.mobilisation_waived ? capture.mobilisation_reason.trim() : '',
     rooms,
     subtotal: figures.subtotal,
     gst: figures.gst,

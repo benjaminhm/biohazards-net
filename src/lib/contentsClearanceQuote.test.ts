@@ -166,6 +166,38 @@ test('a mobilisation fee is added ex GST before the total', () => {
   assert.equal(content.total, 3905)
 })
 
+test('a waived mobilisation fee prints the reason and is not charged', () => {
+  const content = contentsClearanceQuoteContent({
+    reference: 'CCQ-TEST',
+    clientName: 'Acme Pty Ltd',
+    siteAddress: '1 Example Street',
+    capture: {
+      ...emptyContentsClearanceCapture(),
+      estimated_m3: 18,
+      rate_per_m3: 100,
+      rate_per_labour_day: 500,
+      mobilisation_fee: 250,
+      mobilisation_waived: true,
+      mobilisation_reason: 'No call-out charge, as already onsite for the hoarding removal.',
+    },
+  })
+  assert.equal(content.mobilisation_fee, 0)
+  assert.equal(content.total, 3630)
+  const html = buildPrintHTML(
+    'contents_clearance_quote',
+    content as unknown as Record<string, unknown>,
+    [],
+    [],
+    null,
+    'job',
+    'http://localhost',
+    undefined,
+    { screenActionBar: false },
+  )
+  assert.match(html, /already onsite for the hoarding removal/)
+  assert.doesNotMatch(html, /\$250\.00/)
+})
+
 test('the quote prints quantities, then clauses, terms, authority, and acceptance', () => {
   const content = contentsClearanceQuoteContent({
     reference: 'CCQ-TEST',

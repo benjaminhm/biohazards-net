@@ -64,6 +64,39 @@ test('the cleaning quote prints square metres, then fixed labour', () => {
   assert.equal(content.total, 4510)
 })
 
+test('a waived mobilisation fee prints the reason and is not charged', () => {
+  const content = surfaceAreaCleaningQuoteContent({
+    reference: 'SACQ-TEST',
+    clientName: 'Acme Pty Ltd',
+    siteAddress: '1 Example Street',
+    capture: {
+      ...emptySurfaceAreaCleaningCapture(),
+      estimated_m2: 20,
+      rate_per_m2: 50,
+      labour_days: 5,
+      rate_per_labour_day: 600,
+      mobilisation_fee: 100,
+      mobilisation_waived: true,
+      mobilisation_reason: 'No call-out charge, as already onsite for the hoarding removal.',
+    },
+  })
+  assert.equal(content.mobilisation_fee, 0)
+  assert.equal(content.total, 4400)
+  const html = buildPrintHTML(
+    'surface_area_cleaning_quote',
+    content as unknown as Record<string, unknown>,
+    [],
+    [],
+    null,
+    'job',
+    'http://localhost',
+    undefined,
+    { screenActionBar: false },
+  )
+  assert.match(html, /already onsite for the hoarding removal/)
+  assert.doesNotMatch(html, /\$100\.00/)
+})
+
 test('length, width, and height estimate the room surface', () => {
   const measure = roomSurfaceArea({ length_m: 4, width_m: 3, height_m: 2.4 })
   assert.equal(measure?.floor, 12)
