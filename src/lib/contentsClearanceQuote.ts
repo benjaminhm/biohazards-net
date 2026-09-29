@@ -22,7 +22,7 @@ export const CONTENTS_CLEARANCE_SCHEMA = {
   inclusions: [
     'Contents clearance of the stated volume at the standard rate per cubic metre.',
     'Travel at the standard rate per kilometre.',
-    `Labour at one man day for every ${M3_PER_LABOUR_DAY} cubic metres, at the standard rate per person per day.`,
+    `Labour at one labour day for every ${M3_PER_LABOUR_DAY} cubic metres, at the standard rate per person per day.`,
   ],
   exclusions: [
     'Surface cleaning, sanitising, and remediation.',
@@ -30,12 +30,12 @@ export const CONTENTS_CLEARANCE_SCHEMA = {
     'Work beyond the quantities on this quote.',
   ],
   assumptions: [
-    `Cubic metres are an estimate. The measured volume replaces the estimate, and man days are that volume divided by ${M3_PER_LABOUR_DAY}, rounded to a whole day.`,
+    `Cubic metres are an estimate. The measured volume replaces the estimate, and labour days are that volume divided by ${M3_PER_LABOUR_DAY}, rounded to a whole day.`,
     'Kilometres are an estimate of the travel for this clearance.',
     'The technician decides on site how the contents leave the property.',
   ],
   terms:
-    'A deposit of 50% of this estimate is requested before the clearance starts. The balance is the measured cubic metres, the kilometres, and the man days that follow the measured volume, at the rates on this quote. GST is 10%.',
+    'A deposit of 50% of this estimate is requested before the clearance starts. The balance is the measured cubic metres, the kilometres, and the labour days that follow the measured volume, at the rates on this quote. GST is 10%.',
   authority:
     'Acceptance authorises contents clearance at the address on this quote, at the rates shown.',
   acceptance:
@@ -377,7 +377,7 @@ export function contentsClearanceFigures(
     {
       label: 'Labour',
       quantity: labour_days,
-      unit: labour_days === 1 ? 'man day' : 'man days',
+      unit: labour_days === 1 ? 'labour day' : 'labour days',
       rate: schema.ratePerLabourDay,
       amount: round2(labour_days * schema.ratePerLabourDay),
     },

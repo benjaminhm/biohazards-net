@@ -44,7 +44,7 @@ import type { CustomPricingRow, SectionTerms, VolumeDisposalFeeMode, VolumePrici
 const DEFAULT_PRINT_ORG_NAME = 'Brisbane Biohazard Cleaning'
 import { proseHasPrintableContent, richBodyHtmlForPrint } from '@/lib/richTextPrint'
 import { presentStatementDocument, statementClientLines, statementPhone, StatementReconciliationError, type StatementPresentation } from '@/lib/statementOfAccounts'
-import { CONTENTS_CLEARANCE_SCHEMA, contentsClearanceIncGst, contentsClearanceTimeFrame, type ContentsClearanceQuoteContent } from '@/lib/contentsClearanceQuote'
+import type { ContentsClearanceQuoteContent } from '@/lib/contentsClearanceQuote'
 
 // en-AU locale produces comma separators and dollar sign (e.g. $4,500.00)
 const fmtMoney = (n: number) =>
@@ -3328,229 +3328,96 @@ function buildAssessmentDocumentHTML(
   return wrapBranded(mid, title, title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
-function ccqText(value: string | null | undefined): string {
-  const t = (value ?? '').trim()
-  if (!t || t === '—') return ''
-  return t
+function clearanceQty(n: number, unit: string): string {
+  return `${n.toLocaleString('en-AU', { maximumFractionDigits: 2 })} ${unit}`
 }
 
-function ccqQty(n: number, fixed: boolean): string {
-  return n.toLocaleString('en-AU', {
-    minimumFractionDigits: fixed ? 2 : 0,
-    maximumFractionDigits: 2,
-  })
-}
-
-function ccqList(label: string, items: string[]): string {
-  const rows = items.map(item => item.trim()).filter(Boolean)
+function clearanceList(label: string, items: string[]): string {
+  const rows = items.filter(item => item.trim())
   if (!rows.length) return ''
-  return `<div class="label">${esc(label)}</div><ul class="body-text">${rows.map(item => `<li>${esc(item)}</li>`).join('')}</ul>`
+  return `<div class="label" style="margin-top:18px">${label}</div><ul class="body-text">${rows.map(item => `<li>${esc(item)}</li>`).join('')}</ul>`
 }
 
-function ccqDocumentType(title: string): string {
-  const type = title.trim().replace(/\s+quote$/i, '')
-  return type || 'Contents Clearance'
-}
-
-function ccqValidUntil(days: number): string {
-  const issued = new Date()
-  issued.setDate(issued.getDate() + days)
-  return issued.toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })
-}
-
-function ccqDeposit(total: number): number {
-  return Math.round(total * CONTENTS_CLEARANCE_SCHEMA.depositFraction * 100) / 100
-}
-
-function ccqLockup(company: CompanyProfile | null): { name: string; logo: string; tagline: string } {
-  const name = company?.name?.trim() || DEFAULT_PRINT_ORG_NAME
-  const tagline = company?.tagline?.trim() || 'Biohazard & Forensic Remediation Services'
-  const logo = company?.logo_url
-    ? `<img class="sow-logo" src="${esc(company.logo_url)}" alt="${esc(name)}">`
-    : brandWordmarkHtml(name)
-  return { name, logo, tagline }
-}
-
-function ccqHeaderHtml(c: ContentsClearanceQuoteContent, company: CompanyProfile | null): string {
-  const brand = ccqLockup(company)
-  const nameBesideLogo = company?.logo_url
-    ? `<div class="sow-co-name">${esc(brand.name)}</div>`
-    : ''
-  return `<header class="sow-top">
-    <div class="sow-top-left">
-      ${brand.logo}
-      <div class="sow-co-block">
-        ${nameBesideLogo}
-        <div class="sow-co-sub">${esc(brand.tagline)}</div>
-      </div>
-    </div>
-    <div>
-      <div class="ccq-doc-title">QUOTE</div>
-      <div class="ccq-meta">
-        <div><b>Quote No.</b> ${esc(c.reference)}</div>
-        <div><b>Date issued</b> ${esc(todayStr())}</div>
-        <div><b>Valid until</b> ${esc(ccqValidUntil(CONTENTS_CLEARANCE_SCHEMA.validDays))}</div>
-        <div><b>Document type</b> ${esc(ccqDocumentType(c.title))}</div>
-      </div>
-    </div>
-  </header>`
-}
-
-function ccqFooterHtml(c: ContentsClearanceQuoteContent, company: CompanyProfile | null): string {
-  const name = company?.name?.trim() || DEFAULT_PRINT_ORG_NAME
-  const abn = ccqText(company?.abn)
-  return `<footer class="sow-foot">
-    <span>${esc(name)} — Confidential</span>
-    <span>${abn ? `ABN ${esc(abn)}` : ''}</span>
-    <span>${esc(c.reference)} · Page 1 of 1</span>
-  </footer>`
-}
-
-function ccqParties(c: ContentsClearanceQuoteContent, company: CompanyProfile | null, client: ClientInfo | undefined): string {
-  const from = [
-    ccqText(company?.name) || DEFAULT_PRINT_ORG_NAME,
-    ccqText(company?.abn) ? `ABN ${ccqText(company?.abn)}` : '',
-    ccqText(company?.phone),
-    ccqText(company?.email),
-    ccqText(company?.address),
-  ].filter(Boolean)
-  const quoteFor = [ccqText(c.client_name), ccqText(client?.client_phone), ccqText(client?.client_email)].filter(Boolean)
-  const site = ccqText(c.job_address) || ccqText(c.site_address)
-  const tip = ccqText(c.tip_address)
-  const block = (label: string, lines: string[]) => `
-    <div>
-      <div class="ccq-party-label">${esc(label)}</div>
-      <div class="ccq-party">${lines.map(line => {
-        const email = line.includes('@')
-        return `<div${email ? ' class="ccq-email"' : ''}>${esc(line)}</div>`
-      }).join('')}</div>
-    </div>`
-  return `<div class="ccq-parties">
-    ${block('From', from)}
-    ${block('Quote for', quoteFor)}
-    ${block('Job site', [site, tip ? `Tip / disposal site: ${tip}` : ''].filter(Boolean))}
-  </div>`
-}
-
-function buildContentsClearanceMid(
-  c: ContentsClearanceQuoteContent,
-  company: CompanyProfile | null,
-  client: ClientInfo | undefined,
-): string {
-  const travelNotes = [
-    (c.return_trips ?? 0) > 0
-      ? `${ccqQty(c.return_trips, false)} return ${c.return_trips === 1 ? 'trip' : 'trips'} × ${ccqQty(c.return_trip_km, false)} km, job to tip`
-      : '',
-    (c.m3_per_trip ?? 0) > 0 && c.estimated_m3 > 0
-      ? `${ccqQty(c.estimated_m3, false)} m³ ÷ ${ccqQty(c.m3_per_trip, false)} m³ per trip`
-      : '',
-    (c.trips_per_day ?? 0) > 0 && (c.trip_days ?? 0) > 0
-      ? `${ccqQty(c.return_trips, false)} trips ÷ ${ccqQty(c.trips_per_day, false)} trips per day, ${ccqQty(c.trip_days, false)} ${c.trip_days === 1 ? 'day' : 'days'}`
-      : '',
-  ].filter(Boolean)
-  const timeFrame = contentsClearanceTimeFrame(c.labour_days)
-  const mobilisation = c.mobilisation_fee ?? 0
-  const rows: { name: string; notes: string[]; qty: string; unit: string; rate: number; amount: number }[] = []
-  if (mobilisation > 0) {
-    rows.push({
-      name: 'Mobilisation',
-      notes: ['Attendance and setup'],
-      qty: '1',
-      unit: 'fee',
-      rate: mobilisation,
-      amount: mobilisation,
+function buildContentsClearanceMid(c: ContentsClearanceQuoteContent): string {
+  const lines: { label: string; quantity: string; rate: string; amount: number }[] = []
+  if ((c.mobilisation_fee ?? 0) > 0) {
+    lines.push({
+      label: 'Mobilisation',
+      quantity: '1 fee',
+      rate: fmtMoney(c.mobilisation_fee),
+      amount: c.mobilisation_fee,
     })
   }
-  rows.push(
+  lines.push(
+    { label: 'Contents', quantity: clearanceQty(c.estimated_m3, 'm³'), rate: `${fmtMoney(c.rate_per_m3)} / m³`, amount: c.volume_amount },
+    { label: 'Distance', quantity: clearanceQty(c.estimated_km, 'km'), rate: `${fmtMoney(c.rate_per_km)} / km`, amount: c.distance_amount },
     {
-      name: 'Contents clearance',
-      notes: ['Estimated volume'],
-      qty: ccqQty(c.estimated_m3, false),
-      unit: 'm³',
-      rate: c.rate_per_m3,
-      amount: c.volume_amount,
-    },
-    {
-      name: 'Travel',
-      notes: travelNotes,
-      qty: ccqQty(c.estimated_km, false),
-      unit: 'km',
-      rate: c.rate_per_km,
-      amount: c.distance_amount,
-    },
-    {
-      name: 'Labour',
-      notes: [
-        (c.maximum_man_days ?? 0) > 0
-          ? `Maximum ${ccqQty(c.maximum_man_days, false)} man ${c.maximum_man_days === 1 ? 'day' : 'days'}`
-          : '',
-        timeFrame,
-      ].filter(Boolean),
-      qty: ccqQty(c.labour_days, true),
-      unit: 'days',
-      rate: c.rate_per_labour_day,
+      label: 'Labour',
+      quantity: clearanceQty(c.labour_days, c.labour_days === 1 ? 'labour day' : 'labour days'),
+      rate: `${fmtMoney(c.rate_per_labour_day)} / labour day`,
       amount: c.labour_amount,
     },
   )
   if ((c.estimated_tonnes ?? 0) > 0 || (c.disposal_rate_per_tonne ?? 0) > 0) {
-    rows.push({
-      name: 'Disposal',
-      notes: ['Estimated tip weight'],
-      qty: ccqQty(c.estimated_tonnes ?? 0, false),
-      unit: 'tonnes',
-      rate: c.disposal_rate_per_tonne ?? 0,
+    lines.push({
+      label: 'Disposal',
+      quantity: clearanceQty(c.estimated_tonnes ?? 0, (c.estimated_tonnes ?? 0) === 1 ? 'tonne' : 'tonnes'),
+      rate: `${fmtMoney(c.disposal_rate_per_tonne ?? 0)} / tonne`,
       amount: c.disposal_amount ?? 0,
     })
   }
-  const body = rows.map(row => `
+  const body = lines.map(line => `
     <tr>
-      <td><span class="ccq-name">${esc(row.name)}</span>${row.notes.map(note => `<span class="ccq-sub">${esc(note)}</span>`).join('')}</td>
-      <td class="r">${esc(row.qty)}</td>
-      <td class="r">${esc(row.unit)}</td>
-      <td class="r">${fmtMoney(row.rate)}</td>
-      <td class="r">${fmtMoney(contentsClearanceIncGst(row.amount))}</td>
+      <td>${esc(line.label)}</td>
+      <td class="r">${esc(line.quantity)}</td>
+      <td class="r">${esc(line.rate)}</td>
+      <td class="r">${fmtMoney(line.amount)}</td>
     </tr>`).join('')
-  const deposit = ccqDeposit(c.total)
+  const tripNotes = [
+    (c.return_trips ?? 0) > 0
+      ? `Distance is ${c.return_trips} return ${c.return_trips === 1 ? 'trip' : 'trips'} of ${c.return_trip_km} km between the job and the tip.`
+      : '',
+    (c.m3_per_trip ?? 0) > 0 && c.estimated_m3 > 0
+      ? `${c.estimated_m3} m³ ÷ ${c.m3_per_trip} m³ per trip.`
+      : '',
+    (c.trips_per_day ?? 0) > 0 && (c.trip_days ?? 0) > 0
+      ? `${c.return_trips} trips ÷ ${c.trips_per_day} trips per day, ${c.trip_days} ${c.trip_days === 1 ? 'day' : 'days'}.`
+      : '',
+  ].filter(Boolean)
   return `
-    ${ccqParties(c, company, client)}
-    <table class="ccq-table">
+    <div class="sow-summary" style="margin-bottom:20px;">
+      <div class="sow-meta-label" style="margin-bottom:6px;">Client</div>
+      <div class="body-text" style="font-weight:500;color:var(--sow-navy);">${esc(c.client_name || '—')}</div>
+      <div class="sow-meta-label" style="margin:10px 0 6px;">Job address</div>
+      <div class="body-text" style="font-weight:500;color:var(--sow-navy);">${esc(c.job_address || c.site_address || '—')}</div>
+      <div class="sow-meta-label" style="margin:10px 0 6px;">Tip address</div>
+      <div class="body-text" style="font-weight:500;color:var(--sow-navy);">${esc(c.tip_address || '—')}</div>
+    </div>
+    <div class="label">Estimated quantities</div>
+    <table>
       <thead>
         <tr>
-          <th>Description</th>
-          <th class="r">Qty</th>
-          <th class="r">Unit</th>
+          <th>Item</th>
+          <th class="r">Estimated quantities</th>
           <th class="r">Rate (ex GST)</th>
-          <th class="r">Amount (inc GST)</th>
+          <th class="r">Amount</th>
         </tr>
       </thead>
       <tbody>${body}</tbody>
     </table>
-    <div class="ccq-settle">
-      <div></div>
-      <div class="ccq-totals totals">
-        <div class="tot-row"><span>Subtotal (ex GST)</span><span class="amt">${fmtMoney(c.subtotal)}</span></div>
-        <div class="tot-row"><span>GST (10%)</span><span class="amt">${fmtMoney(c.gst)}</span></div>
-        <div class="ccq-total-bar"><span>TOTAL (inc GST)</span><span>${fmtMoney(c.total)}</span></div>
-        <div class="ccq-deposit"><span>Deposit required (50%)</span><span>${fmtMoney(deposit)}</span></div>
-      </div>
+    ${tripNotes.map(note => `<div class="body-text" style="margin-top:4px;font-style:italic;color:var(--sow-muted)">${esc(note)}</div>`).join('')}
+    <div class="totals">
+      <div class="tot-row"><span>Subtotal (ex GST)</span><span class="amt">${fmtMoney(c.subtotal)}</span></div>
+      <div class="tot-row"><span>GST (10%)</span><span class="amt">${fmtMoney(c.gst)}</span></div>
+      <div class="tot-row grand"><span>TOTAL (INC GST)</span><span class="amt">${fmtMoney(c.total)}</span></div>
     </div>
-    <div class="ccq-terms">
-      <div>
-        ${ccqList('Inclusions', c.inclusions ?? [])}
-        ${ccqList('Exclusions', c.exclusions ?? [])}
-      </div>
-      <div>
-        ${ccqList('Assumptions', c.assumptions ?? [])}
-        ${section('Payment terms', c.terms)}
-        ${section('Engagement agreement', c.engagement_agreement)}
-      </div>
-    </div>
-    <div class="ccq-accept">
-      ${section('Authority', c.authority)}
-      ${section('Acceptance', c.acceptance)}
-      <div class="ccq-sign"><span>Name ________</span><span>Signature ________</span><span>Date ________</span></div>
-      <div style="margin-top:8px;">Deposit paid: $________</div>
-    </div>
+    ${clearanceList('Inclusions', c.inclusions ?? [])}
+    ${clearanceList('Exclusions', c.exclusions ?? [])}
+    ${clearanceList('Assumptions', c.assumptions ?? [])}
+    ${section('Payment terms', c.terms)}
+    ${section('Engagement agreement', c.engagement_agreement)}
+    ${section('Authority', c.authority)}
+    ${section('Acceptance', c.acceptance)}
   `
 }
 
@@ -3560,23 +3427,9 @@ function buildContentsClearanceHTML(
   client: ClientInfo | undefined,
   screenActionBar: boolean,
 ): string {
-  const mid = buildContentsClearanceMid(c, company, client)
+  const mid = buildContentsClearanceMid(c)
   const title = c.title?.trim() || 'Contents Clearance Quote'
-  return wrapBranded(
-    mid,
-    title,
-    'QUOTE',
-    c.reference,
-    company,
-    client,
-    defaultBrandedMeta(company, client),
-    wrapBrandedPrintOpts(screenActionBar, {
-      rootClass: 'ccq-doc',
-      metaHtml: '',
-      headerHtml: ccqHeaderHtml(c, company),
-      footerHtml: ccqFooterHtml(c, company),
-    }),
-  )
+  return wrapBranded(mid, title, title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
 /** Mid-body HTML only (no shell). Used for composed bundles. */
@@ -3628,7 +3481,7 @@ export function buildPrintMidHTML(
     case 'assessment_document':
       return buildAssessmentDocumentMid(c as unknown as AssessmentDocumentContent, areas, photos, groups)
     case 'contents_clearance_quote':
-      return buildContentsClearanceMid(c as unknown as ContentsClearanceQuoteContent, company, client)
+      return buildContentsClearanceMid(c as unknown as ContentsClearanceQuoteContent)
     default:
       return `<p class="body-text">${esc('Unknown document type')}</p>`
   }

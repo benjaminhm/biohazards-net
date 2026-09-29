@@ -14,7 +14,6 @@ import {
   CONTENTS_CLEARANCE_SCHEMA,
   clauseLines,
   contentsClearanceFigures,
-  contentsClearanceTimeFrame,
   defaultContentsClearanceStandards,
   emptyContentsClearanceCapture,
   normalizeContentsClearanceCapture,
@@ -375,7 +374,7 @@ export default function ContentsClearanceQuoteTab({ job, onJobUpdate }: Props) {
 
   async function saveAndCompose() {
     if (!(capture.maximum_man_days != null && capture.maximum_man_days > 0)) {
-      setSaveError('Enter the maximum man days before generating the quote.')
+      setSaveError('Enter the labour days before generating the quote.')
       return
     }
     await persistStandards(standards)
@@ -624,14 +623,9 @@ export default function ContentsClearanceQuoteTab({ job, onJobUpdate }: Props) {
             placeholder="0"
             style={INPUT}
           />
-          {figures.labour_days > 0 && (
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
-              Estimated time frame: {contentsClearanceTimeFrame(figures.labour_days)}.
-            </div>
-          )}
         </div>
         <div>
-          <label style={LABEL}>Maximum man days</label>
+          <label style={LABEL}>Labour days</label>
           <input
             type="number"
             min={1}
@@ -645,7 +639,7 @@ export default function ContentsClearanceQuoteTab({ job, onJobUpdate }: Props) {
           />
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
             {figures.maximum_man_days > 0
-              ? `${figures.labour_days.toLocaleString('en-AU', { maximumFractionDigits: 0 })} man ${figures.labour_days === 1 ? 'day' : 'days'} × ${formatAud(figures.rate_per_labour_day)} = ${formatAud(figures.lines.find(line => line.label === 'Labour')?.amount ?? 0)}`
+              ? `${figures.labour_days.toLocaleString('en-AU', { maximumFractionDigits: 0 })} labour ${figures.labour_days === 1 ? 'day' : 'days'} × ${formatAud(figures.rate_per_labour_day)} = ${formatAud(figures.lines.find(line => line.label === 'Labour')?.amount ?? 0)}`
               : 'Required before the quote can be generated.'}
           </div>
         </div>
