@@ -3226,6 +3226,14 @@ function buildContentsClearanceMid(c: ContentsClearanceQuoteContent): string {
     { label: 'Distance', quantity: clearanceQty(c.estimated_km, 'km'), rate: `${fmtMoney(c.rate_per_km)} / km`, amount: c.distance_amount },
     { label: 'Labour', quantity: clearanceQty(c.labour_days, c.labour_days === 1 ? 'day' : 'days'), rate: `${fmtMoney(c.rate_per_labour_day)} / day`, amount: c.labour_amount },
   ]
+  if ((c.estimated_tonnes ?? 0) > 0 || (c.disposal_rate_per_tonne ?? 0) > 0) {
+    lines.push({
+      label: 'Disposal',
+      quantity: clearanceQty(c.estimated_tonnes ?? 0, (c.estimated_tonnes ?? 0) === 1 ? 'tonne' : 'tonnes'),
+      rate: `${fmtMoney(c.disposal_rate_per_tonne ?? 0)} / tonne`,
+      amount: c.disposal_amount ?? 0,
+    })
+  }
   const body = lines.map(line => `
     <tr>
       <td>${esc(line.label)}</td>
@@ -3238,8 +3246,10 @@ function buildContentsClearanceMid(c: ContentsClearanceQuoteContent): string {
     <div class="sow-summary" style="margin-bottom:20px;">
       <div class="sow-meta-label" style="margin-bottom:6px;">Client</div>
       <div class="body-text" style="font-weight:500;color:var(--sow-navy);">${esc(c.client_name || '—')}</div>
-      <div class="sow-meta-label" style="margin:10px 0 6px;">Site address</div>
-      <div class="body-text" style="font-weight:500;color:var(--sow-navy);">${esc(c.site_address || '—')}</div>
+      <div class="sow-meta-label" style="margin:10px 0 6px;">Job address</div>
+      <div class="body-text" style="font-weight:500;color:var(--sow-navy);">${esc(c.job_address || c.site_address || '—')}</div>
+      <div class="sow-meta-label" style="margin:10px 0 6px;">Tip address</div>
+      <div class="body-text" style="font-weight:500;color:var(--sow-navy);">${esc(c.tip_address || '—')}</div>
     </div>
     <div class="label">Quantities</div>
     <table>
@@ -3254,6 +3264,7 @@ function buildContentsClearanceMid(c: ContentsClearanceQuoteContent): string {
       <tbody>${body}</tbody>
     </table>
     <div class="body-text" style="margin-top:8px;font-style:italic;color:var(--sow-muted)">Labour days are the cubic metres divided by ${esc(String(perDay))}. When the measured volume replaces this estimate, the labour days move with it.</div>
+    ${(c.return_trips ?? 0) > 0 ? `<div class="body-text" style="margin-top:4px;font-style:italic;color:var(--sow-muted)">Distance is ${esc(String(c.return_trips))} return ${c.return_trips === 1 ? 'trip' : 'trips'} of ${esc(String(c.return_trip_km))} km between the job and the tip.</div>` : ''}
     <div class="totals">
       <div class="tot-row"><span>Subtotal (ex GST)</span><span class="amt">${fmtMoney(c.subtotal)}</span></div>
       <div class="tot-row"><span>GST (10%)</span><span class="amt">${fmtMoney(c.gst)}</span></div>
@@ -3262,7 +3273,7 @@ function buildContentsClearanceMid(c: ContentsClearanceQuoteContent): string {
     ${clearanceList('Inclusions', c.inclusions ?? [])}
     ${clearanceList('Exclusions', c.exclusions ?? [])}
     ${clearanceList('Assumptions', c.assumptions ?? [])}
-    ${section('Terms', c.terms)}
+    ${section('Payment terms', c.terms)}
     ${section('Authority', c.authority)}
     ${section('Acceptance', c.acceptance)}
   `

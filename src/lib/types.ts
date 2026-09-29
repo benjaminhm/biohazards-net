@@ -1092,11 +1092,20 @@ export interface AssessmentData {
   /** Contents Clearance Quote — estimated cubic metres and kilometres. Rates and clauses are schema. */
   contents_clearance_quote?: {
     estimated_m3: number | null
+    /** Older captures stored a single kilometre total. New captures use return trips. */
     estimated_km: number | null
     /** Ex GST dollars. */
     rate_per_m3?: number | null
     rate_per_km?: number | null
     rate_per_labour_day?: number | null
+    /** Null follows the job site address. */
+    job_address?: string | null
+    tip_address?: string | null
+    return_trip_km?: number | null
+    return_trips?: number | null
+    /** Ex GST dollars per tonne. */
+    disposal_rate_per_tonne?: number | null
+    estimated_tonnes?: number | null
   }
   /** Statement of Accounts — deposit taken against the quote, before the balance is worked out. */
   statement_of_accounts?: {
@@ -1379,6 +1388,13 @@ export interface CompanyProfile {
   equipment_catalogue?: EquipmentCatalogueItem[]
   /** Org-level chemicals catalogue feeding the Assessment → Chemicals checklist. */
   chemicals_catalogue?: ChemicalCatalogueItem[]
+  /** Contents Clearance Quote clauses reused on every job. Lists are one item per line. */
+  contents_clearance_standards?: {
+    inclusions: string
+    exclusions: string
+    assumptions: string
+    payment_terms: string
+  } | null
 }
 
 // ── Line items (Quote, Engagement Agreement) ──────────────────────────────────

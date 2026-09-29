@@ -238,6 +238,9 @@ function DocViewerInner() {
           chemicalsCatalogue: co?.chemicals_catalogue ?? null,
           ...(quoteId ? { quoteId } : {}),
         }
+        if (docType === 'contents_clearance_quote') {
+          composeOpts = { ...composeOpts, contentsClearanceStandards: co?.contents_clearance_standards ?? null }
+        }
         if (docType === 'statement_of_accounts') {
           const docsRes = await fetch(`/api/documents?jobId=${jobId}`).then(r => r.json())
           composeOpts = { ...composeOpts, documents: (docsRes.documents ?? []) as Document[] }

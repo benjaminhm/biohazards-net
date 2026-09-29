@@ -120,6 +120,13 @@ export interface ComposeDocumentOptions {
   quoteId?: string
   /** Saved documents, so the statement can read the latest quote. */
   documents?: Document[]
+  /** Org-wide clauses for the contents clearance quote. */
+  contentsClearanceStandards?: {
+    inclusions: string
+    exclusions: string
+    assumptions: string
+    payment_terms: string
+  } | null
 }
 
 const todayRef = () => new Date().toISOString().slice(0, 10).replace(/-/g, '')
@@ -1088,20 +1095,20 @@ function composeIaqMulti(
   }
 }
 
-function composeContentsClearanceQuote(job: Job): ComposeDocumentResult {
+function composeContentsClearanceQuote(
+  job: Job,
+  standards?: ComposeDocumentOptions['contentsClearanceStandards'],
+): ComposeDocumentResult {
   const capture = normalizeContentsClearanceCapture(job.assessment_data?.contents_clearance_quote)
   return {
     content: contentsClearanceQuoteContent({
       reference: refPrefix('contents_clearance_quote', job.id),
       clientName: job.client_name || '',
       siteAddress: job.site_address || '',
-      m3: capture.estimated_m3,
-      km: capture.estimated_km,
-      ratePerM3: capture.rate_per_m3,
-      ratePerKm: capture.rate_per_km,
-      ratePerLabourDay: capture.rate_per_labour_day,
+      capture,
+      standards,
     }) as unknown as Record<string, unknown>,
-    source: capture.estimated_m3 != null || capture.estimated_km != null || capture.rate_per_m3 != null || capture.rate_per_km != null || capture.rate_per_labour_day != null ? 'assessment_capture' : 'skeleton',
+    source: 'assessment_capture',
   }
 }
 
@@ -1214,7 +1221,7 @@ export function composeDocumentContent(type: DocType, job: Job, options?: Compos
     case 'risk_assessment':
       return composeRiskAssessment(job, equipment, chems)
     case 'contents_clearance_quote':
-      return composeContentsClearanceQuote(job)
+      return composeContentsClearanceQuote(job, options?.contentsClearanceStandards)
     case 'company_letter':
       // Company Letter is composed in CompanyLetterTab and persisted through /api/documents;
       // it intentionally doesn't use the deterministic composer pipeline.
