@@ -3401,7 +3401,7 @@ function buildContentsClearanceMid(c: ContentsClearanceQuoteContent): string {
   fixed.push({
     label: 'Labour',
     quantity: clearanceQty(c.labour_days, c.labour_days === 1 ? 'labour day' : 'labour days'),
-    note: 'A labour day is one person on site for one day. It is not a calendar day, and it does not set how many people are on site at one time.',
+    note: 'A labour day = 1 person onsite for 1 day. (It does not = estimate days onsite. It does not = number of people onsite per day).',
     rate: 'Fixed',
     amount: c.labour_amount,
   })
