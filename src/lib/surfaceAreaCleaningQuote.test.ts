@@ -47,6 +47,15 @@ test('the cleaning quote prints square metres, then fixed labour', () => {
     { screenActionBar: false },
   )
   assert.equal(content.title, 'Gross Filth and Squalor')
+  assert.equal(
+    surfaceAreaCleaningQuoteContent({
+      reference: 'SACQ-ESTATE',
+      clientName: 'Acme Pty Ltd',
+      siteAddress: '1 Example Street',
+      capture: { ...emptySurfaceAreaCleaningCapture(), cleaning_kind: 'estate' },
+    }).title,
+    'Estate Cleaning',
+  )
   assert.match(html, /class="sow-doc-title">Gross Filth and Squalor</)
   assert.doesNotMatch(html, /sow-doc-title">[^<]*Quote/)
   assert.match(html, /Estimated quantities/)

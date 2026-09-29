@@ -7,6 +7,7 @@
 export const SURFACE_AREA_CLIENT_TITLES = [
   { id: 'surface', title: 'Surface Area Cleaning' },
   { id: 'squalor', title: 'Gross Filth and Squalor' },
+  { id: 'estate', title: 'Estate Cleaning' },
 ] as const
 
 export type SurfaceAreaCleaningKind = (typeof SURFACE_AREA_CLIENT_TITLES)[number]['id']

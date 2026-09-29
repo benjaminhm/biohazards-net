@@ -1130,8 +1130,8 @@ export interface AssessmentData {
   }
   /** Surface Area Cleaning Quote — estimated square metres. Rates and clauses are schema. */
   surface_area_cleaning_quote?: {
-    /** surface | squalor. Printed as the client document title. */
-    cleaning_kind?: 'surface' | 'squalor'
+    /** surface | squalor | estate. Printed as the client document title. */
+    cleaning_kind?: 'surface' | 'squalor' | 'estate'
     estimated_m2: number | null
     /** Labour days the client is buying. */
     labour_days?: number | null
