@@ -3344,10 +3344,13 @@ function clearanceTable(
   const body = lines.map(line => `
     <tr>
       <td>${esc(line.label)}</td>
-      <td class="r">${esc(line.quantity)}${line.note ? `<div style="margin-top:4px;font-size:8.5pt;font-weight:400;font-style:italic;line-height:1.35;color:var(--sow-muted)">${esc(line.note)}</div>` : ''}</td>
+      <td class="r">${esc(line.quantity)}</td>
       <td class="r">${esc(line.rate)}</td>
       <td class="r">${fmtMoney(line.amount)}</td>
-    </tr>`).join('')
+    </tr>${line.note ? `
+    <tr>
+      <td colspan="4" style="text-align:left;font-size:8.5pt;font-weight:400;font-style:italic;line-height:1.35;color:var(--sow-muted);padding-top:2px;">${esc(line.note)}</td>
+    </tr>` : ''}`).join('')
   return `<table>
       <thead>
         <tr>
