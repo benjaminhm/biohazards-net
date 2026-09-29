@@ -28,6 +28,11 @@ import {
   type ContentsClearanceCapture,
   type ContentsClearanceStandards,
 } from '@/lib/contentsClearanceQuote'
+import { sharedEngagementAgreement, withSharedEngagement } from '@/lib/quoteEngagement'
+import {
+  normalizeSurfaceAreaCleaningStandards,
+  type SurfaceAreaCleaningStandards,
+} from '@/lib/surfaceAreaCleaningQuote'
 
 interface Props {
   job: Job
@@ -174,6 +179,7 @@ export default function ContentsClearanceQuoteTab({ job, onJobUpdate }: Props) {
   const [clauseFlags, setClauseFlags] = useState<ClearanceClauseFlag[]>([])
   const [flagsCheckedKey, setFlagsCheckedKey] = useState('')
   const skipStandardsSave = useRef(true)
+  const surfaceStandardsRef = useRef<SurfaceAreaCleaningStandards | null>(null)
   const checkingFlagsRef = useRef(false)
   const distanceSeq = useRef(0)
   const appliedDistanceKey = useRef('')
@@ -252,10 +258,16 @@ export default function ContentsClearanceQuoteTab({ job, onJobUpdate }: Props) {
     let cancelled = false
     fetch('/api/company')
       .then(r => r.json())
-      .then((data: { company?: { contents_clearance_standards?: unknown } }) => {
+      .then((data: { company?: { contents_clearance_standards?: unknown; surface_area_cleaning_standards?: unknown } }) => {
         if (cancelled) return
         skipStandardsSave.current = true
-        setStandards(normalizeContentsClearanceStandards(data.company?.contents_clearance_standards))
+        const clearance = normalizeContentsClearanceStandards(data.company?.contents_clearance_standards)
+        const surface = normalizeSurfaceAreaCleaningStandards(data.company?.surface_area_cleaning_standards)
+        surfaceStandardsRef.current = data.company?.surface_area_cleaning_standards == null ? null : surface
+        setStandards(withSharedEngagement(
+          clearance,
+          sharedEngagementAgreement(clearance.engagement_agreement, surface.engagement_agreement),
+        ))
         setStandardsReady(true)
       })
       .catch(() => {
@@ -283,7 +295,17 @@ export default function ContentsClearanceQuoteTab({ job, onJobUpdate }: Props) {
     if (!res.ok) {
       const data = (await res.json().catch(() => ({}))) as { error?: string }
       setSaveError(data.error || 'The clauses could not be saved for future jobs.')
+      return
     }
+    const surface = surfaceStandardsRef.current
+    if (!surface) return
+    const synced = { ...surface, engagement_agreement: next.engagement_agreement }
+    const other = await fetch('/api/company', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ surface_area_cleaning_standards: synced }),
+    })
+    if (other.ok) surfaceStandardsRef.current = synced
   }
 
   function editStandards(next: Partial<ContentsClearanceStandards>) {
@@ -792,6 +814,9 @@ export default function ContentsClearanceQuoteTab({ job, onJobUpdate }: Props) {
         <ClickToEditText label="Payment terms" value={standards.payment_terms} onChange={payment_terms => editStandards({ payment_terms })} />
         <div>
           <div style={LABEL}>Engagement agreement</div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
+            Saved for this company. The next contents clearance quote and surface cleaning quote start from this text, and it is printed on the document.
+          </div>
           {standardsReady && (
             <RichTextEditor
               value={standards.engagement_agreement}

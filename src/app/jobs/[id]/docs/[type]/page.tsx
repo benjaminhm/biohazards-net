@@ -19,6 +19,9 @@ import { composeDocumentContent, buildComposedPreviewHtml, type ComposeDocumentO
 import { presentStatementDocument, StatementReconciliationError } from '@/lib/statementOfAccounts'
 import { mergeQuoteLineItemsIntoDocContent } from '@/lib/quoteLineItemsForDocuments'
 import { applyTradingBrand } from '@/lib/tradingNames'
+import { normalizeContentsClearanceStandards } from '@/lib/contentsClearanceQuote'
+import { normalizeSurfaceAreaCleaningStandards } from '@/lib/surfaceAreaCleaningQuote'
+import { sharedEngagementAgreement, withSharedEngagement } from '@/lib/quoteEngagement'
 
 /** True when a quote/iaq_multi doc carries a spoke quote_id (frozen snapshot). */
 function contentHasQuoteId(docType: DocType, content: Record<string, unknown>): boolean {
@@ -238,11 +241,13 @@ function DocViewerInner() {
           chemicalsCatalogue: co?.chemicals_catalogue ?? null,
           ...(quoteId ? { quoteId } : {}),
         }
-        if (docType === 'contents_clearance_quote') {
-          composeOpts = { ...composeOpts, contentsClearanceStandards: co?.contents_clearance_standards ?? null }
-        }
-        if (docType === 'surface_area_cleaning_quote') {
-          composeOpts = { ...composeOpts, surfaceAreaCleaningStandards: co?.surface_area_cleaning_standards ?? null }
+        if (docType === 'contents_clearance_quote' || docType === 'surface_area_cleaning_quote') {
+          const clearance = normalizeContentsClearanceStandards(co?.contents_clearance_standards)
+          const surface = normalizeSurfaceAreaCleaningStandards(co?.surface_area_cleaning_standards)
+          const engagement = sharedEngagementAgreement(clearance.engagement_agreement, surface.engagement_agreement)
+          composeOpts = docType === 'contents_clearance_quote'
+            ? { ...composeOpts, contentsClearanceStandards: withSharedEngagement(clearance, engagement) }
+            : { ...composeOpts, surfaceAreaCleaningStandards: withSharedEngagement(surface, engagement) }
         }
         if (docType === 'statement_of_accounts') {
           const docsRes = await fetch(`/api/documents?jobId=${jobId}`).then(r => r.json())
