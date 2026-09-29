@@ -64,6 +64,68 @@ async function viaHttp(key: string, query: string): Promise<{ lat: number; lng: 
   }
 }
 
+export type MapWaypoint = string | { lat: number; lng: number }
+
+function kmFromMeters(meters: number): number | null {
+  if (!Number.isFinite(meters) || meters < 0) return null
+  return Math.round((meters / 1000) * 10) / 10
+}
+
+async function drivingLegKm(origin: MapWaypoint, destination: MapWaypoint): Promise<number | null> {
+  const { Route } = await importLibrary('routes') as {
+    Route: {
+      computeRoutes: (request: {
+        origin: MapWaypoint
+        destination: MapWaypoint
+        travelMode: string
+        routingPreference: string
+        fields: string[]
+        language: string
+        region: string
+      }) => Promise<{ routes?: { distanceMeters?: number }[] }>
+    }
+  }
+  const { routes } = await Route.computeRoutes({
+    origin,
+    destination,
+    travelMode: 'DRIVING',
+    routingPreference: 'TRAFFIC_UNAWARE',
+    fields: ['distanceMeters'],
+    language: 'en-AU',
+    region: 'AU',
+  })
+  const meters = routes?.[0]?.distanceMeters
+  return typeof meters === 'number' ? kmFromMeters(meters) : null
+}
+
+/**
+ * Driving kilometres from origin to destination and back.
+ * Runs in the browser so a referrer-restricted Maps key can call Routes.
+ */
+export async function browserDrivingRoundTripKm(
+  origin: MapWaypoint,
+  destination: MapWaypoint,
+): Promise<number | null> {
+  const key = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? ''
+  const originText = typeof origin === 'string' ? origin.trim() : 'pin'
+  const destText = typeof destination === 'string' ? destination.trim() : 'pin'
+  if (!key || !originText || !destText) return null
+  setOptions({ key, v: 'weekly' })
+  try {
+    const [outKm, returnKm] = await Promise.all([
+      drivingLegKm(origin, destination),
+      drivingLegKm(destination, origin),
+    ])
+    if (outKm == null && returnKm == null) return null
+    const out = outKm ?? returnKm
+    const back = returnKm ?? outKm
+    if (out == null || back == null) return null
+    return Math.round((out + back) * 10) / 10
+  } catch {
+    return null
+  }
+}
+
 /** Resolve an address to a pin in the browser so referrer-restricted Maps keys work. */
 export async function browserGeocodeAddress(address: string): Promise<{ lat: number; lng: number } | null> {
   const key = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? ''
