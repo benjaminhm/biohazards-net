@@ -1093,6 +1093,10 @@ export interface AssessmentData {
   contents_clearance_quote?: {
     estimated_m3: number | null
     estimated_km: number | null
+    /** Ex GST dollars. */
+    rate_per_m3?: number | null
+    rate_per_km?: number | null
+    rate_per_labour_day?: number | null
   }
   /** Statement of Accounts — deposit taken against the quote, before the balance is worked out. */
   statement_of_accounts?: {

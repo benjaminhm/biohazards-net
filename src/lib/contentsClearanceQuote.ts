@@ -1,8 +1,8 @@
 /**
  * Contents Clearance Quote.
- * The job supplies the client, the address, and two estimated quantities.
- * Rates, the labour-day rule, and the fixed sections live here.
- * Rates are ex GST. Set them here to change every newly generated quote.
+ * The job supplies the client, the address, the estimated quantities, and the rates.
+ * The labour-day rule and the fixed sections live here.
+ * A blank rate falls back to the schema. Rates are ex GST.
  */
 
 const M3_PER_LABOUR_DAY = 6
@@ -41,6 +41,10 @@ export const CONTENTS_CLEARANCE_SCHEMA = {
 export interface ContentsClearanceCapture {
   estimated_m3: number | null
   estimated_km: number | null
+  /** Ex GST. Blank uses the schema rate. */
+  rate_per_m3: number | null
+  rate_per_km: number | null
+  rate_per_labour_day: number | null
 }
 
 export interface ContentsClearanceLine {
@@ -101,7 +105,13 @@ function quantityOrZero(value: number | null | undefined): number {
 }
 
 export function emptyContentsClearanceCapture(): ContentsClearanceCapture {
-  return { estimated_m3: null, estimated_km: null }
+  return {
+    estimated_m3: null,
+    estimated_km: null,
+    rate_per_m3: null,
+    rate_per_km: null,
+    rate_per_labour_day: null,
+  }
 }
 
 export function normalizeContentsClearanceCapture(raw: unknown): ContentsClearanceCapture {
@@ -114,6 +124,9 @@ export function normalizeContentsClearanceCapture(raw: unknown): ContentsClearan
   return {
     estimated_m3: qty(o.estimated_m3),
     estimated_km: qty(o.estimated_km),
+    rate_per_m3: qty(o.rate_per_m3),
+    rate_per_km: qty(o.rate_per_km),
+    rate_per_labour_day: qty(o.rate_per_labour_day),
   }
 }
 
@@ -178,8 +191,16 @@ export function contentsClearanceQuoteContent(input: {
   siteAddress: string
   m3: number | null | undefined
   km: number | null | undefined
+  ratePerM3?: number | null
+  ratePerKm?: number | null
+  ratePerLabourDay?: number | null
 }): ContentsClearanceQuoteContent {
-  const figures = contentsClearanceFigures(input.m3, input.km)
+  const figures = contentsClearanceFigures(input.m3, input.km, {
+    ratePerM3: input.ratePerM3 ?? CONTENTS_CLEARANCE_SCHEMA.ratePerM3,
+    ratePerKm: input.ratePerKm ?? CONTENTS_CLEARANCE_SCHEMA.ratePerKm,
+    ratePerLabourDay: input.ratePerLabourDay ?? CONTENTS_CLEARANCE_SCHEMA.ratePerLabourDay,
+    m3PerLabourDay: CONTENTS_CLEARANCE_SCHEMA.m3PerLabourDay,
+  })
   const [contents, distance, labour] = figures.lines
   return {
     title: 'Contents Clearance Quote',

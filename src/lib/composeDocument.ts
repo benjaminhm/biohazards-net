@@ -1097,8 +1097,11 @@ function composeContentsClearanceQuote(job: Job): ComposeDocumentResult {
       siteAddress: job.site_address || '',
       m3: capture.estimated_m3,
       km: capture.estimated_km,
+      ratePerM3: capture.rate_per_m3,
+      ratePerKm: capture.rate_per_km,
+      ratePerLabourDay: capture.rate_per_labour_day,
     }) as unknown as Record<string, unknown>,
-    source: capture.estimated_m3 != null || capture.estimated_km != null ? 'assessment_capture' : 'skeleton',
+    source: capture.estimated_m3 != null || capture.estimated_km != null || capture.rate_per_m3 != null || capture.rate_per_km != null || capture.rate_per_labour_day != null ? 'assessment_capture' : 'skeleton',
   }
 }
 

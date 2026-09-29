@@ -51,12 +51,21 @@ export default function ContentsClearanceQuoteTab({ job, onJobUpdate }: Props) {
     setCapture(normalizeContentsClearanceCapture(job.assessment_data?.contents_clearance_quote))
   }, [job.id, job.updated_at])
 
-  const isDirty = capture.estimated_m3 !== saved.estimated_m3 || capture.estimated_km !== saved.estimated_km
+  const isDirty = capture.estimated_m3 !== saved.estimated_m3
+    || capture.estimated_km !== saved.estimated_km
+    || capture.rate_per_m3 !== saved.rate_per_m3
+    || capture.rate_per_km !== saved.rate_per_km
+    || capture.rate_per_labour_day !== saved.rate_per_labour_day
   useRegisterUnsavedChanges('contents-clearance-quote', isDirty)
 
   const figures = useMemo(
-    () => contentsClearanceFigures(capture.estimated_m3, capture.estimated_km),
-    [capture.estimated_m3, capture.estimated_km],
+    () => contentsClearanceFigures(capture.estimated_m3, capture.estimated_km, {
+      ratePerM3: capture.rate_per_m3 ?? CONTENTS_CLEARANCE_SCHEMA.ratePerM3,
+      ratePerKm: capture.rate_per_km ?? CONTENTS_CLEARANCE_SCHEMA.ratePerKm,
+      ratePerLabourDay: capture.rate_per_labour_day ?? CONTENTS_CLEARANCE_SCHEMA.ratePerLabourDay,
+      m3PerLabourDay: CONTENTS_CLEARANCE_SCHEMA.m3PerLabourDay,
+    }),
+    [capture],
   )
 
   function patch(next: Partial<ContentsClearanceCapture>) {
@@ -131,7 +140,7 @@ export default function ContentsClearanceQuoteTab({ job, onJobUpdate }: Props) {
             style={INPUT}
           />
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
-            {formatAud(CONTENTS_CLEARANCE_SCHEMA.ratePerM3)} per m³. {CONTENTS_CLEARANCE_SCHEMA.m3PerLabourDay} m³ is one labour day.
+            {CONTENTS_CLEARANCE_SCHEMA.m3PerLabourDay} m³ is one labour day.
           </div>
         </div>
         <div>
@@ -148,9 +157,53 @@ export default function ContentsClearanceQuoteTab({ job, onJobUpdate }: Props) {
             placeholder="0"
             style={INPUT}
           />
-          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
-            {formatAud(CONTENTS_CLEARANCE_SCHEMA.ratePerKm)} per km. Labour is {formatAud(CONTENTS_CLEARANCE_SCHEMA.ratePerLabourDay)} per day.
-          </div>
+        </div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginTop: 12 }}>
+        <div>
+          <label style={LABEL}>Rate per m³ ($)</label>
+          <input
+            type="number"
+            min={0}
+            step="0.01"
+            value={capture.rate_per_m3 ?? ''}
+            onChange={e => {
+              const raw = e.target.value
+              patch({ rate_per_m3: raw === '' ? null : Number(raw) })
+            }}
+            placeholder="0.00"
+            style={INPUT}
+          />
+        </div>
+        <div>
+          <label style={LABEL}>Rate per km ($)</label>
+          <input
+            type="number"
+            min={0}
+            step="0.01"
+            value={capture.rate_per_km ?? ''}
+            onChange={e => {
+              const raw = e.target.value
+              patch({ rate_per_km: raw === '' ? null : Number(raw) })
+            }}
+            placeholder="0.00"
+            style={INPUT}
+          />
+        </div>
+        <div>
+          <label style={LABEL}>Rate per labour day ($)</label>
+          <input
+            type="number"
+            min={0}
+            step="0.01"
+            value={capture.rate_per_labour_day ?? ''}
+            onChange={e => {
+              const raw = e.target.value
+              patch({ rate_per_labour_day: raw === '' ? null : Number(raw) })
+            }}
+            placeholder="0.00"
+            style={INPUT}
+          />
         </div>
       </div>
       <div style={{ marginTop: 14, display: 'grid', gap: 6, fontSize: 14 }}>

@@ -35,6 +35,9 @@ test('the quote prints quantities, then clauses, terms, authority, and acceptanc
     siteAddress: '1 Example Street',
     m3: 18,
     km: 12,
+    ratePerM3: 100,
+    ratePerKm: 2,
+    ratePerLabourDay: 500,
   })
   const html = buildPrintHTML(
     'contents_clearance_quote',
@@ -52,4 +55,8 @@ test('the quote prints quantities, then clauses, terms, authority, and acceptanc
   assert.match(html, /Acme Pty Ltd/)
   assert.match(html, /1 Example Street/)
   assert.equal(content.labour_days, 3)
+  assert.equal(content.volume_amount, 1800)
+  assert.equal(content.distance_amount, 24)
+  assert.equal(content.labour_amount, 1500)
+  assert.match(html, /\$100\.00 \/ m³/)
 })
