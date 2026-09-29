@@ -218,6 +218,20 @@ export default function ContentsClearanceQuoteTab({ job, onJobUpdate }: Props) {
           <span>{formatAud(figures.total)}</span>
         </div>
       </div>
+      <div style={{ marginTop: 18, display: 'grid', gap: 14 }}>
+        {([
+          ['Inclusions', CONTENTS_CLEARANCE_SCHEMA.inclusions],
+          ['Exclusions', CONTENTS_CLEARANCE_SCHEMA.exclusions],
+          ['Assumptions', CONTENTS_CLEARANCE_SCHEMA.assumptions],
+        ] as const).map(([title, items]) => (
+          <div key={title}>
+            <div style={LABEL}>{title}</div>
+            <ul style={{ margin: 0, paddingLeft: 18, fontSize: 14, display: 'grid', gap: 4 }}>
+              {items.map(item => <li key={item}>{item}</li>)}
+            </ul>
+          </div>
+        ))}
+      </div>
       {saveError && <div style={{ color: 'var(--danger, #f87171)', fontSize: 13, marginTop: 10 }}>{saveError}</div>}
       <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
         <button type="button" className="btn" onClick={() => void save()} disabled={saving}>
