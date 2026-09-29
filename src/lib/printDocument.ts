@@ -44,7 +44,7 @@ import type { CustomPricingRow, SectionTerms, VolumeDisposalFeeMode, VolumePrici
 const DEFAULT_PRINT_ORG_NAME = 'Brisbane Biohazard Cleaning'
 import { proseHasPrintableContent, richBodyHtmlForPrint } from '@/lib/richTextPrint'
 import { presentStatementDocument, statementClientLines, statementPhone, StatementReconciliationError, type StatementPresentation } from '@/lib/statementOfAccounts'
-import { CONTENTS_CLEARANCE_SCHEMA, contentsClearanceTimeFrame, type ContentsClearanceQuoteContent } from '@/lib/contentsClearanceQuote'
+import { CONTENTS_CLEARANCE_SCHEMA, contentsClearanceIncGst, contentsClearanceTimeFrame, type ContentsClearanceQuoteContent } from '@/lib/contentsClearanceQuote'
 
 // en-AU locale produces comma separators and dollar sign (e.g. $4,500.00)
 const fmtMoney = (n: number) =>
@@ -3437,10 +3437,17 @@ function buildContentsClearanceMid(
   company: CompanyProfile | null,
   client: ClientInfo | undefined,
 ): string {
-  const perDay = c.m3_per_labour_day || CONTENTS_CLEARANCE_SCHEMA.m3PerLabourDay
-  const travelNote = (c.return_trips ?? 0) > 0
-    ? `${ccqQty(c.return_trips, false)} return ${c.return_trips === 1 ? 'trip' : 'trips'} × ${ccqQty(c.return_trip_km, false)} km, job to tip`
-    : ''
+  const travelNotes = [
+    (c.return_trips ?? 0) > 0
+      ? `${ccqQty(c.return_trips, false)} return ${c.return_trips === 1 ? 'trip' : 'trips'} × ${ccqQty(c.return_trip_km, false)} km, job to tip`
+      : '',
+    (c.m3_per_trip ?? 0) > 0 && c.estimated_m3 > 0
+      ? `${ccqQty(c.estimated_m3, false)} m³ ÷ ${ccqQty(c.m3_per_trip, false)} m³ per trip`
+      : '',
+    (c.trips_per_day ?? 0) > 0 && (c.trip_days ?? 0) > 0
+      ? `${ccqQty(c.return_trips, false)} trips ÷ ${ccqQty(c.trips_per_day, false)} trips per day, ${ccqQty(c.trip_days, false)} ${c.trip_days === 1 ? 'day' : 'days'}`
+      : '',
+  ].filter(Boolean)
   const timeFrame = contentsClearanceTimeFrame(c.labour_days)
   const mobilisation = c.mobilisation_fee ?? 0
   const rows: { name: string; notes: string[]; qty: string; unit: string; rate: number; amount: number }[] = []
@@ -3465,7 +3472,7 @@ function buildContentsClearanceMid(
     },
     {
       name: 'Travel',
-      notes: travelNote ? [travelNote] : [],
+      notes: travelNotes,
       qty: ccqQty(c.estimated_km, false),
       unit: 'km',
       rate: c.rate_per_km,
@@ -3474,7 +3481,9 @@ function buildContentsClearanceMid(
     {
       name: 'Labour',
       notes: [
-        `${ccqQty(c.estimated_m3, false)} m³ ÷ ${ccqQty(perDay, false)} m³ per day`,
+        (c.maximum_man_days ?? 0) > 0
+          ? `Maximum ${ccqQty(c.maximum_man_days, false)} man ${c.maximum_man_days === 1 ? 'day' : 'days'}`
+          : '',
         timeFrame,
       ].filter(Boolean),
       qty: ccqQty(c.labour_days, true),
@@ -3499,7 +3508,7 @@ function buildContentsClearanceMid(
       <td class="r">${esc(row.qty)}</td>
       <td class="r">${esc(row.unit)}</td>
       <td class="r">${fmtMoney(row.rate)}</td>
-      <td class="r">${fmtMoney(row.amount)}</td>
+      <td class="r">${fmtMoney(contentsClearanceIncGst(row.amount))}</td>
     </tr>`).join('')
   const deposit = ccqDeposit(c.total)
   return `
@@ -3511,7 +3520,7 @@ function buildContentsClearanceMid(
           <th class="r">Qty</th>
           <th class="r">Unit</th>
           <th class="r">Rate (ex GST)</th>
-          <th class="r">Amount (ex GST)</th>
+          <th class="r">Amount (inc GST)</th>
         </tr>
       </thead>
       <tbody>${body}</tbody>

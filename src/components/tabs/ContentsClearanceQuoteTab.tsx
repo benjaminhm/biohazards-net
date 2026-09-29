@@ -179,6 +179,7 @@ export default function ContentsClearanceQuoteTab({ job, onJobUpdate }: Props) {
   const isDirty = capture.clearance_kind !== saved.clearance_kind
     || capture.estimated_m3 !== saved.estimated_m3
     || capture.m3_per_labour_day !== saved.m3_per_labour_day
+    || capture.maximum_man_days !== saved.maximum_man_days
     || capture.estimated_km !== saved.estimated_km
     || capture.rate_per_m3 !== saved.rate_per_m3
     || capture.rate_per_km !== saved.rate_per_km
@@ -192,6 +193,8 @@ export default function ContentsClearanceQuoteTab({ job, onJobUpdate }: Props) {
     || capture.return_trip_km !== saved.return_trip_km
     || capture.return_trip_from_maps !== saved.return_trip_from_maps
     || capture.return_trips !== saved.return_trips
+    || capture.m3_per_trip !== saved.m3_per_trip
+    || capture.trips_per_day !== saved.trips_per_day
     || capture.disposal_rate_per_tonne !== saved.disposal_rate_per_tonne
     || capture.estimated_tonnes !== saved.estimated_tonnes
     || capture.mobilisation_fee !== saved.mobilisation_fee
@@ -206,9 +209,12 @@ export default function ContentsClearanceQuoteTab({ job, onJobUpdate }: Props) {
     }, {
       returnTripKm: capture.return_trip_km,
       returnTrips: capture.return_trips,
+      m3PerTrip: capture.m3_per_trip,
+      tripsPerDay: capture.trips_per_day,
       tonnes: capture.estimated_tonnes,
       ratePerTonne: capture.disposal_rate_per_tonne,
       mobilisationFee: capture.mobilisation_fee,
+      maximumManDays: capture.maximum_man_days,
     }),
     [capture],
   )
@@ -368,6 +374,10 @@ export default function ContentsClearanceQuoteTab({ job, onJobUpdate }: Props) {
   }
 
   async function saveAndCompose() {
+    if (!(capture.maximum_man_days != null && capture.maximum_man_days > 0)) {
+      setSaveError('Enter the maximum man days before generating the quote.')
+      return
+    }
     await persistStandards(standards)
     const ok = await save()
     if (ok) router.push(`/jobs/${job.id}/docs/contents_clearance_quote?compose=1`)
@@ -543,7 +553,8 @@ export default function ContentsClearanceQuoteTab({ job, onJobUpdate }: Props) {
             type="number"
             min={0}
             step="1"
-            value={capture.return_trips ?? ''}
+            value={figures.m3_per_trip > 0 && figures.estimated_m3 > 0 ? figures.return_trips : (capture.return_trips ?? '')}
+            disabled={figures.m3_per_trip > 0 && figures.estimated_m3 > 0}
             onChange={e => {
               const raw = e.target.value
               patch({ return_trips: raw === '' ? null : Number(raw) })
@@ -554,6 +565,48 @@ export default function ContentsClearanceQuoteTab({ job, onJobUpdate }: Props) {
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
             {figures.return_trips.toLocaleString('en-AU', { maximumFractionDigits: 2 })} trips × {figures.return_trip_km.toLocaleString('en-AU', { maximumFractionDigits: 2 })} km = {figures.estimated_km.toLocaleString('en-AU', { maximumFractionDigits: 2 })} km
           </div>
+        </div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+        <div>
+          <label style={LABEL}>m³ per trip</label>
+          <input
+            type="number"
+            min={0}
+            step="0.1"
+            value={capture.m3_per_trip ?? ''}
+            onChange={e => {
+              const raw = e.target.value
+              patch({ m3_per_trip: raw === '' ? null : Number(raw) })
+            }}
+            placeholder="0"
+            style={INPUT}
+          />
+          {figures.m3_per_trip > 0 && figures.estimated_m3 > 0 && (
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
+              {figures.estimated_m3.toLocaleString('en-AU', { maximumFractionDigits: 2 })} m³ ÷ {figures.m3_per_trip.toLocaleString('en-AU', { maximumFractionDigits: 2 })} m³ per trip = {figures.return_trips.toLocaleString('en-AU', { maximumFractionDigits: 0 })} trips. A part-load is still a trip.
+            </div>
+          )}
+        </div>
+        <div>
+          <label style={LABEL}>Trips per day</label>
+          <input
+            type="number"
+            min={0}
+            step="0.1"
+            value={capture.trips_per_day ?? ''}
+            onChange={e => {
+              const raw = e.target.value
+              patch({ trips_per_day: raw === '' ? null : Number(raw) })
+            }}
+            placeholder="0"
+            style={INPUT}
+          />
+          {figures.trip_days > 0 && (
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
+              {figures.return_trips.toLocaleString('en-AU', { maximumFractionDigits: 2 })} trips ÷ {figures.trips_per_day.toLocaleString('en-AU', { maximumFractionDigits: 2 })} trips per day = {figures.trip_days.toLocaleString('en-AU', { maximumFractionDigits: 2 })} {figures.trip_days === 1 ? 'day' : 'days'}.
+            </div>
+          )}
         </div>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -571,29 +624,27 @@ export default function ContentsClearanceQuoteTab({ job, onJobUpdate }: Props) {
             placeholder="0"
             style={INPUT}
           />
-          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
-            {figures.m3_per_labour_day.toLocaleString('en-AU', { maximumFractionDigits: 2 })} m³ is one man day, for one person.
-            {figures.labour_days > 0 && (
-              <div>Estimated time frame: {contentsClearanceTimeFrame(figures.labour_days)}.</div>
-            )}
-          </div>
+          {figures.labour_days > 0 && (
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
+              Estimated time frame: {contentsClearanceTimeFrame(figures.labour_days)}.
+            </div>
+          )}
         </div>
         <div>
-          <label style={LABEL}>m³ per person per day</label>
+          <label style={LABEL}>Maximum man days</label>
           <input
             type="number"
-            min={0}
-            step="0.1"
-            value={capture.m3_per_labour_day ?? ''}
+            min={1}
+            step="1"
+            value={capture.maximum_man_days ?? ''}
             onChange={e => {
               const raw = e.target.value
-              patch({ m3_per_labour_day: raw === '' ? null : Number(raw) })
+              patch({ maximum_man_days: raw === '' ? null : Number(raw) })
             }}
-            placeholder={String(CONTENTS_CLEARANCE_SCHEMA.m3PerLabourDay)}
             style={INPUT}
           />
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
-            Blank stays at {CONTENTS_CLEARANCE_SCHEMA.m3PerLabourDay}. Lower it when this job is slower to move.
+            Required before the quote can be generated. Labour stops at this many person-days.
           </div>
         </div>
       </div>
@@ -651,8 +702,16 @@ export default function ContentsClearanceQuoteTab({ job, onJobUpdate }: Props) {
             <span>{formatAud(line.amount)}</span>
           </div>
         ))}
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+          <span>Subtotal (ex GST)</span>
+          <span>{formatAud(figures.subtotal)}</span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+          <span>GST (10%)</span>
+          <span>{formatAud(figures.gst)}</span>
+        </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontWeight: 800, marginTop: 4 }}>
-          <span>Total inc GST</span>
+          <span>Total (inc GST)</span>
           <span>{formatAud(figures.total)}</span>
         </div>
       </div>

@@ -13,6 +13,9 @@ test('18 cubic metres is 3 man days and 24 is 4', () => {
   assert.equal(measured.lines[0].quantity, 24)
   assert.equal(measured.lines[1].amount, 0)
   assert.equal(contentsClearanceFigures(28, 0).labour_days, 5)
+  const capped = contentsClearanceFigures(28, 0, undefined, { maximumManDays: 4 })
+  assert.equal(capped.labour_days, 4)
+  assert.equal(capped.maximum_man_days, 4)
   const slower = contentsClearanceFigures(18, 0, {
     ratePerM3: 0,
     ratePerKm: 0,
@@ -50,7 +53,8 @@ test('cubic metres per person per day on the job sets the man days', () => {
     undefined,
     { screenActionBar: false },
   )
-  assert.match(html, /18 m³ ÷ 9 m³ per day/)
+  assert.equal(content.labour_days, 2)
+  assert.doesNotMatch(html, /m³ per day/)
 })
 
 test('each line is quantity times its rate, then GST', () => {
@@ -79,6 +83,40 @@ test('return trips set the kilometres, and tonnes add a disposal line', () => {
   assert.equal(figures.lines.find(line => line.label === 'Distance')?.amount, 0)
   assert.equal(figures.disposal_amount, 300)
   assert.equal(figures.lines.find(line => line.label === 'Disposal')?.quantity, 1.5)
+  const hauled = contentsClearanceFigures(18, 0, undefined, {
+    returnTripKm: 10,
+    returnTrips: 1,
+    m3PerTrip: 5,
+    tripsPerDay: 2,
+  })
+  assert.equal(hauled.return_trips, 4)
+  assert.equal(hauled.estimated_km, 40)
+  assert.equal(hauled.trip_days, 2)
+  const hauledQuote = contentsClearanceQuoteContent({
+    reference: 'CCQ-TEST',
+    clientName: 'Acme Pty Ltd',
+    siteAddress: '1 Example Street',
+    capture: {
+      ...emptyContentsClearanceCapture(),
+      estimated_m3: 18,
+      return_trip_km: 10,
+      m3_per_trip: 5,
+      trips_per_day: 2,
+    },
+  })
+  const hauledHtml = buildPrintHTML(
+    'contents_clearance_quote',
+    hauledQuote as unknown as Record<string, unknown>,
+    [],
+    [],
+    null,
+    'job',
+    'http://localhost',
+    undefined,
+    { screenActionBar: false },
+  )
+  assert.match(hauledHtml, /18 m³ ÷ 5 m³ per trip/)
+  assert.match(hauledHtml, /4 trips ÷ 2 trips per day, 2 days/)
   assert.equal(figures.mobilisation_fee, 0)
   assert.equal(figures.lines.some(line => line.label === 'Mobilisation'), false)
 })
@@ -172,6 +210,9 @@ test('the quote prints quantities, then clauses, terms, authority, and acceptanc
   assert.equal(content.distance_amount, 24)
   assert.equal(content.labour_amount, 1500)
   assert.match(html, /\$100\.00/)
+  assert.match(html, /\$1,980\.00/)
+  assert.match(html, /GST \(10%\)/)
+  assert.match(html, /\$3,656\.40/)
   assert.match(html, />m³</)
   assert.equal(content.title, 'Contents Clearance Quote')
 })

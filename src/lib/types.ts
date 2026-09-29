@@ -1094,8 +1094,10 @@ export interface AssessmentData {
     /** contents | hoarding | estate. Printed as the client document title. */
     clearance_kind?: 'contents' | 'hoarding' | 'estate'
     estimated_m3: number | null
-    /** Cubic metres one person clears in a day. Blank uses 6. */
+    /** Cubic metres one person clears in a day. Kept for quotes saved before the labour ceiling. */
     m3_per_labour_day?: number | null
+    /** Most person-days the labour charge can reach. */
+    maximum_man_days?: number | null
     /** Older captures stored a single kilometre total. New captures use return trips. */
     estimated_km: number | null
     /** Ex GST dollars. */
@@ -1112,6 +1114,10 @@ export interface AssessmentData {
     return_trip_km?: number | null
     return_trip_from_maps?: boolean
     return_trips?: number | null
+    /** Cubic metres one trip can take. When set, this sets the trip count from the volume. */
+    m3_per_trip?: number | null
+    /** Return trips that fit in one day. */
+    trips_per_day?: number | null
     /** Ex GST dollars per tonne. */
     disposal_rate_per_tonne?: number | null
     estimated_tonnes?: number | null
