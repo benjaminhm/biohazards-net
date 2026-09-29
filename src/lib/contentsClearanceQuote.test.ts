@@ -13,9 +13,14 @@ test('18 cubic metres is 3 man days and 24 is 4', () => {
   assert.equal(measured.lines[0].quantity, 24)
   assert.equal(measured.lines[1].amount, 0)
   assert.equal(contentsClearanceFigures(28, 0).labour_days, 5)
-  const capped = contentsClearanceFigures(28, 0, undefined, { maximumManDays: 4 })
-  assert.equal(capped.labour_days, 4)
-  assert.equal(capped.maximum_man_days, 4)
+  const quoted = contentsClearanceFigures(18, 0, {
+    ratePerM3: 0,
+    ratePerKm: 0,
+    ratePerLabourDay: 500,
+    m3PerLabourDay: 6,
+  }, { maximumManDays: 5 })
+  assert.equal(quoted.labour_days, 5)
+  assert.equal(quoted.lines.find(line => line.label === 'Labour')?.amount, 2500)
   const slower = contentsClearanceFigures(18, 0, {
     ratePerM3: 0,
     ratePerKm: 0,

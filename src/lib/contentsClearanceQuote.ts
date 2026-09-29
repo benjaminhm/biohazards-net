@@ -348,7 +348,7 @@ export function contentsClearanceFigures(
   const perDay = schema.m3PerLabourDay > 0 ? schema.m3PerLabourDay : 6
   const maximum_man_days = Math.round(quantityOrZero(trip.maximumManDays))
   const paced_days = wholeManDays(estimated_m3, perDay)
-  const labour_days = maximum_man_days > 0 ? Math.min(paced_days, maximum_man_days) : paced_days
+  const labour_days = maximum_man_days > 0 ? maximum_man_days : paced_days
   const lines: ContentsClearanceLine[] = []
   if (mobilisation_fee > 0) {
     lines.push({

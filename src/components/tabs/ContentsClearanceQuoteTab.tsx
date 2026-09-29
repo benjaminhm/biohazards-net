@@ -644,7 +644,9 @@ export default function ContentsClearanceQuoteTab({ job, onJobUpdate }: Props) {
             style={INPUT}
           />
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
-            Required before the quote can be generated. Labour stops at this many person-days.
+            {figures.maximum_man_days > 0
+              ? `${figures.labour_days.toLocaleString('en-AU', { maximumFractionDigits: 0 })} man ${figures.labour_days === 1 ? 'day' : 'days'} × ${formatAud(figures.rate_per_labour_day)} = ${formatAud(figures.lines.find(line => line.label === 'Labour')?.amount ?? 0)}`
+              : 'Required before the quote can be generated.'}
           </div>
         </div>
       </div>
