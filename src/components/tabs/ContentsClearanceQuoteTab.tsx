@@ -10,6 +10,13 @@ import { mergeAssessmentData } from '@/lib/riskDerivation'
 import { useRegisterUnsavedChanges } from '@/lib/unsavedChangesContext'
 import { formatAud } from '@/lib/disposalManifest'
 import {
+  CLEARANCE_FLAG_CLAUSE_LABEL,
+  CLEARANCE_FLAG_TEXT,
+  clearanceClauseFlags,
+  knownClearanceFlags,
+  type ClearanceClauseFlag,
+} from '@/lib/contentsClearanceFlags'
+import {
   CONTENTS_CLEARANCE_CLIENT_TITLES,
   CONTENTS_CLEARANCE_SCHEMA,
   clauseLines,
@@ -163,7 +170,11 @@ export default function ContentsClearanceQuoteTab({ job, onJobUpdate }: Props) {
   const [standardsReady, setStandardsReady] = useState(false)
   const [distanceBusy, setDistanceBusy] = useState(false)
   const [distanceNote, setDistanceNote] = useState('')
+  const [checkingFlags, setCheckingFlags] = useState(false)
+  const [clauseFlags, setClauseFlags] = useState<ClearanceClauseFlag[]>([])
+  const [flagsCheckedKey, setFlagsCheckedKey] = useState('')
   const skipStandardsSave = useRef(true)
+  const checkingFlagsRef = useRef(false)
   const distanceSeq = useRef(0)
   const appliedDistanceKey = useRef('')
   const captureRef = useRef(capture)
@@ -217,6 +228,22 @@ export default function ContentsClearanceQuoteTab({ job, onJobUpdate }: Props) {
     }),
     [capture],
   )
+
+  const flagCheckKey = useMemo(() => JSON.stringify({
+    estimated_m3: figures.estimated_m3,
+    labour_days: figures.labour_days,
+    m3_per_labour_day: figures.m3_per_labour_day,
+    rate_per_m3: figures.rate_per_m3,
+    rate_per_km: figures.rate_per_km,
+    rate_per_labour_day: figures.rate_per_labour_day,
+    disposal_rate_per_tonne: figures.disposal_rate_per_tonne,
+    mobilisation_fee: figures.mobilisation_fee,
+    subtotal: figures.subtotal,
+    gst: figures.gst,
+    total: figures.total,
+    standards,
+  }), [figures, standards])
+  const shownFlags = flagsCheckedKey === flagCheckKey ? clauseFlags : []
 
   useEffect(() => {
     let cancelled = false
@@ -376,6 +403,30 @@ export default function ContentsClearanceQuoteTab({ job, onJobUpdate }: Props) {
     if (!(capture.maximum_man_days != null && capture.maximum_man_days > 0)) {
       setSaveError('Enter the labour days before generating the quote.')
       return
+    }
+    if (flagsCheckedKey !== flagCheckKey) {
+      if (checkingFlagsRef.current) return
+      checkingFlagsRef.current = true
+      setCheckingFlags(true)
+      setSaveError('')
+      let flags: ClearanceClauseFlag[] = []
+      try {
+        const res = await fetch(`/api/jobs/${job.id}/contents-clearance-flags`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ capture, standards }),
+        })
+        const data: unknown = await res.json()
+        flags = (res.ok ? knownClearanceFlags(data) : null) ?? clearanceClauseFlags(figures, standards)
+      } catch {
+        flags = clearanceClauseFlags(figures, standards)
+      } finally {
+        checkingFlagsRef.current = false
+        setCheckingFlags(false)
+      }
+      setClauseFlags(flags)
+      setFlagsCheckedKey(flagCheckKey)
+      if (flags.length > 0) return
     }
     await persistStandards(standards)
     const ok = await save()
@@ -727,13 +778,25 @@ export default function ContentsClearanceQuoteTab({ job, onJobUpdate }: Props) {
           )}
         </div>
       </div>
+      {shownFlags.length > 0 && (
+        <div style={{ marginTop: 14, padding: 12, borderRadius: 8, border: '1px solid #b45309', background: 'rgba(180, 83, 9, 0.08)' }}>
+          <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>These clauses do not match the figures</div>
+          <ul style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 6, fontSize: 13 }}>
+            {shownFlags.map(flag => (
+              <li key={`${flag.code}:${flag.clause}`}>
+                <strong>{CLEARANCE_FLAG_CLAUSE_LABEL[flag.clause]}.</strong> {CLEARANCE_FLAG_TEXT[flag.code]}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {saveError && <div style={{ color: 'var(--danger, #f87171)', fontSize: 13, marginTop: 10 }}>{saveError}</div>}
       <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
-        <button type="button" className="btn" onClick={() => void save()} disabled={saving}>
+        <button type="button" className="btn" onClick={() => void save()} disabled={saving || checkingFlags}>
           {saving ? 'Saving…' : 'Save'}
         </button>
-        <button type="button" className="btn btn-primary" onClick={() => void saveAndCompose()} disabled={saving}>
-          Generate quote
+        <button type="button" className="btn btn-primary" onClick={() => void saveAndCompose()} disabled={saving || checkingFlags}>
+          {checkingFlags ? 'Checking clauses…' : shownFlags.length > 0 ? 'Generate anyway' : 'Generate quote'}
         </button>
       </div>
     </div>
