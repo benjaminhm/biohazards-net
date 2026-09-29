@@ -3386,7 +3386,7 @@ function buildContentsClearanceMid(c: ContentsClearanceQuoteContent): string {
       amount: c.disposal_amount ?? 0,
     })
   }
-  const fixed: { label: string; quantity: string; rate: string; amount: number }[] = []
+  const fixed: { label: string; quantity: string; note?: string; rate: string; amount: number }[] = []
   if ((c.mobilisation_fee ?? 0) > 0) {
     fixed.push({
       label: 'Mobilisation',
