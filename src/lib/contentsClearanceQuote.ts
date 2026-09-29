@@ -15,6 +15,10 @@ export const CONTENTS_CLEARANCE_SCHEMA = {
   /** Ex GST. One man day is `m3PerLabourDay` cubic metres for one person. */
   ratePerLabourDay: 0,
   m3PerLabourDay: M3_PER_LABOUR_DAY,
+  /** Days the printed quote stays open. Display only. */
+  validDays: 30,
+  /** Share of the inc-GST total shown as the deposit. Display only. */
+  depositFraction: 0.5,
   inclusions: [
     'Contents clearance of the stated volume at the standard rate per cubic metre.',
     'Travel at the standard rate per kilometre.',
@@ -67,6 +71,8 @@ export interface ContentsClearanceCapture {
   /** Which client-facing title to print. The page itself stays Contents Clearance. */
   clearance_kind: ContentsClearanceKind
   estimated_m3: number | null
+  /** Cubic metres one person clears in a day. Blank uses the schema default of 6. */
+  m3_per_labour_day: number | null
   /** Kept for quotes saved before return trips. */
   estimated_km: number | null
   /** Ex GST. Blank uses the schema rate. */
@@ -86,6 +92,8 @@ export interface ContentsClearanceCapture {
   return_trips: number | null
   disposal_rate_per_tonne: number | null
   estimated_tonnes: number | null
+  /** Ex GST. Attendance and setup. Blank or zero stays off the quote. */
+  mobilisation_fee: number | null
 }
 
 export interface ContentsClearanceLine {
@@ -104,6 +112,7 @@ export interface ContentsClearanceFigures {
   estimated_tonnes: number
   disposal_rate_per_tonne: number
   disposal_amount: number
+  mobilisation_fee: number
   labour_days: number
   m3_per_labour_day: number
   rate_per_m3: number
@@ -129,6 +138,7 @@ export interface ContentsClearanceQuoteContent {
   estimated_tonnes: number
   disposal_rate_per_tonne: number
   disposal_amount: number
+  mobilisation_fee: number
   labour_days: number
   m3_per_labour_day: number
   rate_per_m3: number
@@ -176,6 +186,7 @@ export function emptyContentsClearanceCapture(): ContentsClearanceCapture {
   return {
     clearance_kind: 'contents',
     estimated_m3: null,
+    m3_per_labour_day: null,
     estimated_km: null,
     rate_per_m3: null,
     rate_per_km: null,
@@ -191,6 +202,7 @@ export function emptyContentsClearanceCapture(): ContentsClearanceCapture {
     return_trips: null,
     disposal_rate_per_tonne: null,
     estimated_tonnes: null,
+    mobilisation_fee: null,
   }
 }
 
@@ -240,6 +252,7 @@ export function normalizeContentsClearanceCapture(raw: unknown): ContentsClearan
   return {
     clearance_kind: kind,
     estimated_m3: qty(o.estimated_m3),
+    m3_per_labour_day: qty(o.m3_per_labour_day),
     estimated_km: qty(o.estimated_km),
     rate_per_m3: qty(o.rate_per_m3),
     rate_per_km: qty(o.rate_per_km),
@@ -255,6 +268,7 @@ export function normalizeContentsClearanceCapture(raw: unknown): ContentsClearan
     return_trips: qty(o.return_trips),
     disposal_rate_per_tonne: qty(o.disposal_rate_per_tonne),
     estimated_tonnes: qty(o.estimated_tonnes),
+    mobilisation_fee: qty(o.mobilisation_fee),
   }
 }
 
@@ -273,6 +287,7 @@ export function contentsClearanceFigures(
     returnTrips?: number | null
     tonnes?: number | null
     ratePerTonne?: number | null
+    mobilisationFee?: number | null
   } = {},
 ): ContentsClearanceFigures {
   const estimated_m3 = round2(quantityOrZero(m3))
@@ -283,9 +298,20 @@ export function contentsClearanceFigures(
   const estimated_tonnes = round2(quantityOrZero(trip.tonnes))
   const disposal_rate_per_tonne = round2(quantityOrZero(trip.ratePerTonne))
   const disposal_amount = round2(estimated_tonnes * disposal_rate_per_tonne)
+  const mobilisation_fee = round2(quantityOrZero(trip.mobilisationFee))
   const perDay = schema.m3PerLabourDay > 0 ? schema.m3PerLabourDay : 6
   const labour_days = wholeManDays(estimated_m3, perDay)
-  const lines: ContentsClearanceLine[] = [
+  const lines: ContentsClearanceLine[] = []
+  if (mobilisation_fee > 0) {
+    lines.push({
+      label: 'Mobilisation',
+      quantity: 1,
+      unit: 'fee',
+      rate: mobilisation_fee,
+      amount: mobilisation_fee,
+    })
+  }
+  lines.push(
     {
       label: 'Contents',
       quantity: estimated_m3,
@@ -307,7 +333,7 @@ export function contentsClearanceFigures(
       rate: schema.ratePerLabourDay,
       amount: round2(labour_days * schema.ratePerLabourDay),
     },
-  ]
+  )
   if (estimated_tonnes > 0 || disposal_rate_per_tonne > 0) {
     lines.push({
       label: 'Disposal',
@@ -327,6 +353,7 @@ export function contentsClearanceFigures(
     estimated_tonnes,
     disposal_rate_per_tonne,
     disposal_amount,
+    mobilisation_fee,
     labour_days,
     m3_per_labour_day: perDay,
     rate_per_m3: schema.ratePerM3,
@@ -352,12 +379,13 @@ export function contentsClearanceQuoteContent(input: {
     ratePerM3: capture.rate_per_m3 ?? CONTENTS_CLEARANCE_SCHEMA.ratePerM3,
     ratePerKm: capture.rate_per_km ?? CONTENTS_CLEARANCE_SCHEMA.ratePerKm,
     ratePerLabourDay: capture.rate_per_labour_day ?? CONTENTS_CLEARANCE_SCHEMA.ratePerLabourDay,
-    m3PerLabourDay: CONTENTS_CLEARANCE_SCHEMA.m3PerLabourDay,
+    m3PerLabourDay: capture.m3_per_labour_day ?? CONTENTS_CLEARANCE_SCHEMA.m3PerLabourDay,
   }, {
     returnTripKm: capture.return_trip_km,
     returnTrips: capture.return_trips,
     tonnes: capture.estimated_tonnes,
     ratePerTonne: capture.disposal_rate_per_tonne,
+    mobilisationFee: capture.mobilisation_fee,
   })
   const contents = figures.lines.find(line => line.label === 'Contents')
   const distance = figures.lines.find(line => line.label === 'Distance')
@@ -377,6 +405,7 @@ export function contentsClearanceQuoteContent(input: {
     estimated_tonnes: figures.estimated_tonnes,
     disposal_rate_per_tonne: figures.disposal_rate_per_tonne,
     disposal_amount: figures.disposal_amount,
+    mobilisation_fee: figures.mobilisation_fee,
     labour_days: figures.labour_days,
     m3_per_labour_day: figures.m3_per_labour_day,
     rate_per_m3: figures.rate_per_m3,

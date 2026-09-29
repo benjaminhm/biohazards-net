@@ -13,7 +13,44 @@ test('18 cubic metres is 3 man days and 24 is 4', () => {
   assert.equal(measured.lines[0].quantity, 24)
   assert.equal(measured.lines[1].amount, 0)
   assert.equal(contentsClearanceFigures(28, 0).labour_days, 5)
+  const slower = contentsClearanceFigures(18, 0, {
+    ratePerM3: 0,
+    ratePerKm: 0,
+    ratePerLabourDay: 0,
+    m3PerLabourDay: 4,
+  })
+  assert.equal(slower.labour_days, 5)
+  assert.equal(slower.m3_per_labour_day, 4)
   assert.equal(contentsClearanceTimeFrame(4), '4 man days (4 days with 1 person or 1 day with 4 persons)')
+})
+
+test('cubic metres per person per day on the job sets the man days', () => {
+  const content = contentsClearanceQuoteContent({
+    reference: 'CCQ-TEST',
+    clientName: 'Acme Pty Ltd',
+    siteAddress: '1 Example Street',
+    capture: {
+      ...emptyContentsClearanceCapture(),
+      estimated_m3: 18,
+      m3_per_labour_day: 9,
+      rate_per_labour_day: 500,
+    },
+  })
+  assert.equal(content.labour_days, 2)
+  assert.equal(content.m3_per_labour_day, 9)
+  assert.equal(content.labour_amount, 1000)
+  const html = buildPrintHTML(
+    'contents_clearance_quote',
+    content as unknown as Record<string, unknown>,
+    [],
+    [],
+    null,
+    'job',
+    'http://localhost',
+    undefined,
+    { screenActionBar: false },
+  )
+  assert.match(html, /18 m³ ÷ 9 m³ per day/)
 })
 
 test('each line is quantity times its rate, then GST', () => {
@@ -42,6 +79,48 @@ test('return trips set the kilometres, and tonnes add a disposal line', () => {
   assert.equal(figures.lines.find(line => line.label === 'Distance')?.amount, 0)
   assert.equal(figures.disposal_amount, 300)
   assert.equal(figures.lines.find(line => line.label === 'Disposal')?.quantity, 1.5)
+  assert.equal(figures.mobilisation_fee, 0)
+  assert.equal(figures.lines.some(line => line.label === 'Mobilisation'), false)
+})
+
+test('a mobilisation fee is added ex GST before the total', () => {
+  const figures = contentsClearanceFigures(18, 0, {
+    ratePerM3: 100,
+    ratePerKm: 0,
+    ratePerLabourDay: 500,
+    m3PerLabourDay: 6,
+  }, { mobilisationFee: 250 })
+  assert.equal(figures.lines[0].label, 'Mobilisation')
+  assert.equal(figures.lines[0].amount, 250)
+  assert.equal(figures.subtotal, 1800 + 1500 + 250)
+  assert.equal(figures.gst, 355)
+  assert.equal(figures.total, 3905)
+  const content = contentsClearanceQuoteContent({
+    reference: 'CCQ-TEST',
+    clientName: 'Acme Pty Ltd',
+    siteAddress: '1 Example Street',
+    capture: {
+      ...emptyContentsClearanceCapture(),
+      estimated_m3: 18,
+      rate_per_m3: 100,
+      rate_per_labour_day: 500,
+      mobilisation_fee: 250,
+    },
+  })
+  const html = buildPrintHTML(
+    'contents_clearance_quote',
+    content as unknown as Record<string, unknown>,
+    [],
+    [],
+    null,
+    'job',
+    'http://localhost',
+    undefined,
+    { screenActionBar: false },
+  )
+  assert.match(html, /Mobilisation/)
+  assert.match(html, /Attendance and setup/)
+  assert.equal(content.total, 3905)
 })
 
 test('the quote prints quantities, then clauses, terms, authority, and acceptance', () => {
@@ -76,20 +155,24 @@ test('the quote prints quantities, then clauses, terms, authority, and acceptanc
     { screenActionBar: false },
   )
   const labels = [...html.matchAll(/class="label"[^>]*>([^<]+)/g)].map(match => match[1])
-  assert.deepEqual(labels, ['Estimated quantities', 'Inclusions', 'Exclusions', 'Assumptions', 'Payment terms', 'Engagement agreement', 'Authority', 'Acceptance'])
-  assert.match(html, /Estimated quantities/)
+  assert.deepEqual(labels, ['Inclusions', 'Exclusions', 'Assumptions', 'Payment terms', 'Engagement agreement', 'Authority', 'Acceptance'])
+  assert.match(html, />QUOTE</)
+  assert.match(html, /Document type<\/b> Contents Clearance/)
+  assert.match(html, /Deposit required \(50%\)/)
   assert.match(html, /3 man days \(3 days with 1 person or 1 day with 3 persons\)/)
-  assert.match(html, /\/ person \/ day/)
+  assert.match(html, />3\.00</)
+  assert.match(html, />days</)
   assert.match(html, /The client engages the contractor for this clearance\./)
   assert.match(html, /Acme Pty Ltd/)
   assert.match(html, /1 Example Street/)
-  assert.match(html, /Tip Road/)
-  assert.match(html, /2 return trips of 6 km/)
+  assert.match(html, /Tip \/ disposal site: Tip Road/)
+  assert.match(html, /2 return trips × 6 km, job to tip/)
   assert.equal(content.labour_days, 3)
   assert.equal(content.volume_amount, 1800)
   assert.equal(content.distance_amount, 24)
   assert.equal(content.labour_amount, 1500)
-  assert.match(html, /\$100\.00 \/ m³/)
+  assert.match(html, /\$100\.00/)
+  assert.match(html, />m³</)
   assert.equal(content.title, 'Contents Clearance Quote')
 })
 

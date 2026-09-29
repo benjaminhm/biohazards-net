@@ -1094,6 +1094,8 @@ export interface AssessmentData {
     /** contents | hoarding | estate. Printed as the client document title. */
     clearance_kind?: 'contents' | 'hoarding' | 'estate'
     estimated_m3: number | null
+    /** Cubic metres one person clears in a day. Blank uses 6. */
+    m3_per_labour_day?: number | null
     /** Older captures stored a single kilometre total. New captures use return trips. */
     estimated_km: number | null
     /** Ex GST dollars. */
@@ -1113,6 +1115,8 @@ export interface AssessmentData {
     /** Ex GST dollars per tonne. */
     disposal_rate_per_tonne?: number | null
     estimated_tonnes?: number | null
+    /** Ex GST. Attendance and setup. Blank or zero stays off the quote. */
+    mobilisation_fee?: number | null
   }
   /** Statement of Accounts — deposit taken against the quote, before the balance is worked out. */
   statement_of_accounts?: {

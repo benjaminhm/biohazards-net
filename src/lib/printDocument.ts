@@ -44,7 +44,7 @@ import type { CustomPricingRow, SectionTerms, VolumeDisposalFeeMode, VolumePrici
 const DEFAULT_PRINT_ORG_NAME = 'Brisbane Biohazard Cleaning'
 import { proseHasPrintableContent, richBodyHtmlForPrint } from '@/lib/richTextPrint'
 import { presentStatementDocument, statementClientLines, statementPhone, StatementReconciliationError, type StatementPresentation } from '@/lib/statementOfAccounts'
-import { contentsClearanceTimeFrame, type ContentsClearanceQuoteContent } from '@/lib/contentsClearanceQuote'
+import { CONTENTS_CLEARANCE_SCHEMA, contentsClearanceTimeFrame, type ContentsClearanceQuoteContent } from '@/lib/contentsClearanceQuote'
 
 // en-AU locale produces comma separators and dollar sign (e.g. $4,500.00)
 const fmtMoney = (n: number) =>
@@ -717,9 +717,123 @@ function cssSowPrint(): string {
         min-height: 0;
       }
     }
+    .sow-root.ccq-doc { font-variant-numeric: tabular-nums; page: ccq; }
+    .sow-root.ccq-doc .sow-top {
+      background: #fff;
+      padding: 0 0 10px;
+      border-bottom: 2px solid var(--sow-navy);
+      align-items: flex-start;
+    }
+    .sow-root.ccq-doc .sow-co-name,
+    .sow-root.ccq-doc .sow-wordmark-line { color: var(--sow-navy); }
+    .sow-root.ccq-doc .sow-co-sub,
+    .sow-root.ccq-doc .sow-wordmark-accent { color: var(--sow-muted); }
+    .sow-root.ccq-doc .ccq-doc-title {
+      font-size: 28pt;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      color: var(--sow-navy);
+      line-height: 1;
+      text-align: right;
+    }
+    .sow-root.ccq-doc .ccq-meta {
+      margin-top: 8px;
+      text-align: right;
+      font-size: 8pt;
+      color: var(--sow-mid);
+      line-height: 1.45;
+    }
+    .sow-root.ccq-doc .ccq-meta b { color: var(--sow-navy); font-weight: 600; }
+    .sow-root.ccq-doc .sow-doc-title { display: none; }
+    .sow-root.ccq-doc .sow-mid { padding-top: 14px; }
+    .sow-root.ccq-doc .ccq-parties {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 16px;
+      margin: 0 0 16px;
+    }
+    .sow-root.ccq-doc .ccq-party-label {
+      font-size: 8pt;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--sow-navy-mid);
+      margin-bottom: 4px;
+    }
+    .sow-root.ccq-doc .ccq-party { font-size: 9.5pt; color: var(--sow-navy); line-height: 1.45; font-weight: 400; }
+    .sow-root.ccq-doc .ccq-email { display: block; word-break: keep-all; overflow-wrap: normal; font-size: 8.5pt; }
+    .sow-root.ccq-doc .ccq-table thead th { background: var(--sow-navy); color: #fff; }
+    .sow-root.ccq-doc .ccq-table td.r,
+    .sow-root.ccq-doc .ccq-table th.r { text-align: right; font-variant-numeric: tabular-nums; }
+    .sow-root.ccq-doc .ccq-name { font-weight: 700; color: var(--sow-navy); }
+    .sow-root.ccq-doc .ccq-sub { display: block; margin-top: 2px; font-size: 8pt; font-weight: 400; color: var(--sow-muted); }
+    .sow-root.ccq-doc .ccq-settle {
+      display: grid;
+      grid-template-columns: 1fr 42%;
+      gap: 16px;
+      align-items: start;
+      margin-top: 8px;
+    }
+    .sow-root.ccq-doc .ccq-totals .tot-row { justify-content: space-between; gap: 12px; padding-left: 0; padding-right: 0; }
+    .sow-root.ccq-doc .ccq-total-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      background: var(--sow-navy);
+      color: #fff;
+      font-size: 16pt;
+      font-weight: 700;
+      padding: 8px 10px;
+      margin-top: 6px;
+    }
+    .sow-root.ccq-doc .ccq-deposit {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 6px;
+      font-size: 11pt;
+      font-weight: 700;
+      color: var(--sow-navy);
+    }
+    .sow-root.ccq-doc .ccq-terms {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px 16px;
+      margin-top: 12px;
+    }
+    .sow-root.ccq-doc .ccq-terms .label,
+    .sow-root.ccq-doc .ccq-accept .label {
+      letter-spacing: 0.05em;
+      font-size: 8pt;
+      margin-top: 8px;
+    }
+    .sow-root.ccq-doc .ccq-terms .body-text { font-size: 8.5pt; color: var(--sow-muted); line-height: 1.45; }
+    .sow-root.ccq-doc .ccq-accept {
+      border: 1px solid var(--sow-rule);
+      margin-top: 12px;
+      padding: 10px 12px;
+      font-size: 9pt;
+      color: var(--sow-mid);
+      line-height: 1.45;
+    }
+    .sow-root.ccq-doc .ccq-sign { display: flex; gap: 18px; margin-top: 10px; }
+    .sow-root.ccq-doc .ccq-sign span { flex: 1; }
+    .sow-root.ccq-doc .sow-foot span { letter-spacing: 0; }
+    @media screen {
+      .sow-root.ccq-doc .sow-sheet { box-sizing: border-box; padding: 15mm; }
+    }
     @media print {
       /* Let content height drive page length where supported; no forced column breaks */
       @page { size: auto; margin: 10mm 12mm; }
+      @page ccq { size: A4 portrait; margin: 15mm; }
+      .sow-root.ccq-doc .sow-sheet { padding: 0 !important; }
+      .sow-root.ccq-doc .ccq-table,
+      .sow-root.ccq-doc .ccq-settle,
+      .sow-root.ccq-doc .ccq-accept {
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
+      }
       body.sow-print-body { background: white !important; padding-top: 0 !important; }
       body.sow-print-body .action-bar { display: none !important; }
       .sow-root .quote-accept { display: none !important; }
@@ -941,6 +1055,10 @@ interface WrapBrandedPrintOptions {
   metaHtml?: string
   /** Line above the confidential footer. */
   footerNote?: string
+  /** Replaces the navy header. Other documents keep the shared header. */
+  headerHtml?: string
+  /** Replaces the shared footer. */
+  footerHtml?: string
   /** Diagonal stamp repeated across the printed pages. */
   watermark?: string
 }
@@ -994,7 +1112,7 @@ function wrapBranded(
   <div class="${rootClass}">
     <div class="sow-sheet">
       ${watermark ? `<div class="sow-watermark" aria-hidden="true"><span>${esc(watermark)}</span></div>` : ''}
-      <header class="sow-top">
+      ${printOptions?.headerHtml ?? `<header class="sow-top">
         <div class="sow-top-left">
           ${logo}
           <div class="sow-co-block">
@@ -1006,18 +1124,18 @@ function wrapBranded(
           <strong>${esc(reference)}</strong>
           ${todayStr()}
         </div>
-      </header>
+      </header>`}
       <div class="sow-mid">
         <div class="sow-doc-title">${esc(documentHeading)}</div>
         ${printOptions?.afterTitleHtml ?? ''}
         ${metaHtml}
         ${midBodyHtml}
       </div>
-      <footer class="sow-foot">
+      ${printOptions?.footerHtml ?? `<footer class="sow-foot">
         ${printOptions?.footerNote ? `<span class="soa-foot-note">${printOptions.footerNote}</span>` : ''}
         <span>${esc(coName)} — Confidential</span>
         <span>${footerRef}</span>
-      </footer>
+      </footer>`}
     </div>
   </div>
   `, pdfSaveTitle(reference, client?.client_name, pageTitle), client, printOptions?.screenActionBar !== false)
@@ -3210,73 +3328,220 @@ function buildAssessmentDocumentHTML(
   return wrapBranded(mid, title, title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
-function clearanceQty(n: number, unit: string): string {
-  return `${n.toLocaleString('en-AU', { maximumFractionDigits: 2 })} ${unit}`
+function ccqText(value: string | null | undefined): string {
+  const t = (value ?? '').trim()
+  if (!t || t === '—') return ''
+  return t
 }
 
-function clearanceList(label: string, items: string[]): string {
-  const rows = items.filter(item => item.trim())
+function ccqQty(n: number, fixed: boolean): string {
+  return n.toLocaleString('en-AU', {
+    minimumFractionDigits: fixed ? 2 : 0,
+    maximumFractionDigits: 2,
+  })
+}
+
+function ccqList(label: string, items: string[]): string {
+  const rows = items.map(item => item.trim()).filter(Boolean)
   if (!rows.length) return ''
-  return `<div class="label" style="margin-top:18px">${label}</div><ul class="body-text">${rows.map(item => `<li>${esc(item)}</li>`).join('')}</ul>`
+  return `<div class="label">${esc(label)}</div><ul class="body-text">${rows.map(item => `<li>${esc(item)}</li>`).join('')}</ul>`
 }
 
-function buildContentsClearanceMid(c: ContentsClearanceQuoteContent): string {
-  const lines = [
-    { label: 'Contents', quantity: clearanceQty(c.estimated_m3, 'm³'), rate: `${fmtMoney(c.rate_per_m3)} / m³`, amount: c.volume_amount },
-    { label: 'Distance', quantity: clearanceQty(c.estimated_km, 'km'), rate: `${fmtMoney(c.rate_per_km)} / km`, amount: c.distance_amount },
-    { label: 'Labour', quantity: clearanceQty(c.labour_days, c.labour_days === 1 ? 'man day' : 'man days'), rate: `${fmtMoney(c.rate_per_labour_day)} / person / day`, amount: c.labour_amount },
-  ]
+function ccqDocumentType(title: string): string {
+  const type = title.trim().replace(/\s+quote$/i, '')
+  return type || 'Contents Clearance'
+}
+
+function ccqValidUntil(days: number): string {
+  const issued = new Date()
+  issued.setDate(issued.getDate() + days)
+  return issued.toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })
+}
+
+function ccqDeposit(total: number): number {
+  return Math.round(total * CONTENTS_CLEARANCE_SCHEMA.depositFraction * 100) / 100
+}
+
+function ccqLockup(company: CompanyProfile | null): { name: string; logo: string; tagline: string } {
+  const name = company?.name?.trim() || DEFAULT_PRINT_ORG_NAME
+  const tagline = company?.tagline?.trim() || 'Biohazard & Forensic Remediation Services'
+  const logo = company?.logo_url
+    ? `<img class="sow-logo" src="${esc(company.logo_url)}" alt="${esc(name)}">`
+    : brandWordmarkHtml(name)
+  return { name, logo, tagline }
+}
+
+function ccqHeaderHtml(c: ContentsClearanceQuoteContent, company: CompanyProfile | null): string {
+  const brand = ccqLockup(company)
+  const nameBesideLogo = company?.logo_url
+    ? `<div class="sow-co-name">${esc(brand.name)}</div>`
+    : ''
+  return `<header class="sow-top">
+    <div class="sow-top-left">
+      ${brand.logo}
+      <div class="sow-co-block">
+        ${nameBesideLogo}
+        <div class="sow-co-sub">${esc(brand.tagline)}</div>
+      </div>
+    </div>
+    <div>
+      <div class="ccq-doc-title">QUOTE</div>
+      <div class="ccq-meta">
+        <div><b>Quote No.</b> ${esc(c.reference)}</div>
+        <div><b>Date issued</b> ${esc(todayStr())}</div>
+        <div><b>Valid until</b> ${esc(ccqValidUntil(CONTENTS_CLEARANCE_SCHEMA.validDays))}</div>
+        <div><b>Document type</b> ${esc(ccqDocumentType(c.title))}</div>
+      </div>
+    </div>
+  </header>`
+}
+
+function ccqFooterHtml(c: ContentsClearanceQuoteContent, company: CompanyProfile | null): string {
+  const name = company?.name?.trim() || DEFAULT_PRINT_ORG_NAME
+  const abn = ccqText(company?.abn)
+  return `<footer class="sow-foot">
+    <span>${esc(name)} — Confidential</span>
+    <span>${abn ? `ABN ${esc(abn)}` : ''}</span>
+    <span>${esc(c.reference)} · Page 1 of 1</span>
+  </footer>`
+}
+
+function ccqParties(c: ContentsClearanceQuoteContent, company: CompanyProfile | null, client: ClientInfo | undefined): string {
+  const from = [
+    ccqText(company?.name) || DEFAULT_PRINT_ORG_NAME,
+    ccqText(company?.abn) ? `ABN ${ccqText(company?.abn)}` : '',
+    ccqText(company?.phone),
+    ccqText(company?.email),
+    ccqText(company?.address),
+  ].filter(Boolean)
+  const quoteFor = [ccqText(c.client_name), ccqText(client?.client_phone), ccqText(client?.client_email)].filter(Boolean)
+  const site = ccqText(c.job_address) || ccqText(c.site_address)
+  const tip = ccqText(c.tip_address)
+  const block = (label: string, lines: string[]) => `
+    <div>
+      <div class="ccq-party-label">${esc(label)}</div>
+      <div class="ccq-party">${lines.map(line => {
+        const email = line.includes('@')
+        return `<div${email ? ' class="ccq-email"' : ''}>${esc(line)}</div>`
+      }).join('')}</div>
+    </div>`
+  return `<div class="ccq-parties">
+    ${block('From', from)}
+    ${block('Quote for', quoteFor)}
+    ${block('Job site', [site, tip ? `Tip / disposal site: ${tip}` : ''].filter(Boolean))}
+  </div>`
+}
+
+function buildContentsClearanceMid(
+  c: ContentsClearanceQuoteContent,
+  company: CompanyProfile | null,
+  client: ClientInfo | undefined,
+): string {
+  const perDay = c.m3_per_labour_day || CONTENTS_CLEARANCE_SCHEMA.m3PerLabourDay
+  const travelNote = (c.return_trips ?? 0) > 0
+    ? `${ccqQty(c.return_trips, false)} return ${c.return_trips === 1 ? 'trip' : 'trips'} × ${ccqQty(c.return_trip_km, false)} km, job to tip`
+    : ''
+  const timeFrame = contentsClearanceTimeFrame(c.labour_days)
+  const mobilisation = c.mobilisation_fee ?? 0
+  const rows: { name: string; notes: string[]; qty: string; unit: string; rate: number; amount: number }[] = []
+  if (mobilisation > 0) {
+    rows.push({
+      name: 'Mobilisation',
+      notes: ['Attendance and setup'],
+      qty: '1',
+      unit: 'fee',
+      rate: mobilisation,
+      amount: mobilisation,
+    })
+  }
+  rows.push(
+    {
+      name: 'Contents clearance',
+      notes: ['Estimated volume'],
+      qty: ccqQty(c.estimated_m3, false),
+      unit: 'm³',
+      rate: c.rate_per_m3,
+      amount: c.volume_amount,
+    },
+    {
+      name: 'Travel',
+      notes: travelNote ? [travelNote] : [],
+      qty: ccqQty(c.estimated_km, false),
+      unit: 'km',
+      rate: c.rate_per_km,
+      amount: c.distance_amount,
+    },
+    {
+      name: 'Labour',
+      notes: [
+        `${ccqQty(c.estimated_m3, false)} m³ ÷ ${ccqQty(perDay, false)} m³ per day`,
+        timeFrame,
+      ].filter(Boolean),
+      qty: ccqQty(c.labour_days, true),
+      unit: 'days',
+      rate: c.rate_per_labour_day,
+      amount: c.labour_amount,
+    },
+  )
   if ((c.estimated_tonnes ?? 0) > 0 || (c.disposal_rate_per_tonne ?? 0) > 0) {
-    lines.push({
-      label: 'Disposal',
-      quantity: clearanceQty(c.estimated_tonnes ?? 0, (c.estimated_tonnes ?? 0) === 1 ? 'tonne' : 'tonnes'),
-      rate: `${fmtMoney(c.disposal_rate_per_tonne ?? 0)} / tonne`,
+    rows.push({
+      name: 'Disposal',
+      notes: ['Estimated tip weight'],
+      qty: ccqQty(c.estimated_tonnes ?? 0, false),
+      unit: 'tonnes',
+      rate: c.disposal_rate_per_tonne ?? 0,
       amount: c.disposal_amount ?? 0,
     })
   }
-  const body = lines.map(line => `
+  const body = rows.map(row => `
     <tr>
-      <td>${esc(line.label)}</td>
-      <td class="r">${esc(line.quantity)}</td>
-      <td class="r">${esc(line.rate)}</td>
-      <td class="r">${fmtMoney(line.amount)}</td>
+      <td><span class="ccq-name">${esc(row.name)}</span>${row.notes.map(note => `<span class="ccq-sub">${esc(note)}</span>`).join('')}</td>
+      <td class="r">${esc(row.qty)}</td>
+      <td class="r">${esc(row.unit)}</td>
+      <td class="r">${fmtMoney(row.rate)}</td>
+      <td class="r">${fmtMoney(row.amount)}</td>
     </tr>`).join('')
-  const perDay = c.m3_per_labour_day || 6
+  const deposit = ccqDeposit(c.total)
   return `
-    <div class="sow-summary" style="margin-bottom:20px;">
-      <div class="sow-meta-label" style="margin-bottom:6px;">Client</div>
-      <div class="body-text" style="font-weight:500;color:var(--sow-navy);">${esc(c.client_name || '—')}</div>
-      <div class="sow-meta-label" style="margin:10px 0 6px;">Job address</div>
-      <div class="body-text" style="font-weight:500;color:var(--sow-navy);">${esc(c.job_address || c.site_address || '—')}</div>
-      <div class="sow-meta-label" style="margin:10px 0 6px;">Tip address</div>
-      <div class="body-text" style="font-weight:500;color:var(--sow-navy);">${esc(c.tip_address || '—')}</div>
-    </div>
-    <div class="label">Estimated quantities</div>
-    <table>
+    ${ccqParties(c, company, client)}
+    <table class="ccq-table">
       <thead>
         <tr>
-          <th>Item</th>
-          <th class="r">Estimated quantities</th>
+          <th>Description</th>
+          <th class="r">Qty</th>
+          <th class="r">Unit</th>
           <th class="r">Rate (ex GST)</th>
-          <th class="r">Amount</th>
+          <th class="r">Amount (ex GST)</th>
         </tr>
       </thead>
       <tbody>${body}</tbody>
     </table>
-    <div class="body-text" style="margin-top:8px;font-style:italic;color:var(--sow-muted)">Estimated time frame: ${esc(contentsClearanceTimeFrame(c.labour_days) || '—')}. One man day is ${esc(String(perDay))} m³ for one person. When the measured volume replaces this estimate, the man days move with it.</div>
-    ${(c.return_trips ?? 0) > 0 ? `<div class="body-text" style="margin-top:4px;font-style:italic;color:var(--sow-muted)">Distance is ${esc(String(c.return_trips))} return ${c.return_trips === 1 ? 'trip' : 'trips'} of ${esc(String(c.return_trip_km))} km between the job and the tip.</div>` : ''}
-    <div class="totals">
-      <div class="tot-row"><span>Subtotal (ex GST)</span><span class="amt">${fmtMoney(c.subtotal)}</span></div>
-      <div class="tot-row"><span>GST (10%)</span><span class="amt">${fmtMoney(c.gst)}</span></div>
-      <div class="tot-row grand"><span>TOTAL (INC GST)</span><span class="amt">${fmtMoney(c.total)}</span></div>
+    <div class="ccq-settle">
+      <div></div>
+      <div class="ccq-totals totals">
+        <div class="tot-row"><span>Subtotal (ex GST)</span><span class="amt">${fmtMoney(c.subtotal)}</span></div>
+        <div class="tot-row"><span>GST (10%)</span><span class="amt">${fmtMoney(c.gst)}</span></div>
+        <div class="ccq-total-bar"><span>TOTAL (inc GST)</span><span>${fmtMoney(c.total)}</span></div>
+        <div class="ccq-deposit"><span>Deposit required (50%)</span><span>${fmtMoney(deposit)}</span></div>
+      </div>
     </div>
-    ${clearanceList('Inclusions', c.inclusions ?? [])}
-    ${clearanceList('Exclusions', c.exclusions ?? [])}
-    ${clearanceList('Assumptions', c.assumptions ?? [])}
-    ${section('Payment terms', c.terms)}
-    ${section('Engagement agreement', c.engagement_agreement)}
-    ${section('Authority', c.authority)}
-    ${section('Acceptance', c.acceptance)}
+    <div class="ccq-terms">
+      <div>
+        ${ccqList('Inclusions', c.inclusions ?? [])}
+        ${ccqList('Exclusions', c.exclusions ?? [])}
+      </div>
+      <div>
+        ${ccqList('Assumptions', c.assumptions ?? [])}
+        ${section('Payment terms', c.terms)}
+        ${section('Engagement agreement', c.engagement_agreement)}
+      </div>
+    </div>
+    <div class="ccq-accept">
+      ${section('Authority', c.authority)}
+      ${section('Acceptance', c.acceptance)}
+      <div class="ccq-sign"><span>Name ________</span><span>Signature ________</span><span>Date ________</span></div>
+      <div style="margin-top:8px;">Deposit paid: $________</div>
+    </div>
   `
 }
 
@@ -3286,9 +3551,23 @@ function buildContentsClearanceHTML(
   client: ClientInfo | undefined,
   screenActionBar: boolean,
 ): string {
-  const mid = buildContentsClearanceMid(c)
+  const mid = buildContentsClearanceMid(c, company, client)
   const title = c.title?.trim() || 'Contents Clearance Quote'
-  return wrapBranded(mid, title, title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
+  return wrapBranded(
+    mid,
+    title,
+    'QUOTE',
+    c.reference,
+    company,
+    client,
+    defaultBrandedMeta(company, client),
+    wrapBrandedPrintOpts(screenActionBar, {
+      rootClass: 'ccq-doc',
+      metaHtml: '',
+      headerHtml: ccqHeaderHtml(c, company),
+      footerHtml: ccqFooterHtml(c, company),
+    }),
+  )
 }
 
 /** Mid-body HTML only (no shell). Used for composed bundles. */
@@ -3340,7 +3619,7 @@ export function buildPrintMidHTML(
     case 'assessment_document':
       return buildAssessmentDocumentMid(c as unknown as AssessmentDocumentContent, areas, photos, groups)
     case 'contents_clearance_quote':
-      return buildContentsClearanceMid(c as unknown as ContentsClearanceQuoteContent)
+      return buildContentsClearanceMid(c as unknown as ContentsClearanceQuoteContent, company, client)
     default:
       return `<p class="body-text">${esc('Unknown document type')}</p>`
   }

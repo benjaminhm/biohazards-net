@@ -178,6 +178,7 @@ export default function ContentsClearanceQuoteTab({ job, onJobUpdate }: Props) {
 
   const isDirty = capture.clearance_kind !== saved.clearance_kind
     || capture.estimated_m3 !== saved.estimated_m3
+    || capture.m3_per_labour_day !== saved.m3_per_labour_day
     || capture.estimated_km !== saved.estimated_km
     || capture.rate_per_m3 !== saved.rate_per_m3
     || capture.rate_per_km !== saved.rate_per_km
@@ -193,6 +194,7 @@ export default function ContentsClearanceQuoteTab({ job, onJobUpdate }: Props) {
     || capture.return_trips !== saved.return_trips
     || capture.disposal_rate_per_tonne !== saved.disposal_rate_per_tonne
     || capture.estimated_tonnes !== saved.estimated_tonnes
+    || capture.mobilisation_fee !== saved.mobilisation_fee
   useRegisterUnsavedChanges('contents-clearance-quote', isDirty)
 
   const figures = useMemo(
@@ -200,12 +202,13 @@ export default function ContentsClearanceQuoteTab({ job, onJobUpdate }: Props) {
       ratePerM3: capture.rate_per_m3 ?? CONTENTS_CLEARANCE_SCHEMA.ratePerM3,
       ratePerKm: capture.rate_per_km ?? CONTENTS_CLEARANCE_SCHEMA.ratePerKm,
       ratePerLabourDay: capture.rate_per_labour_day ?? CONTENTS_CLEARANCE_SCHEMA.ratePerLabourDay,
-      m3PerLabourDay: CONTENTS_CLEARANCE_SCHEMA.m3PerLabourDay,
+      m3PerLabourDay: capture.m3_per_labour_day ?? CONTENTS_CLEARANCE_SCHEMA.m3PerLabourDay,
     }, {
       returnTripKm: capture.return_trip_km,
       returnTrips: capture.return_trips,
       tonnes: capture.estimated_tonnes,
       ratePerTonne: capture.disposal_rate_per_tonne,
+      mobilisationFee: capture.mobilisation_fee,
     }),
     [capture],
   )
@@ -399,6 +402,24 @@ export default function ContentsClearanceQuoteTab({ job, onJobUpdate }: Props) {
         <div style={LABEL}>Client</div>
         <div>{job.client_name || '—'}</div>
       </div>
+      <div style={{ marginBottom: 12, maxWidth: 360 }}>
+        <label style={LABEL}>Mobilisation fee ($)</label>
+        <input
+          type="number"
+          min={0}
+          step="0.01"
+          value={capture.mobilisation_fee ?? ''}
+          onChange={e => {
+            const raw = e.target.value
+            patch({ mobilisation_fee: raw === '' ? null : Number(raw) })
+          }}
+          placeholder="0.00"
+          style={INPUT}
+        />
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
+          Attendance and setup, ex GST. It is added to the quote when the amount is more than zero.
+        </div>
+      </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
         <div>
           <label style={LABEL}>Disposal fee per tonne ($)</label>
@@ -551,10 +572,28 @@ export default function ContentsClearanceQuoteTab({ job, onJobUpdate }: Props) {
             style={INPUT}
           />
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
-            {CONTENTS_CLEARANCE_SCHEMA.m3PerLabourDay} m³ is one man day, for one person.
+            {figures.m3_per_labour_day.toLocaleString('en-AU', { maximumFractionDigits: 2 })} m³ is one man day, for one person.
             {figures.labour_days > 0 && (
               <div>Estimated time frame: {contentsClearanceTimeFrame(figures.labour_days)}.</div>
             )}
+          </div>
+        </div>
+        <div>
+          <label style={LABEL}>m³ per person per day</label>
+          <input
+            type="number"
+            min={0}
+            step="0.1"
+            value={capture.m3_per_labour_day ?? ''}
+            onChange={e => {
+              const raw = e.target.value
+              patch({ m3_per_labour_day: raw === '' ? null : Number(raw) })
+            }}
+            placeholder={String(CONTENTS_CLEARANCE_SCHEMA.m3PerLabourDay)}
+            style={INPUT}
+          />
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
+            Blank stays at {CONTENTS_CLEARANCE_SCHEMA.m3PerLabourDay}. Lower it when this job is slower to move.
           </div>
         </div>
       </div>
