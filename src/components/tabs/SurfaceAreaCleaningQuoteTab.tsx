@@ -505,7 +505,7 @@ export default function SurfaceAreaCleaningQuoteTab({ job, onJobUpdate }: Props)
         <div>
           <div style={LABEL}>Engagement agreement</div>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
-            Saved for this company. The next contents clearance quote and surface cleaning quote start from this text, and it is printed on the document.
+            Saved for this company. The next contents clearance quote and surface cleaning quote start from this text, and it is printed on the document. Brackets are filled on the printed document: [name], [address], [title], [reference], [surface], [surface amount], [labour days], [labour amount], [mobilisation], [subtotal], [gst], [total]. A contents-clearance bracket is left out of this document.
           </div>
           {standardsReady && (
             <RichTextEditor

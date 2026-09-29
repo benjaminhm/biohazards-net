@@ -359,3 +359,36 @@ test('contents clearance photos print at the end, and a quote photo does not', (
   assert.match(html, /Front room/)
   assert.doesNotMatch(html, /quote-only\.jpg/)
 })
+
+test('engagement brackets are filled on the contents clearance document', () => {
+  const content = contentsClearanceQuoteContent({
+    reference: 'CCQ-TEST',
+    clientName: 'Acme Pty Ltd',
+    siteAddress: '1 Example Street',
+    capture: {
+      ...emptyContentsClearanceCapture(),
+      estimated_m3: 18,
+      rate_per_m3: 100,
+      rate_per_labour_day: 500,
+      maximum_man_days: 3,
+    },
+    standards: {
+      ...defaultContentsClearanceStandards(),
+      engagement_agreement: 'For [name] at [address], [volume], [labour days], total [total]. [surface]',
+    },
+  })
+  const html = buildPrintHTML(
+    'contents_clearance_quote',
+    content as unknown as Record<string, unknown>,
+    [],
+    [],
+    null,
+    'job',
+    'http://localhost',
+    undefined,
+    { screenActionBar: false },
+  )
+  assert.match(html, /For Acme Pty Ltd at 1 Example Street, 18 m³, 3 labour days, total \$3,630\.00\./)
+  assert.doesNotMatch(html, /\[surface\]/)
+  assert.match(content.engagement_agreement, /\[name\]/)
+})

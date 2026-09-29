@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { buildPrintHTML } from '@/lib/printDocument'
 import {
+  defaultSurfaceAreaCleaningStandards,
   emptySurfaceAreaCleaningCapture,
   SURFACE_AREA_ROOM_PRESETS,
   roomSurfaceArea,
@@ -151,4 +152,37 @@ test('the quote uses the room total and lists each room', () => {
   )
   assert.match(html, /Bedroom 4 × 3 × 2\.4 m/)
   assert.match(html, /57\.6 m²/)
+})
+
+test('engagement brackets are filled on the surface cleaning document', () => {
+  const content = surfaceAreaCleaningQuoteContent({
+    reference: 'SACQ-TEST',
+    clientName: 'Acme Pty Ltd',
+    siteAddress: '1 Example Street',
+    capture: {
+      ...emptySurfaceAreaCleaningCapture(),
+      estimated_m2: 20,
+      rate_per_m2: 50,
+      labour_days: 5,
+      rate_per_labour_day: 600,
+    },
+    standards: {
+      ...defaultSurfaceAreaCleaningStandards(),
+      engagement_agreement: 'For [name], [surface], [labour days], total [total]. [volume]',
+    },
+  })
+  const html = buildPrintHTML(
+    'surface_area_cleaning_quote',
+    content as unknown as Record<string, unknown>,
+    [],
+    [],
+    null,
+    'job',
+    'http://localhost',
+    undefined,
+    { screenActionBar: false },
+  )
+  assert.match(html, /For Acme Pty Ltd, 20 m², 5 labour days, total \$4,400\.00\./)
+  assert.doesNotMatch(html, /\[volume\]/)
+  assert.match(content.engagement_agreement, /\[name\]/)
 })

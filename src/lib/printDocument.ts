@@ -45,6 +45,7 @@ const DEFAULT_PRINT_ORG_NAME = 'Brisbane Biohazard Cleaning'
 import { proseHasPrintableContent, richBodyHtmlForPrint } from '@/lib/richTextPrint'
 import { presentStatementDocument, statementClientLines, statementPhone, StatementReconciliationError, type StatementPresentation } from '@/lib/statementOfAccounts'
 import type { ContentsClearanceQuoteContent } from '@/lib/contentsClearanceQuote'
+import { fillContentsClearanceEngagement, fillSurfaceAreaCleaningEngagement } from '@/lib/quoteEngagement'
 import { SURFACE_AREA_ESTIMATE_NOTE, SURFACE_AREA_LABOUR_NOTE, type SurfaceAreaCleaningQuoteContent } from '@/lib/surfaceAreaCleaningQuote'
 
 // en-AU locale produces comma separators and dollar sign (e.g. $4,500.00)
@@ -3459,7 +3460,7 @@ function buildContentsClearanceMid(c: ContentsClearanceQuoteContent, photos: Pho
     ${clearanceList('Exclusions', c.exclusions ?? [])}
     ${clearanceList('Assumptions', c.assumptions ?? [])}
     ${section('Payment terms', c.terms)}
-    ${section('Engagement agreement', c.engagement_agreement)}
+    ${section('Engagement agreement', fillContentsClearanceEngagement(c))}
     ${section('Authority', c.authority)}
     ${section('Acceptance', c.acceptance)}
     ${clearanceAppendixHtml(photos)}
@@ -3531,7 +3532,7 @@ function buildSurfaceAreaCleaningMid(c: SurfaceAreaCleaningQuoteContent): string
     ${clearanceList('Exclusions', c.exclusions ?? [])}
     ${clearanceList('Assumptions', c.assumptions ?? [])}
     ${section('Payment terms', c.terms)}
-    ${section('Engagement agreement', c.engagement_agreement)}
+    ${section('Engagement agreement', fillSurfaceAreaCleaningEngagement(c))}
     ${section('Authority', c.authority)}
     ${section('Acceptance', c.acceptance)}
   `
