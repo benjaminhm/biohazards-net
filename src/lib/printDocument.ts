@@ -3398,7 +3398,7 @@ function buildContentsClearanceMid(c: ContentsClearanceQuoteContent): string {
   fixed.push({
     label: 'Labour',
     quantity: clearanceQty(c.labour_days, c.labour_days === 1 ? 'labour day' : 'labour days'),
-    rate: `${fmtMoney(c.rate_per_labour_day)} / labour day`,
+    rate: 'Fixed',
     amount: c.labour_amount,
   })
   const sectionAmount = (lines: { amount: number }[]) =>
@@ -3429,6 +3429,7 @@ function buildContentsClearanceMid(c: ContentsClearanceQuoteContent): string {
     ${clearanceSectionSubtotal('Estimated subtotal (ex GST)', sectionAmount(estimated))}
     <div class="label" style="margin-top:18px">Fixed Rate Quotations</div>
     ${clearanceTable('Quantity', fixed)}
+    <div class="body-text" style="margin-top:4px;font-style:italic;color:var(--sow-muted)">A labour day is one person on site for one day. It is not a calendar day, and it does not set how many people are on site at one time.</div>
     ${clearanceSectionSubtotal('Fixed subtotal (ex GST)', sectionAmount(fixed))}
     <div class="totals">
       <div class="tot-row"><span>Subtotal (ex GST)</span><span class="amt">${fmtMoney(c.subtotal)}</span></div>
