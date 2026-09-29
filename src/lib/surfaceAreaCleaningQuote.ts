@@ -24,7 +24,7 @@ export const SURFACE_AREA_SCHEMA = {
     'Work other than the surface cleaning and the labour days on this quote.',
   ],
   assumptions: [
-    'Square metres are an estimate of the area. The measured area replaces that estimate, at the rate per square metre on this quote.',
+    'Square metres on this quote are an estimate. An accurate onsite measurement survey revises them, at the rate per square metre on this quote.',
     'The labour days on this quote are the labour for this cleaning.',
   ],
   terms:
@@ -37,6 +37,45 @@ export const SURFACE_AREA_SCHEMA = {
 
 export const SURFACE_AREA_LABOUR_NOTE =
   'A labour day = 1 person onsite for 1 day. (It does not = estimate days onsite. It does not = number of people onsite per day).'
+
+export const SURFACE_AREA_ESTIMATE_NOTE =
+  'This figure is an estimate. It will be revised with an accurate onsite measurement survey.'
+
+/** Saved before the room estimate named the onsite survey. Replaced only when the text still matches. */
+const PREVIOUS_SURFACE_AREA_ASSUMPTIONS =
+  'Square metres are an estimate of the area. The measured area replaces that estimate, at the rate per square metre on this quote.\nThe labour days on this quote are the labour for this cleaning.'
+
+/** Typical room sizes for a quote made from a description, before anyone has measured the site. Height is 2.4 m except the garage. */
+export const SURFACE_AREA_ROOM_PRESETS = [
+  { id: 'bedroom', name: 'Bedroom', length_m: 3.5, width_m: 3, height_m: 2.4 },
+  { id: 'main_bedroom', name: 'Main bedroom', length_m: 4, width_m: 3.6, height_m: 2.4 },
+  { id: 'living', name: 'Living', length_m: 5, width_m: 4, height_m: 2.4 },
+  { id: 'kitchen', name: 'Kitchen', length_m: 4, width_m: 3.2, height_m: 2.4 },
+  { id: 'dining', name: 'Dining', length_m: 3.6, width_m: 3, height_m: 2.4 },
+  { id: 'bathroom', name: 'Bathroom', length_m: 2.2, width_m: 1.8, height_m: 2.4 },
+  { id: 'ensuite', name: 'Ensuite', length_m: 2.4, width_m: 1.6, height_m: 2.4 },
+  { id: 'toilet', name: 'Toilet', length_m: 1.8, width_m: 0.9, height_m: 2.4 },
+  { id: 'laundry', name: 'Laundry', length_m: 2.2, width_m: 1.8, height_m: 2.4 },
+  { id: 'hall', name: 'Hall', length_m: 6, width_m: 1.2, height_m: 2.4 },
+  { id: 'garage', name: 'Garage', length_m: 6, width_m: 3, height_m: 2.7 },
+] as const
+
+export type SurfaceAreaRoomPresetId = (typeof SURFACE_AREA_ROOM_PRESETS)[number]['id']
+
+export interface SurfaceAreaRoom {
+  id: string
+  name: string
+  length_m: number | null
+  width_m: number | null
+  height_m: number | null
+}
+
+export interface SurfaceAreaRoomMeasure {
+  floor: number
+  ceiling: number
+  walls: number
+  total: number
+}
 
 export interface SurfaceAreaCleaningStandards {
   inclusions: string
@@ -58,6 +97,8 @@ export interface SurfaceAreaCleaningCapture {
   job_address: string | null
   /** Ex GST. Attendance and setup. Blank or zero stays off the quote. */
   mobilisation_fee: number | null
+  /** Rooms that make up the estimated square metres. Empty keeps the typed total. */
+  rooms: SurfaceAreaRoom[]
 }
 
 export interface SurfaceAreaCleaningLine {
@@ -95,6 +136,7 @@ export interface SurfaceAreaCleaningQuoteContent {
   rate_per_labour_day: number
   labour_amount: number
   mobilisation_fee: number
+  rooms: { name: string; detail: string; area_m2: number }[]
   subtotal: number
   gst: number
   total: number
@@ -121,6 +163,21 @@ export function surfaceAreaCleaningDocumentTitle(kind: string | null | undefined
     ?? SURFACE_AREA_CLIENT_TITLES[0].title
 }
 
+export function newSurfaceAreaRoomId(): string {
+  return `room_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+}
+
+export function newSurfaceAreaRoom(presetId?: SurfaceAreaRoomPresetId): SurfaceAreaRoom {
+  const preset = SURFACE_AREA_ROOM_PRESETS.find(option => option.id === presetId)
+  return {
+    id: newSurfaceAreaRoomId(),
+    name: preset?.name ?? '',
+    length_m: preset?.length_m ?? null,
+    width_m: preset?.width_m ?? null,
+    height_m: preset?.height_m ?? 2.4,
+  }
+}
+
 export function emptySurfaceAreaCleaningCapture(): SurfaceAreaCleaningCapture {
   return {
     cleaning_kind: 'surface',
@@ -130,7 +187,37 @@ export function emptySurfaceAreaCleaningCapture(): SurfaceAreaCleaningCapture {
     rate_per_labour_day: null,
     job_address: null,
     mobilisation_fee: null,
+    rooms: [],
   }
+}
+
+/** A rectangular room: floor and ceiling are length × width, walls are the perimeter × height. */
+export function roomSurfaceArea(room: Pick<SurfaceAreaRoom, 'length_m' | 'width_m' | 'height_m'>): SurfaceAreaRoomMeasure | null {
+  const length = room.length_m
+  const width = room.width_m
+  const height = room.height_m
+  if (length == null || width == null || height == null || length <= 0 || width <= 0 || height <= 0) return null
+  const floor = round2(length * width)
+  const walls = round2(2 * (length + width) * height)
+  return {
+    floor,
+    ceiling: floor,
+    walls,
+    total: round2(floor + floor + walls),
+  }
+}
+
+export function roomsSurfaceTotal(rooms: SurfaceAreaRoom[]): number | null {
+  const totals = rooms.map(roomSurfaceArea).filter((measure): measure is SurfaceAreaRoomMeasure => measure != null)
+  if (totals.length === 0) return null
+  return round2(totals.reduce((sum, measure) => sum + measure.total, 0))
+}
+
+/** Room composite when any room has dimensions. Otherwise the typed square metres. */
+export function quotedSquareMetres(capture: Pick<SurfaceAreaCleaningCapture, 'estimated_m2' | 'rooms'>): number | null {
+  const fromRooms = roomsSurfaceTotal(capture.rooms ?? [])
+  if (fromRooms != null) return fromRooms
+  return capture.estimated_m2
 }
 
 export function defaultSurfaceAreaCleaningStandards(): SurfaceAreaCleaningStandards {
@@ -155,7 +242,9 @@ export function normalizeSurfaceAreaCleaningStandards(raw: unknown): SurfaceArea
   return {
     inclusions: text('inclusions'),
     exclusions: text('exclusions'),
-    assumptions: text('assumptions'),
+    assumptions: text('assumptions').trim() === PREVIOUS_SURFACE_AREA_ASSUMPTIONS
+      ? fallback.assumptions
+      : text('assumptions'),
     payment_terms: text('payment_terms'),
     engagement_agreement: text('engagement_agreement'),
   }
@@ -171,6 +260,7 @@ export function normalizeSurfaceAreaCleaningCapture(raw: unknown): SurfaceAreaCl
   const kind = SURFACE_AREA_CLIENT_TITLES.some(option => option.id === o.cleaning_kind)
     ? o.cleaning_kind as SurfaceAreaCleaningKind
     : 'surface'
+  const rooms = Array.isArray(o.rooms) ? o.rooms.map(normalizeSurfaceAreaRoom) : []
   return {
     cleaning_kind: kind,
     estimated_m2: qty(o.estimated_m2),
@@ -179,6 +269,23 @@ export function normalizeSurfaceAreaCleaningCapture(raw: unknown): SurfaceAreaCl
     rate_per_labour_day: qty(o.rate_per_labour_day),
     job_address: typeof o.job_address === 'string' ? o.job_address : null,
     mobilisation_fee: qty(o.mobilisation_fee),
+    rooms,
+  }
+}
+
+function normalizeSurfaceAreaRoom(raw: unknown): SurfaceAreaRoom {
+  const row = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {}
+  const metres = (value: unknown): number | null => {
+    if (value == null || value === '') return null
+    const n = typeof value === 'number' ? value : Number(value)
+    return Number.isFinite(n) && n >= 0 ? n : null
+  }
+  return {
+    id: typeof row.id === 'string' && row.id ? row.id : newSurfaceAreaRoomId(),
+    name: typeof row.name === 'string' ? row.name : '',
+    length_m: metres(row.length_m),
+    width_m: metres(row.width_m),
+    height_m: metres(row.height_m),
   }
 }
 
@@ -233,7 +340,7 @@ export function surfaceAreaCleaningQuoteContent(input: {
 }): SurfaceAreaCleaningQuoteContent {
   const capture = input.capture
   const standards = normalizeSurfaceAreaCleaningStandards(input.standards ?? null)
-  const figures = surfaceAreaCleaningFigures(capture.estimated_m2, {
+  const figures = surfaceAreaCleaningFigures(quotedSquareMetres(capture), {
     ratePerM2: capture.rate_per_m2 ?? SURFACE_AREA_SCHEMA.ratePerM2,
     ratePerLabourDay: capture.rate_per_labour_day ?? SURFACE_AREA_SCHEMA.ratePerLabourDay,
   }, {
@@ -241,6 +348,15 @@ export function surfaceAreaCleaningQuoteContent(input: {
     mobilisationFee: capture.mobilisation_fee,
   })
   const jobAddress = (capture.job_address ?? input.siteAddress).trim()
+  const rooms = (capture.rooms ?? []).flatMap(room => {
+    const measure = roomSurfaceArea(room)
+    if (!measure) return []
+    return [{
+      name: room.name.trim() || 'Room',
+      detail: `${room.length_m} × ${room.width_m} × ${room.height_m} m`,
+      area_m2: measure.total,
+    }]
+  })
   return {
     title: surfaceAreaCleaningDocumentTitle(capture.cleaning_kind),
     reference: input.reference,
@@ -254,6 +370,7 @@ export function surfaceAreaCleaningQuoteContent(input: {
     rate_per_labour_day: figures.rate_per_labour_day,
     labour_amount: figures.labour_amount,
     mobilisation_fee: figures.mobilisation_fee,
+    rooms,
     subtotal: figures.subtotal,
     gst: figures.gst,
     total: figures.total,

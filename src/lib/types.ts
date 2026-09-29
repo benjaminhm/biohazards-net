@@ -1140,6 +1140,14 @@ export interface AssessmentData {
     job_address?: string | null
     /** Ex GST. Attendance and setup. Blank or zero stays off the quote. */
     mobilisation_fee?: number | null
+    /** Rectangular rooms. Length, width, and height estimate the surface area. */
+    rooms?: {
+      id: string
+      name: string
+      length_m: number | null
+      width_m: number | null
+      height_m: number | null
+    }[]
   }
   /** Statement of Accounts — deposit taken against the quote, before the balance is worked out. */
   statement_of_accounts?: {

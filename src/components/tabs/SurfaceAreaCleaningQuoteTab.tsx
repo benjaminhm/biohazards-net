@@ -9,15 +9,21 @@ import { useRegisterUnsavedChanges } from '@/lib/unsavedChangesContext'
 import { formatAud } from '@/lib/disposalManifest'
 import {
   SURFACE_AREA_CLIENT_TITLES,
+  SURFACE_AREA_ROOM_PRESETS,
   SURFACE_AREA_SCHEMA,
   defaultSurfaceAreaCleaningStandards,
   emptySurfaceAreaCleaningCapture,
+  newSurfaceAreaRoom,
   normalizeSurfaceAreaCleaningCapture,
   normalizeSurfaceAreaCleaningStandards,
+  quotedSquareMetres,
+  roomSurfaceArea,
+  roomsSurfaceTotal,
   surfaceAreaClauseLines,
   surfaceAreaCleaningFigures,
   type SurfaceAreaCleaningCapture,
   type SurfaceAreaCleaningStandards,
+  type SurfaceAreaRoomPresetId,
 } from '@/lib/surfaceAreaCleaningQuote'
 
 interface Props {
@@ -123,10 +129,11 @@ export default function SurfaceAreaCleaningQuoteTab({ job, onJobUpdate }: Props)
     || capture.rate_per_labour_day !== saved.rate_per_labour_day
     || capture.job_address !== saved.job_address
     || capture.mobilisation_fee !== saved.mobilisation_fee
+    || JSON.stringify(capture.rooms) !== JSON.stringify(saved.rooms)
   useRegisterUnsavedChanges('surface-area-cleaning-quote', isDirty)
 
   const figures = useMemo(
-    () => surfaceAreaCleaningFigures(capture.estimated_m2, {
+    () => surfaceAreaCleaningFigures(quotedSquareMetres(capture), {
       ratePerM2: capture.rate_per_m2 ?? SURFACE_AREA_SCHEMA.ratePerM2,
       ratePerLabourDay: capture.rate_per_labour_day ?? SURFACE_AREA_SCHEMA.ratePerLabourDay,
     }, {
@@ -180,6 +187,11 @@ export default function SurfaceAreaCleaningQuoteTab({ job, onJobUpdate }: Props)
 
   function patch(next: Partial<SurfaceAreaCleaningCapture>) {
     setCapture(prev => ({ ...prev, ...next }))
+  }
+
+  function setRooms(rooms: SurfaceAreaCleaningCapture['rooms']) {
+    const total = roomsSurfaceTotal(rooms)
+    patch({ rooms, estimated_m2: total ?? capture.estimated_m2 })
   }
 
   async function save(next = capture): Promise<boolean> {
@@ -273,21 +285,98 @@ export default function SurfaceAreaCleaningQuoteTab({ job, onJobUpdate }: Props)
           style={INPUT}
         />
       </div>
+      <div style={{ marginBottom: 12 }}>
+        <div style={LABEL}>Rooms</div>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+          Length, width, and height. A typical size is enough when the room has not been seen. The total is the floor, the ceiling, and the walls.
+        </div>
+        <div style={{ display: 'grid', gap: 8 }}>
+          {capture.rooms.map(room => {
+            const measure = roomSurfaceArea(room)
+            const metres = (key: 'length_m' | 'width_m' | 'height_m', raw: string) => {
+              const next = capture.rooms.map(item => item.id === room.id
+                ? { ...item, [key]: raw === '' ? null : Number(raw) }
+                : item)
+              setRooms(next)
+            }
+            return (
+              <div key={room.id} style={{ display: 'grid', gridTemplateColumns: '1.4fr 0.7fr 0.7fr 0.7fr auto auto', gap: 8, alignItems: 'end' }}>
+                <div>
+                  <label style={LABEL}>Room</label>
+                  <input
+                    value={room.name}
+                    onChange={e => setRooms(capture.rooms.map(item => item.id === room.id ? { ...item, name: e.target.value } : item))}
+                    placeholder="Bedroom"
+                    style={INPUT}
+                  />
+                </div>
+                <div>
+                  <label style={LABEL}>L (m)</label>
+                  <input type="number" min={0} step="0.01" value={room.length_m ?? ''} onChange={e => metres('length_m', e.target.value)} style={INPUT} />
+                </div>
+                <div>
+                  <label style={LABEL}>W (m)</label>
+                  <input type="number" min={0} step="0.01" value={room.width_m ?? ''} onChange={e => metres('width_m', e.target.value)} style={INPUT} />
+                </div>
+                <div>
+                  <label style={LABEL}>H (m)</label>
+                  <input type="number" min={0} step="0.01" value={room.height_m ?? ''} onChange={e => metres('height_m', e.target.value)} style={INPUT} />
+                </div>
+                <div style={{ fontSize: 13, paddingBottom: 8, whiteSpace: 'nowrap' }}>
+                  {measure ? `${measure.total.toLocaleString('en-AU', { maximumFractionDigits: 2 })} m²` : '—'}
+                </div>
+                <button type="button" className="btn" onClick={() => setRooms(capture.rooms.filter(item => item.id !== room.id))}>
+                  Remove
+                </button>
+              </div>
+            )
+          })}
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
+          <select
+            value=""
+            onChange={e => {
+              const value = e.target.value
+              if (!value) return
+              const preset = value === 'custom' ? undefined : value as SurfaceAreaRoomPresetId
+              setRooms([...capture.rooms, newSurfaceAreaRoom(preset)])
+            }}
+            style={{ ...INPUT, maxWidth: 280 }}
+          >
+            <option value="">Add a room…</option>
+            <option value="custom">Blank room</option>
+            {SURFACE_AREA_ROOM_PRESETS.map(preset => (
+              <option key={preset.id} value={preset.id}>{preset.name} · {preset.length_m} × {preset.width_m} × {preset.height_m} m</option>
+            ))}
+          </select>
+          {roomsSurfaceTotal(capture.rooms) != null && (
+            <span style={{ fontSize: 13, fontWeight: 700 }}>
+              {roomsSurfaceTotal(capture.rooms)?.toLocaleString('en-AU', { maximumFractionDigits: 2 })} m²
+            </span>
+          )}
+        </div>
+      </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
         <div>
           <label style={LABEL}>Estimated square metres</label>
-          <input
-            type="number"
-            min={0}
-            step="0.01"
-            value={capture.estimated_m2 ?? ''}
-            onChange={e => {
-              const raw = e.target.value
-              patch({ estimated_m2: raw === '' ? null : Number(raw) })
-            }}
-            placeholder="0"
-            style={INPUT}
-          />
+          {capture.rooms.length > 0 ? (
+            <div style={{ ...INPUT, background: 'transparent' }}>
+              {(quotedSquareMetres(capture) ?? 0).toLocaleString('en-AU', { maximumFractionDigits: 2 })}
+            </div>
+          ) : (
+            <input
+              type="number"
+              min={0}
+              step="0.01"
+              value={capture.estimated_m2 ?? ''}
+              onChange={e => {
+                const raw = e.target.value
+                patch({ estimated_m2: raw === '' ? null : Number(raw) })
+              }}
+              placeholder="0"
+              style={INPUT}
+            />
+          )}
         </div>
         <div>
           <label style={LABEL}>Labour days</label>

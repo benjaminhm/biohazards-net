@@ -45,7 +45,7 @@ const DEFAULT_PRINT_ORG_NAME = 'Brisbane Biohazard Cleaning'
 import { proseHasPrintableContent, richBodyHtmlForPrint } from '@/lib/richTextPrint'
 import { presentStatementDocument, statementClientLines, statementPhone, StatementReconciliationError, type StatementPresentation } from '@/lib/statementOfAccounts'
 import type { ContentsClearanceQuoteContent } from '@/lib/contentsClearanceQuote'
-import { SURFACE_AREA_LABOUR_NOTE, type SurfaceAreaCleaningQuoteContent } from '@/lib/surfaceAreaCleaningQuote'
+import { SURFACE_AREA_ESTIMATE_NOTE, SURFACE_AREA_LABOUR_NOTE, type SurfaceAreaCleaningQuoteContent } from '@/lib/surfaceAreaCleaningQuote'
 
 // en-AU locale produces comma separators and dollar sign (e.g. $4,500.00)
 const fmtMoney = (n: number) =>
@@ -3463,8 +3463,15 @@ function buildContentsClearanceHTML(
 
 function buildSurfaceAreaCleaningMid(c: SurfaceAreaCleaningQuoteContent): string {
   const estimated = [
-    { label: 'Surface', quantity: clearanceQty(c.estimated_m2, 'm²'), rate: `${fmtMoney(c.rate_per_m2)} / m²`, amount: c.area_amount },
+    {
+      label: 'Surface',
+      quantity: clearanceQty(c.estimated_m2, 'm²'),
+      note: SURFACE_AREA_ESTIMATE_NOTE,
+      rate: `${fmtMoney(c.rate_per_m2)} / m²`,
+      amount: c.area_amount,
+    },
   ]
+  const roomNotes = (c.rooms ?? []).map(room => `${room.name} ${room.detail} — ${clearanceQty(room.area_m2, 'm²')}`)
   const fixed: { label: string; quantity: string; note?: string; rate: string; amount: number }[] = []
   if ((c.mobilisation_fee ?? 0) > 0) {
     fixed.push({
@@ -3492,6 +3499,7 @@ function buildSurfaceAreaCleaningMid(c: SurfaceAreaCleaningQuoteContent): string
     </div>
     <div class="label">Estimated quantities</div>
     ${clearanceTable('Estimated quantities', estimated)}
+    ${roomNotes.map(note => `<div class="body-text" style="margin-top:4px;font-style:italic;color:var(--sow-muted)">${esc(note)}</div>`).join('')}
     ${clearanceSectionSubtotal('Estimated subtotal (ex GST)', sectionAmount(estimated))}
     <div class="label" style="margin-top:18px">Fixed Rate Quotations</div>
     ${clearanceTable('Quantity', fixed)}

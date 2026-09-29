@@ -3,6 +3,9 @@ import test from 'node:test'
 import { buildPrintHTML } from '@/lib/printDocument'
 import {
   emptySurfaceAreaCleaningCapture,
+  newSurfaceAreaRoom,
+  roomSurfaceArea,
+  roomsSurfaceTotal,
   surfaceAreaCleaningFigures,
   surfaceAreaCleaningQuoteContent,
 } from '@/lib/surfaceAreaCleaningQuote'
@@ -57,5 +60,50 @@ test('the cleaning quote prints square metres, then fixed labour', () => {
   assert.match(html, /1 Example Street/)
   assert.doesNotMatch(html, /Tip address/)
   assert.doesNotMatch(html, /\/ labour day/)
+  assert.match(html, /accurate onsite measurement survey/)
   assert.equal(content.total, 4510)
+})
+
+test('length, width, and height estimate the room surface', () => {
+  const measure = roomSurfaceArea({ length_m: 4, width_m: 3, height_m: 2.4 })
+  assert.equal(measure?.floor, 12)
+  assert.equal(measure?.ceiling, 12)
+  assert.equal(measure?.walls, 33.6)
+  assert.equal(measure?.total, 57.6)
+  const bedroom = newSurfaceAreaRoom('bedroom')
+  const bathroom = newSurfaceAreaRoom('bathroom')
+  assert.equal(roomsSurfaceTotal([bedroom, bathroom]), 79.32)
+})
+
+test('the quote uses the room total and lists each room', () => {
+  const content = surfaceAreaCleaningQuoteContent({
+    reference: 'SACQ-ROOMS',
+    clientName: 'Acme Pty Ltd',
+    siteAddress: '1 Example Street',
+    capture: {
+      ...emptySurfaceAreaCleaningCapture(),
+      estimated_m2: 1,
+      rate_per_m2: 10,
+      labour_days: 1,
+      rate_per_labour_day: 0,
+      rooms: [
+        { id: 'a', name: 'Bedroom', length_m: 4, width_m: 3, height_m: 2.4 },
+      ],
+    },
+  })
+  assert.equal(content.estimated_m2, 57.6)
+  assert.equal(content.rooms[0]?.detail, '4 × 3 × 2.4 m')
+  const html = buildPrintHTML(
+    'surface_area_cleaning_quote',
+    content as unknown as Record<string, unknown>,
+    [],
+    [],
+    null,
+    'job',
+    'http://localhost',
+    undefined,
+    { screenActionBar: false },
+  )
+  assert.match(html, /Bedroom 4 × 3 × 2\.4 m/)
+  assert.match(html, /57\.6 m²/)
 })
