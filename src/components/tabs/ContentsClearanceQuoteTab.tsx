@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
+import AddressAutocomplete from '@/components/AddressAutocomplete'
 import type { Job } from '@/lib/types'
+import { browserGeocodeAddress } from '@/lib/geocodeBrowser'
 import { mergeAssessmentData } from '@/lib/riskDerivation'
 import { useRegisterUnsavedChanges } from '@/lib/unsavedChangesContext'
 import { formatAud } from '@/lib/disposalManifest'
@@ -39,6 +41,32 @@ const LABEL: CSSProperties = {
   fontWeight: 700,
   marginBottom: 6,
   color: 'var(--text-muted)',
+}
+
+async function pinFor(
+  lat: number | null | undefined,
+  lng: number | null | undefined,
+  address: string,
+): Promise<{ lat: number; lng: number } | null> {
+  if (typeof lat === 'number' && typeof lng === 'number' && Number.isFinite(lat) && Number.isFinite(lng)) {
+    return { lat, lng }
+  }
+  const fromBrowser = await browserGeocodeAddress(address)
+  if (fromBrowser) return fromBrowser
+  try {
+    const res = await fetch('/api/geocode/forward', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address }),
+    })
+    const data = (await res.json()) as { lat?: number | null; lng?: number | null }
+    if (typeof data.lat === 'number' && typeof data.lng === 'number' && Number.isFinite(data.lat) && Number.isFinite(data.lng)) {
+      return { lat: data.lat, lng: data.lng }
+    }
+  } catch {
+    /* server geocode is the fallback */
+  }
+  return null
 }
 
 function ClickToEditText({
@@ -108,7 +136,14 @@ export default function ContentsClearanceQuoteTab({ job, onJobUpdate }: Props) {
   const [saveError, setSaveError] = useState('')
   const [standards, setStandards] = useState<ContentsClearanceStandards>(defaultContentsClearanceStandards)
   const [standardsReady, setStandardsReady] = useState(false)
+  const [distanceBusy, setDistanceBusy] = useState(false)
+  const [distanceNote, setDistanceNote] = useState('')
   const skipStandardsSave = useRef(true)
+  const distanceSeq = useRef(0)
+  const captureRef = useRef(capture)
+  const jobRef = useRef(job)
+  captureRef.current = capture
+  jobRef.current = job
 
   useEffect(() => {
     setCapture(normalizeContentsClearanceCapture(job.assessment_data?.contents_clearance_quote))
@@ -120,8 +155,13 @@ export default function ContentsClearanceQuoteTab({ job, onJobUpdate }: Props) {
     || capture.rate_per_km !== saved.rate_per_km
     || capture.rate_per_labour_day !== saved.rate_per_labour_day
     || capture.job_address !== saved.job_address
+    || capture.job_lat !== saved.job_lat
+    || capture.job_lng !== saved.job_lng
     || capture.tip_address !== saved.tip_address
+    || capture.tip_lat !== saved.tip_lat
+    || capture.tip_lng !== saved.tip_lng
     || capture.return_trip_km !== saved.return_trip_km
+    || capture.return_trip_from_maps !== saved.return_trip_from_maps
     || capture.return_trips !== saved.return_trips
     || capture.disposal_rate_per_tonne !== saved.disposal_rate_per_tonne
     || capture.estimated_tonnes !== saved.estimated_tonnes
@@ -186,6 +226,81 @@ export default function ContentsClearanceQuoteTab({ job, onJobUpdate }: Props) {
 
   function patch(next: Partial<ContentsClearanceCapture>) {
     setCapture(prev => ({ ...prev, ...next }))
+  }
+
+  useEffect(() => {
+    const siteAddress = (job.site_address ?? '').trim()
+    const jobAddress = (capture.job_address ?? siteAddress).trim()
+    const tipAddress = capture.tip_address.trim()
+    if (!jobAddress || !tipAddress) return
+    const savedJob = (saved.job_address ?? siteAddress).trim()
+    const savedTip = saved.tip_address.trim()
+    if (jobAddress === savedJob && tipAddress === savedTip && captureRef.current.return_trip_km != null) return
+    const timer = window.setTimeout(() => { void fillDistanceFromMaps() }, 400)
+    return () => window.clearTimeout(timer)
+  }, [capture.job_address, capture.tip_address, job.site_address, saved.job_address, saved.tip_address])
+
+  async function fillDistanceFromMaps() {
+    const seq = ++distanceSeq.current
+    const current = captureRef.current
+    const site = jobRef.current
+    const jobAddress = (current.job_address ?? site.site_address ?? '').trim()
+    const tipAddress = current.tip_address.trim()
+    if (!jobAddress || !tipAddress) {
+      setDistanceNote('Add the job address and the tip address first.')
+      return
+    }
+    setDistanceBusy(true)
+    setDistanceNote('')
+    try {
+      const originLat = current.job_address == null ? (current.job_lat ?? site.site_lat ?? null) : current.job_lat
+      const originLng = current.job_address == null ? (current.job_lng ?? site.site_lng ?? null) : current.job_lng
+      const origin = await pinFor(originLat, originLng, jobAddress)
+      const dest = await pinFor(current.tip_lat, current.tip_lng, tipAddress)
+      if (seq !== distanceSeq.current) return
+      if (!origin || !dest) {
+        setDistanceNote('Could not find one of the addresses on the map. You can type the kilometres.')
+        return
+      }
+      const res = await fetch('/api/geocode/distance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          originLat: origin.lat,
+          originLng: origin.lng,
+          destLat: dest.lat,
+          destLng: dest.lng,
+        }),
+      })
+      const data = (await res.json()) as { km?: number | null; error?: string }
+      if (seq !== distanceSeq.current) return
+      const km = typeof data.km === 'number' && Number.isFinite(data.km) && data.km >= 0 ? data.km : null
+      if (!res.ok || km == null) {
+        setDistanceNote(data.error || 'Driving distance is unavailable. You can type the kilometres.')
+        return
+      }
+      setCapture(prev => {
+        const stillJob = (prev.job_address ?? site.site_address ?? '').trim() === jobAddress
+        const stillTip = prev.tip_address.trim() === tipAddress
+        if (!stillJob || !stillTip) return prev
+        return {
+          ...prev,
+          job_lat: origin.lat,
+          job_lng: origin.lng,
+          tip_lat: dest.lat,
+          tip_lng: dest.lng,
+          return_trip_km: km,
+          return_trip_from_maps: true,
+        }
+      })
+      setDistanceNote('Driving return trip from Google Maps: to the tip and back.')
+    } catch {
+      if (seq === distanceSeq.current) {
+        setDistanceNote('Driving distance is unavailable. You can type the kilometres.')
+      }
+    } finally {
+      if (seq === distanceSeq.current) setDistanceBusy(false)
+    }
   }
 
   async function save(next = capture): Promise<boolean> {
@@ -270,38 +385,72 @@ export default function ContentsClearanceQuoteTab({ job, onJobUpdate }: Props) {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
         <div>
           <label style={LABEL}>Job address</label>
-          <input
-            type="text"
-            value={capture.job_address ?? job.site_address}
-            onChange={e => patch({ job_address: e.target.value })}
+          <AddressAutocomplete
+            value={capture.job_address ?? job.site_address ?? ''}
+            lat={capture.job_address == null ? (capture.job_lat ?? job.site_lat) : capture.job_lat}
+            lng={capture.job_address == null ? (capture.job_lng ?? job.site_lng) : capture.job_lng}
+            placeholder="Start typing the job address…"
             style={INPUT}
+            onChange={next => {
+              const sameAsJob = next.address.trim() === (job.site_address ?? '').trim()
+              patch({
+                job_address: sameAsJob ? null : next.address,
+                job_lat: next.lat,
+                job_lng: next.lng,
+              })
+            }}
           />
         </div>
         <div>
           <label style={LABEL}>Tip address</label>
-          <input
-            type="text"
+          <AddressAutocomplete
             value={capture.tip_address}
-            onChange={e => patch({ tip_address: e.target.value })}
+            lat={capture.tip_lat}
+            lng={capture.tip_lng}
+            placeholder="Start typing the tip address…"
             style={INPUT}
+            onChange={next => patch({
+              tip_address: next.address,
+              tip_lat: next.lat,
+              tip_lng: next.lng,
+            })}
           />
         </div>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
         <div>
-          <label style={LABEL}>Return trip (km)</label>
-          <input
-            type="number"
-            min={0}
-            step="0.1"
-            value={capture.return_trip_km ?? ''}
-            onChange={e => {
-              const raw = e.target.value
-              patch({ return_trip_km: raw === '' ? null : Number(raw) })
-            }}
-            placeholder="0"
-            style={INPUT}
-          />
+          <label style={LABEL}>
+            Return trip (km)
+            {capture.return_trip_from_maps ? ' · from map' : ''}
+          </label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              type="number"
+              min={0}
+              step="0.1"
+              value={capture.return_trip_km ?? ''}
+              onChange={e => {
+                const raw = e.target.value
+                patch({
+                  return_trip_km: raw === '' ? null : Number(raw),
+                  return_trip_from_maps: false,
+                })
+              }}
+              placeholder="0"
+              style={{ ...INPUT, flex: 1 }}
+            />
+            <button
+              type="button"
+              className="btn"
+              disabled={distanceBusy || !(capture.job_address ?? job.site_address ?? '').trim() || !capture.tip_address.trim()}
+              onClick={() => void fillDistanceFromMaps()}
+            >
+              {distanceBusy ? '…' : 'Look up'}
+            </button>
+          </div>
+          {distanceNote && (
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>{distanceNote}</div>
+          )}
         </div>
         <div>
           <label style={LABEL}>Return trips</label>

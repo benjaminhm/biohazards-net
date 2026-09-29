@@ -1100,8 +1100,13 @@ export interface AssessmentData {
     rate_per_labour_day?: number | null
     /** Null follows the job site address. */
     job_address?: string | null
+    job_lat?: number | null
+    job_lng?: number | null
     tip_address?: string | null
+    tip_lat?: number | null
+    tip_lng?: number | null
     return_trip_km?: number | null
+    return_trip_from_maps?: boolean
     return_trips?: number | null
     /** Ex GST dollars per tonne. */
     disposal_rate_per_tonne?: number | null

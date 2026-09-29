@@ -58,8 +58,14 @@ export interface ContentsClearanceCapture {
   rate_per_labour_day: number | null
   /** Null follows the job site address. */
   job_address: string | null
+  job_lat: number | null
+  job_lng: number | null
   tip_address: string
+  tip_lat: number | null
+  tip_lng: number | null
   return_trip_km: number | null
+  /** True when return_trip_km came from a driving lookup. */
+  return_trip_from_maps: boolean
   return_trips: number | null
   disposal_rate_per_tonne: number | null
   estimated_tonnes: number | null
@@ -142,8 +148,13 @@ export function emptyContentsClearanceCapture(): ContentsClearanceCapture {
     rate_per_km: null,
     rate_per_labour_day: null,
     job_address: null,
+    job_lat: null,
+    job_lng: null,
     tip_address: '',
+    tip_lat: null,
+    tip_lng: null,
     return_trip_km: null,
+    return_trip_from_maps: false,
     return_trips: null,
     disposal_rate_per_tonne: null,
     estimated_tonnes: null,
@@ -183,6 +194,11 @@ export function normalizeContentsClearanceCapture(raw: unknown): ContentsClearan
     const n = typeof value === 'number' ? value : Number(value)
     return Number.isFinite(n) && n >= 0 ? n : null
   }
+  const coord = (value: unknown): number | null => {
+    if (value == null || value === '') return null
+    const n = typeof value === 'number' ? value : Number(value)
+    return Number.isFinite(n) ? n : null
+  }
   return {
     estimated_m3: qty(o.estimated_m3),
     estimated_km: qty(o.estimated_km),
@@ -190,8 +206,13 @@ export function normalizeContentsClearanceCapture(raw: unknown): ContentsClearan
     rate_per_km: qty(o.rate_per_km),
     rate_per_labour_day: qty(o.rate_per_labour_day),
     job_address: typeof o.job_address === 'string' ? o.job_address : null,
+    job_lat: coord(o.job_lat),
+    job_lng: coord(o.job_lng),
     tip_address: typeof o.tip_address === 'string' ? o.tip_address : '',
+    tip_lat: coord(o.tip_lat),
+    tip_lng: coord(o.tip_lng),
     return_trip_km: qty(o.return_trip_km),
+    return_trip_from_maps: o.return_trip_from_maps === true,
     return_trips: qty(o.return_trips),
     disposal_rate_per_tonne: qty(o.disposal_rate_per_tonne),
     estimated_tonnes: qty(o.estimated_tonnes),
