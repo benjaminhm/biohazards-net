@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { contentsClearanceFigures, contentsClearanceQuoteContent, contentsClearanceTimeFrame, defaultContentsClearanceStandards, emptyContentsClearanceCapture, normalizeContentsClearanceStandards } from '@/lib/contentsClearanceQuote'
+import { CONTENTS_CLEARANCE_APPENDIX_AREA_REF } from '@/lib/photoGroups'
 import { buildPrintHTML } from '@/lib/printDocument'
+import type { Photo } from '@/lib/types'
 
 test('18 cubic metres is 3 man days and 24 is 4', () => {
   const estimated = contentsClearanceFigures(18, 0)
@@ -317,4 +319,43 @@ test('a saved copy of the old labour-follows-volume clauses is replaced, and an 
   })
   assert.equal(edited.inclusions, 'Contents clearance of the garage only.')
   assert.equal(edited.assumptions, current.assumptions)
+})
+
+test('contents clearance photos print at the end, and a quote photo does not', () => {
+  const content = contentsClearanceQuoteContent({
+    reference: 'CCQ-TEST',
+    clientName: 'Acme Pty Ltd',
+    siteAddress: '1 Example Street',
+    capture: emptyContentsClearanceCapture(),
+  })
+  const clearancePhoto: Photo = {
+    id: 'ccq-photo',
+    job_id: 'job',
+    file_url: 'https://example.com/front-room.jpg',
+    caption: 'Front room',
+    area_ref: CONTENTS_CLEARANCE_APPENDIX_AREA_REF,
+    category: 'before',
+    uploaded_at: '2026-09-30T00:00:00.000Z',
+  }
+  const quotePhoto: Photo = {
+    ...clearancePhoto,
+    id: 'quote-photo',
+    file_url: 'https://example.com/quote-only.jpg',
+    caption: 'Quote only',
+    area_ref: 'Quote photos',
+  }
+  const html = buildPrintHTML(
+    'contents_clearance_quote',
+    content as unknown as Record<string, unknown>,
+    [clearancePhoto, quotePhoto],
+    [],
+    null,
+    'job',
+    'http://localhost',
+    undefined,
+    { screenActionBar: false },
+  )
+  assert.match(html, /front-room\.jpg/)
+  assert.match(html, /Front room/)
+  assert.doesNotMatch(html, /quote-only\.jpg/)
 })

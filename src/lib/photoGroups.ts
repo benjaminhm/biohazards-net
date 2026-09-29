@@ -14,6 +14,13 @@ export function isQuoteAppendixPhoto(photo: { area_ref?: string | null }): boole
   return (photo.area_ref || '').trim() === QUOTE_APPENDIX_AREA_REF
 }
 
+/** Photos loaded on the contents clearance quote. They print as one block at the end of that document. */
+export const CONTENTS_CLEARANCE_APPENDIX_AREA_REF = 'Contents clearance photos'
+
+export function isContentsClearanceAppendixPhoto(photo: { area_ref?: string | null }): boolean {
+  return (photo.area_ref || '').trim() === CONTENTS_CLEARANCE_APPENDIX_AREA_REF
+}
+
 /** Coerce photo.category to a known stage (null/legacy values → before) so bucketing never indexes undefined. */
 export function normalizePhotoCategory(raw: unknown): PhotoCategory {
   if (raw === 'assessment' || raw === 'before' || raw === 'during' || raw === 'after') return raw
@@ -40,7 +47,7 @@ export function groupPhotosByRoomAndStage(photos: Photo[], areas: Area[] = []): 
   }
 
   for (const photo of normalizedPhotos) {
-    if (isQuoteAppendixPhoto(photo)) continue
+    if (isQuoteAppendixPhoto(photo) || isContentsClearanceAppendixPhoto(photo)) continue
     const room = (photo.area_ref || '').trim() || 'Unassigned Area'
     if (!roomMap.has(room)) {
       roomMap.set(room, {

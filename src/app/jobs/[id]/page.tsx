@@ -1779,7 +1779,12 @@ export default function JobPage() {
           />
         )}
         {showContentsClearance && (
-          <ContentsClearanceQuoteTab job={job} onJobUpdate={setJob} />
+          <ContentsClearanceQuoteTab
+            job={job}
+            photos={photos}
+            onJobUpdate={setJob}
+            onPhotosUpdate={setPhotos}
+          />
         )}
         {showSurfaceAreaCleaning && (
           <SurfaceAreaCleaningQuoteTab job={job} onJobUpdate={setJob} />

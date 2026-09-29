@@ -31,7 +31,7 @@ import type {
 } from './types'
 import { DOC_TYPE_LABELS } from './types'
 import type { HouseSurveyDocumentContent, SurveySketch } from './houseSurvey'
-import { filterGroupedStages, groupPhotosByRoomAndStage, isQuoteAppendixPhoto, type RoomPhotoGroup } from './photoGroups'
+import { filterGroupedStages, groupPhotosByRoomAndStage, isContentsClearanceAppendixPhoto, isQuoteAppendixPhoto, type RoomPhotoGroup } from './photoGroups'
 import { photosForComposedReports } from '@/lib/photosForComposedReports'
 import { docketStatusLabel, dimensionTrioToMetres, formatAud, formatDistanceLegs, formatKg, formatM3 } from '@/lib/disposalManifest'
 import { isPdfUrl } from '@/lib/pdfDocket'
@@ -3377,7 +3377,21 @@ function clearanceList(label: string, items: string[]): string {
   return `<div class="label" style="margin-top:18px">${label}</div><ul class="body-text">${rows.map(item => `<li>${esc(item)}</li>`).join('')}</ul>`
 }
 
-function buildContentsClearanceMid(c: ContentsClearanceQuoteContent): string {
+function clearanceAppendixHtml(photos: Photo[]): string {
+  const pics = photos.filter(isContentsClearanceAppendixPhoto)
+  if (!pics.length) return ''
+  return `
+    <div class="label" style="margin-top:22px">Photos</div>
+    <div class="photos-grid photos-grid-single">
+      ${pics.map(p => `
+        <div class="photo-card">
+          <img src="${esc(p.file_url)}" alt="${esc((p.caption || '').trim() || 'Photo')}">
+          ${(p.caption || '').trim() ? `<div class="photo-meta"><div class="photo-cap">${esc(p.caption)}</div></div>` : ''}
+        </div>`).join('')}
+    </div>`
+}
+
+function buildContentsClearanceMid(c: ContentsClearanceQuoteContent, photos: Photo[] = []): string {
   const estimated: { label: string; quantity: string; rate: string; amount: number }[] = [
     { label: 'Contents', quantity: clearanceQty(c.estimated_m3, 'm³'), rate: `${fmtMoney(c.rate_per_m3)} / m³`, amount: c.volume_amount },
     { label: 'Distance', quantity: clearanceQty(c.estimated_km, 'km'), rate: `${fmtMoney(c.rate_per_km)} / km`, amount: c.distance_amount },
@@ -3448,16 +3462,18 @@ function buildContentsClearanceMid(c: ContentsClearanceQuoteContent): string {
     ${section('Engagement agreement', c.engagement_agreement)}
     ${section('Authority', c.authority)}
     ${section('Acceptance', c.acceptance)}
+    ${clearanceAppendixHtml(photos)}
   `
 }
 
 function buildContentsClearanceHTML(
   c: ContentsClearanceQuoteContent,
+  photos: Photo[],
   company: CompanyProfile | null,
   client: ClientInfo | undefined,
   screenActionBar: boolean,
 ): string {
-  const mid = buildContentsClearanceMid(c)
+  const mid = buildContentsClearanceMid(c, photos)
   const title = clearancePrintTitle(c.title)
   return wrapBranded(mid, title, title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
@@ -3581,7 +3597,7 @@ export function buildPrintMidHTML(
     case 'assessment_document':
       return buildAssessmentDocumentMid(c as unknown as AssessmentDocumentContent, areas, photos, groups)
     case 'contents_clearance_quote':
-      return buildContentsClearanceMid(c as unknown as ContentsClearanceQuoteContent)
+      return buildContentsClearanceMid(c as unknown as ContentsClearanceQuoteContent, photos)
     case 'surface_area_cleaning_quote':
       return buildSurfaceAreaCleaningMid(c as unknown as SurfaceAreaCleaningQuoteContent)
     default:
@@ -3679,7 +3695,7 @@ export function buildPrintHTML(
     case 'nda':                        return buildNDAHTML(c as unknown as NDAContent, company, client, screenActionBar)
     case 'risk_assessment':            return buildRAHTML(c as unknown as RiskAssessmentContent, company, client, screenActionBar)
     case 'assessment_document':        return buildAssessmentDocumentHTML(c as unknown as AssessmentDocumentContent, company, client, areas, photos, groups, screenActionBar)
-    case 'contents_clearance_quote':   return buildContentsClearanceHTML(c as unknown as ContentsClearanceQuoteContent, company, client, screenActionBar)
+    case 'contents_clearance_quote':   return buildContentsClearanceHTML(c as unknown as ContentsClearanceQuoteContent, photos, company, client, screenActionBar)
     case 'surface_area_cleaning_quote': return buildSurfaceAreaCleaningHTML(c as unknown as SurfaceAreaCleaningQuoteContent, company, client, screenActionBar)
     case 'iaq_multi': {
       const partsRaw = c.parts

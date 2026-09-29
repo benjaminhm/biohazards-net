@@ -3,8 +3,11 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
 import AddressAutocomplete from '@/components/AddressAutocomplete'
+import PhotoCard from '@/components/PhotoCard'
+import PhotoUploadPanel from '@/components/PhotoUploadPanel'
 import RichTextEditor from '@/components/RichTextEditor'
-import type { Job } from '@/lib/types'
+import { CONTENTS_CLEARANCE_APPENDIX_AREA_REF, isContentsClearanceAppendixPhoto } from '@/lib/photoGroups'
+import type { Job, Photo } from '@/lib/types'
 import { browserDrivingRoundTripKm, browserGeocodeAddress, type MapWaypoint } from '@/lib/geocodeBrowser'
 import { mergeAssessmentData } from '@/lib/riskDerivation'
 import { useRegisterUnsavedChanges } from '@/lib/unsavedChangesContext'
@@ -36,7 +39,9 @@ import {
 
 interface Props {
   job: Job
+  photos: Photo[]
   onJobUpdate: (job: Job) => void
+  onPhotosUpdate: (photos: Photo[]) => void
 }
 
 const INPUT: CSSProperties = {
@@ -162,7 +167,7 @@ function ClickToEditText({
   )
 }
 
-export default function ContentsClearanceQuoteTab({ job, onJobUpdate }: Props) {
+export default function ContentsClearanceQuoteTab({ job, photos, onJobUpdate, onPhotosUpdate }: Props) {
   const router = useRouter()
   const saved = useMemo(
     () => normalizeContentsClearanceCapture(job.assessment_data?.contents_clearance_quote ?? emptyContentsClearanceCapture()),
@@ -806,6 +811,44 @@ export default function ContentsClearanceQuoteTab({ job, onJobUpdate }: Props) {
           <span>Total (inc GST)</span>
           <span>{formatAud(figures.total)}</span>
         </div>
+      </div>
+      <div style={{ marginTop: 18, marginBottom: 4 }}>
+        <div style={LABEL}>Photos</div>
+        <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5, margin: '0 0 12px' }}>
+          One upload for this quote. The photos print together at the end of the document.
+        </p>
+        <PhotoUploadPanel
+          jobId={job.id}
+          photos={photos}
+          onPhotosUpdate={onPhotosUpdate}
+          defaultPendingCategory="assessment"
+          allowedCategories={['assessment', 'before']}
+          fixedCapturePhase="assessment"
+          fixedAreaRef={CONTENTS_CLEARANCE_APPENDIX_AREA_REF}
+          compact
+        />
+        {photos.some(isContentsClearanceAppendixPhoto) && (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+              gap: 8,
+              marginTop: 4,
+            }}
+          >
+            {photos.filter(isContentsClearanceAppendixPhoto).map(photo => (
+              <PhotoCard
+                key={photo.id}
+                photo={photo}
+                allowedCategories={['assessment', 'before']}
+                showAreaChip={false}
+                hideArea
+                onDelete={id => onPhotosUpdate(photos.filter(p => p.id !== id))}
+                onUpdate={updated => onPhotosUpdate(photos.map(p => (p.id === updated.id ? updated : p)))}
+              />
+            ))}
+          </div>
+        )}
       </div>
       <div style={{ marginTop: 18, display: 'grid', gap: 14 }}>
         <ClickToEditText label="Inclusions" asList value={standards.inclusions} onChange={inclusions => editStandards({ inclusions })} />
