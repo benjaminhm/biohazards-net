@@ -22,7 +22,7 @@ export const CONTENTS_CLEARANCE_SCHEMA = {
   inclusions: [
     'Contents clearance of the estimated volume at the rate per cubic metre on this quote.',
     'Travel at the rate per kilometre on this quote.',
-    'Labour for the labour days on this quote, at the rate per person per day.',
+    'Labour for the labour days on this quote, as a fixed amount.',
   ],
   exclusions: [
     'Surface cleaning, sanitising, and remediation.',
@@ -36,7 +36,7 @@ export const CONTENTS_CLEARANCE_SCHEMA = {
     'The technician decides on site how the contents leave the property.',
   ],
   terms:
-    'A deposit of 50% of this estimate is requested before the clearance starts. The balance is the measured cubic metres, the kilometres, and the labour days on this quote, at the rates on this quote. GST is 10%.',
+    'A deposit of 50% of this estimate is requested before the clearance starts. The balance is the measured cubic metres and the kilometres at the rates on this quote, plus the labour amount on this quote. GST is 10%.',
   authority:
     'Acceptance authorises contents clearance at the address on this quote, at the rates shown.',
   acceptance:
@@ -263,6 +263,11 @@ function clauseLinesJoined(lines: readonly string[]): string {
 const LEGACY_CONTENTS_CLEARANCE_CLAUSES: Partial<Record<keyof ContentsClearanceStandards, readonly string[]>> = {
   inclusions: [
     clauseLinesJoined([
+      'Contents clearance of the estimated volume at the rate per cubic metre on this quote.',
+      'Travel at the rate per kilometre on this quote.',
+      'Labour for the labour days on this quote, at the rate per person per day.',
+    ]),
+    clauseLinesJoined([
       'Contents clearance of the stated volume at the standard rate per cubic metre.',
       'Travel at the standard rate per kilometre.',
       'Labour at one labour day for every 6 cubic metres, at the standard rate per person per day.',
@@ -303,6 +308,7 @@ const LEGACY_CONTENTS_CLEARANCE_CLAUSES: Partial<Record<keyof ContentsClearanceS
     ]),
   ],
   payment_terms: [
+    'A deposit of 50% of this estimate is requested before the clearance starts. The balance is the measured cubic metres, the kilometres, and the labour days on this quote, at the rates on this quote. GST is 10%.',
     'A deposit of 50% of this estimate is requested before the clearance starts. The balance is the measured cubic metres, the kilometres, and the labour days that follow the measured volume, at the rates on this quote. GST is 10%.',
     'A deposit of 50% of this estimate is requested before the clearance starts. The balance is the measured cubic metres, the kilometres, and the man days that follow the measured volume, at the rates on this quote. GST is 10%.',
   ],

@@ -212,6 +212,7 @@ test('the quote prints quantities, then clauses, terms, authority, and acceptanc
   assert.match(html, /3 labour days/)
   assert.match(html, />Fixed</)
   assert.doesNotMatch(html, /\/ labour day/)
+  assert.doesNotMatch(html, /rate per person per day/)
   assert.match(html, /A labour day is one person on site for one day/)
   assert.match(html, /It is not a calendar day, and it does not set how many people are on site at one time/)
   assert.match(html, /The client engages the contractor for this clearance\./)

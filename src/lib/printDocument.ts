@@ -3339,12 +3339,12 @@ function clearancePrintTitle(title: string | null | undefined): string {
 
 function clearanceTable(
   quantityHeader: string,
-  lines: { label: string; quantity: string; rate: string; amount: number }[],
+  lines: { label: string; quantity: string; note?: string; rate: string; amount: number }[],
 ): string {
   const body = lines.map(line => `
     <tr>
       <td>${esc(line.label)}</td>
-      <td class="r">${esc(line.quantity)}</td>
+      <td class="r">${esc(line.quantity)}${line.note ? `<div style="margin-top:4px;font-size:8.5pt;font-weight:400;font-style:italic;line-height:1.35;color:var(--sow-muted)">${esc(line.note)}</div>` : ''}</td>
       <td class="r">${esc(line.rate)}</td>
       <td class="r">${fmtMoney(line.amount)}</td>
     </tr>`).join('')
@@ -3398,6 +3398,7 @@ function buildContentsClearanceMid(c: ContentsClearanceQuoteContent): string {
   fixed.push({
     label: 'Labour',
     quantity: clearanceQty(c.labour_days, c.labour_days === 1 ? 'labour day' : 'labour days'),
+    note: 'A labour day is one person on site for one day. It is not a calendar day, and it does not set how many people are on site at one time.',
     rate: 'Fixed',
     amount: c.labour_amount,
   })
@@ -3429,7 +3430,6 @@ function buildContentsClearanceMid(c: ContentsClearanceQuoteContent): string {
     ${clearanceSectionSubtotal('Estimated subtotal (ex GST)', sectionAmount(estimated))}
     <div class="label" style="margin-top:18px">Fixed Rate Quotations</div>
     ${clearanceTable('Quantity', fixed)}
-    <div class="body-text" style="margin-top:4px;font-style:italic;color:var(--sow-muted)">A labour day is one person on site for one day. It is not a calendar day, and it does not set how many people are on site at one time.</div>
     ${clearanceSectionSubtotal('Fixed subtotal (ex GST)', sectionAmount(fixed))}
     <div class="totals">
       <div class="tot-row"><span>Subtotal (ex GST)</span><span class="amt">${fmtMoney(c.subtotal)}</span></div>
