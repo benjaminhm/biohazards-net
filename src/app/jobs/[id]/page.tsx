@@ -87,6 +87,7 @@ type HomeSection =
   | 'survey'
   | 'scope_of_work'
   | 'quote'
+  | 'contents_clearance'
   | 'legal'
   | 'safety_compliance'
   | 'plan'
@@ -101,6 +102,7 @@ const HOME_SECTIONS: { id: HomeSection; label: string }[] = [
   { id: 'survey', label: 'Survey' },
   { id: 'scope_of_work', label: 'Scope of Work' },
   { id: 'quote', label: 'Quote/Estimate' },
+  { id: 'contents_clearance', label: 'CCQ' },
   { id: 'legal', label: 'Legal' },
   { id: 'safety_compliance', label: 'Safety and Compliance' },
   { id: 'plan', label: 'Plan' },
@@ -132,6 +134,7 @@ const HOME_SECTION_TO_CAP: Record<HomeSection, keyof TeamCapabilities> = {
   survey:            'view_home_onsite_assessment',
   scope_of_work:     'view_home_scope_of_work',
   quote:             'view_home_quote',
+  contents_clearance: 'view_home_quote',
   legal:             'view_home_legal',
   safety_compliance: 'view_home_safety_compliance',
   plan:              'view_home_plan',
@@ -1001,6 +1004,8 @@ export default function JobPage() {
       ? 'Survey'
       : activeTab === 'home' && homeSection === 'statement'
       ? DOC_TYPE_LABELS.statement_of_accounts
+      : activeTab === 'home' && homeSection === 'contents_clearance'
+      ? 'CCQ'
       : pageTitleForTab(activeTab, job)
   const emptyRoomStyle: React.CSSProperties = {
     minHeight: 360,
@@ -1030,6 +1035,7 @@ export default function JobPage() {
   const showSurvey         = inHome('survey')
   const showScope          = activeTab === 'scope_capture' || inHome('scope_of_work')
   const showQuote          = activeTab === 'quote_capture' || inHome('quote')
+  const showContentsClearance = inHome('contents_clearance')
   const showPRC            = activeTab === 'pre_remediation_checklist_capture' || inHome('plan')
   const showEngagementAgr  = activeTab === 'engagement_agreement_capture' || (inHome('legal') && legalSection === 'engagement_agreement')
   const showNda            = activeTab === 'nda_capture' || (inHome('legal') && legalSection === 'nda')
@@ -1753,8 +1759,6 @@ export default function JobPage() {
           <ScopeOfWorkTab job={job} documents={documents} onJobUpdate={setJob} />
         )}
         {showQuote && (
-          <>
-          <ContentsClearanceQuoteTab job={job} onJobUpdate={setJob} />
           <QuoteCaptureTab
             job={job}
             documents={documents}
@@ -1766,7 +1770,9 @@ export default function JobPage() {
               else requestTabChange('scope_capture')
             }}
           />
-          </>
+        )}
+        {showContentsClearance && (
+          <ContentsClearanceQuoteTab job={job} onJobUpdate={setJob} />
         )}
         {showPRC && (
           <PreRemediationChecklistTab job={job} onJobUpdate={setJob} />
