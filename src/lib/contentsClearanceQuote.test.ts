@@ -255,6 +255,19 @@ test('the quote prints quantities, then clauses, terms, authority, and acceptanc
   assert.match(html, /1 Example Street/)
   assert.match(html, /Tip Road/)
   assert.match(html, /2 return trips of 6 km/)
+  assert.match(html, /From the site to the tip, and back\./)
+  const withDisposal = buildPrintHTML(
+    'contents_clearance_quote',
+    { ...content, estimated_tonnes: 2, disposal_rate_per_tonne: 40, disposal_amount: 80 } as unknown as Record<string, unknown>,
+    [],
+    [],
+    null,
+    'job',
+    'http://localhost',
+    undefined,
+    { screenActionBar: false },
+  )
+  assert.match(withDisposal, /Fees charged at the tip\./)
   assert.equal(content.labour_days, 3)
   assert.equal(content.volume_amount, 1800)
   assert.equal(content.distance_amount, 24)

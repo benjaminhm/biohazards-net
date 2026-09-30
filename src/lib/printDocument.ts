@@ -3398,14 +3398,21 @@ function buildContentsClearanceMid(
   company: CompanyProfile | null = null,
   client?: ClientInfo,
 ): string {
-  const estimated: { label: string; quantity: string; rate: string; amount: number }[] = [
+  const estimated: { label: string; quantity: string; note?: string; rate: string; amount: number }[] = [
     { label: 'Contents', quantity: clearanceQty(c.estimated_m3, 'm³'), rate: `${fmtMoney(c.rate_per_m3)} / m³`, amount: c.volume_amount },
-    { label: 'Distance', quantity: clearanceQty(c.estimated_km, 'km'), rate: `${fmtMoney(c.rate_per_km)} / km`, amount: c.distance_amount },
+    {
+      label: 'Distance',
+      quantity: clearanceQty(c.estimated_km, 'km'),
+      note: 'From the site to the tip, and back.',
+      rate: `${fmtMoney(c.rate_per_km)} / km`,
+      amount: c.distance_amount,
+    },
   ]
   if ((c.estimated_tonnes ?? 0) > 0 || (c.disposal_rate_per_tonne ?? 0) > 0) {
     estimated.push({
       label: 'Disposal',
       quantity: clearanceQty(c.estimated_tonnes ?? 0, (c.estimated_tonnes ?? 0) === 1 ? 'tonne' : 'tonnes'),
+      note: 'Fees charged at the tip.',
       rate: `${fmtMoney(c.disposal_rate_per_tonne ?? 0)} / tonne`,
       amount: c.disposal_amount ?? 0,
     })
