@@ -5,6 +5,8 @@
  * A blank rate falls back to the schema. Rates are ex GST.
  */
 
+import { DEFAULT_ENGAGEMENT_AGREEMENT, storedEngagementAgreement } from '@/lib/quoteEngagement'
+
 const M3_PER_LABOUR_DAY = 6
 
 export const CONTENTS_CLEARANCE_SCHEMA = {
@@ -253,7 +255,7 @@ export function defaultContentsClearanceStandards(): ContentsClearanceStandards 
     exclusions: CONTENTS_CLEARANCE_SCHEMA.exclusions.join('\n'),
     assumptions: CONTENTS_CLEARANCE_SCHEMA.assumptions.join('\n'),
     payment_terms: CONTENTS_CLEARANCE_SCHEMA.terms,
-    engagement_agreement: '',
+    engagement_agreement: DEFAULT_ENGAGEMENT_AGREEMENT,
   }
 }
 
@@ -338,7 +340,7 @@ export function normalizeContentsClearanceStandards(raw: unknown): ContentsClear
     exclusions: text('exclusions'),
     assumptions: text('assumptions'),
     payment_terms: text('payment_terms'),
-    engagement_agreement: text('engagement_agreement'),
+    engagement_agreement: storedEngagementAgreement(text('engagement_agreement'), fallback.engagement_agreement),
   }
 }
 

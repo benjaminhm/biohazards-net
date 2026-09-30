@@ -3392,7 +3392,12 @@ function clearanceAppendixHtml(photos: Photo[]): string {
     </div>`
 }
 
-function buildContentsClearanceMid(c: ContentsClearanceQuoteContent, photos: Photo[] = []): string {
+function buildContentsClearanceMid(
+  c: ContentsClearanceQuoteContent,
+  photos: Photo[] = [],
+  company: CompanyProfile | null = null,
+  client?: ClientInfo,
+): string {
   const estimated: { label: string; quantity: string; rate: string; amount: number }[] = [
     { label: 'Contents', quantity: clearanceQty(c.estimated_m3, 'm³'), rate: `${fmtMoney(c.rate_per_m3)} / m³`, amount: c.volume_amount },
     { label: 'Distance', quantity: clearanceQty(c.estimated_km, 'km'), rate: `${fmtMoney(c.rate_per_km)} / km`, amount: c.distance_amount },
@@ -3460,7 +3465,12 @@ function buildContentsClearanceMid(c: ContentsClearanceQuoteContent, photos: Pho
     ${clearanceList('Exclusions', c.exclusions ?? [])}
     ${clearanceList('Assumptions', c.assumptions ?? [])}
     ${section('Payment terms', c.terms)}
-    ${section('Engagement agreement', fillContentsClearanceEngagement(c))}
+    ${section('Engagement agreement', fillContentsClearanceEngagement(c, {
+      companyName: company?.name,
+      abn: company?.abn,
+      phone: client?.client_phone,
+      email: client?.client_email,
+    }))}
     ${section('Authority', c.authority)}
     ${section('Acceptance', c.acceptance)}
     ${clearanceAppendixHtml(photos)}
@@ -3474,12 +3484,16 @@ function buildContentsClearanceHTML(
   client: ClientInfo | undefined,
   screenActionBar: boolean,
 ): string {
-  const mid = buildContentsClearanceMid(c, photos)
+  const mid = buildContentsClearanceMid(c, photos, company, client)
   const title = clearancePrintTitle(c.title)
   return wrapBranded(mid, title, title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
-function buildSurfaceAreaCleaningMid(c: SurfaceAreaCleaningQuoteContent): string {
+function buildSurfaceAreaCleaningMid(
+  c: SurfaceAreaCleaningQuoteContent,
+  company: CompanyProfile | null = null,
+  client?: ClientInfo,
+): string {
   const estimated = [
     {
       label: 'Surface',
@@ -3532,7 +3546,12 @@ function buildSurfaceAreaCleaningMid(c: SurfaceAreaCleaningQuoteContent): string
     ${clearanceList('Exclusions', c.exclusions ?? [])}
     ${clearanceList('Assumptions', c.assumptions ?? [])}
     ${section('Payment terms', c.terms)}
-    ${section('Engagement agreement', fillSurfaceAreaCleaningEngagement(c))}
+    ${section('Engagement agreement', fillSurfaceAreaCleaningEngagement(c, {
+      companyName: company?.name,
+      abn: company?.abn,
+      phone: client?.client_phone,
+      email: client?.client_email,
+    }))}
     ${section('Authority', c.authority)}
     ${section('Acceptance', c.acceptance)}
   `
@@ -3544,7 +3563,7 @@ function buildSurfaceAreaCleaningHTML(
   client: ClientInfo | undefined,
   screenActionBar: boolean,
 ): string {
-  const mid = buildSurfaceAreaCleaningMid(c)
+  const mid = buildSurfaceAreaCleaningMid(c, company, client)
   const title = clearancePrintTitle(c.title) || 'Surface Area Cleaning'
   return wrapBranded(mid, title, title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
@@ -3598,9 +3617,9 @@ export function buildPrintMidHTML(
     case 'assessment_document':
       return buildAssessmentDocumentMid(c as unknown as AssessmentDocumentContent, areas, photos, groups)
     case 'contents_clearance_quote':
-      return buildContentsClearanceMid(c as unknown as ContentsClearanceQuoteContent, photos)
+      return buildContentsClearanceMid(c as unknown as ContentsClearanceQuoteContent, photos, company, client)
     case 'surface_area_cleaning_quote':
-      return buildSurfaceAreaCleaningMid(c as unknown as SurfaceAreaCleaningQuoteContent)
+      return buildSurfaceAreaCleaningMid(c as unknown as SurfaceAreaCleaningQuoteContent, company, client)
     default:
       return `<p class="body-text">${esc('Unknown document type')}</p>`
   }

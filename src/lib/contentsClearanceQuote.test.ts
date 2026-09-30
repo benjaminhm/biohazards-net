@@ -392,3 +392,52 @@ test('engagement brackets are filled on the contents clearance document', () => 
   assert.doesNotMatch(html, /\[surface\]/)
   assert.match(content.engagement_agreement, /\[name\]/)
 })
+
+test('the unfilled estate agreement is replaced, and the quote prices are printed', () => {
+  const standards = normalizeContentsClearanceStandards({
+    engagement_agreement: 'ENGAGEMENT AGREEMENT – CONTENTS REMOVAL (DECEASED ESTATE)\nPrice: $[amount] inc GST',
+  })
+  assert.match(standards.engagement_agreement, /\[total\]/)
+  assert.doesNotMatch(standards.engagement_agreement, /\$\[amount\]/)
+  const content = contentsClearanceQuoteContent({
+    reference: 'CCQ-18',
+    clientName: 'The Estate of the late Carla Hallahan',
+    siteAddress: 'Childers QLD 4660',
+    capture: {
+      ...emptyContentsClearanceCapture(),
+      estimated_m3: 18,
+      rate_per_m3: 100,
+      rate_per_labour_day: 500,
+      maximum_man_days: 3,
+    },
+    standards,
+  })
+  const html = buildPrintHTML(
+    'contents_clearance_quote',
+    content as unknown as Record<string, unknown>,
+    [],
+    [],
+    { name: 'Forensic Cleaning QLD', abn: '21 279 382 150' } as never,
+    'job',
+    'http://localhost',
+    { client_phone: '0400 000 000', client_email: 'estate@example.com' },
+    { screenActionBar: false },
+  )
+  assert.match(html, /Forensic Cleaning QLD \(ABN 21 279 382 150\)/)
+  assert.match(html, /The Estate of the late Carla Hallahan/)
+  assert.match(html, /Childers QLD 4660/)
+  assert.match(html, /CCQ-18/)
+  assert.match(html, /The price is \$3,630\.00 including GST/)
+  assert.match(html, /Estimated contents: 18 m³/)
+  assert.match(html, /Contents rate: \$100\.00 ex GST/)
+  assert.match(html, /Contents amount: \$1,800\.00 ex GST/)
+  assert.match(html, /Labour: 3 labour days for the fixed amount of \$1,500\.00 ex GST/)
+  assert.match(html, /Deposit: \$1,815\.00/)
+  assert.match(html, /Balance: \$1,815\.00/)
+  assert.match(html, /0400 000 000/)
+  assert.match(html, /estate@example\.com/)
+  assert.match(html, /Signatory: ____________________/)
+  assert.doesNotMatch(html, /Estimated surface/)
+  assert.doesNotMatch(html, /Estimated travel/)
+  assert.doesNotMatch(html, /\$\[amount\]/)
+})

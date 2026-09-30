@@ -4,6 +4,8 @@
  * Labour days are the agreed quantity. Rates are ex GST.
  */
 
+import { DEFAULT_ENGAGEMENT_AGREEMENT, storedEngagementAgreement } from '@/lib/quoteEngagement'
+
 export const SURFACE_AREA_CLIENT_TITLES = [
   { id: 'surface', title: 'Surface Area Cleaning' },
   { id: 'squalor', title: 'Gross Filth and Squalor' },
@@ -250,7 +252,7 @@ export function normalizeSurfaceAreaCleaningStandards(raw: unknown): SurfaceArea
       ? fallback.assumptions
       : text('assumptions'),
     payment_terms: text('payment_terms'),
-    engagement_agreement: text('engagement_agreement'),
+    engagement_agreement: storedEngagementAgreement(text('engagement_agreement'), DEFAULT_ENGAGEMENT_AGREEMENT),
   }
 }
 

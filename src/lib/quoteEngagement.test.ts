@@ -31,6 +31,6 @@ test('brackets are filled from the quote, and a missing field is left out', () =
   assert.match(filled, /\$3,630\.00/)
   assert.doesNotMatch(filled, /\[mobilisation\]/)
   assert.doesNotMatch(filled, /\[surface\]/)
+  assert.doesNotMatch(filled, /Call-out/)
   assert.match(filled, /\[custom\]/)
-  assert.match(filled, /Call-out\./)
 })

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { buildPrintHTML } from '@/lib/printDocument'
+import { DEFAULT_ENGAGEMENT_AGREEMENT } from '@/lib/quoteEngagement'
 import {
   defaultSurfaceAreaCleaningStandards,
   emptySurfaceAreaCleaningCapture,
@@ -168,7 +169,7 @@ test('engagement brackets are filled on the surface cleaning document', () => {
     },
     standards: {
       ...defaultSurfaceAreaCleaningStandards(),
-      engagement_agreement: 'For [name], [surface], [labour days], total [total]. [volume]',
+      engagement_agreement: DEFAULT_ENGAGEMENT_AGREEMENT,
     },
   })
   const html = buildPrintHTML(
@@ -182,7 +183,11 @@ test('engagement brackets are filled on the surface cleaning document', () => {
     undefined,
     { screenActionBar: false },
   )
-  assert.match(html, /For Acme Pty Ltd, 20 m², 5 labour days, total \$4,400\.00\./)
-  assert.doesNotMatch(html, /\[volume\]/)
+  assert.match(html, /The price is \$4,400\.00 including GST/)
+  assert.match(html, /Estimated surface: 20 m²/)
+  assert.match(html, /Surface rate: \$50\.00 ex GST/)
+  assert.match(html, /Labour: 5 labour days for the fixed amount of \$3,000\.00 ex GST/)
+  assert.match(html, /Deposit: \$2,200\.00/)
+  assert.doesNotMatch(html, /Estimated contents/)
   assert.match(content.engagement_agreement, /\[name\]/)
 })
