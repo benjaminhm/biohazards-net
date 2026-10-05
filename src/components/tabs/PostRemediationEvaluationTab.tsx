@@ -8,7 +8,7 @@
  */
 'use client'
 
-import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from 'react'
 import Link from 'next/link'
 import type {
   AssessmentData,
@@ -24,11 +24,11 @@ import { mergeAssessmentData } from '@/lib/riskDerivation'
 import {
   getPreBySourceQuoteId,
   makeBlankPre,
+  reportAppendixPhotos,
   seedScopeLinesFromQuoteContent,
   upsertPre,
 } from '@/lib/postRemediationEvaluations'
 import { useRegisterUnsavedChanges } from '@/lib/unsavedChangesContext'
-import PhotoUploadPanel from '@/components/PhotoUploadPanel'
 
 interface Props {
   job: Job
@@ -132,6 +132,132 @@ function BulletEditor({
       <button type="button" className="btn btn-secondary" onClick={add} style={{ fontSize: 12, padding: '6px 10px' }}>
         + Add
       </button>
+    </div>
+  )
+}
+
+async function compressImage(file: File, maxDim = 1920, quality = 0.82): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const img = document.createElement('img')
+    const objectUrl = URL.createObjectURL(file)
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl)
+      let { width, height } = img
+      if (width > maxDim || height > maxDim) {
+        if (width >= height) {
+          height = Math.round((height * maxDim) / width)
+          width = maxDim
+        } else {
+          width = Math.round((width * maxDim) / height)
+          height = maxDim
+        }
+      }
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')
+      if (!ctx) {
+        reject(new Error('Could not prepare that image'))
+        return
+      }
+      ctx.drawImage(img, 0, 0, width, height)
+      canvas.toBlob(
+        blob => (blob ? resolve(blob) : reject(new Error('Could not prepare that image'))),
+        'image/jpeg',
+        quality,
+      )
+    }
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl)
+      reject(new Error('Could not read that image'))
+    }
+    img.src = objectUrl
+  })
+}
+
+function ReportImages({
+  jobId,
+  photos,
+  onPhotosUpdate,
+}: {
+  jobId: string
+  photos: Photo[]
+  onPhotosUpdate: (photos: Photo[]) => void
+}) {
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [uploading, setUploading] = useState(false)
+  const [error, setError] = useState('')
+  const loaded = reportAppendixPhotos(photos)
+
+  async function onPick(e: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []).filter(file => file.type.startsWith('image/'))
+    e.target.value = ''
+    if (!files.length || uploading) return
+    setUploading(true)
+    setError('')
+    const added: Photo[] = []
+    try {
+      for (const file of files) {
+        const compressed = await compressImage(file)
+        const body = new FormData()
+        body.append('job_id', jobId)
+        body.append('file', compressed, 'upload.jpg')
+        body.append('caption', '')
+        body.append('area_ref', '')
+        body.append('category', 'after')
+        body.append('capture_phase', 'progress')
+        const res = await fetch('/api/photos/upload', { method: 'POST', body })
+        const data = (await res.json()) as { photo?: Photo; error?: string }
+        if (!res.ok || !data.photo) throw new Error(data.error || 'Upload failed')
+        added.push(data.photo)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Upload failed')
+    } finally {
+      if (added.length) onPhotosUpdate([...added, ...photos])
+      setUploading(false)
+    }
+  }
+
+  return (
+    <div>
+      <div style={sectionHeading}>Images</div>
+      <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 10px', lineHeight: 1.5 }}>
+        Choose one or more images from your gallery. They are placed at the end of the generated report.
+      </p>
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        multiple
+        onChange={e => void onPick(e)}
+        style={{ display: 'none' }}
+      />
+      <button
+        type="button"
+        className="btn btn-secondary"
+        disabled={uploading}
+        onClick={() => fileRef.current?.click()}
+        style={{ padding: '12px 16px', fontWeight: 700 }}
+      >
+        {uploading ? 'Uploading…' : 'Choose images'}
+      </button>
+      {error && (
+        <div style={{ color: '#F87171', fontSize: 13, marginTop: 8 }} role="alert">{error}</div>
+      )}
+      {loaded.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))', gap: 8, marginTop: 12 }}>
+          {loaded.map(photo => (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              key={photo.id}
+              src={photo.file_url}
+              alt={photo.caption || 'Report image'}
+              style={{ width: '100%', height: 96, objectFit: 'cover', borderRadius: 8, display: 'block', background: 'var(--surface-2)' }}
+            />
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -616,20 +742,7 @@ export default function PostRemediationEvaluationTab({ job, photos, documents, o
         'Scope boundary, unaccessed/uncleaned areas and why, exclusions, testing/lab disclaimer.',
       )}
 
-      {/* Photo documentation */}
-      <div style={sectionHeading}>Photo documentation</div>
-      <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 10px' }}>
-        Upload during/after photos. These appear as a photo appendix at the end of the report.
-      </p>
-      <PhotoUploadPanel
-        jobId={job.id}
-        photos={photos}
-        onPhotosUpdate={onPhotosUpdate}
-        defaultPendingCategory="after"
-        allowedCategories={['during', 'after']}
-        fixedCapturePhase="progress"
-        fixedAreaRef=""
-      />
+      <ReportImages jobId={job.id} photos={photos} onPhotosUpdate={onPhotosUpdate} />
 
       <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginTop: 8 }}>
         <input

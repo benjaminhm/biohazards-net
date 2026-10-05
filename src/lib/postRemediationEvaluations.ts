@@ -12,6 +12,7 @@
  */
 import type {
   AssessmentData,
+  Photo,
   PostRemediationEvaluation,
   PreScopeLine,
   QuoteContent,
@@ -158,6 +159,16 @@ export function makeBlankPre(opts: {
     created_at: now,
     updated_at: now,
   }
+}
+
+/** Progress photos placed at the end of a generated Post Remediation Evaluation. */
+export function reportAppendixPhotos(photos: Photo[]): Photo[] {
+  return photos.filter(
+    p => p.include_in_composed_reports !== false && (
+      p.capture_phase === 'progress'
+      || (p.capture_phase !== 'assessment' && (p.category === 'during' || p.category === 'after'))
+    ),
+  )
 }
 
 /** True when a PRE carries any v2 completion-report section content, i.e. it
