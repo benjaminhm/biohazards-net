@@ -8,7 +8,7 @@
  */
 'use client'
 
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from 'react'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type DragEvent } from 'react'
 import Link from 'next/link'
 import type {
   AssessmentData,
@@ -24,7 +24,7 @@ import { mergeAssessmentData } from '@/lib/riskDerivation'
 import {
   getPreBySourceQuoteId,
   makeBlankPre,
-  reportAppendixPhotos,
+  orderReportAppendixPhotos,
   seedScopeLinesFromQuoteContent,
   upsertPre,
 } from '@/lib/postRemediationEvaluations'
@@ -178,16 +178,23 @@ async function compressImage(file: File, maxDim = 1920, quality = 0.82): Promise
 function ReportImages({
   jobId,
   photos,
+  orderedIds,
   onPhotosUpdate,
+  onReorder,
 }: {
   jobId: string
   photos: Photo[]
+  orderedIds?: string[]
   onPhotosUpdate: (photos: Photo[]) => void
+  onReorder: (ids: string[]) => Promise<void>
 }) {
   const fileRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
-  const loaded = reportAppendixPhotos(photos)
+  const [dragId, setDragId] = useState<string | null>(null)
+  const [overId, setOverId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const loaded = orderReportAppendixPhotos(photos, orderedIds)
 
   async function onPick(e: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []).filter(file => file.type.startsWith('image/'))
@@ -211,11 +218,57 @@ function ReportImages({
         if (!res.ok || !data.photo) throw new Error(data.error || 'Upload failed')
         added.push(data.photo)
       }
+      if (added.length) {
+        onPhotosUpdate([...photos, ...added])
+        if (orderedIds?.length) await onReorder([...orderedIds, ...added.map(photo => photo.id)])
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed')
     } finally {
-      if (added.length) onPhotosUpdate([...added, ...photos])
       setUploading(false)
+    }
+  }
+
+  function movePhoto(fromId: string, toId: string) {
+    if (fromId === toId) return
+    const ids = loaded.map(photo => photo.id)
+    const from = ids.indexOf(fromId)
+    const to = ids.indexOf(toId)
+    if (from < 0 || to < 0) return
+    const next = [...ids]
+    const [moved] = next.splice(from, 1)
+    next.splice(to, 0, moved)
+    void onReorder(next).catch(err => {
+      setError(err instanceof Error ? err.message : 'Could not save the new order')
+    })
+  }
+
+  function onDragStart(e: DragEvent<HTMLDivElement>, id: string) {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', id)
+    setDragId(id)
+  }
+
+  function onDragOver(e: DragEvent<HTMLDivElement>, id: string) {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (overId !== id) setOverId(id)
+  }
+
+  async function removePhoto(photo: Photo) {
+    if (!window.confirm('Confirm you want to delete this image?')) return
+    setDeletingId(photo.id)
+    setError('')
+    try {
+      const res = await fetch(`/api/photos/${photo.id}`, { method: 'DELETE' })
+      const data = (await res.json().catch(() => ({}))) as { error?: string }
+      if (!res.ok) throw new Error(data.error || 'Delete failed')
+      onPhotosUpdate(photos.filter(item => item.id !== photo.id))
+      if (orderedIds?.length) await onReorder(orderedIds.filter(id => id !== photo.id))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Delete failed')
+    } finally {
+      setDeletingId(null)
     }
   }
 
@@ -223,7 +276,7 @@ function ReportImages({
     <div>
       <div style={sectionHeading}>Images</div>
       <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 10px', lineHeight: 1.5 }}>
-        Choose one or more images from your gallery. They are placed at the end of the generated report.
+        Choose one or more images. They print at the end of the report in the order they were uploaded. Drag a photo to move it.
       </p>
       <input
         ref={fileRef}
@@ -248,13 +301,67 @@ function ReportImages({
       {loaded.length > 0 && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))', gap: 8, marginTop: 12 }}>
           {loaded.map(photo => (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
+            <div
               key={photo.id}
-              src={photo.file_url}
-              alt={photo.caption || 'Report image'}
-              style={{ width: '100%', height: 96, objectFit: 'cover', borderRadius: 8, display: 'block', background: 'var(--surface-2)' }}
-            />
+              draggable={deletingId !== photo.id}
+              onDragStart={e => onDragStart(e, photo.id)}
+              onDragOver={e => onDragOver(e, photo.id)}
+              onDrop={e => {
+                e.preventDefault()
+                const fromId = e.dataTransfer.getData('text/plain') || dragId
+                if (fromId) movePhoto(fromId, photo.id)
+                setDragId(null)
+                setOverId(null)
+              }}
+              onDragEnd={() => {
+                setDragId(null)
+                setOverId(null)
+              }}
+              style={{
+                position: 'relative',
+                borderRadius: 8,
+                outline: overId === photo.id && dragId && dragId !== photo.id ? '2px solid var(--accent, #60a5fa)' : 'none',
+                opacity: dragId === photo.id ? 0.45 : 1,
+                cursor: 'grab',
+              }}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={photo.file_url}
+                alt={photo.caption || 'Report image'}
+                draggable={false}
+                style={{ width: '100%', height: 96, objectFit: 'cover', borderRadius: 8, display: 'block', background: 'var(--surface-2)', pointerEvents: 'none' }}
+              />
+              <button
+                type="button"
+                aria-label="Delete image"
+                disabled={deletingId === photo.id}
+                draggable={false}
+                onMouseDown={e => e.stopPropagation()}
+                onClick={e => {
+                  e.stopPropagation()
+                  void removePhoto(photo)
+                }}
+                style={{
+                  position: 'absolute',
+                  top: 4,
+                  right: 4,
+                  width: 22,
+                  height: 22,
+                  padding: 0,
+                  border: 'none',
+                  borderRadius: 999,
+                  background: 'rgba(0,0,0,0.72)',
+                  color: '#fff',
+                  fontSize: 14,
+                  fontWeight: 700,
+                  lineHeight: '22px',
+                  cursor: 'pointer',
+                }}
+              >
+                ×
+              </button>
+            </div>
           ))}
         </div>
       )}
@@ -275,6 +382,13 @@ export default function PostRemediationEvaluationTab({ job, photos, documents, o
   const [sourceDocId, setSourceDocId] = useState<string>('')
   const [pre, setPre] = useState<PostRemediationEvaluation | null>(null)
   const [persistedSnapshot, setPersistedSnapshot] = useState<string>('')
+  const preRef = useRef(pre)
+  const snapshotRef = useRef(persistedSnapshot)
+  const jobRef = useRef(job)
+  const orderWrite = useRef(Promise.resolve())
+  preRef.current = pre
+  snapshotRef.current = persistedSnapshot
+  jobRef.current = job
 
   const [saving, setSaving] = useState(false)
   const [savedFlash, setSavedFlash] = useState(false)
@@ -438,6 +552,42 @@ export default function PostRemediationEvaluationTab({ job, photos, documents, o
     } finally {
       setSaving(false)
     }
+  }
+
+  function persistImageOrder(ids: string[]): Promise<void> {
+    const run = orderWrite.current.catch(() => undefined).then(async () => {
+      const current = preRef.current
+      if (!current) return
+      setPre(prev => {
+        if (!prev) return prev
+        const next = { ...prev, report_image_ids: ids }
+        preRef.current = next
+        return next
+      })
+      const snap = snapshotRef.current
+      if (!snap) return
+      const saved = JSON.parse(snap) as PostRemediationEvaluation
+      const nextSaved = { ...saved, report_image_ids: ids }
+      const jobNow = jobRef.current
+      const base = mergeAssessmentData(jobNow.assessment_data)
+      const merged: AssessmentData = {
+        ...base,
+        post_remediation_evaluations: upsertPre(jobNow.assessment_data, nextSaved),
+      }
+      const res = await fetch(`/api/jobs/${jobNow.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assessment_data: merged }),
+      })
+      const data = (await res.json()) as { job?: Job; error?: string }
+      if (!res.ok) throw new Error(data.error || 'Could not save the new order')
+      if (data.job) onJobUpdate(data.job)
+      const nextSnap = JSON.stringify(nextSaved)
+      snapshotRef.current = nextSnap
+      setPersistedSnapshot(nextSnap)
+    })
+    orderWrite.current = run
+    return run
   }
 
   // ── No source selected yet: show the picker ─────────────────────────────────
@@ -742,7 +892,13 @@ export default function PostRemediationEvaluationTab({ job, photos, documents, o
         'Scope boundary, unaccessed/uncleaned areas and why, exclusions, testing/lab disclaimer.',
       )}
 
-      <ReportImages jobId={job.id} photos={photos} onPhotosUpdate={onPhotosUpdate} />
+      <ReportImages
+        jobId={job.id}
+        photos={photos}
+        orderedIds={pre.report_image_ids}
+        onPhotosUpdate={onPhotosUpdate}
+        onReorder={persistImageOrder}
+      />
 
       <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginTop: 8 }}>
         <input

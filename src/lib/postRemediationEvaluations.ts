@@ -171,6 +171,28 @@ export function reportAppendixPhotos(photos: Photo[]): Photo[] {
   )
 }
 
+/** Report images in upload order, or in an explicit id list when the user has dragged them. */
+export function orderReportAppendixPhotos(photos: Photo[], orderedIds?: string[] | null): Photo[] {
+  const byCreated = [...reportAppendixPhotos(photos)].sort((a, b) => {
+    const byTime = a.uploaded_at.localeCompare(b.uploaded_at)
+    return byTime !== 0 ? byTime : a.id.localeCompare(b.id)
+  })
+  if (!orderedIds?.length) return byCreated
+  const byId = new Map(byCreated.map(photo => [photo.id, photo]))
+  const ordered: Photo[] = []
+  const seen = new Set<string>()
+  for (const id of orderedIds) {
+    const photo = byId.get(id)
+    if (!photo || seen.has(id)) continue
+    ordered.push(photo)
+    seen.add(id)
+  }
+  for (const photo of byCreated) {
+    if (!seen.has(photo.id)) ordered.push(photo)
+  }
+  return ordered
+}
+
 /** True when a PRE carries any v2 completion-report section content, i.e. it
  *  should render with the 9-section completion-report layout (not legacy). */
 export function preHasV2Content(pre: PostRemediationEvaluation): boolean {

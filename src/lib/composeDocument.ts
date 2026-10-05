@@ -827,6 +827,8 @@ function composePre(
     technician_signoff: (pre.technician_signoff ?? '').trim() || undefined,
     completed_by: (pre.technician_signoff ?? '').trim() || undefined,
     unsigned_copy: pre.unsigned_copy === true,
+    include_photos: true,
+    report_image_ids: pre.report_image_ids?.length ? pre.report_image_ids : undefined,
   }
   return { content: { ...c }, source: 'assessment_capture' }
 }

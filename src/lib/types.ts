@@ -2027,6 +2027,8 @@ export interface PostRemediationEvaluation {
   technician_signoff?: string
   /** When true, the printed report is watermarked as an unsigned copy. Use while the invoice is unpaid. */
   unsigned_copy?: boolean
+  /** Manual order of report images. Absent means upload order, oldest first. */
+  report_image_ids?: string[]
   created_at: string
   updated_at: string
   last_suggested_at?: string
@@ -2071,6 +2073,8 @@ export interface PostRemediationEvaluationContent {
   unsigned_copy?: boolean
   /** When false, the printed report omits photos. Unset means photos are included. */
   include_photos?: boolean
+  /** Manual order of report images. Absent means upload order, oldest first. */
+  report_image_ids?: string[]
 }
 
 /** A PRE scope line with the quoted text context snapshot baked in for printing. */

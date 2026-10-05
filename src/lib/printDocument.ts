@@ -34,6 +34,7 @@ import type { HouseSurveyDocumentContent, SurveySketch } from './houseSurvey'
 import { filterGroupedStages, groupPhotosByRoomAndStage, isContentsClearanceAppendixPhoto, isQuoteAppendixPhoto, type RoomPhotoGroup } from './photoGroups'
 import { photosForComposedReports } from '@/lib/photosForComposedReports'
 import { docketStatusLabel, dimensionTrioToMetres, formatAud, formatDistanceLegs, formatKg, formatM3 } from '@/lib/disposalManifest'
+import { orderReportAppendixPhotos } from '@/lib/postRemediationEvaluations'
 import { isPdfUrl } from '@/lib/pdfDocket'
 import { SURFACE_LABELS } from '@/lib/areaSurfaces'
 import { effectiveAreaDimensions } from '@/lib/areaSubzones'
@@ -2581,10 +2582,8 @@ function preProseBlock(text?: string): string {
 }
 
 /** Progress (during/after) photos rendered as an end-of-report appendix grid. */
-function preCompletionPhotoAppendix(photos: Photo[]): string {
-  const progress = photos.filter(
-    p => p.capture_phase === 'progress' || (p.capture_phase !== 'assessment' && (p.category === 'during' || p.category === 'after')),
-  )
+function preCompletionPhotoAppendix(photos: Photo[], orderedIds?: string[]): string {
+  const progress = orderReportAppendixPhotos(photos, orderedIds)
   if (!progress.length) return ''
   const cards = progress
     .map(p => {
@@ -2675,8 +2674,8 @@ function buildCompletionReportMid(c: PostRemediationEvaluationContent, photos: P
     ${(c.recommendations ?? []).filter(Boolean).length ? `${navyHeading('08', 'Recommendations')}<div class="body-text" style="margin:6px 0 0">The following was noted on site and is outside the cleaning scope. It is flagged here for the client to action:</div>${bullets(c.recommendations)}` : ''}
     ${c.compliance ? `${navyHeading('09', 'Compliance')}${preProseBlock(c.compliance)}` : ''}
     ${c.limitations ? `${navyHeading('—', 'Limitations & Scope Notice')}${preProseBlock(c.limitations)}` : ''}
-    ${c.include_photos !== false ? preCompletionPhotoAppendix(photos) : ''}
     ${c.technician_signoff ? `<div class="label" style="margin-top:22px;color:#0a1f44">Sign-off</div><div class="body-text">${esc(c.technician_signoff)}</div>` : ''}
+    ${c.include_photos !== false ? preCompletionPhotoAppendix(photos, c.report_image_ids) : ''}
   `
 }
 
