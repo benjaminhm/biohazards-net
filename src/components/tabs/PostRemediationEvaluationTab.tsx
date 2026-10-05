@@ -396,6 +396,8 @@ export default function PostRemediationEvaluationTab({ job, photos, documents, o
 
   const [aiBusy, setAiBusy] = useState(false)
   const [aiError, setAiError] = useState<string | null>(null)
+  const [dragStage, setDragStage] = useState<number | null>(null)
+  const [overStage, setOverStage] = useState<number | null>(null)
 
   // On mount / job change: if any PRE exists, open the most-recently-updated one.
   useEffect(() => {
@@ -452,6 +454,17 @@ export default function PostRemediationEvaluationTab({ job, photos, documents, o
 
   function patchWorksRow(idx: number, mut: (r: PreWorksRow) => PreWorksRow) {
     patchPre(p => ({ ...p, works_rows: (p.works_rows ?? []).map((r, i) => (i === idx ? mut(r) : r)) }))
+  }
+
+  function moveStage(from: number, to: number) {
+    if (from === to || from < 0 || to < 0) return
+    patchPre(p => {
+      const rows = [...(p.works_rows ?? [])]
+      if (from >= rows.length || to >= rows.length) return p
+      const [moved] = rows.splice(from, 1)
+      rows.splice(to, 0, moved)
+      return { ...p, works_rows: rows }
+    })
   }
   function patchProductRow(idx: number, mut: (r: PreProductRow) => PreProductRow) {
     patchPre(p => ({ ...p, products_rows: (p.products_rows ?? []).map((r, i) => (i === idx ? mut(r) : r)) }))
@@ -760,10 +773,48 @@ export default function PostRemediationEvaluationTab({ job, photos, documents, o
 
       {/* 03 Works Undertaken */}
       <div style={sectionHeading}>03 · Works Undertaken</div>
+      {(pre.works_rows ?? []).length > 1 && (
+        <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 8px' }}>
+          Drag a stage by its label to change the order in the report.
+        </p>
+      )}
       {(pre.works_rows ?? []).map((r, idx) => (
-        <div key={idx} style={card}>
+        <div
+          key={idx}
+          onDragOver={e => {
+            e.preventDefault()
+            if (overStage !== idx) setOverStage(idx)
+          }}
+          onDrop={e => {
+            e.preventDefault()
+            const from = Number(e.dataTransfer.getData('text/plain'))
+            if (Number.isInteger(from)) moveStage(from, idx)
+            setDragStage(null)
+            setOverStage(null)
+          }}
+          style={{
+            ...card,
+            outline: overStage === idx && dragStage !== null && dragStage !== idx ? '2px solid var(--accent, #60a5fa)' : undefined,
+            opacity: dragStage === idx ? 0.55 : 1,
+          }}
+        >
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>Stage {idx + 1}</span>
+            <span
+              draggable
+              title="Drag to reorder"
+              onDragStart={e => {
+                e.dataTransfer.effectAllowed = 'move'
+                e.dataTransfer.setData('text/plain', String(idx))
+                setDragStage(idx)
+              }}
+              onDragEnd={() => {
+                setDragStage(null)
+                setOverStage(null)
+              }}
+              style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)', cursor: 'grab' }}
+            >
+              Stage {idx + 1}
+            </span>
             <button
               type="button"
               onClick={() => patchPre(p => ({ ...p, works_rows: (p.works_rows ?? []).filter((_, i) => i !== idx) }))}
