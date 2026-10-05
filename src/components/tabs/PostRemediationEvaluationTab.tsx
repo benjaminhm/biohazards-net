@@ -396,8 +396,10 @@ export default function PostRemediationEvaluationTab({ job, photos, documents, o
 
   const [aiBusy, setAiBusy] = useState(false)
   const [aiError, setAiError] = useState<string | null>(null)
-  const [dragStage, setDragStage] = useState<number | null>(null)
   const [overStage, setOverStage] = useState<number | null>(null)
+  const stageKeys = useRef<string[]>([])
+  const stageKeyOwner = useRef<string | null>(null)
+  const dragStageFrom = useRef<number | null>(null)
 
   // On mount / job change: if any PRE exists, open the most-recently-updated one.
   useEffect(() => {
@@ -456,8 +458,22 @@ export default function PostRemediationEvaluationTab({ job, photos, documents, o
     patchPre(p => ({ ...p, works_rows: (p.works_rows ?? []).map((r, i) => (i === idx ? mut(r) : r)) }))
   }
 
+  function stageKeyList(ownerId: string, count: number): string[] {
+    if (stageKeyOwner.current !== ownerId) {
+      stageKeys.current = Array.from({ length: count }, () => crypto.randomUUID())
+      stageKeyOwner.current = ownerId
+      return stageKeys.current
+    }
+    while (stageKeys.current.length < count) stageKeys.current.push(crypto.randomUUID())
+    if (stageKeys.current.length > count) stageKeys.current.splice(count)
+    return stageKeys.current
+  }
+
   function moveStage(from: number, to: number) {
-    if (from === to || from < 0 || to < 0) return
+    const count = preRef.current?.works_rows?.length ?? 0
+    if (from === to || from < 0 || to < 0 || from >= count || to >= count) return
+    const [key] = stageKeys.current.splice(from, 1)
+    if (key) stageKeys.current.splice(to, 0, key)
     patchPre(p => {
       const rows = [...(p.works_rows ?? [])]
       if (from >= rows.length || to >= rows.length) return p
@@ -465,6 +481,11 @@ export default function PostRemediationEvaluationTab({ job, photos, documents, o
       rows.splice(to, 0, moved)
       return { ...p, works_rows: rows }
     })
+  }
+
+  function removeStage(idx: number) {
+    stageKeys.current.splice(idx, 1)
+    patchPre(p => ({ ...p, works_rows: (p.works_rows ?? []).filter((_, i) => i !== idx) }))
   }
   function patchProductRow(idx: number, mut: (r: PreProductRow) => PreProductRow) {
     patchPre(p => ({ ...p, products_rows: (p.products_rows ?? []).map((r, i) => (i === idx ? mut(r) : r)) }))
@@ -681,6 +702,9 @@ export default function PostRemediationEvaluationTab({ job, photos, documents, o
     </>
   )
 
+  const workRows = pre.works_rows ?? []
+  const workKeys = stageKeyList(pre.id, workRows.length)
+
   return (
     <div style={{ maxWidth: 760, paddingBottom: 48 }}>
       {/* Header strip */}
@@ -773,51 +797,54 @@ export default function PostRemediationEvaluationTab({ job, photos, documents, o
 
       {/* 03 Works Undertaken */}
       <div style={sectionHeading}>03 · Works Undertaken</div>
-      {(pre.works_rows ?? []).length > 1 && (
+      {workRows.length > 1 && (
         <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 8px' }}>
-          Drag a stage by its label to change the order in the report.
+          Drag a stage by the grip to change its place. The new order stays on screen. Save before you create the document.
         </p>
       )}
-      {(pre.works_rows ?? []).map((r, idx) => (
+      {workRows.map((r, idx) => (
         <div
-          key={idx}
+          key={workKeys[idx]}
           onDragOver={e => {
             e.preventDefault()
             if (overStage !== idx) setOverStage(idx)
           }}
           onDrop={e => {
             e.preventDefault()
-            const from = Number(e.dataTransfer.getData('text/plain'))
-            if (Number.isInteger(from)) moveStage(from, idx)
-            setDragStage(null)
+            const from = dragStageFrom.current
+            dragStageFrom.current = null
+            if (from !== null) moveStage(from, idx)
             setOverStage(null)
           }}
           style={{
             ...card,
-            outline: overStage === idx && dragStage !== null && dragStage !== idx ? '2px solid var(--accent, #60a5fa)' : undefined,
-            opacity: dragStage === idx ? 0.55 : 1,
+            outline: overStage === idx && dragStageFrom.current !== null && dragStageFrom.current !== idx ? '2px solid var(--accent, #60a5fa)' : undefined,
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
-            <span
-              draggable
-              title="Drag to reorder"
-              onDragStart={e => {
-                e.dataTransfer.effectAllowed = 'move'
-                e.dataTransfer.setData('text/plain', String(idx))
-                setDragStage(idx)
-              }}
-              onDragEnd={() => {
-                setDragStage(null)
-                setOverStage(null)
-              }}
-              style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)', cursor: 'grab' }}
-            >
-              Stage {idx + 1}
-            </span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div
+                draggable
+                aria-label="Drag stage"
+                title="Drag to reorder"
+                onDragStart={e => {
+                  dragStageFrom.current = idx
+                  e.dataTransfer.effectAllowed = 'move'
+                  e.dataTransfer.setData('text/plain', 'stage')
+                }}
+                onDragEnd={() => {
+                  dragStageFrom.current = null
+                  setOverStage(null)
+                }}
+                style={{ cursor: 'grab', color: 'var(--text-muted)', fontWeight: 700, userSelect: 'none', lineHeight: 1 }}
+              >
+                ⋮⋮
+              </div>
+              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>Stage {idx + 1}</span>
+            </div>
             <button
               type="button"
-              onClick={() => patchPre(p => ({ ...p, works_rows: (p.works_rows ?? []).filter((_, i) => i !== idx) }))}
+              onClick={() => removeStage(idx)}
               style={{ background: 'transparent', border: 'none', color: '#F87171', cursor: 'pointer', fontSize: 12 }}
             >
               Remove
