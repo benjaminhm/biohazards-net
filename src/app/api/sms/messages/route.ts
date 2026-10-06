@@ -8,7 +8,7 @@
  * The read_at update runs after the fetch — the fetch result is returned
  * immediately so the UI is not blocked by the mark-read write.
  */
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@/lib/staffAuth'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import { NextResponse } from 'next/server'

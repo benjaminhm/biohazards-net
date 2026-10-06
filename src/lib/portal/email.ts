@@ -28,6 +28,7 @@ async function send(payload: {
   to: string
   subject: string
   html: string
+  text?: string
 }): Promise<void> {
   const { error } = await resend.emails.send(payload)
   if (error) {
@@ -85,11 +86,68 @@ function button(href: string, label: string): string {
   `
 }
 
+/**
+ * The six digits, plus where to type them.
+ *
+ * The button above it is the nice path, but corporate gateways rewrite every URL
+ * in inbound mail and some policies forbid clicking links from outside the
+ * company altogether. A number the client types into a browser they opened
+ * themselves is the one credential nothing in the mail chain can break.
+ */
+function codeBlock(code: string, portalHost: string): string {
+  return `
+    <div style="margin: 28px 0 0; padding: 18px 20px; background: #f7f7f8; border: 1px solid #e5e5e7; border-radius: 8px;">
+      <div style="font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #777; margin-bottom: 10px;">
+        Or enter this code at ${esc(portalHost)}
+      </div>
+      <div style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 30px; font-weight: 700; letter-spacing: 0.22em; color: #111;">
+        ${esc(code)}
+      </div>
+    </div>
+  `
+}
+
+/** The link as selectable text, for when the button is stripped or rewritten. */
+function rawUrlBlock(url: string): string {
+  return `
+    <div style="margin: 20px 0 0;">
+      <div style="font-size: 12px; color: #777; margin-bottom: 6px;">
+        If the button does not work, copy this address into your browser:
+      </div>
+      <div style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: #444; word-break: break-all; background: #f7f7f8; border: 1px solid #e5e5e7; border-radius: 6px; padding: 10px 12px;">
+        ${esc(url)}
+      </div>
+    </div>
+  `
+}
+
+/** "7 days" reads better than "10080 minutes" on a week-long invite. */
+function expiryLabel(minutes: number): string {
+  if (minutes % (60 * 24) === 0) {
+    const days = minutes / (60 * 24)
+    return days === 1 ? '24 hours' : `${days} days`
+  }
+  if (minutes % 60 === 0) {
+    const hours = minutes / 60
+    return hours === 1 ? '1 hour' : `${hours} hours`
+  }
+  return `${minutes} minutes`
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host
+  } catch {
+    return 'the sign-in page'
+  }
+}
+
 export interface PortalMagicLinkEmail {
   tradingName: TradingNameId
   to: string
   contactName: string
   loginUrl: string
+  code: string
   expiresInMinutes: number
 }
 
@@ -97,6 +155,8 @@ export async function sendPortalMagicLinkEmail(data: PortalMagicLinkEmail) {
   const option = tradingNameOption(data.tradingName)
   const brandLabel = option?.label ?? 'Accounts'
   const firstName = data.contactName.trim().split(/\s+/)[0] || 'there'
+  const portalHost = hostOf(data.loginUrl)
+  const expiry = expiryLabel(data.expiresInMinutes)
 
   const html = shell(
     brandLabel,
@@ -106,19 +166,35 @@ export async function sendPortalMagicLinkEmail(data: PortalMagicLinkEmail) {
         Hi ${esc(firstName)}, here is your link to sign in to your trade account.
       </p>
       ${button(data.loginUrl, 'Sign in')}
+      ${codeBlock(data.code, portalHost)}
+      ${rawUrlBlock(data.loginUrl)}
       <p style="font-size: 13px; color: #777; line-height: 1.6; margin: 24px 0 0;">
-        This link works once and expires in ${data.expiresInMinutes} minutes.
-        If you did not request it, you can ignore this email &mdash; nobody can access
-        your account without opening the link.
+        The link and the code are the same single-use sign-in and both expire in
+        ${esc(expiry)}. If you did not request this you can ignore the email &mdash;
+        nobody can reach your account without it.
       </p>
     `
   )
 
+  const text = [
+    `Hi ${firstName}, here is your link to sign in to your trade account.`,
+    '',
+    data.loginUrl,
+    '',
+    `Or enter this code at ${portalHost}: ${data.code}`,
+    '',
+    `The link and the code are the same single-use sign-in and both expire in ${expiry}.`,
+    'If you did not request this you can ignore the email.',
+    '',
+    `${brandLabel} · Trade accounts`,
+  ].join('\n')
+
   await send({
     from: fromAddress(data.tradingName),
     to: data.to,
-    subject: `Your ${brandLabel} sign-in link`,
+    subject: `Your ${brandLabel} sign-in code: ${data.code}`,
     html,
+    text,
   })
 }
 
@@ -128,13 +204,17 @@ export interface PortalInviteEmail {
   contactName: string
   accountName: string
   loginUrl: string
+  code: string
+  expiresInMinutes: number
 }
 
-/** First-time invite. Same link mechanism, framed as an introduction. */
+/** First-time invite. Same credential, framed as an introduction. */
 export async function sendPortalInviteEmail(data: PortalInviteEmail) {
   const option = tradingNameOption(data.tradingName)
   const brandLabel = option?.label ?? 'Accounts'
   const firstName = data.contactName.trim().split(/\s+/)[0] || 'there'
+  const portalHost = hostOf(data.loginUrl)
+  const expiry = expiryLabel(data.expiresInMinutes)
 
   const html = shell(
     brandLabel,
@@ -147,21 +227,41 @@ export async function sendPortalInviteEmail(data: PortalInviteEmail) {
       <p style="font-size: 15px; color: #333; line-height: 1.6; margin: 0 0 20px;">
         From here you can review and accept quotes, download completion reports and
         certificates, and keep your company and billing details up to date. There is no
-        password &mdash; we email you a sign-in link whenever you need one.
+        password &mdash; we email you a sign-in link and code whenever you need one.
       </p>
       ${button(data.loginUrl, 'Set up your account')}
+      ${codeBlock(data.code, portalHost)}
+      ${rawUrlBlock(data.loginUrl)}
       <p style="font-size: 13px; color: #777; line-height: 1.6; margin: 24px 0 0;">
-        You will be asked to review our trade terms the first time you sign in. This link
-        works once; you can request a new one any time from the sign-in page.
+        You will be asked to review our trade terms the first time you sign in. This
+        sign-in works once and is valid for ${esc(expiry)}; you can request a new one any
+        time from the sign-in page.
       </p>
     `
   )
+
+  const text = [
+    `Hi ${firstName}, we have set up a trade account for ${data.accountName}.`,
+    '',
+    'From here you can review and accept quotes, download completion reports and',
+    'certificates, and keep your company and billing details up to date.',
+    '',
+    data.loginUrl,
+    '',
+    `Or enter this code at ${portalHost}: ${data.code}`,
+    '',
+    `This sign-in works once and is valid for ${expiry}. You can request a new one any`,
+    'time from the sign-in page.',
+    '',
+    `${brandLabel} · Trade accounts`,
+  ].join('\n')
 
   await send({
     from: fromAddress(data.tradingName),
     to: data.to,
     subject: `Your ${brandLabel} trade account`,
     html,
+    text,
   })
 }
 
@@ -291,5 +391,64 @@ export async function sendAccountApplicationSubmittedEmail(
     to,
     subject: `Trade account application — ${data.accountName}`,
     html,
+  })
+}
+
+function staffFromAddress(): string {
+  const address =
+    process.env.RESEND_FROM_ACCOUNTS ||
+    process.env.RESEND_FROM_EMAIL ||
+    'onboarding@resend.dev'
+  return `biohazards.net <${address}>`
+}
+
+/** Staff magic link. Same Resend path as the portal, without a trade-account brand. */
+export async function sendStaffMagicLinkEmail(data: {
+  to: string
+  loginUrl: string
+  expiresInMinutes: number
+}): Promise<void> {
+  const firstName = (process.env.STAFF_DISPLAY_NAME ?? '').trim().split(/\s+/)[0] || 'there'
+  const minutes = data.expiresInMinutes
+  const expiry = minutes >= 60 && minutes % 60 === 0
+    ? `${minutes / 60} hour${minutes === 60 ? '' : 's'}`
+    : `${minutes} minutes`
+
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px;">
+      <div style="border-top: 4px solid #FF6B35; padding-top: 24px; margin-bottom: 28px;">
+        <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #FF6B35; margin-bottom: 6px;">
+          biohazards.net
+        </div>
+        <h1 style="font-size: 22px; font-weight: 700; color: #111; margin: 0;">Your sign-in link</h1>
+      </div>
+      <p style="font-size: 15px; color: #333; line-height: 1.6; margin: 0 0 20px;">
+        Hi ${esc(firstName)}, here is your link to sign in.
+      </p>
+      ${button(data.loginUrl, 'Sign in')}
+      <p style="font-size: 13px; color: #555; line-height: 1.6; margin: 24px 0 0; word-break: break-all;">
+        ${esc(data.loginUrl)}
+      </p>
+      <p style="font-size: 13px; color: #777; line-height: 1.6; margin: 24px 0 0;">
+        This link works once and expires in ${esc(expiry)}. If you did not request it, you can ignore this email.
+      </p>
+    </div>
+  `
+
+  const text = [
+    `Hi ${firstName}, here is your link to sign in.`,
+    '',
+    data.loginUrl,
+    '',
+    `This link works once and expires in ${expiry}.`,
+    'If you did not request it, you can ignore this email.',
+  ].join('\n')
+
+  await send({
+    from: staffFromAddress(),
+    to: data.to,
+    subject: 'Your biohazards.net sign-in link',
+    html,
+    text,
   })
 }

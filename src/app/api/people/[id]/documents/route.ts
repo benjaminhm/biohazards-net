@@ -11,7 +11,7 @@
  * File upload itself happens via the Supabase Storage signed URL pattern
  * (handled separately); this route just records the resulting public URL.
  */
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@/lib/staffAuth'
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 import { getOrgId as resolveOrgId } from '@/lib/org'

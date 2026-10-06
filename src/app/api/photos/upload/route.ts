@@ -7,7 +7,7 @@
  * so they are not capped by the Vercel function body limit.
  */
 import { NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@/lib/staffAuth'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import { insertPhotoRow } from '@/lib/photoRowInsert'

@@ -5,7 +5,7 @@
  * Tasks belong to one person on one job, so two assignees can have different
  * instructions for the same job.
  */
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@/lib/staffAuth'
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'

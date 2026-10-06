@@ -9,7 +9,7 @@
  * Sends a professional HTML email to ACCOUNTS_EMAIL (falls back to
  * NOTIFY_EMAIL) — same template as the admin-side send route.
  */
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@/lib/staffAuth'
 import { createServiceClient } from '@/lib/supabase'
 import { NextResponse } from 'next/server'
 import { Resend } from 'resend'

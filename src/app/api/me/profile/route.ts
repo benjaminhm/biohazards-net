@@ -14,7 +14,7 @@
  * Returns 404 if the user's org_users row has no person_id linked yet
  * (admin hasn't created their profile or sent them an invite with person_id).
  */
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@/lib/staffAuth'
 import { createServiceClient } from '@/lib/supabase'
 import { NextRequest, NextResponse } from 'next/server'
 import { normalizeOptionalPhoneField } from '@/lib/phone'

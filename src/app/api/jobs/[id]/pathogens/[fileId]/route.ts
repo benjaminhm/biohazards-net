@@ -9,7 +9,7 @@
  * the in-app record is the source of truth, the storage delete is best-effort.
  */
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@/lib/staffAuth'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import type { AssessmentData, Job, PathogensCapture } from '@/lib/types'

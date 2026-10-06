@@ -7,11 +7,10 @@
  * admin / owner / manager. Team leads get the full job file (see the
  * isFullJobFileRole checks in api/jobs/[id]) but not the account relationship.
  */
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@/lib/staffAuth'
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
-import { verifyImpersonationFromRequest } from '@/lib/impersonation'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 const ACCOUNT_ADMIN_ROLES = new Set(['admin', 'owner', 'manager'])
@@ -40,11 +39,6 @@ export async function requireAccountsAdmin(
   }
 
   const supabase = createServiceClient()
-
-  const impersonation = await verifyImpersonationFromRequest(req, userId)
-  if (impersonation?.orgId === orgId) {
-    return { supabase, orgId, userId }
-  }
 
   const { data: orgUser } = await supabase
     .from('org_users')

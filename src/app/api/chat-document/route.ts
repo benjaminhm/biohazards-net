@@ -16,7 +16,7 @@
 import { NextResponse } from 'next/server'
 import { CLAUDE_SONNET_MODEL } from '@/lib/anthropicModels'
 import Anthropic from '@anthropic-ai/sdk'
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@/lib/staffAuth'
 import type { DocType } from '@/lib/types'
 import { getOrgId } from '@/lib/org'
 import { getDocumentRulesForChat } from '@/lib/documentRules'

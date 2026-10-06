@@ -3,7 +3,7 @@
  * DELETE /api/document-bundles/[id] — remove bundle (does not delete source documents)
  */
 import { NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@/lib/staffAuth'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 

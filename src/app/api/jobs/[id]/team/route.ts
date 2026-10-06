@@ -12,7 +12,7 @@
  * for internal comms to keep Twilio costs reserved for client-facing messages.
  * Email failure is logged but never blocks the assignment response.
  */
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@/lib/staffAuth'
 import { createServiceClient } from '@/lib/supabase'
 import { NextResponse } from 'next/server'
 import { Resend } from 'resend'

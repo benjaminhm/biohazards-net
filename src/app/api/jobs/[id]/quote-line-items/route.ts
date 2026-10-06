@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@/lib/staffAuth'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import { QUOTE_SOURCE_SCHEMA_VERSION, quoteLineItemSourceHash } from '@/lib/quoteLineItemSource'

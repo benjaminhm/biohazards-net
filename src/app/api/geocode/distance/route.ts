@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@/lib/staffAuth'
 import { getOrgId } from '@/lib/org'
 import { drivingRoundTripKm } from '@/lib/geocode'
 

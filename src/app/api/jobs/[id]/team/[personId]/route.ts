@@ -4,7 +4,7 @@
  * DELETE /api/jobs/[id]/team/[personId] — remove a person from a job's team.
  * Scoped by org_id to prevent cross-tenant removal.
  */
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@/lib/staffAuth'
 import { createServiceClient } from '@/lib/supabase'
 import { NextResponse } from 'next/server'
 import { getOrgId as resolveOrgId } from '@/lib/org'

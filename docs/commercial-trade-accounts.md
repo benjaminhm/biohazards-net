@@ -18,7 +18,7 @@ Portal auth is therefore its own thing:
 | Concern | Staff | Trade contact |
 |---|---|---|
 | Identity | Clerk user → `org_users` | `client_account_contacts` row |
-| Login | Clerk session | Single-use emailed link → `bh_portal` cookie |
+| Login | Clerk session | Single-use emailed link or code → `bh_portal` cookie |
 | Cookie scope | `.biohazards.net` and satellites | Host-only on the accounts host |
 | Query scoping | `org_id` (`lib/org.ts`) | `org_id` **and** `client_account_id` (`lib/portalScope.ts`) |
 
@@ -56,6 +56,59 @@ session, rather than the public `/api/print/[docId]`. Both share one renderer
 > **Known gap, pre-existing:** `/api/print/[docId]` is public with no token, so
 > anyone holding a document UUID can read it. The portal avoids it; staff email
 > and copy-link flows still depend on it. Closing that is separate work.
+
+## How a client signs in
+
+One credential, delivered two ways. `issuePortalLogin` writes a single
+`client_portal_login_tokens` row holding the SHA-256 of a random token **and** of
+a six-digit code, and the email carries the link, the raw URL as copyable text,
+and the code. Using either burns the row, which is the reason they share it —
+separate rows would let a client type the code after the link had already signed
+them in.
+
+The code exists because the link frequently does not survive the trip. Microsoft
+Defender Safe Links, Mimecast and Proofpoint rewrite every URL in inbound mail,
+and plenty of corporate policies tell staff never to click a link in external
+email. Making the link prettier does not help; a number the client types into a
+browser they opened themselves is unbreakable by anything in the mail chain.
+
+`POST /api/portal/auth/code` takes the email **and** the code. The code alone is
+never a credential, which is what makes six digits enough: an attacker must
+already know the address, wrong guesses are charged against every live row for
+that email (`MAX_CODE_ATTEMPTS`, 5), and issuance is capped at five per email per
+hour. Twenty-five guesses an hour against a million combinations.
+
+Both paths converge on `burnAndMint` in `src/lib/portalAuth.ts`, which does the
+conditional `consumed_at` update and re-reads contact and account status. Keep
+them converged: a divergence would mean one route enforcing a suspension the
+other ignores.
+
+Burning the code attempts never burns the link, so an attacker can disable the
+code path without locking the real contact out of their account.
+
+Two residual risks are known and accepted rather than overlooked. A sustained
+low-and-slow guessing campaign does add up over months, and the only thing that
+catches it is the client noticing the flood of sign-in emails it requires —
+there is no alerting. And a code is easier to socially engineer over the phone
+than a link is, since people who would never forward a login link will read six
+digits to someone claiming to be their supplier. Revisit both if a client is
+ever actually targeted; the cheap answers are an anti-phishing line in the email
+and keying `code_hash` with `PORTAL_SESSION_SECRET`.
+
+Two expiries, set by the row's `purpose`:
+
+| Purpose | Lifetime | Why |
+|---|---|---|
+| `self_service` | 1 hour | The client just asked for it, but a corporate quarantine can hold the message for hours before someone releases it. Fifteen minutes turned a delayed release into an error page. |
+| `staff_invite` | 7 days | We sent it unprompted. Onboarding waits on the client being back at their desk, and making them request a second link to finish a job we started is a poor introduction. |
+
+> **Do not add a staff "copy sign-in link" button.** It would let a staff member
+> open a session as the client, and `quote_acceptances` is our evidence that a
+> named person authorised the spend. The moment staff can hold that credential
+> the evidence is worth less than the paper it is printed on. Staff re-send the
+> invite instead; only the contact's inbox ever sees it.
+
+Rows issued before migration 049 have an empty `code_hash` and remain link-only.
 
 ## Terms & Conditions versioning
 
@@ -120,9 +173,11 @@ Resend access.
 ### 1. Database
 
 Run `supabase-migration-047-commercial-accounts.sql`, then
-`supabase-migration-048-account-application.sql`, in the Supabase SQL editor.
-Both are safe to re-run. 048 only adds nullable columns, so the SQL editor's
-"destructive operations" warning on it is a false positive from keyword scanning.
+`supabase-migration-048-account-application.sql`, then
+`supabase-migration-049-portal-login-codes.sql`, in the Supabase SQL editor. All
+are safe to re-run. 048 and 049 only add columns, so the SQL editor's
+"destructive operations" warning on them is a false positive from keyword
+scanning.
 
 ### 2. Environment variables
 
@@ -208,7 +263,10 @@ is sent.
 
 1. Staff: Dashboard → **Trade Accounts** → create an account under Forensic
    Cleaning QLD → add yourself as a contact → **Send invite**.
-2. Open the emailed link, press **Continue**, accept the terms.
+2. Open the emailed link, press **Continue**, accept the terms. Then sign out and
+   repeat with the code: request a link from `/portal/login` and type the six
+   digits from that email instead of clicking. Confirm the link in the same email
+   is dead afterwards — one credential, either door.
 3. Client: **Company profile** → fill the four sections → **Submit for review**.
    Confirm the form goes read-only, the alert reaches `ACCOUNTS_EMAIL`, and the
    account shows **Awaiting review** in Trade Accounts. **Reopen for editing** on

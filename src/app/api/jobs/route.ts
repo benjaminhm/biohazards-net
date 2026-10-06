@@ -9,7 +9,7 @@
  * All queries are scoped by org_id to enforce tenancy isolation.
  */
 import { NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@/lib/staffAuth'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import { normalizeOptionalPhoneField } from '@/lib/phone'

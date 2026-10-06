@@ -5,7 +5,7 @@
  * so large files are not blocked by the Vercel function body limit (~4.5 MB).
  */
 import { NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@/lib/staffAuth'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 

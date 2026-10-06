@@ -3,10 +3,10 @@
  * POST /api/jobs/[id]/progress-notes  — create note
  */
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@/lib/staffAuth'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
-import { getClerkFirstName } from '@/lib/clerkDisplayName'
+import { getStaffFirstName } from '@/lib/clerkDisplayName'
 
 const MAX_BODY = 50_000
 
@@ -78,7 +78,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: `Note must be at most ${MAX_BODY} characters` }, { status: 400 })
     }
 
-    const first = await getClerkFirstName(userId)
+    const first = await getStaffFirstName(userId)
     const { data, error } = await supabase
       .from('progress_notes')
       .insert({

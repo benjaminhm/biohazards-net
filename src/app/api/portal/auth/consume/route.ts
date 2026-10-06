@@ -9,19 +9,12 @@
  */
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
-import { consumePortalLoginToken } from '@/lib/portalAuth'
+import { consumePortalLoginToken, signInFailureMessage } from '@/lib/portalAuth'
 import {
   isSecureRequest,
   portalCookieHeader,
   signPortalToken,
 } from '@/lib/portalSession'
-
-const FAILURE_MESSAGES: Record<string, string> = {
-  invalid: 'That sign-in link is not valid. Please request a new one.',
-  expired: 'That sign-in link has expired. Please request a new one.',
-  used: 'That sign-in link has already been used. Please request a new one.',
-  inactive: 'This account is no longer active. Please contact us.',
-}
 
 export async function POST(req: Request) {
   let token = ''
@@ -29,17 +22,14 @@ export async function POST(req: Request) {
     const body = await req.json()
     token = typeof body?.token === 'string' ? body.token : ''
   } catch {
-    return NextResponse.json({ error: FAILURE_MESSAGES.invalid }, { status: 400 })
+    return NextResponse.json({ error: signInFailureMessage('invalid', 'link') }, { status: 400 })
   }
 
   const supabase = createServiceClient()
   const result = await consumePortalLoginToken(supabase, token)
 
   if (!result.ok) {
-    return NextResponse.json(
-      { error: FAILURE_MESSAGES[result.reason] ?? FAILURE_MESSAGES.invalid },
-      { status: 401 }
-    )
+    return NextResponse.json({ error: signInFailureMessage(result.reason, 'link') }, { status: 401 })
   }
 
   const jwt = await signPortalToken({

@@ -13,7 +13,7 @@
  * Note: this file creates its own Supabase client rather than using
  * createServiceClient() — functionally identical, just older pattern.
  */
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@/lib/staffAuth'
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 import { getOrgId as resolveOrgId } from '@/lib/org'

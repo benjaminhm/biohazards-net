@@ -5,7 +5,7 @@
  * they can create signed upload URLs or record metadata-rich evidence rows.
  */
 import { NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@/lib/staffAuth'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import { insertPhotoRow } from '@/lib/photoRowInsert'

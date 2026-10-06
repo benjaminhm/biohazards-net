@@ -3,7 +3,7 @@
  *
  * Chrome and gate for the commercial accounts portal.
  *
- * The root layout renders this subtree without ClerkProvider (see the
+ * The root layout renders this subtree without the staff UserProvider (see the
  * x-subdomain: accounts branch in app/layout.tsx), so authentication is handled
  * here against /api/portal/me:
  *

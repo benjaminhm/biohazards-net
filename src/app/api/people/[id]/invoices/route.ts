@@ -7,7 +7,7 @@
  * Auto-generates invoice_number as INV-001, INV-002, etc. per person.
  * Admin only.
  */
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@/lib/staffAuth'
 import { createServiceClient } from '@/lib/supabase'
 import { NextResponse } from 'next/server'
 

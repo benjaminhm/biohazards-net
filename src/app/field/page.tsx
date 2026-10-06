@@ -20,7 +20,6 @@
 
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { useRouter } from 'next/navigation'
-import { useClerk } from '@clerk/nextjs'
 import { useUser } from '@/lib/userContext'
 import OnboardingChecklist from '@/components/OnboardingChecklist'
 
@@ -83,7 +82,6 @@ function fmtSchedule(iso: string) {
 
 export default function FieldPage() {
   const router = useRouter()
-  const { signOut } = useClerk()
   const { name, isAdmin, org, loading: userLoading } = useUser()
   const [showMenu, setShowMenu]     = useState(false)
   const [jobs, setJobs]             = useState<FieldJob[]>([])
@@ -193,7 +191,11 @@ export default function FieldPage() {
               overflow: 'hidden',
             }}>
               <button
-                onClick={() => signOut({ redirectUrl: '/login' })}
+                onClick={() => {
+                  fetch('/api/auth/sign-out', { method: 'POST' }).finally(() => {
+                    window.location.assign('/login')
+                  })
+                }}
                 style={{
                   width: '100%', textAlign: 'left',
                   padding: '13px 16px', background: 'none', border: 'none',

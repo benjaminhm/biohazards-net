@@ -8,7 +8,7 @@
  * Outbound messages are marked read_at = now() immediately because the sender
  * already knows the content; only inbound messages start as unread.
  */
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@/lib/staffAuth'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import { NextResponse } from 'next/server'

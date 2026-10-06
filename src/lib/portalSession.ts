@@ -4,7 +4,7 @@
  * Session for the commercial accounts portal (accounts.<brand>.com.au).
  * Entirely separate from Clerk, which is staff-only — a trade contact is never
  * a Clerk user. Signed httpOnly cookie (JWT HS256), same shape as
- * lib/impersonation.ts.
+ * lib/portalSession.ts.
  *
  * The cookie is set without a Domain attribute so it stays host-only: it is
  * never sent to app.biohazards.net, and a portal session can never be mistaken

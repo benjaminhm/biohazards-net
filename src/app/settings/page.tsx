@@ -19,9 +19,6 @@
  *      for that specific document (e.g. "for reports always include a risk matrix").
  *    - A style guide PDF can be uploaded per doc type; it's base64-fetched by
  *      /api/build-document and passed to Claude as a vision input for format matching.
- *
- * Admin management (promote/demote) is also shown here via GET/DELETE /api/admins.
- * ConfirmDeleteModal guards the demote action for the last-admin check UX.
  */
 'use client'
 
@@ -30,14 +27,10 @@ import Link from 'next/link'
 import Image from 'next/image'
 import type { CompanyProfile, DocType } from '@/lib/types'
 import { DOC_TYPE_LABELS } from '@/lib/types'
-import { useUser } from '@/lib/userContext'
 import { getPublicWebsiteLaunchChecks, isPublicWebsiteLaunchReady } from '@/lib/websiteLaunchReadiness'
-import ConfirmDeleteModal from '@/components/ConfirmDeleteModal'
 import AddressAutocomplete from '@/components/AddressAutocomplete'
 import EquipmentCatalogueSection from '@/components/settings/EquipmentCatalogueSection'
 import ChemicalsCatalogueSection from '@/components/settings/ChemicalsCatalogueSection'
-
-interface Admin { id: string; clerk_user_id: string; name: string; email: string }
 
 const RULE_TABS: { id: string; label: string }[] = [
   { id: 'general', label: 'General' },
@@ -66,7 +59,6 @@ const DEFAULT_PROFILE: Omit<CompanyProfile, 'id' | 'updated_at'> = {
 }
 
 export default function SettingsPage() {
-  const { userId } = useUser()
   const [profile, setProfile] = useState<typeof DEFAULT_PROFILE>(DEFAULT_PROFILE)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -76,7 +68,6 @@ export default function SettingsPage() {
   const [activeRuleTab, setActiveRuleTab] = useState('general')
   const logoRef = useRef<HTMLInputElement>(null)
 
-  // Administrators
   // Website launch state
   const [servicesText, setServicesText]   = useState('')   // one service per line
   const [areasText, setAreasText]         = useState('')   // one area per line
@@ -84,54 +75,6 @@ export default function SettingsPage() {
   const [launching, setLaunching]         = useState(false)
   const [launchDone, setLaunchDone]       = useState(false)
 
-  const [admins, setAdmins]             = useState<Admin[]>([])
-  const [removingId, setRemovingId]     = useState<string | null>(null)
-  const [confirmAdmin, setConfirmAdmin] = useState<Admin | null>(null)
-  const [adminError, setAdminError]     = useState('')
-  const [inviteLink, setInviteLink]     = useState('')
-  const [inviteCopied, setInviteCopied] = useState(false)
-  const [generatingInvite, setGeneratingInvite] = useState(false)
-
-  useEffect(() => {
-    fetch('/api/admins').then(r => r.json()).then(d => setAdmins(d.admins ?? []))
-  }, [])
-
-  async function removeAdmin(orgUserId: string) {
-    setAdminError('')
-    setRemovingId(orgUserId)
-    const res = await fetch('/api/admins', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ orgUserId }),
-    })
-    const data = await res.json()
-    if (data.error) {
-      setAdminError(data.error)
-    } else {
-      setAdmins(a => a.filter(x => x.id !== orgUserId))
-    }
-    setRemovingId(null)
-  }
-
-  async function generateAdminInvite() {
-    setGeneratingInvite(true)
-    setInviteLink('')
-    setInviteCopied(false)
-    const res = await fetch('/api/invites', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ role: 'admin' }),
-    })
-    const data = await res.json()
-    if (data.token) setInviteLink(`${window.location.origin}/invite/${data.token}`)
-    setGeneratingInvite(false)
-  }
-
-  function copyAdminInvite() {
-    navigator.clipboard.writeText(inviteLink)
-    setInviteCopied(true)
-    setTimeout(() => setInviteCopied(false), 2000)
-  }
 
   useEffect(() => {
     fetch('/api/company')
@@ -556,76 +499,6 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* Administrators */}
-        <div className="card" style={{ marginBottom: 24 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent)', marginBottom: 14 }}>
-            Administrators
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
-            {admins.map(admin => {
-              const isYou = admin.clerk_user_id === userId
-              const isOnly = admins.length === 1
-              const initials = admin.name.split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 2)
-              return (
-                <div key={admin.id} style={{
-                  display: 'flex', alignItems: 'center', gap: 12,
-                  padding: '12px 14px', borderRadius: 10,
-                  background: 'var(--bg)', border: '1px solid var(--border)',
-                }}>
-                  <div style={{
-                    width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
-                    background: 'var(--accent)', display: 'flex', alignItems: 'center',
-                    justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 13,
-                  }}>
-                    {initials}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{ fontWeight: 600, fontSize: 14 }}>{admin.name}</span>
-                      {isYou && <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: 'rgba(255,107,53,0.15)', color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>You</span>}
-                    </div>
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{admin.email}</div>
-                  </div>
-                  {isOnly ? (
-                    <span style={{ fontSize: 11, color: 'var(--text-muted)', fontStyle: 'italic', flexShrink: 0 }}>Locked</span>
-                  ) : (
-                    <button
-                      onClick={() => setConfirmAdmin(admin)}
-                      disabled={removingId === admin.id}
-                      style={{ flexShrink: 0, padding: '6px 12px', borderRadius: 8, border: '1px solid rgba(239,68,68,0.4)', background: 'none', color: '#EF4444', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
-                    >
-                      Remove
-                    </button>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-
-          {adminError && (
-            <div style={{ fontSize: 13, color: '#F87171', marginBottom: 12 }}>{adminError}</div>
-          )}
-
-          {/* Invite new admin */}
-          {!inviteLink ? (
-            <button onClick={generateAdminInvite} disabled={generatingInvite}
-              style={{ width: '100%', padding: '11px', borderRadius: 10, border: '1px dashed var(--border)', background: 'none', color: 'var(--text-muted)', fontWeight: 600, fontSize: 13, cursor: 'pointer', opacity: generatingInvite ? 0.6 : 1 }}>
-              {generatingInvite ? 'Generating…' : '+ Invite Administrator'}
-            </button>
-          ) : (
-            <div>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>Send this link — expires in 7 days, single use</div>
-              <div style={{ padding: '10px 14px', borderRadius: 10, border: '1px solid #d1d5db', background: '#fff', color: '#111', fontSize: 12, wordBreak: 'break-all', userSelect: 'text', marginBottom: 8 }}>
-                {inviteLink}
-              </div>
-              <button onClick={copyAdminInvite}
-                style={{ width: '100%', padding: '11px', borderRadius: 10, background: inviteCopied ? '#10B981' : 'var(--accent)', color: '#fff', border: 'none', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
-                {inviteCopied ? '✓ Copied' : '📋 Copy Link'}
-              </button>
-            </div>
-          )}
-        </div>
-
         {error && (
           <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, padding: '10px 14px', color: '#F87171', fontSize: 13, marginBottom: 16 }}>
             {error}
@@ -646,18 +519,6 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {confirmAdmin && (
-        <ConfirmDeleteModal
-          title={`Remove ${confirmAdmin.name} as Administrator?`}
-          description="They will be demoted to Team Member. You can re-promote them at any time from their profile."
-          confirmName={confirmAdmin.name}
-          onConfirm={async () => {
-            await removeAdmin(confirmAdmin.id)
-            setConfirmAdmin(null)
-          }}
-          onCancel={() => setConfirmAdmin(null)}
-        />
-      )}
     </div>
   )
 }

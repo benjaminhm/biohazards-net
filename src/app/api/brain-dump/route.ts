@@ -11,7 +11,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { guardBrainDump } from '@/lib/brainDump/guard'
-import { getClerkFirstName } from '@/lib/clerkDisplayName'
+import { getStaffFirstName } from '@/lib/clerkDisplayName'
 
 const ALLOWED_KINDS = ['todo', 'reminder', 'note', 'moment'] as const
 type BrainDumpKind = (typeof ALLOWED_KINDS)[number]
@@ -72,7 +72,7 @@ export async function POST(req: NextRequest) {
     ? body.tags.filter(t => typeof t === 'string').map(t => t.slice(0, 40)).slice(0, 12)
     : []
 
-  const firstName = await getClerkFirstName(userId)
+  const firstName = await getStaffFirstName(userId)
 
   const { data, error } = await supabase
     .from('brain_dump_items')

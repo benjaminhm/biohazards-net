@@ -13,7 +13,7 @@
  * non-archived rows via the checklist.
  */
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@/lib/staffAuth'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import type { EquipmentCategory, EquipmentCatalogueItem } from '@/lib/types'

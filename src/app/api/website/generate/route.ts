@@ -7,7 +7,7 @@
  * trigger deploy. For now returns success so the client can proceed to launch (website_live).
  */
 import { NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@/lib/staffAuth'
 import { getOrgId } from '@/lib/org'
 
 export async function POST(req: Request) {

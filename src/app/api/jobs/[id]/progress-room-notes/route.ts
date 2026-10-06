@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@/lib/staffAuth'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
-import { getClerkFirstName } from '@/lib/clerkDisplayName'
+import { getStaffFirstName } from '@/lib/clerkDisplayName'
 
 const MAX_NOTE = 50_000
 
@@ -59,7 +59,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       return NextResponse.json({ error: 'Job not found' }, { status: 404 })
     }
 
-    const first = await getClerkFirstName(userId)
+    const first = await getStaffFirstName(userId)
     const now = new Date().toISOString()
 
     const { data: existing } = await supabase

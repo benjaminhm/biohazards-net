@@ -27,7 +27,7 @@
 import { NextResponse } from 'next/server'
 import { CLAUDE_SONNET_MODEL } from '@/lib/anthropicModels'
 import Anthropic from '@anthropic-ai/sdk'
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@/lib/staffAuth'
 import type { DocType, Job, Photo, CompanyProfile } from '@/lib/types'
 import { getOrgId } from '@/lib/org'
 import { groupPhotosByRoomAndStage } from '@/lib/photoGroups'
@@ -106,7 +106,7 @@ function ref(type: DocType, job: Job): string {
     iaq_multi: 'IAQ',
     quote: 'QTE', sow: 'SOW', assessment_document: 'ASD', swms: 'SWMS', authority_to_proceed: 'ATP',
     engagement_agreement: 'ENG', report: 'RPT', certificate_of_decontamination: 'COD',
-    waste_disposal_manifest: 'CDR', statement_of_accounts: 'SOA', house_survey: 'SUR', jsa: 'JSA', nda: 'NDA', risk_assessment: 'RA',
+    waste_disposal_manifest: 'CDR', statement_of_accounts: 'SOA', payment_reminder: 'PRM', house_survey: 'SUR', jsa: 'JSA', nda: 'NDA', risk_assessment: 'RA',
     company_letter: 'LTR',
     contents_clearance_quote: 'CCQ',
     surface_area_cleaning_quote: 'SACQ',
@@ -375,6 +375,9 @@ Include realistic items based on the job type and assessment data. This is a cus
 }
 This document is composed from the saved quote and the contents disposal record. Do not invent amounts.`,
 
+    payment_reminder:
+      '(Not used — the Payment Reminder is composed from the Statement of Accounts and Payment Overdue on the job.)',
+
     house_survey: `Return ONLY valid JSON:
 {
   "title": "House Survey",
@@ -499,6 +502,13 @@ export async function POST(req: Request) {
     }
 
     const brandedCompany = applyTradingBrand(company, job.trading_name)
+
+    if (type === 'payment_reminder') {
+      return NextResponse.json(
+        { error: 'The payment reminder is generated from Payment Overdue on the job.' },
+        { status: 400 },
+      )
+    }
 
     if (type === 'iaq_multi') {
       return NextResponse.json(

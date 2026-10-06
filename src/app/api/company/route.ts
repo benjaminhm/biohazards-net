@@ -18,7 +18,7 @@
  * or insert. This avoids SQL upsert conflicts on the unique org_id constraint.
  */
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@/lib/staffAuth'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import { normalizeOptionalPhoneField } from '@/lib/phone'

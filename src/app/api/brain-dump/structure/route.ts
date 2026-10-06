@@ -22,7 +22,7 @@ import { CLAUDE_SONNET_MODEL } from '@/lib/anthropicModels'
 import Anthropic from '@anthropic-ai/sdk'
 import { getAnthropicApiKey } from '@/lib/loadAnthropicEnvFallback'
 import { guardBrainDump } from '@/lib/brainDump/guard'
-import { getClerkFirstName } from '@/lib/clerkDisplayName'
+import { getStaffFirstName } from '@/lib/clerkDisplayName'
 
 const MAX_INPUT = 20_000
 const ALLOWED_KINDS = ['todo', 'reminder', 'note', 'moment'] as const
@@ -101,7 +101,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'AI returned no items' }, { status: 500 })
   }
 
-  const firstName = await getClerkFirstName(userId)
+  const firstName = await getStaffFirstName(userId)
 
   const { data: capture, error: captureErr } = await supabase
     .from('brain_dump_captures')

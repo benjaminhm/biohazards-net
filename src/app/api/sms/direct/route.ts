@@ -8,7 +8,7 @@
  * Unlike /api/sms/send, this does NOT store a message record because
  * there is no job to associate it with.
  */
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@/lib/staffAuth'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import { NextResponse } from 'next/server'

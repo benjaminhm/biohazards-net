@@ -9,12 +9,11 @@
  * in org A cannot access jobs in org B even if they know the UUID.
  */
 import { NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@/lib/staffAuth'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import { normalizeOptionalPhoneField } from '@/lib/phone'
 import { ensureJobInboundEmailToken } from '@/lib/jobInboundEmail'
-import { verifyImpersonationFromRequest } from '@/lib/impersonation'
 import { isTradingNameId } from '@/lib/tradingNames'
 
 type ServiceClient = ReturnType<typeof createServiceClient>
@@ -27,10 +26,7 @@ function isFullJobFileRole(role: string | null | undefined) {
   return role === 'admin' || role === 'owner' || role === 'manager' || role === 'team_lead'
 }
 
-async function canUseFullJobFile(req: Request, userId: string, orgId: string, supabase: ServiceClient) {
-  const impersonation = await verifyImpersonationFromRequest(req, userId)
-  if (impersonation?.orgId === orgId) return true
-
+async function canUseFullJobFile(_req: Request, userId: string, orgId: string, supabase: ServiceClient) {
   const { data: orgUser, error } = await supabase
     .from('org_users')
     .select('role')

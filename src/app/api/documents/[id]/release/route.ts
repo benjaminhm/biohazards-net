@@ -11,10 +11,9 @@
  * roles that own the full job file.
  */
 import { NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@/lib/staffAuth'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
-import { verifyImpersonationFromRequest } from '@/lib/impersonation'
 
 const RELEASE_ROLES = new Set(['admin', 'owner', 'manager', 'team_lead'])
 
@@ -28,18 +27,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   const supabase = createServiceClient()
 
-  const impersonation = await verifyImpersonationFromRequest(req, userId)
-  if (impersonation?.orgId !== orgId) {
-    const { data: orgUser } = await supabase
-      .from('org_users')
-      .select('role')
-      .eq('clerk_user_id', userId)
-      .eq('org_id', orgId)
-      .maybeSingle()
-    const role = (orgUser?.role as string | null)?.trim().toLowerCase()
-    if (!role || !RELEASE_ROLES.has(role)) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
+  const { data: orgUser } = await supabase
+    .from('org_users')
+    .select('role')
+    .eq('clerk_user_id', userId)
+    .eq('org_id', orgId)
+    .maybeSingle()
+  const role = (orgUser?.role as string | null)?.trim().toLowerCase()
+  if (!role || !RELEASE_ROLES.has(role)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
   let released: boolean

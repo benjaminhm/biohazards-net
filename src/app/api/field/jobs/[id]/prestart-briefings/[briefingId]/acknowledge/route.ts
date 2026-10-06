@@ -3,7 +3,7 @@
  *
  * Field-worker acknowledgement for a job pre-start briefing.
  */
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@/lib/staffAuth'
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'

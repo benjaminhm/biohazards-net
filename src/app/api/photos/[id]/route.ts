@@ -7,7 +7,7 @@
  * PATCH /api/photos/[id] — update photo metadata (caption, area_ref, category, include_in_composed_reports)
  */
 import { NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@/lib/staffAuth'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import { shouldRetryPhotoInsertWithoutCapturePhase } from '@/lib/photoRowInsert'

@@ -13,7 +13,6 @@
  * looking up the user's org_users membership record — one user, one org.
  */
 import { createServiceClient } from '@/lib/supabase'
-import { verifyImpersonationFromRequest } from '@/lib/impersonation'
 import { resolveActiveMembership } from '@/lib/membership'
 
 export interface OrgResult {
@@ -57,20 +56,8 @@ export async function getOrgId(req: Request, clerkUserId: string | null): Promis
     return { orgId: data.id as string, orgSlug: data.slug as string }
   }
 
-  // app.biohazards.net — platform-admin impersonation (training / debugging) or membership
+  // app.biohazards.net — org comes from the signed-in user's membership
   if (!clerkUserId) return { orgId: null, orgSlug: null }
-
-  const imp = await verifyImpersonationFromRequest(req, clerkUserId)
-  if (imp) {
-    const supabase = createServiceClient()
-    const { data: org } = await supabase
-      .from('orgs')
-      .select('id, slug')
-      .eq('id', imp.orgId)
-      .eq('is_active', true)
-      .maybeSingle()
-    if (org) return { orgId: org.id as string, orgSlug: org.slug as string }
-  }
 
   return getOrgResultForUser(clerkUserId)
 }

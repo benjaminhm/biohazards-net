@@ -9,7 +9,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@/lib/staffAuth'
 import { CLAUDE_SONNET_MODEL } from '@/lib/anthropicModels'
 import {
   acceptModelFlags,

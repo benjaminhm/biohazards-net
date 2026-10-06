@@ -27,15 +27,12 @@
  * Inventory Manager is always visible (tracks equipment, tools, consumables & chemicals).
  * New jobs are created from inside Job Manager — there is no separate "New Job" tile.
  * Company settings open from the header cog (not a grid tile).
- * Platform operators see an optional collapsible list of all orgs
- * (GET /api/admin/orgs) when their Clerk user is in PLATFORM_ADMIN_CLERK_IDS.
  */
 'use client'
 
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useClerk } from '@clerk/nextjs'
 import { useUser } from '@/lib/userContext'
 import type { CompanyProfile, Job } from '@/lib/types'
 import OrgAdminHealthCard from '@/components/OrgAdminHealthCard'
@@ -57,14 +54,7 @@ export default function HomePage() {
   const [company, setCompany]   = useState<CompanyProfile | null>(null)
   const [time, setTime]         = useState('')
   const [upcoming, setUpcoming] = useState<Job[]>([])
-  const { signOut } = useClerk()
   const { caps, isAdmin, isManager, loading: userLoading, previewMode, org: ctxOrg } = useUser()
-  const [actions, setActions] = useState<{
-    type: string; title: string; description: string; href: string; severity: string
-    person_id?: string; person_email?: string | null; person_phone?: string | null; missing?: string[]
-  }[]>([])
-  const [actionsExpanded, setActionsExpanded] = useState(true)
-  const [nudgeSent, setNudgeSent] = useState<Record<string, 'sending' | 'sent' | 'error'>>({})
   const [review, setReview] = useState<object | null | 'loading'>('loading')
   const [hideQuickFeedback, setHideQuickFeedback] = useState(false)
   /** ≥900px: use 3 columns when we have 6 tiles (2×3 layout); otherwise 2 columns. */
@@ -98,12 +88,6 @@ export default function HomePage() {
       .then(d => setCompany(d.company ?? null))
       .catch(() => {})
 
-    // Fetch admin action items (incomplete profiles, expiring certs etc)
-    fetch('/api/admin/actions')
-      .then(r => r.json())
-      .then(d => setActions(d.actions ?? []))
-      .catch(() => {})
-
     fetch('/api/review')
       .then(r => r.json())
       .then(d => setReview(d.review ?? null))
@@ -122,21 +106,6 @@ export default function HomePage() {
     const interval = setInterval(tick, 1000)
     return () => clearInterval(interval)
   }, [])
-
-  async function sendNudge(action: typeof actions[0]) {
-    if (!action.person_id) return
-    setNudgeSent(s => ({ ...s, [action.person_id!]: 'sending' }))
-    try {
-      const res = await fetch('/api/admin/actions/nudge', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ person_id: action.person_id, type: action.type, missing: action.missing }),
-      })
-      setNudgeSent(s => ({ ...s, [action.person_id!]: res.ok ? 'sent' : 'error' }))
-    } catch {
-      setNudgeSent(s => ({ ...s, [action.person_id!]: 'error' }))
-    }
-  }
 
   const name = company?.name || ctxOrg?.name || 'Company'
 
@@ -279,7 +248,11 @@ export default function HomePage() {
               ⚙
             </Link>
             <button
-              onClick={() => signOut({ redirectUrl: '/login' })}
+              onClick={() => {
+                fetch('/api/auth/sign-out', { method: 'POST' }).finally(() => {
+                  window.location.assign('/login')
+                })
+              }}
               style={{
                 height: 34, padding: '0 12px', borderRadius: 8,
                 border: '1px solid var(--border-2)',
@@ -294,102 +267,6 @@ export default function HomePage() {
       </header>
 
       <OrgAdminHealthCard />
-
-      {/* ── Action Required ── admin only, shown when there are items ── */}
-      {isAdmin && !previewMode && actions.length > 0 && (
-        <div style={{ padding: '0 20px 4px' }}>
-          <div style={{
-            background: 'rgba(239,68,68,0.06)',
-            border: '1px solid rgba(239,68,68,0.2)',
-            borderRadius: 16, overflow: 'hidden',
-          }}>
-            {/* Header */}
-            <button
-              onClick={() => setActionsExpanded(e => !e)}
-              style={{
-                width: '100%', display: 'flex', alignItems: 'center',
-                justifyContent: 'space-between', padding: '14px 18px',
-                background: 'none', border: 'none', cursor: 'pointer',
-                color: 'var(--text)', textAlign: 'left',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{
-                  background: '#EF4444', color: '#fff',
-                  borderRadius: 99, fontSize: 11, fontWeight: 800,
-                  padding: '2px 8px', lineHeight: 1.5,
-                }}>
-                  {actions.length}
-                </span>
-                <span style={{ fontWeight: 700, fontSize: 15 }}>Action Required</span>
-              </div>
-              <span style={{
-                fontSize: 12, color: 'var(--text-dim)',
-                display: 'inline-block',
-                transform: actionsExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
-                transition: 'transform 0.15s',
-              }}>▲</span>
-            </button>
-
-            {/* Items */}
-            {actionsExpanded && (
-              <div style={{ borderTop: '1px solid rgba(239,68,68,0.15)' }}>
-                {actions.map((a, i) => {
-                  const nudgeState = a.person_id ? nudgeSent[a.person_id] : undefined
-                  const canNudge = a.person_id && (a.person_email || a.person_phone)
-                  return (
-                    <div key={i} style={{
-                      display: 'flex', alignItems: 'center', gap: 12,
-                      padding: '12px 18px',
-                      borderBottom: i < actions.length - 1 ? '1px solid rgba(239,68,68,0.1)' : 'none',
-                    }}>
-                      <div style={{
-                        width: 8, height: 8, borderRadius: 99, flexShrink: 0,
-                        background: a.severity === 'high' ? '#EF4444' : '#F59E0B',
-                      }} />
-                      <Link href={a.href} style={{ textDecoration: 'none', flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)' }}>
-                          {a.title}
-                        </div>
-                        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 1 }}>
-                          {a.description}
-                        </div>
-                      </Link>
-                      {canNudge && (
-                        nudgeState === 'sent' ? (
-                          <span style={{ fontSize: 11, fontWeight: 700, color: '#4ADE80', flexShrink: 0 }}>
-                            ✓ Sent
-                          </span>
-                        ) : (
-                          <button
-                            onClick={() => sendNudge(a)}
-                            disabled={nudgeState === 'sending'}
-                            title={`Send reminder via ${a.person_email ? 'email' : 'SMS'}`}
-                            style={{
-                              flexShrink: 0,
-                              padding: '5px 10px', borderRadius: 6,
-                              border: '1px solid rgba(239,68,68,0.3)',
-                              background: 'rgba(239,68,68,0.06)',
-                              color: nudgeState === 'error' ? '#EF4444' : '#F87171',
-                              fontSize: 11, fontWeight: 700, cursor: 'pointer',
-                              opacity: nudgeState === 'sending' ? 0.6 : 1,
-                            }}
-                          >
-                            {nudgeState === 'sending' ? '…' : nudgeState === 'error' ? 'Failed' : `${a.person_email ? '✉' : '💬'} Remind`}
-                          </button>
-                        )
-                      )}
-                      {!canNudge && (
-                        <span style={{ fontSize: 16, color: 'var(--text-dim)', flexShrink: 0 }}>›</span>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* ── Dashboard tiles — Job / Team / Inventory (+ Knowledge Base + Marketing Manager when enabled); 3 cols on wide desktop when 5+ tiles ── */}
       <div style={{

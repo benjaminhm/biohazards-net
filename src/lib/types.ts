@@ -52,6 +52,7 @@ export type DocType =
   | 'certificate_of_decontamination'
   | 'waste_disposal_manifest'
   | 'statement_of_accounts'
+  | 'payment_reminder'
   | 'house_survey'
   | 'jsa'
   | 'nda'
@@ -72,6 +73,7 @@ export const DOC_TYPE_LABELS: Record<DocType, string> = {
   certificate_of_decontamination: 'Certificate of Decontamination',
   waste_disposal_manifest:    'Contents Disposal Record',
   statement_of_accounts:      'Statement of Accounts',
+  payment_reminder:           'Payment Reminder',
   house_survey:               'House Survey',
   jsa:                        'Job Safety Analysis',
   nda:                        'Non-Disclosure Agreement',
@@ -156,7 +158,7 @@ export const DOC_TYPE_GROUPS: DocTypeGroup[] = [
   {
     id: 'verify',
     label: '9. Verify',
-    types: ['report', 'certificate_of_decontamination', 'statement_of_accounts'],
+    types: ['report', 'certificate_of_decontamination', 'statement_of_accounts', 'payment_reminder'],
   },
   {
     id: 'review',
@@ -1188,6 +1190,22 @@ export interface AssessmentData {
     deposit_date?: string
     /** Required when invoice 1 has been adjusted. Printed on the statement. */
     adjustment_reason?: string
+  }
+  /** Payment Overdue reminder. Amounts stay on the statement. */
+  payment_overdue?: {
+    letter_date?: string
+    payer_name?: string
+    payer_address?: string
+    payer_abn?: string
+    guarantor_name?: string
+    guarantor_address?: string
+    guarantee_reference?: string
+    invoice1_late?: boolean
+    invoice1_submitted?: string
+    invoice1_due?: string
+    invoice2_late?: boolean
+    invoice2_submitted?: string
+    invoice2_due?: string
   }
   /** Job-scoped pathogen / pathophysiology PDF reference library. Used as
    *  grounded biology source by the Assessment Document AI suggester. */
@@ -2226,6 +2244,34 @@ export interface StatementOfAccountsContent {
   xero_new_amount_due?: number | null
   payment_terms?: string
   due_date?: string
+}
+
+export interface PaymentReminderContent {
+  title: string
+  reference: string
+  site_address: string
+  letter_date: string
+  payer_name: string
+  payer_address: string
+  payer_abn: string
+  guarantor_name: string
+  guarantor_address: string
+  guarantee_reference: string
+  statement_lines: StatementLedgerLine[]
+  charges_gst: boolean
+  late_invoices: {
+    label: string
+    submitted: string
+    due: string
+    days_late: number
+    amount_inc: number
+  }[]
+  late_total_inc: number
+  pay_by: string
+  demand_on: string
+  final_on: string
+  paragraphs: string[]
+  error: string
 }
 
 export interface JSAContent {

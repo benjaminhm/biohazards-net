@@ -16,7 +16,7 @@
  * not been linked (person_id is null), there is no fallback via Clerk email
  * without a full Clerk API call — returns null in that case.
  */
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@/lib/staffAuth'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import { NextResponse } from 'next/server'

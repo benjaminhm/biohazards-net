@@ -10,7 +10,7 @@
  */
 import { NextResponse } from 'next/server'
 import { requireAccountsAdmin } from '@/lib/accountsAdmin'
-import { issuePortalLoginToken, TOKEN_TTL_MINUTES } from '@/lib/portalAuth'
+import { issuePortalLogin } from '@/lib/portalAuth'
 import { sendPortalInviteEmail, sendPortalMagicLinkEmail } from '@/lib/portal/email'
 import { accountsPortalBaseUrl } from '@/lib/tradingNames'
 import type { TradingNameId } from '@/lib/tradingNames'
@@ -61,7 +61,9 @@ export async function POST(
     )
   }
 
-  const token = await issuePortalLoginToken(
+  // purpose, not the user-agent field: this is what buys the week-long expiry an
+  // unprompted invite needs, and it makes the audit trail say what happened.
+  const issued = await issuePortalLogin(
     supabase,
     {
       orgId,
@@ -73,14 +75,15 @@ export async function POST(
       tradingName,
     },
     '',
-    'staff-invite'
+    '',
+    'staff_invite'
   )
 
-  if (!token) {
+  if (!issued) {
     return NextResponse.json({ error: 'Could not create a sign-in link' }, { status: 500 })
   }
 
-  const loginUrl = `${baseUrl}/portal/login/${token}`
+  const loginUrl = `${baseUrl}/portal/login/${issued.token}`
   const firstTime = !contact.invited_at
 
   try {
@@ -91,6 +94,8 @@ export async function POST(
         contactName: contact.name as string,
         accountName: (account.trading_as as string) || (account.legal_name as string),
         loginUrl,
+        code: issued.code,
+        expiresInMinutes: issued.ttlMinutes,
       })
     } else {
       await sendPortalMagicLinkEmail({
@@ -98,7 +103,8 @@ export async function POST(
         to: contact.email as string,
         contactName: contact.name as string,
         loginUrl,
-        expiresInMinutes: TOKEN_TTL_MINUTES,
+        code: issued.code,
+        expiresInMinutes: issued.ttlMinutes,
       })
     }
   } catch (err) {

@@ -3,10 +3,10 @@
  * DELETE /api/jobs/[id]/progress-notes/[noteId]  — soft delete
  */
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@/lib/staffAuth'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
-import { getClerkFirstName } from '@/lib/clerkDisplayName'
+import { getStaffFirstName } from '@/lib/clerkDisplayName'
 
 const MAX_BODY = 50_000
 
@@ -46,7 +46,7 @@ export async function PATCH(
       archived?: boolean
     }
 
-    const first = await getClerkFirstName(userId)
+    const first = await getStaffFirstName(userId)
     const now = new Date().toISOString()
 
     if (typeof payload.archived === 'boolean') {
@@ -129,7 +129,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'Note not found' }, { status: 404 })
     }
 
-    const first = await getClerkFirstName(userId)
+    const first = await getStaffFirstName(userId)
     const now = new Date().toISOString()
 
     const { error } = await supabase

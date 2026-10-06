@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { CLAUDE_SONNET_MODEL } from '@/lib/anthropicModels'
 import Anthropic from '@anthropic-ai/sdk'
-import { auth } from '@clerk/nextjs/server'
+import { auth } from '@/lib/staffAuth'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import { getAnthropicApiKey } from '@/lib/loadAnthropicEnvFallback'

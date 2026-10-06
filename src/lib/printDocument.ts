@@ -23,7 +23,7 @@ import type {
   DocType, Photo, PhotoCategory, CompanyProfile, Area,
   QuoteContent, SOWContent, AssessmentDocumentContent, SWMSContent, AuthorityToProceedContent,
   EngagementAgreementContent, ReportContent, CertificateOfDecontaminationContent,
-  WasteDisposalManifestContent, StatementOfAccountsContent, JSAContent, NDAContent, RiskAssessmentContent,
+  WasteDisposalManifestContent, StatementOfAccountsContent, PaymentReminderContent, JSAContent, NDAContent, RiskAssessmentContent,
   WasteDisposalManifestVehicleSnapshot,
   WorkStep, RiskRow, WasteItem, OutcomeQuoteRow,
   PathophysiologyRow,
@@ -34,6 +34,7 @@ import type { HouseSurveyDocumentContent, SurveySketch } from './houseSurvey'
 import { filterGroupedStages, groupPhotosByRoomAndStage, isContentsClearanceAppendixPhoto, isQuoteAppendixPhoto, type RoomPhotoGroup } from './photoGroups'
 import { photosForComposedReports } from '@/lib/photosForComposedReports'
 import { docketStatusLabel, dimensionTrioToMetres, formatAud, formatDistanceLegs, formatKg, formatM3 } from '@/lib/disposalManifest'
+import { formatLongDate } from '@/lib/paymentOverdue'
 import { orderReportAppendixPhotos } from '@/lib/postRemediationEvaluations'
 import { isPdfUrl } from '@/lib/pdfDocket'
 import { SURFACE_LABELS } from '@/lib/areaSurfaces'
@@ -2910,6 +2911,51 @@ function statementFailureHtml(message: string): string {
   return `<p class="body-text"><strong>This statement could not be generated.</strong> ${esc(message)}</p>`
 }
 
+function addressBlock(value: string): string {
+  return value.split('\n').map(line => line.trim()).filter(Boolean).map(line => esc(line)).join('<br>') || '—'
+}
+
+function buildPaymentReminderMid(c: PaymentReminderContent): string {
+  if (c.error) return `<p class="body-text"><strong>This reminder could not be generated.</strong> ${esc(c.error)}</p>`
+  const amountHead = c.charges_gst ? 'Amount (inc GST)' : 'Amount'
+  const rows = (c.statement_lines ?? []).map(line => {
+    const weight = line.strong ? ' style="font-weight:700"' : ''
+    const amount = c.charges_gst ? line.inc : line.ex
+    return `<tr><td${weight}>${esc(line.label)}</td><td class="r"${weight}>${esc(formatAud(amount))}</td></tr>`
+  }).join('')
+  const table = rows
+    ? `<p class="body-text"><strong>Statement of Accounts</strong></p><table><thead><tr><th>Item</th><th class="r">${amountHead}</th></tr></thead><tbody>${rows}</tbody></table>`
+    : ''
+  const paragraphs = (c.paragraphs ?? []).map(paragraph => `<p class="body-text">${esc(paragraph)}</p>`).join('')
+  const abn = c.payer_abn.trim() ? `<br>ABN ${esc(c.payer_abn.trim())}` : ''
+  return `
+    <p class="body-text"><strong>${esc(formatLongDate(c.letter_date))}</strong></p>
+    <p class="body-text">${esc(c.payer_name)}<br>${addressBlock(c.payer_address)}${abn}</p>
+    ${table}
+    ${paragraphs}
+    <p class="body-text"><strong>Accounts</strong></p>`
+}
+
+function buildPaymentReminderHTML(c: PaymentReminderContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
+  const metaHtml = `
+        <div class="sow-meta">
+          <div class="sow-meta-cell"><div class="sow-meta-label">Payer</div><div class="sow-meta-value">${esc(c.payer_name || '—')}</div></div>
+          <div class="sow-meta-cell"><div class="sow-meta-label">Address</div><div class="sow-meta-value">${addressBlock(c.payer_address)}</div></div>
+          <div class="sow-meta-cell"><div class="sow-meta-label">Property</div><div class="sow-meta-value">${esc(c.site_address || '—')}</div></div>
+          <div class="sow-meta-cell"><div class="sow-meta-label">Letter date</div><div class="sow-meta-value">${esc(c.letter_date ? formatLongDate(c.letter_date) : '—')}</div></div>
+        </div>`
+  return wrapBranded(
+    buildPaymentReminderMid(c),
+    c.title || 'Payment Reminder',
+    c.title || 'Payment Reminder',
+    c.reference,
+    company,
+    client,
+    defaultBrandedMeta(company, client),
+    { ...wrapBrandedPrintOpts(screenActionBar), metaHtml },
+  )
+}
+
 function buildStatementHTML(c: StatementOfAccountsContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
   const loaded = loadStatementView(c)
   if (typeof loaded === 'string') {
@@ -3612,6 +3658,8 @@ export function buildPrintMidHTML(
       if (typeof loaded === 'string') return statementFailureHtml(loaded)
       return statementPropertyHtml(statement) + buildStatementMid(loaded)
     }
+    case 'payment_reminder':
+      return buildPaymentReminderMid(c as unknown as PaymentReminderContent)
     case 'house_survey':
       return buildHouseSurveyMid(c as unknown as HouseSurveyDocumentContent)
     case 'jsa':
@@ -3716,6 +3764,7 @@ export function buildPrintHTML(
     case 'certificate_of_decontamination': return buildCODHTML(c as unknown as CertificateOfDecontaminationContent, company, client, screenActionBar)
     case 'waste_disposal_manifest':    return buildWDMHTML(c as unknown as WasteDisposalManifestContent, company, client, screenActionBar)
     case 'statement_of_accounts':      return buildStatementHTML(c as unknown as StatementOfAccountsContent, company, client, screenActionBar)
+    case 'payment_reminder':           return buildPaymentReminderHTML(c as unknown as PaymentReminderContent, company, client, screenActionBar)
     case 'house_survey':               return buildHouseSurveyHTML(c as unknown as HouseSurveyDocumentContent, company, client, screenActionBar)
     case 'jsa':                        return buildJSAHTML(c as unknown as JSAContent, company, client, screenActionBar)
     case 'nda':                        return buildNDAHTML(c as unknown as NDAContent, company, client, screenActionBar)

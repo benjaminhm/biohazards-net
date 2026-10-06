@@ -15,9 +15,8 @@ import {
   clientIpFromRequest,
   findPortalLoginTarget,
   isPortalLoginRateLimited,
-  issuePortalLoginToken,
+  issuePortalLogin,
   userAgentFromRequest,
-  TOKEN_TTL_MINUTES,
 } from '@/lib/portalAuth'
 import { sendPortalMagicLinkEmail } from '@/lib/portal/email'
 
@@ -59,8 +58,8 @@ export async function POST(req: Request) {
   const target = await findPortalLoginTarget(supabase, tenant.orgId, tenant.tradingName, email)
   if (!target) return NextResponse.json(GENERIC_OK)
 
-  const token = await issuePortalLoginToken(supabase, target, ip, userAgent)
-  if (!token) return NextResponse.json(GENERIC_OK)
+  const issued = await issuePortalLogin(supabase, target, ip, userAgent, 'self_service')
+  if (!issued) return NextResponse.json(GENERIC_OK)
 
   const origin = new URL(req.url).origin
   try {
@@ -68,8 +67,9 @@ export async function POST(req: Request) {
       tradingName: tenant.tradingName,
       to: target.contactEmail,
       contactName: target.contactName,
-      loginUrl: `${origin}/portal/login/${token}`,
-      expiresInMinutes: TOKEN_TTL_MINUTES,
+      loginUrl: `${origin}/portal/login/${issued.token}`,
+      code: issued.code,
+      expiresInMinutes: issued.ttlMinutes,
     })
   } catch (err) {
     // Do not leak delivery failure to the caller — it would confirm the address

@@ -79,6 +79,7 @@ import {
 } from '@/lib/quoteSections'
 import { buildPrintHTML, type ClientInfo } from '@/lib/printDocument'
 import { latestDisposalDocument, documentReference, normalizeStatementCapture, statementFromJob, statementSurveyAreas, surveyDocumentCode } from '@/lib/statementOfAccounts'
+import { buildPaymentReminderContent } from '@/lib/paymentOverdue'
 import type { CompanyProfile } from '@/lib/types'
 import {
   presentingHealthHazardsFromAssessment,
@@ -136,6 +137,7 @@ function refPrefix(type: DocType, jobId: string): string {
     sow: 'SOW',
     quote: 'QUO',
     statement_of_accounts: 'SOA',
+    payment_reminder: 'PRM',
     house_survey: 'SUR',
     report: 'RPT',
     swms: 'SWMS',
@@ -1137,6 +1139,13 @@ function composeHouseSurvey(job: Job): ComposeDocumentResult {
   }
 }
 
+function composePaymentReminder(job: Job): ComposeDocumentResult {
+  return {
+    content: buildPaymentReminderContent(job, refPrefix('payment_reminder', job.id)) as unknown as Record<string, unknown>,
+    source: 'assessment_capture',
+  }
+}
+
 function composeStatement(job: Job, documents: Document[]): ComposeDocumentResult {
   const figures = statementFromJob(documents, job.assessment_data)
   const capture = normalizeStatementCapture(job.assessment_data?.statement_of_accounts)
@@ -1230,6 +1239,8 @@ export function composeDocumentContent(type: DocType, job: Job, options?: Compos
       return composeWdm(job)
     case 'statement_of_accounts':
       return composeStatement(job, options?.documents ?? [])
+    case 'payment_reminder':
+      return composePaymentReminder(job)
     case 'house_survey':
       return composeHouseSurvey(job)
     case 'jsa':

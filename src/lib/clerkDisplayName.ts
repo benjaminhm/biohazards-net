@@ -1,19 +1,9 @@
 /*
- * Snapshot names for audit columns on create/update (Clerk).
+ * Snapshot names for audit columns on create/update.
+ * Comes from STAFF_DISPLAY_NAME, then the allowlisted email's local-part.
  */
-import { clerkClient } from '@clerk/nextjs/server'
+import { staffFirstName } from '@/lib/staffLogin'
 
-/** First name for progress note attribution; fallback to email local-part. */
-export async function getClerkFirstName(userId: string): Promise<string> {
-  try {
-    const clerk = await clerkClient()
-    const user = await clerk.users.getUser(userId)
-    const fn = user.firstName?.trim()
-    if (fn) return fn
-    const email = user.emailAddresses[0]?.emailAddress
-    if (email) return email.split('@')[0] ?? 'User'
-    return 'User'
-  } catch {
-    return 'User'
-  }
+export async function getStaffFirstName(_userId: string): Promise<string> {
+  return staffFirstName()
 }

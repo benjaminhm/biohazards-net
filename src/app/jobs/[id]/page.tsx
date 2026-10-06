@@ -62,6 +62,7 @@ import ProgressNotesTab from '@/components/tabs/ProgressNotesTab'
 import ProgressPhotosTab from '@/components/tabs/ProgressPhotosTab'
 import PostRemediationEvaluationTab from '@/components/tabs/PostRemediationEvaluationTab'
 import StatementOfAccountsTab from '@/components/tabs/StatementOfAccountsTab'
+import PaymentOverdueTab from '@/components/tabs/PaymentOverdueTab'
 import PerExecuteCapturePanel from '@/components/tabs/PerExecuteCapturePanel'
 import DisposalManifestCaptureTab from '@/components/tabs/DisposalManifestCaptureTab'
 import CompanyLetterTab from '@/components/tabs/CompanyLetterTab'
@@ -96,6 +97,7 @@ type HomeSection =
   | 'execute'
   | 'verify'
   | 'statement'
+  | 'payment_overdue'
   | 'review'
 
 const HOME_SECTIONS: { id: HomeSection; label: string }[] = [
@@ -112,6 +114,7 @@ const HOME_SECTIONS: { id: HomeSection; label: string }[] = [
   { id: 'execute', label: 'Contents Disposal Record' },
   { id: 'verify', label: 'Post Remediation Evaluation' },
   { id: 'statement', label: 'Statement of Accounts' },
+  { id: 'payment_overdue', label: 'Payment Overdue' },
   { id: 'review', label: 'Review' },
 ]
 
@@ -145,6 +148,7 @@ const HOME_SECTION_TO_CAP: Record<HomeSection, keyof TeamCapabilities> = {
   execute:           'view_home_execute',
   verify:            'view_home_verify',
   statement:         'view_home_verify',
+  payment_overdue:   'view_home_verify',
   review:            'view_home_review',
 }
 
@@ -1008,6 +1012,8 @@ export default function JobPage() {
       ? 'Survey'
       : activeTab === 'home' && homeSection === 'statement'
       ? DOC_TYPE_LABELS.statement_of_accounts
+      : activeTab === 'home' && homeSection === 'payment_overdue'
+      ? 'Payment Overdue'
       : activeTab === 'home' && homeSection === 'contents_clearance'
       ? 'CCQ'
       : activeTab === 'home' && homeSection === 'surface_area_cleaning'
@@ -1057,6 +1063,7 @@ export default function JobPage() {
   const showRecommendations= activeTab === 'recommendations_capture'
   const showCompletionRpt  = activeTab === 'progress_report_generate' || inHome('verify')
   const showStatement      = inHome('statement')
+  const showPaymentOverdue = inHome('payment_overdue')
   const showClientFeedback = activeTab === 'client_feedback_capture' || (inHome('review') && reviewSection === 'client_feedback')
   const showTeamFeedback   = activeTab === 'team_feedback_capture' || (inHome('review') && reviewSection === 'team_feedback')
 
@@ -1814,6 +1821,9 @@ export default function JobPage() {
         )}
         {showStatement && (
           <StatementOfAccountsTab job={job} documents={documents} onJobUpdate={setJob} />
+        )}
+        {showPaymentOverdue && (
+          <PaymentOverdueTab job={job} onJobUpdate={setJob} />
         )}
         {showClientFeedback && (
           <div style={emptyRoomStyle}>Client feedback (empty room)</div>
