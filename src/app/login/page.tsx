@@ -6,13 +6,30 @@
  */
 'use client'
 
-import { useState } from 'react'
+import { useSearchParams } from 'next/navigation'
+import { Suspense, useState } from 'react'
+
+function linkError(code: string | null): string {
+  if (code === 'used') return 'That sign-in link has already been used. Please request a new one.'
+  if (code === 'expired') return 'That sign-in link has expired. Please request a new one.'
+  if (code === 'invalid') return 'That sign-in link is not valid. Please request a new one.'
+  return ''
+}
 
 export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
+  )
+}
+
+function LoginForm() {
   const [email, setEmail] = useState('')
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState('')
   const [error, setError] = useState('')
+  const linkProblem = linkError(useSearchParams().get('error'))
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -76,6 +93,9 @@ export default function LoginPage() {
           gap: 14,
         }}
       >
+        {linkProblem && !sent && (
+          <p style={{ margin: 0, fontSize: 13, color: '#F87171' }}>{linkProblem}</p>
+        )}
         {sent ? (
           <p style={{ margin: 0, fontSize: 14, lineHeight: 1.5, color: 'var(--text)' }}>{sent}</p>
         ) : (

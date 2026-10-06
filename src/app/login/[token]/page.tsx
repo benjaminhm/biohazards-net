@@ -1,43 +1,24 @@
 /*
  * app/login/[token]/page.tsx
  *
- * The token is consumed only when the visitor presses the button. Consuming on
- * page load would let mail scanners burn a single-use link.
+ * The token is consumed only when the visitor submits the form. A mail scanner
+ * that merely opens the link cannot spend it. The submit is a normal form POST,
+ * not a script, so it still works inside a mail app's browser.
  */
-'use client'
-
 import Link from 'next/link'
-import { useParams } from 'next/navigation'
-import { useState } from 'react'
+import { staffSignInFailureMessage, type StaffConsumeFailure } from '@/lib/staffLogin'
 
-export default function LoginConfirmPage() {
-  const { token } = useParams<{ token: string }>()
-  const [working, setWorking] = useState(false)
-  const [error, setError] = useState('')
-
-  async function confirm() {
-    if (working) return
-    setWorking(true)
-    setError('')
-
-    try {
-      const res = await fetch('/api/auth/consume', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token }),
-      })
-      if (res.ok) {
-        window.location.assign('/')
-        return
-      }
-      const data = await res.json().catch(() => ({}))
-      setError(data?.error ?? 'That sign-in link is not valid. Please request a new one.')
-    } catch {
-      setError('Could not reach the server. Please check your connection.')
-    } finally {
-      setWorking(false)
-    }
-  }
+export default async function LoginConfirmPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ token: string }>
+  searchParams: Promise<{ error?: string }>
+}) {
+  const { token } = await params
+  const { error } = await searchParams
+  const reason = error === 'used' || error === 'expired' || error === 'invalid' ? error : ''
+  const message = reason ? staffSignInFailureMessage(reason as StaffConsumeFailure) : ''
 
   return (
     <div style={{
@@ -61,9 +42,9 @@ export default function LoginConfirmPage() {
         borderRadius: 16,
         padding: 24,
       }}>
-        {error ? (
+        {message ? (
           <>
-            <p style={{ margin: '0 0 16px', fontSize: 14, color: '#F87171' }}>{error}</p>
+            <p style={{ margin: '0 0 16px', fontSize: 14, color: '#F87171' }}>{message}</p>
             <Link href="/login" style={{
               display: 'block',
               textAlign: 'center',
@@ -78,14 +59,13 @@ export default function LoginConfirmPage() {
             </Link>
           </>
         ) : (
-          <>
+          <form method="POST" action="/api/auth/consume">
             <p style={{ margin: '0 0 16px', fontSize: 14, lineHeight: 1.5, color: 'var(--text)' }}>
               Press continue to sign in on this device.
             </p>
+            <input type="hidden" name="token" value={token} />
             <button
-              type="button"
-              onClick={confirm}
-              disabled={working}
+              type="submit"
               style={{
                 width: '100%',
                 padding: '12px 16px',
@@ -95,13 +75,12 @@ export default function LoginConfirmPage() {
                 color: '#fff',
                 fontWeight: 700,
                 fontSize: 15,
-                cursor: working ? 'default' : 'pointer',
-                opacity: working ? 0.7 : 1,
+                cursor: 'pointer',
               }}
             >
-              {working ? 'Signing you in…' : 'Continue'}
+              Continue
             </button>
-          </>
+          </form>
         )}
       </div>
     </div>

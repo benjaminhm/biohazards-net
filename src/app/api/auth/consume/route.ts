@@ -17,22 +17,55 @@ import {
   staffCookieHeader,
 } from '@/lib/staffSession'
 
+function publicOrigin(req: Request): string {
+  const host = (req.headers.get('x-forwarded-host') ?? req.headers.get('host') ?? 'app.biohazards.net')
+    .split(',')[0]
+    .trim()
+  const proto = (req.headers.get('x-forwarded-proto') ?? 'https').split(',')[0].trim()
+  return `${proto}://${host}`
+}
+
+async function readToken(req: Request): Promise<{ token: string; redirect: boolean }> {
+  const type = req.headers.get('content-type') ?? ''
+  if (type.includes('application/json')) {
+    const body = await req.json()
+    return { token: typeof body?.token === 'string' ? body.token : '', redirect: false }
+  }
+  const form = await req.formData()
+  const token = form.get('token')
+  return { token: typeof token === 'string' ? token : '', redirect: true }
+}
+
 export async function POST(req: Request) {
   let token = ''
+  let redirect = false
   try {
-    const body = await req.json()
-    token = typeof body?.token === 'string' ? body.token : ''
+    const read = await readToken(req)
+    token = read.token
+    redirect = read.redirect
   } catch {
     return NextResponse.json({ error: staffSignInFailureMessage('invalid') }, { status: 400 })
   }
 
-  const result = await consumeStaffLogin(supabaseStaffTokenStore(createServiceClient()), token)
-  if (!result.ok) {
-    return NextResponse.json({ error: staffSignInFailureMessage(result.reason) }, { status: 401 })
+  const fail = (reason: 'invalid' | 'expired' | 'used') => {
+    if (!redirect) {
+      const status = reason === 'invalid' && !token ? 400 : 401
+      return NextResponse.json({ error: staffSignInFailureMessage(reason) }, { status })
+    }
+    const back = new URL('/login', publicOrigin(req))
+    back.searchParams.set('error', reason)
+    return NextResponse.redirect(back, 303)
   }
 
+  if (!token) return fail('invalid')
+
+  const result = await consumeStaffLogin(supabaseStaffTokenStore(createServiceClient()), token)
+  if (!result.ok) return fail(result.reason)
+
   const jwt = await signStaffToken({ userId: result.userId, email: result.email })
-  const res = NextResponse.json({ ok: true })
+  const res = redirect
+    ? NextResponse.redirect(new URL('/', publicOrigin(req)), 303)
+    : NextResponse.json({ ok: true })
   res.headers.set('Set-Cookie', staffCookieHeader(jwt, isSecureStaffRequest(req)))
   return res
 }
