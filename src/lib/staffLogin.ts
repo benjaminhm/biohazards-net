@@ -3,9 +3,9 @@
  *
  * Single-email magic link for the staff app.
  *
- * STAFF_LOGIN_EMAIL is the only address that receives a link. Every other
- * address gets the same generic success so this endpoint cannot be used to
- * discover who can sign in. STAFF_USER_ID is the existing org_users.clerk_user_id
+ * STAFF_LOGIN_EMAIL lists the addresses that can receive a link, separated by
+ * commas. Every other address gets the same generic success so this endpoint
+ * cannot be used to discover who can sign in. STAFF_USER_ID is the existing org_users.clerk_user_id
  * the session is bound to, so job rows do not move.
  *
  * Only a SHA-256 hash is stored. The link is single-use: consume burns the row
@@ -25,11 +25,19 @@ export function normaliseStaffEmail(raw: unknown): string {
   return typeof raw === 'string' ? raw.trim().toLowerCase() : ''
 }
 
-/** True only when the address matches STAFF_LOGIN_EMAIL. Empty allowlist matches nothing. */
+/** Addresses in STAFF_LOGIN_EMAIL. Commas, semicolons, and spaces all separate them. */
+export function staffLoginEmails(allowlist = process.env.STAFF_LOGIN_EMAIL): string[] {
+  return (allowlist ?? '')
+    .split(/[,;\s]+/)
+    .map(normaliseStaffEmail)
+    .filter(Boolean)
+}
+
+/** True only when the address is one of STAFF_LOGIN_EMAIL. Empty allowlist matches nothing. */
 export function isStaffEmailAllowlisted(email: string, allowlist = process.env.STAFF_LOGIN_EMAIL): boolean {
-  const allowed = normaliseStaffEmail(allowlist)
   const candidate = normaliseStaffEmail(email)
-  return !!allowed && !!candidate && candidate === allowed
+  if (!candidate) return false
+  return staffLoginEmails(allowlist).includes(candidate)
 }
 
 export function staffUserId(): string | null {
@@ -40,7 +48,7 @@ export function staffUserId(): string | null {
 export function staffDisplayName(): string {
   const configured = (process.env.STAFF_DISPLAY_NAME ?? '').trim()
   if (configured) return configured
-  const email = normaliseStaffEmail(process.env.STAFF_LOGIN_EMAIL)
+  const email = staffLoginEmails()[0] ?? ''
   if (email.includes('@')) return email.split('@')[0] || 'User'
   return 'User'
 }

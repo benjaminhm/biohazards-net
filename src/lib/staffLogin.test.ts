@@ -47,6 +47,14 @@ test('allowlist matches the configured address only, ignoring case', () => {
   assert.equal(isStaffEmailAllowlisted('other@example.com', 'owner@example.com'), false)
   assert.equal(isStaffEmailAllowlisted('owner@example.com', ''), false)
   assert.equal(isStaffEmailAllowlisted('owner@example.com', '   '), false)
+  assert.equal(
+    isStaffEmailAllowlisted('Second@Other.com', 'owner@example.com, second@other.com'),
+    true
+  )
+  assert.equal(
+    isStaffEmailAllowlisted('nope@other.com', 'owner@example.com, second@other.com'),
+    false
+  )
 })
 
 test('a token is classified before it is burned', () => {
