@@ -59,6 +59,15 @@ export function getQuoteSpokesOrSeed(ad: AssessmentData | null | undefined): Quo
   return spokes.length > 0 ? spokes : [makeBlankSpoke('Quote 1')]
 }
 
+/** Printed quote heading: the renamed quote name, without a Quote/Estimate prefix. */
+export function quotePrintTitle(title: string | undefined, quoteLabel?: string | null): string {
+  const label = (quoteLabel ?? '').trim()
+  if (label) return label
+  const raw = (title ?? '').trim()
+  const stripped = raw.replace(/^Quote\/Estimate\s*[—–+\-]\s*/i, '').trim()
+  return stripped || raw || 'Quote'
+}
+
 /** Find a single spoke by id (back-compat aware). */
 export function getSpokeById(
   ad: AssessmentData | null | undefined,

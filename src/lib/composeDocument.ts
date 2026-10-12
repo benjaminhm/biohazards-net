@@ -631,7 +631,7 @@ function composeQuote(job: Job, quoteId?: string): ComposeDocumentResult {
     c.quote_id = spoke.id
     c.quote_label = spoke.label
     const trimmedLabel = spoke.label.trim()
-    if (trimmedLabel) c.title = `Quote/Estimate — ${trimmedLabel}`
+    if (trimmedLabel) c.title = trimmedLabel
   }
   return { content: { ...c }, source: hasCapture ? 'assessment_capture' : 'skeleton' }
 }

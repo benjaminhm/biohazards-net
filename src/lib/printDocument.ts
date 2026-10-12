@@ -40,6 +40,7 @@ import { isPdfUrl } from '@/lib/pdfDocket'
 import { SURFACE_LABELS } from '@/lib/areaSurfaces'
 import { effectiveAreaDimensions } from '@/lib/areaSubzones'
 import { OUTCOME_KIND_LABELS, groupRowsByKind, volumePricingSectionSubtotal, volumePricingSubtotal, customSectionSubtotal, customSectionRowsSum } from '@/lib/quoteSections'
+import { quotePrintTitle } from '@/lib/quoteSpokes'
 import type { CustomPricingRow, SectionTerms, VolumeDisposalFeeMode, VolumePricingBlock } from '@/lib/types'
 
 /** Matches the navy header when `company` is missing (meta grid used to show "—" while header showed this name). */
@@ -2411,7 +2412,8 @@ function quoteAcceptPanel(client: ClientInfo | undefined): string {
 
 function buildQuoteHTML(c: QuoteContent, photos: Photo[], groups: RoomPhotoGroup[], areas: Area[], company: CompanyProfile | null, _jobId: string, _appUrl: string, client: ClientInfo | undefined, screenActionBar: boolean): string {
   const mid = buildQuoteMid(c, photos, groups, areas, company, _jobId, _appUrl, client)
-  return wrapBranded(mid, c.title, c.title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
+  const heading = quotePrintTitle(c.title, c.quote_label)
+  return wrapBranded(mid, heading, heading, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
 // ── 2. SOW ────────────────────────────────────────────────────────────────────
@@ -3740,9 +3742,13 @@ export function buildComposedBundleHTML(
       // Quote parts may have been promoted to "Estimate" at compose time — use
       // the embedded content.title when present so the bundle TOC matches the
       // actual rendered identity (e.g. "Estimate" instead of "Quote").
-      const inferredTitle = (p.content as { title?: unknown })?.title
-      const label = p.type === 'quote' && typeof inferredTitle === 'string' && inferredTitle.trim()
-        ? inferredTitle.trim()
+      const quoteContent = p.content as { title?: unknown; quote_label?: unknown }
+      const inferredTitle = quoteContent.title
+      const label = p.type === 'quote'
+        ? quotePrintTitle(
+          typeof inferredTitle === 'string' ? inferredTitle : undefined,
+          typeof quoteContent.quote_label === 'string' ? quoteContent.quote_label : undefined,
+        )
         : (DOC_TYPE_LABELS[p.type] ?? p.type)
       return `<section class="bundle-part" data-part="${i + 1}"><div class="bundle-part-head"><span class="bundle-part-num">${i + 1}</span><span class="bundle-part-title">${esc(label)}</span></div><div class="bundle-part-body">${mid}</div></section>`
     })

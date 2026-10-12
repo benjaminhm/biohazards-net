@@ -1205,14 +1205,12 @@ export default function QuoteCaptureTab({ job, photos, onJobUpdate, onPhotosUpda
       {/* ── Document identity (Quote vs Estimate) ────────────────────────
         * Drives the in-doc banner ("THIS IS A FIXED-PRICE QUOTE" vs
         * "THIS IS AN ESTIMATE") and the reference prefix (QUO- vs EST-).
-        * Title stays "Quote/Estimate" in either case so the doc category
-        * is consistent. Stored as outcome_quote_capture.quote_kind. */}
+        * The printed title is the quote name from Rename. */}
       <div style={{ marginBottom: 18 }}>
         <div style={SECTION}>Document type</div>
         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: -6, marginBottom: 8, lineHeight: 1.5 }}>
-          Pick which commercial commitment this document makes. The generated PDF is titled
-          <strong style={{ color: 'var(--text)' }}> Quote/Estimate</strong> in either case;
-          a banner near the top of the doc tells the client which it is.
+          Pick which commercial commitment this document makes. The generated document uses this quote’s name as its title.
+          A banner near the top tells the client whether it is a fixed-price quote or an estimate.
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           {([
