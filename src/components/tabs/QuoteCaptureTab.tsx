@@ -616,7 +616,9 @@ export default function QuoteCaptureTab({ job, photos, onJobUpdate, onPhotosUpda
     [customSectionRows, customSectionTotal],
   )
   const outcomesSubtotal = useMemo(
-    () => toMoney(Math.max(0, Number(globalMobilisationFee || 0)) + rows.reduce((s, r) => s + Math.max(0, Number(r.price || 0)), 0)),
+    () => globalMobilisationFee > 0
+      ? toMoney(globalMobilisationFee)
+      : toMoney(rows.reduce((s, r) => s + Math.max(0, Number(r.price || 0)), 0)),
     [rows, globalMobilisationFee],
   )
 
@@ -1376,7 +1378,7 @@ export default function QuoteCaptureTab({ job, photos, onJobUpdate, onPhotosUpda
           }}
         >
           <div className="field" style={{ marginBottom: 0 }}>
-            <label>Global mobilisation fee</label>
+            <label>Total cost of the quote ($)</label>
             <input
               type="number"
               inputMode="decimal"
@@ -1427,7 +1429,7 @@ export default function QuoteCaptureTab({ job, photos, onJobUpdate, onPhotosUpda
             />
           </div>
           <div style={{ gridColumn: '1 / -1', fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-            Mobilisation is the Section 1 base fee and source of truth for attendance/setup. $/m³ is a reference rate for contents/disposal and is not used to estimate volume. $/m² displays calculated surface pricing inside each item.
+            Enter the total cost of the quote to price the job in one figure. Scope lines still print, without a price on each line, and other section prices are not added on top. Leave this blank to price each line instead. $/m³ is a reference rate for contents/disposal and is not used to estimate volume. $/m² displays calculated surface pricing inside each item when the quote total is blank.
           </div>
         </div>
       </div>
@@ -1438,7 +1440,7 @@ export default function QuoteCaptureTab({ job, photos, onJobUpdate, onPhotosUpda
       <div style={{ marginBottom: 8 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
           <div style={SECTION}>1. Mobilisation, Fees &amp; Fixed-Rate Items</div>
-          {(rows.length > 0 || globalMobilisationFee > 0) && (
+          {(rows.length > 0 && globalMobilisationFee <= 0) && (
             <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
               Subtotal: <strong style={{ color: 'var(--text)' }}>${outcomesSubtotal.toFixed(2)}</strong>
             </div>
@@ -1448,28 +1450,6 @@ export default function QuoteCaptureTab({ job, photos, onJobUpdate, onPhotosUpda
           Call-out, dispatch, project management, surcharges, certificates, and fixed-fee scopes.
         </div>
       </div>
-
-      {globalMobilisationFee > 0 && (
-        <div
-          style={{
-            border: '1px solid rgba(255,107,53,0.35)',
-            borderRadius: 10,
-            padding: '10px 12px',
-            background: 'rgba(255,107,53,0.06)',
-            marginBottom: 14,
-          }}
-        >
-          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--accent)', marginBottom: 4 }}>
-            Base pricing determinant
-          </div>
-          <div style={{ fontSize: 13, color: 'var(--text)', fontWeight: 700 }}>
-            Mobilisation fee: ${globalMobilisationFee.toFixed(2)}
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.45, marginTop: 4 }}>
-            Downstream mobilisation rows should add surcharges or modifiers, not redefine this base fee.
-          </div>
-        </div>
-      )}
 
       <QuoteSectionAiPanel
         section="outcomes"
@@ -1656,7 +1636,7 @@ export default function QuoteCaptureTab({ job, photos, onJobUpdate, onPhotosUpda
                           No assessment dimensions for: {missingAreaNames.join(', ')}
                         </div>
                       )}
-                      {globalSurfaceRatePerM2 > 0 && totalSurfaceM2 > 0 && (
+                      {globalSurfaceRatePerM2 > 0 && totalSurfaceM2 > 0 && globalMobilisationFee <= 0 && (
                         <div
                           style={{
                             marginTop: 2,
@@ -1675,6 +1655,11 @@ export default function QuoteCaptureTab({ job, photos, onJobUpdate, onPhotosUpda
               </div>
             </div>
 
+            {globalMobilisationFee > 0 ? (
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8, lineHeight: 1.45 }}>
+                Covered by the total cost of the quote. This line will not show a price on the document.
+              </div>
+            ) : (
             <div className="field" style={{ marginBottom: 8 }}>
               <label>Price ($)</label>
               <input
@@ -1686,6 +1671,7 @@ export default function QuoteCaptureTab({ job, photos, onJobUpdate, onPhotosUpda
                 placeholder="0.00"
               />
             </div>
+            )}
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
               <div className="field" style={{ marginBottom: 0 }}>
@@ -2301,7 +2287,7 @@ export default function QuoteCaptureTab({ job, photos, onJobUpdate, onPhotosUpda
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: '1.2fr 2fr 0.9fr 0.4fr',
+            gridTemplateColumns: globalMobilisationFee > 0 ? '1.2fr 2fr 0.4fr' : '1.2fr 2fr 0.9fr 0.4fr',
             gap: 8,
             padding: '8px 12px',
             fontSize: 11,
@@ -2315,7 +2301,7 @@ export default function QuoteCaptureTab({ job, photos, onJobUpdate, onPhotosUpda
         >
           <span>Scope title</span>
           <span>Description</span>
-          <span style={{ textAlign: 'right' }}>Price ($)</span>
+          {globalMobilisationFee <= 0 && <span style={{ textAlign: 'right' }}>Price ($)</span>}
           <span aria-hidden="true" />
         </div>
         {customSectionRows.length === 0 ? (
@@ -2328,7 +2314,7 @@ export default function QuoteCaptureTab({ job, photos, onJobUpdate, onPhotosUpda
               key={row.id}
               style={{
                 display: 'grid',
-                gridTemplateColumns: '1.2fr 2fr 0.9fr 0.4fr',
+                gridTemplateColumns: globalMobilisationFee > 0 ? '1.2fr 2fr 0.4fr' : '1.2fr 2fr 0.9fr 0.4fr',
                 gap: 8,
                 alignItems: 'center',
                 padding: '8px 12px',
@@ -2350,6 +2336,7 @@ export default function QuoteCaptureTab({ job, photos, onJobUpdate, onPhotosUpda
                 placeholder="Scope details"
                 aria-label="Scope description"
               />
+              {globalMobilisationFee <= 0 && (
               <input
                 type="number"
                 inputMode="decimal"
@@ -2364,6 +2351,7 @@ export default function QuoteCaptureTab({ job, photos, onJobUpdate, onPhotosUpda
                 aria-label="Scope price"
                 style={{ textAlign: 'right' }}
               />
+              )}
               <button
                 type="button"
                 onClick={() => removeCustomRow(row.id)}
@@ -2396,11 +2384,15 @@ export default function QuoteCaptureTab({ job, photos, onJobUpdate, onPhotosUpda
               setSaveError('')
             }}
             placeholder="0.00"
-            disabled={customRowsSubtotal > 0}
+            disabled={customRowsSubtotal > 0 || globalMobilisationFee > 0}
             aria-label="Custom section value-based total"
           />
         </div>
-        {customRowsSubtotal > 0 ? (
+        {globalMobilisationFee > 0 ? (
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.45, paddingBottom: 8 }}>
+            Covered by the total cost of the quote.
+          </div>
+        ) : customRowsSubtotal > 0 ? (
           <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.45, paddingBottom: 8 }}>
             Total is from scope line prices (${customRowsSubtotal.toFixed(2)}).
           </div>
@@ -2517,6 +2509,13 @@ export default function QuoteCaptureTab({ job, photos, onJobUpdate, onPhotosUpda
             }}
           >
             <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>Section summary</div>
+            {globalMobilisationFee > 0 ? (
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                <span style={{ color: 'var(--text-muted)' }}>Total cost of the quote</span>
+                <span>${globalMobilisationFee.toFixed(2)}</span>
+              </div>
+            ) : (
+              <>
             {pricingLayout.outcomes_enabled && (
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                 <span style={{ color: 'var(--text-muted)' }}>1. Mobilisation &amp; fees</span>
@@ -2542,6 +2541,8 @@ export default function QuoteCaptureTab({ job, photos, onJobUpdate, onPhotosUpda
                 </span>
                 <span>${customSubtotal.toFixed(2)}</span>
               </div>
+            )}
+              </>
             )}
           </div>
         )}

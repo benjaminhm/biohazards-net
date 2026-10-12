@@ -895,7 +895,7 @@ export interface OutcomeQuoteCapture {
   /** Per-job toggle state for the three pricing axes. Optional: when absent,
    *  callers infer defaults from which section data exists. */
   pricing_layout?: QuotePricingLayout
-  /** Base attendance / setup fee used as the source of truth for Section 1 mobilisation pricing. */
+  /** Total cost of the quote. When set, line and section prices are not added, and generated documents omit a price on each scope line. */
   global_mobilisation_fee?: number
   /** Optional single rate used to show calculated per-item surface pricing from selected room m². */
   global_surface_rate_per_m2?: number
@@ -1562,7 +1562,7 @@ export interface QuoteContent {
   /** Toggle state echoed onto the rendered content so the print path knows
    *  which sections to suppress even if their data is non-empty. */
   pricing_layout?: QuotePricingLayout
-  /** Base attendance / setup fee used as the source of truth for Section 1 mobilisation pricing. */
+  /** Total cost of the quote. When set, line and section prices are not added, and generated documents omit a price on each scope line. */
   global_mobilisation_fee?: number
   /** Optional single rate used to show calculated per-item surface pricing from selected room m². */
   global_surface_rate_per_m2?: number

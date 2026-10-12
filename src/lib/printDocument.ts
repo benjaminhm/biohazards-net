@@ -1773,10 +1773,11 @@ function hasSectionTerms(t: SectionTerms | undefined): boolean {
 function renderVolumeDisposalFees(
   mode: VolumeDisposalFeeMode | undefined,
   perTonne: number | undefined,
+  hidePrices = false,
 ): string {
   const rate = Math.max(0, Number(perTonne || 0))
-  if (!mode && rate <= 0) return ''
-  const rateLine = rate > 0
+  if (!mode && (hidePrices || rate <= 0)) return ''
+  const rateLine = !hidePrices && rate > 0
     ? `<div class="body-text" style="margin-top:6px"><strong>Rate:</strong> ${fmtMoney(rate)} per tonne</div>`
     : ''
   if (mode === 'added_for_reimbursement') {
@@ -1808,8 +1809,9 @@ function renderVolumeSection(
   sectionTotal = 0,
   disposalMode?: VolumeDisposalFeeMode,
   disposalPerTonne?: number,
+  hidePrices = false,
 ): string {
-  const disposalHtml = renderVolumeDisposalFees(disposalMode, disposalPerTonne)
+  const disposalHtml = renderVolumeDisposalFees(disposalMode, disposalPerTonne, hidePrices)
   const pricedTotal = volumePricingSectionSubtotal(block, sectionTotal)
   if (pricedTotal <= 0 && !hasSectionTerms(terms) && !disposalHtml) return ''
 
@@ -1817,6 +1819,15 @@ function renderVolumeSection(
   const fromVolume = volumePricingSubtotal(block)
 
   if (fromVolume <= 0 && sectionTotal > 0) {
+    if (hidePrices) {
+      const termsHtml = renderSectionTerms(terms)
+      if (!termsHtml && !disposalHtml) return ''
+      return `
+      <div class="label" style="margin-top:18px">2. Contents Removal</div>
+      ${disposalHtml}
+      ${termsHtml}
+    `
+    }
     return `
     <div class="label" style="margin-top:18px">2. Contents Removal</div>
     <table>
@@ -1867,9 +1878,15 @@ function renderVolumeSection(
       </tr>
     `
   }).join('')
-  const caveat = block.is_estimate
+  const caveat = block.is_estimate && !hidePrices
     ? `<div class="body-text" style="margin-top:8px;font-style:italic;color:var(--sow-muted)">Final volume confirmed on uplift; variance billed (or credited) at the same rate.</div>`
     : ''
+  const volumeTotalRow = hidePrices
+    ? ''
+    : `<tr>
+          <td class="r" style="font-weight:700">Total volume × $${fmtMoney(rate).replace('$','')}/m³</td>
+          <td class="r" style="font-weight:700">${fmtMoney(volumeLineTotal)}</td>
+        </tr>`
   return `
     <div class="label" style="margin-top:18px">2. Contents Removal</div>
     <table>
@@ -1881,10 +1898,7 @@ function renderVolumeSection(
       </thead>
       <tbody>
         ${tbody}
-        <tr>
-          <td class="r" style="font-weight:700">Total volume × $${fmtMoney(rate).replace('$','')}/m³</td>
-          <td class="r" style="font-weight:700">${fmtMoney(volumeLineTotal)}</td>
-        </tr>
+        ${volumeTotalRow}
       </tbody>
     </table>
     ${caveat}
@@ -1898,6 +1912,7 @@ function renderAreaPricingSection(
   rows: NonNullable<QuoteContent['area_pricing']>,
   terms: SectionTerms | undefined,
   sectionTotal = 0,
+  hidePrices = false,
 ): string {
   if (rows.length === 0 && sectionTotal <= 0) {
     const termsHtml = renderSectionTerms(terms)
@@ -1908,6 +1923,14 @@ function renderAreaPricingSection(
   `
   }
   if (rows.length === 0 && sectionTotal > 0) {
+    if (hidePrices) {
+      const termsHtml = renderSectionTerms(terms)
+      if (!termsHtml) return ''
+      return `
+      <div class="label" style="margin-top:18px">3. Remediation, Cleaning &amp; Sanitisation</div>
+      ${termsHtml}
+    `
+    }
     return `
     <div class="label" style="margin-top:18px">3. Remediation, Cleaning &amp; Sanitisation</div>
     <table>
@@ -1932,6 +1955,9 @@ function renderAreaPricingSection(
       ? `${row.length_m}×${row.width_m}${row.height_m > 0 ? `×${row.height_m}` : ''} m`
       : '—'
     const surfaces = (row.surfaces ?? []).filter(s => s.included)
+    const priceCells = hidePrices
+      ? ''
+      : `<td class="r">${fmtMoney(Number(row.unit_price_per_sqm || 0))}</td><td class="r">${fmtMoney(Number(row.total || 0))}</td>`
     if (surfaces.length === 0) {
       return `
         <tr>
@@ -1939,8 +1965,7 @@ function renderAreaPricingSection(
           <td>${esc(dims)}</td>
           <td>—</td>
           <td class="r">${Number(row.sqm || 0).toLocaleString('en-AU', { maximumFractionDigits: 2 })}</td>
-          <td class="r">${fmtMoney(Number(row.unit_price_per_sqm || 0))}</td>
-          <td class="r">${fmtMoney(Number(row.total || 0))}</td>
+          ${priceCells}
         </tr>`
     }
     return surfaces.map((s, idx) => {
@@ -1948,16 +1973,19 @@ function renderAreaPricingSection(
         ? `<td rowspan="${surfaces.length}" style="vertical-align:top">${esc(row.area_name)}</td>
            <td rowspan="${surfaces.length}" style="vertical-align:top">${esc(dims)}</td>`
         : ''
+      const surfacePriceCells = hidePrices
+        ? ''
+        : `<td class="r">${fmtMoney(Number(s.unit_price_per_sqm || 0))}</td><td class="r">${fmtMoney(Number(s.total || 0))}</td>`
       return `
         <tr>
           ${roomCell}
           <td>${esc(SURFACE_LABELS[s.kind])}</td>
           <td class="r">${Number(s.area_m2 || 0).toLocaleString('en-AU', { maximumFractionDigits: 2 })}</td>
-          <td class="r">${fmtMoney(Number(s.unit_price_per_sqm || 0))}</td>
-          <td class="r">${fmtMoney(Number(s.total || 0))}</td>
+          ${surfacePriceCells}
         </tr>`
     }).join('')
   }).join('')
+  const priceHeads = hidePrices ? '' : '<th class="r">$/m²</th><th class="r">Total</th>'
   return `
     <div class="label" style="margin-top:18px">3. Remediation, Cleaning &amp; Sanitisation</div>
     <table>
@@ -1967,8 +1995,7 @@ function renderAreaPricingSection(
           <th>Dimensions</th>
           <th>Surface</th>
           <th class="r">m²</th>
-          <th class="r">$/m²</th>
-          <th class="r">Total</th>
+          ${priceHeads}
         </tr>
       </thead>
       <tbody>${body}</tbody>
@@ -1983,13 +2010,14 @@ function renderCustomSection(
   rows: CustomPricingRow[] | undefined,
   terms: SectionTerms | undefined,
   sectionTotal = 0,
+  hidePrices = false,
 ): string {
   const heading = esc((title ?? '').trim() || 'Other / Custom')
   const rowSum = customSectionRowsSum(rows)
   const pricedTotal = customSectionSubtotal(rows, sectionTotal)
   if (pricedTotal <= 0 && !hasSectionTerms(terms) && !(title ?? '').trim()) return ''
 
-  if (rowSum <= 0 && sectionTotal > 0) {
+  if (rowSum <= 0 && sectionTotal > 0 && !hidePrices) {
     return `
     <div class="label" style="margin-top:18px">${heading}</div>
     <table>
@@ -2022,16 +2050,20 @@ function renderCustomSection(
 
   const tbody = pricedRows.map(r => {
     const desc = (r.scope_description ?? '').trim()
+    const priceCell = hidePrices
+      ? ''
+      : `<td class="r">${Number(r.price || 0) > 0 ? fmtMoney(Number(r.price || 0)) : 'TBC'}</td>`
     return `
       <tr>
         <td>
           <strong>${esc(r.scope_title || 'Scope item')}</strong>
           ${desc ? `<div style="font-size:7pt;color:var(--sow-muted);margin-top:4px">${esc(desc)}</div>` : ''}
         </td>
-        <td class="r">${Number(r.price || 0) > 0 ? fmtMoney(Number(r.price || 0)) : 'TBC'}</td>
+        ${priceCell}
       </tr>
     `
   }).join('')
+  const priceHead = hidePrices ? '' : '<th class="r">Total</th>'
 
   return `
     <div class="label" style="margin-top:18px">${heading}</div>
@@ -2039,7 +2071,7 @@ function renderCustomSection(
       <thead>
         <tr>
           <th>Scope</th>
-          <th class="r">Total</th>
+          ${priceHead}
         </tr>
       </thead>
       <tbody>${tbody}</tbody>
@@ -2098,22 +2130,15 @@ function quoteRoomMeasurements(row: OutcomeQuoteRow, areas: Area[], globalSurfac
   return `<div class="label" style="font-size:7pt;margin-top:8px">Room Measurements / Surface Area</div><div class="body-text">${blocks.join('')}${priceLine}</div>`
 }
 
-/** Section 1 — Mobilisation, Fees & Fixed-Rate Items: kind-grouped row blocks. */
+/** Section 1 — scope rows. A job total hides each line's price. */
 function renderOutcomeSection(
   rows: NonNullable<QuoteContent['outcome_rows']>,
   assessmentAreas: Area[],
   globalSurfaceRatePerM2 = 0,
   globalMobilisationFee = 0,
 ): string {
-  const mobilisationFee = Math.max(0, Number(globalMobilisationFee || 0))
-  const baseBlock = mobilisationFee > 0
-    ? `<div class="sow-muted-box">
-        <div class="label" style="font-size:7pt;margin-top:8px">Base Pricing Determinant</div>
-        <div class="body-text"><strong>Mobilisation fee: ${fmtMoney(mobilisationFee)}</strong></div>
-        <div class="body-text">Base attendance/setup fee. Item rows below are for proposed actions, surcharges, or modifiers.</div>
-      </div>`
-    : ''
-  if (rows.length === 0) return baseBlock || `<div class="body-text">— No fee items have been drafted for this quote.</div>`
+  const jobTotal = Math.max(0, Number(globalMobilisationFee || 0))
+  if (rows.length === 0) return ''
   const groups = groupRowsByKind(rows)
   const groupedBlocks = groups.map(group => {
     const subHeader = `<div class="label" style="margin-top:12px;font-size:8pt">— ${esc(OUTCOME_KIND_LABELS[group.kind])} —</div>`
@@ -2123,7 +2148,11 @@ function renderOutcomeSection(
       const included = (row.included ?? []).filter(Boolean).map(t => `<li>${esc(t)}</li>`).join('')
       const excluded = (row.excluded ?? []).filter(Boolean).map(t => `<li>${esc(t)}</li>`).join('')
       const assumptions = (row.assumptions ?? []).filter(Boolean).map(t => `<li>${esc(t)}</li>`).join('')
-      const measurements = quoteRoomMeasurements(row, assessmentAreas, globalSurfaceRatePerM2)
+      const measurements = quoteRoomMeasurements(row, assessmentAreas, jobTotal > 0 ? 0 : globalSurfaceRatePerM2)
+      const priceBlock = jobTotal > 0
+        ? ''
+        : `<div class="label" style="font-size:7pt;margin-top:8px">Price</div>
+          <div class="body-text"><strong>${Number(row.price || 0) > 0 ? fmtMoney(Number(row.price || 0)) : 'TBC'}</strong></div>`
       return `
         <div class="sow-muted-box">
           <div class="label" style="font-size:7pt;margin-top:8px">Proposed Action</div>
@@ -2135,14 +2164,13 @@ function renderOutcomeSection(
           ${included ? `<div class="label" style="font-size:7pt;margin-top:8px">Included Actions</div><ul class="body-text">${included}</ul>` : ''}
           ${excluded ? `<div class="label" style="font-size:7pt;margin-top:8px">Excluded / Outside Scope</div><ul class="body-text">${excluded}</ul>` : ''}
           ${assumptions ? `<div class="label" style="font-size:7pt;margin-top:8px">Assumptions / Unknowns</div><ul class="body-text">${assumptions}</ul>` : ''}
-          <div class="label" style="font-size:7pt;margin-top:8px">Price</div>
-          <div class="body-text"><strong>${Number(row.price || 0) > 0 ? fmtMoney(Number(row.price || 0)) : 'TBC'}</strong></div>
+          ${priceBlock}
         </div>
       `
     }).join('')
     return `${subHeader}${blocks}`
   }).join('')
-  return `${baseBlock}${groupedBlocks}`
+  return groupedBlocks
 }
 
 function buildQuoteMid(
@@ -2182,7 +2210,18 @@ function buildQuoteMid(
       || !!(c.custom_section_title ?? '').trim())
 
   const lineItemsTable = (c.line_items ?? []).length > 0
-    ? `<table>
+    ? (globalMobilisationFee > 0
+      ? `<table>
+        <thead><tr><th>Description</th><th class="r">Qty</th><th class="r">Unit</th></tr></thead>
+        <tbody>${(c.line_items ?? []).map(li => `
+          <tr>
+            <td>${esc(li.description)}</td>
+            <td class="r">${li.qty}</td>
+            <td class="r">${esc(li.unit)}</td>
+          </tr>
+        `).join('')}</tbody>
+      </table>`
+      : `<table>
         <thead><tr><th>Description</th><th class="r">Qty</th><th class="r">Unit</th><th class="r">Rate</th><th class="r">Total</th></tr></thead>
         <tbody>${(c.line_items ?? []).map(li => `
           <tr>
@@ -2193,26 +2232,22 @@ function buildQuoteMid(
             <td class="r">${fmtMoney(li.total)}</td>
           </tr>
         `).join('')}</tbody>
-      </table>`
-    : ''
-  const baseMobilisationBlock = globalMobilisationFee > 0
-    ? `<div class="sow-muted-box">
-        <div class="label" style="font-size:7pt;margin-top:8px">Base Pricing Determinant</div>
-        <div class="body-text"><strong>Mobilisation fee: ${fmtMoney(globalMobilisationFee)}</strong></div>
-        <div class="body-text">Base attendance/setup fee. Additional mobilisation rows apply as surcharges or modifiers.</div>
-      </div>`
+      </table>`)
     : ''
 
   // Prefer kind-grouped outcome rows; fall back to legacy line items only if there are no outcome rows.
   const section1Body = outcomeRows.length > 0
     ? renderOutcomeSection(outcomeRows, areas, Number(c.global_surface_rate_per_m2 || 0), globalMobilisationFee)
-    : (baseMobilisationBlock || lineItemsTable
-        ? `${baseMobilisationBlock}${lineItemsTable}`
-        : `<div class="body-text">— No fee items have been drafted for this quote.</div>`)
+    : (lineItemsTable
+        ? lineItemsTable
+        : (globalMobilisationFee > 0
+          ? ''
+          : `<div class="body-text">— No fee items have been drafted for this quote.</div>`))
 
-  const section1 = showSection1
+  const section1 = showSection1 && (section1Body || hasSectionTerms(c.outcomes_section_terms))
     ? `<div class="label" style="margin-top:6px">1. Mobilisation, Fees &amp; Fixed-Rate Items</div>${section1Body}${renderSectionTerms(c.outcomes_section_terms)}`
     : ''
+  const hideLinePrices = globalMobilisationFee > 0
   const section2 = showSection2
     ? renderVolumeSection(
       volumeBlock,
@@ -2220,13 +2255,14 @@ function buildQuoteMid(
       volumePricingSectionTotal,
       volumeDisposalFeeMode,
       volumeDisposalFeePerTonne > 0 ? volumeDisposalFeePerTonne : undefined,
+      hideLinePrices,
     )
     : ''
   const section3 = showSection3
-    ? renderAreaPricingSection(areaPricing, c.area_pricing_terms, areaPricingSectionTotal)
+    ? renderAreaPricingSection(areaPricing, c.area_pricing_terms, areaPricingSectionTotal, hideLinePrices)
     : ''
   const section4 = showSection4
-    ? renderCustomSection(c.custom_section_title, customRows, c.custom_section_terms, customSectionTotal)
+    ? renderCustomSection(c.custom_section_title, customRows, c.custom_section_terms, customSectionTotal, hideLinePrices)
     : ''
 
   const anySection = section1 || section2 || section3 || section4

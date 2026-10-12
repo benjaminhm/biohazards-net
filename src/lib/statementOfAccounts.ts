@@ -390,9 +390,9 @@ function blockFromSpoke(spoke: QuoteSpoke, reference: string): StatementReferenc
   }) ? 'estimate' : 'quote')
   const mobilisation = Math.max(0, Number(spoke.global_mobilisation_fee || 0))
   const outcomeRows = (spoke.rows ?? []).reduce((sum, row) => sum + Math.max(0, Number(row.price || 0)), 0)
-  const outcomeSum = layout.outcomes_enabled
-    ? mobilisation + ((spoke.rows ?? []).length > 0 ? outcomeRows : 0)
-    : 0
+  const outcomeSum = mobilisation > 0
+    ? mobilisation
+    : (layout.outcomes_enabled && (spoke.rows ?? []).length > 0 ? outcomeRows : 0)
   const surfaceSum = layout.per_sqm_enabled
     ? areaPricingSectionSubtotal(spoke.area_pricing, spoke.area_pricing_section_total)
     : 0
@@ -414,12 +414,14 @@ function blockFromSpoke(spoke: QuoteSpoke, reference: string): StatementReferenc
     spoke.custom_section_rows,
     Math.max(0, Number(spoke.custom_section_total || 0)),
   )
-  const sections: { label: string; amount: number }[] = [
-    { label: 'Mobilisation & fees', amount: outcomeSum },
-    { label: 'Contents removal', amount: volumeSum },
-    { label: 'Remediation & cleaning', amount: surfaceSum },
-    { label: (spoke.custom_section_title ?? '').trim() || 'Other', amount: customSum },
-  ]
+  const sections: { label: string; amount: number }[] = mobilisation > 0
+    ? [{ label: 'Total cost of the quote', amount: mobilisation }]
+    : [
+      { label: 'Mobilisation & fees', amount: outcomeSum },
+      { label: 'Contents removal', amount: volumeSum },
+      { label: 'Remediation & cleaning', amount: surfaceSum },
+      { label: (spoke.custom_section_title ?? '').trim() || 'Other', amount: customSum },
+    ]
   const lines: StatementReferenceLine[] = sections
     .filter(section => section.amount > 0.004)
     .map(section => ({ label: section.label, ...quoteMoney(section.amount, gst_mode) }))

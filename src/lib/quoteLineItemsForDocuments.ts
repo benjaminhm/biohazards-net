@@ -150,7 +150,10 @@ export function quoteLineItemsContentPatch(
     ? customSectionSubtotal(customSectionRows, customSectionTotal)
     : 0
 
-  const subtotal = Math.round((outcomesSum + areaPricingSum + volumeSum + customSum) * 100) / 100
+  const pricedBase = baseMobilisationFee > 0
+    ? baseMobilisationFee
+    : outcomesSum + areaPricingSum + volumeSum + customSum
+  const subtotal = Math.round(pricedBase * 100) / 100
   const noData = !lineItems.length
     && !(outcomeRows?.length)
     && areaPricingSum <= 0

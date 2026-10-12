@@ -281,14 +281,27 @@ export function computeQuoteCaptureTotals(
   /** When outcome rows are empty, sum legacy line_items instead (printed quote path). */
   lineItemsFallback?: Array<{ total?: number }>,
 ): { subtotal: number; gst: number; total: number } {
+  const lumpSum = Math.max(0, Number(globalMobilisationFee || 0))
+  // A job total replaces line and section prices. GST mode still applies to that figure.
+  if (lumpSum > 0) {
+    const lineSum = round2(lumpSum)
+    if (gstMode === 'exclusive') {
+      const gst = round2(lineSum * 0.1)
+      return { subtotal: lineSum, gst, total: round2(lineSum + gst) }
+    }
+    if (gstMode === 'inclusive') {
+      const gst = round2(lineSum / 11)
+      return { subtotal: round2(lineSum - gst), gst, total: lineSum }
+    }
+    return { subtotal: lineSum, gst: 0, total: lineSum }
+  }
   const pricedRows = rows.reduce((s, r) => s + Math.max(0, Number(r.price || 0)), 0)
   const pricedLineItems = (lineItemsFallback ?? []).reduce(
     (s, li) => s + Math.max(0, Number(li.total || 0)),
     0,
   )
   const outcomeSum = layout.outcomes_enabled
-    ? Math.max(0, Number(globalMobilisationFee || 0))
-      + (rows.length > 0 ? pricedRows : pricedLineItems)
+    ? (rows.length > 0 ? pricedRows : pricedLineItems)
     : 0
   const surfaceSum = layout.per_sqm_enabled
     ? areaPricingSectionSubtotal(areaPricing, areaPricingSectionTotal)
