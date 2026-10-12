@@ -2340,9 +2340,9 @@ function buildQuoteMid(
         ${acceptanceInner ? `
           <div class="quote-auth-callout">
             <div class="quote-auth-callout-title">Authorisation to Proceed</div>
-            <div class="quote-auth-callout-intro">${client?.quoteAcceptDocumentId
-              ? 'To accept, use the button at the end of this page.'
-              : 'Acceptance is completed online. Open the link sent with this quote and use the button at the end of the page.'}</div>
+            ${client?.quoteAcceptDocumentId && !client?.quoteAccepted
+              ? '<div class="quote-auth-callout-intro">To accept, use the button at the end of this page.</div>'
+              : ''}
           </div>
           <div style="margin-top:18px;padding:16px;border:1px solid var(--sow-rule);border-radius:8px;background:var(--sow-blue-xs);">
             <div class="body-text sow-rich">${acceptanceInner}</div>
