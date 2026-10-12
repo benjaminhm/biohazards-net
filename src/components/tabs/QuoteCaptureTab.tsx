@@ -28,7 +28,7 @@ import type {
   VolumePricingBlock,
   VolumePricingRow,
 } from '@/lib/types'
-import { genQuoteSpokeId, getQuoteSpokesOrSeed, makeBlankSpoke } from '@/lib/quoteSpokes'
+import { genQuoteSpokeId, getQuoteSpokes, getQuoteSpokesOrSeed, makeBlankSpoke } from '@/lib/quoteSpokes'
 import {
   SURFACE_KINDS,
   SURFACE_LABELS,
@@ -398,6 +398,21 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
+const DEFAULT_LIABILITY = 'Liability is limited to the value of services quoted. The service provider accepts no responsibility for pre-existing damage, concealed conditions, or third-party property unless expressly agreed in writing.'
+const DEFAULT_ACCEPTANCE = 'By signing below, the client authorises the above works to commence under the terms and conditions stated in this document.'
+
+function acceptanceIsStock(value: string | undefined): boolean {
+  const text = (value ?? '').trim()
+  return !text || text === DEFAULT_ACCEPTANCE
+}
+
+/** A quote that still has the built-in sentence picks up the remembered wording. */
+function resolveAcceptanceStatement(saved: string | undefined, remembered: string | null): string {
+  if (!acceptanceIsStock(saved)) return saved ?? ''
+  const next = (remembered ?? '').trim()
+  return next || DEFAULT_ACCEPTANCE
+}
+
 const SECTION: CSSProperties = {
   fontSize: 12,
   fontWeight: 700,
@@ -432,9 +447,6 @@ export default function QuoteCaptureTab({ job, photos, onJobUpdate, onPhotosUpda
   })
   const [suggestingSection, setSuggestingSection] = useState<QuoteSuggestSection | null>(null)
   const [suggestErrorBySection, setSuggestErrorBySection] = useState<Partial<Record<QuoteSuggestSection, string>>>({})
-
-  const DEFAULT_LIABILITY = 'Liability is limited to the value of services quoted. The service provider accepts no responsibility for pre-existing damage, concealed conditions, or third-party property unless expressly agreed in writing.'
-  const DEFAULT_ACCEPTANCE = 'By signing below, the client authorises the above works to commence under the terms and conditions stated in this document.'
 
   const [rows, setRows] = useState<OutcomeQuoteRow[]>(existing?.rows ?? [])
   const [areaPricing, setAreaPricing] = useState<AreaPricingRow[]>(() =>
@@ -497,7 +509,7 @@ export default function QuoteCaptureTab({ job, photos, onJobUpdate, onPhotosUpda
       access_details: a?.access_details ?? '',
       special_conditions: a?.special_conditions ?? '',
       liability_statement: a?.liability_statement ?? DEFAULT_LIABILITY,
-      acceptance_statement: a?.acceptance_statement ?? DEFAULT_ACCEPTANCE,
+      acceptance_statement: resolveAcceptanceStatement(a?.acceptance_statement, null),
     }
   })
   const [saving, setSaving] = useState(false)
@@ -508,6 +520,17 @@ export default function QuoteCaptureTab({ job, photos, onJobUpdate, onPhotosUpda
   const [gstRunLoading, setGstRunLoading] = useState(true)
   const [gstToggleSaving, setGstToggleSaving] = useState(false)
   const [gstError, setGstError] = useState('')
+  const [acceptanceStatus, setAcceptanceStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [acceptanceError, setAcceptanceError] = useState('')
+  const orgStatementRef = useRef<string | null>(null)
+  const acceptanceAutosaveRef = useRef(false)
+  const acceptanceSaveSeq = useRef(0)
+  const acceptanceTimerRef = useRef<number | null>(null)
+  const pendingAcceptanceRef = useRef<string | null>(null)
+  const jobRef = useRef(job)
+  const activeSpokeIdRef = useRef(activeSpokeId)
+  jobRef.current = job
+  activeSpokeIdRef.current = activeSpokeId
 
   useEffect(() => {
     let cancelled = false
@@ -562,7 +585,7 @@ export default function QuoteCaptureTab({ job, photos, onJobUpdate, onPhotosUpda
       access_details: a?.access_details ?? '',
       special_conditions: a?.special_conditions ?? '',
       liability_statement: a?.liability_statement ?? DEFAULT_LIABILITY,
-      acceptance_statement: a?.acceptance_statement ?? DEFAULT_ACCEPTANCE,
+      acceptance_statement: resolveAcceptanceStatement(a?.acceptance_statement, orgStatementRef.current),
     })
   }
 
@@ -570,6 +593,10 @@ export default function QuoteCaptureTab({ job, photos, onJobUpdate, onPhotosUpda
   // Spoke switching is handled locally in switchSpoke(); we keep the current
   // selection if it still exists, else fall back to the first spoke.
   useEffect(() => {
+    if (acceptanceAutosaveRef.current) {
+      acceptanceAutosaveRef.current = false
+      return
+    }
     const fresh = getQuoteSpokesOrSeed(job.assessment_data)
     setSpokes(fresh)
     const active = fresh.find(s => s.id === activeSpokeId) ?? fresh[0]
@@ -580,6 +607,120 @@ export default function QuoteCaptureTab({ job, photos, onJobUpdate, onPhotosUpda
     setSaveError('')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job.assessment_data?.outcome_quotes, job.assessment_data?.outcome_quote_capture, job.assessment_data?.areas, job.assessment_data?.payment_terms, job.id, job.updated_at])
+
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/company')
+      .then(r => r.json())
+      .then((data: { company?: { quote_authorisation_statement?: unknown } }) => {
+        if (cancelled) return
+        const raw = data.company?.quote_authorisation_statement
+        const remembered = typeof raw === 'string' ? raw : null
+        orgStatementRef.current = remembered
+        setAuth(prev => {
+          const next = resolveAcceptanceStatement(prev.acceptance_statement, remembered)
+          if (next === prev.acceptance_statement) return prev
+          return { ...prev, acceptance_statement: next }
+        })
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+
+  async function persistAcceptance(html: string) {
+    const seq = ++acceptanceSaveSeq.current
+    setAcceptanceStatus('saving')
+    setAcceptanceError('')
+    const companyRes = await fetch('/api/company', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ quote_authorisation_statement: html }),
+    })
+    if (seq !== acceptanceSaveSeq.current) return
+    if (!companyRes.ok) {
+      const data = (await companyRes.json().catch(() => ({}))) as { error?: string }
+      setAcceptanceStatus('error')
+      setAcceptanceError(data.error || 'Could not save this for future quotes.')
+      return
+    }
+    orgStatementRef.current = html
+
+    const currentJob = jobRef.current
+    const adNow = currentJob.assessment_data
+    const savedSpokes = getQuoteSpokes(adNow)
+    const activeId = activeSpokeIdRef.current
+    if (!savedSpokes.some(s => s.id === activeId)) {
+      setAcceptanceStatus('saved')
+      return
+    }
+    const now = new Date().toISOString()
+    const nextSpokes = savedSpokes.map(s => s.id === activeId
+      ? {
+        ...s,
+        authorisation: {
+          access_details: s.authorisation?.access_details ?? '',
+          special_conditions: s.authorisation?.special_conditions ?? '',
+          liability_statement: s.authorisation?.liability_statement ?? DEFAULT_LIABILITY,
+          acceptance_statement: html,
+        },
+        updated_at: now,
+      }
+      : s)
+    const legacy = adNow?.outcome_quote_capture
+    const merged = {
+      ...(adNow ?? {}),
+      outcome_quotes: nextSpokes,
+      outcome_quote_capture: legacy
+        ? {
+          ...legacy,
+          authorisation: {
+            access_details: legacy.authorisation?.access_details ?? '',
+            special_conditions: legacy.authorisation?.special_conditions ?? '',
+            liability_statement: legacy.authorisation?.liability_statement ?? DEFAULT_LIABILITY,
+            acceptance_statement: html,
+          },
+        }
+        : nextSpokes.find(s => s.id === activeId),
+    }
+    const res = await fetch(`/api/jobs/${currentJob.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ assessment_data: merged }),
+    })
+    if (seq !== acceptanceSaveSeq.current) return
+    const data = (await res.json().catch(() => ({}))) as { job?: Job; error?: string }
+    if (!res.ok || !data.job) {
+      setAcceptanceStatus('error')
+      setAcceptanceError(data.error || 'Saved for future quotes, but this job could not be updated.')
+      return
+    }
+    acceptanceAutosaveRef.current = true
+    onJobUpdate(data.job)
+    setAcceptanceStatus('saved')
+  }
+
+  function onAcceptanceChange(html: string) {
+    pendingAcceptanceRef.current = html
+    setAuth(prev => ({ ...prev, acceptance_statement: html }))
+    if (acceptanceTimerRef.current != null) window.clearTimeout(acceptanceTimerRef.current)
+    acceptanceTimerRef.current = window.setTimeout(() => {
+      acceptanceTimerRef.current = null
+      pendingAcceptanceRef.current = null
+      void persistAcceptance(html)
+    }, 600)
+  }
+
+  const persistAcceptanceRef = useRef(persistAcceptance)
+  persistAcceptanceRef.current = persistAcceptance
+
+  useEffect(() => () => {
+    if (acceptanceTimerRef.current == null) return
+    window.clearTimeout(acceptanceTimerRef.current)
+    acceptanceTimerRef.current = null
+    const html = pendingAcceptanceRef.current
+    pendingAcceptanceRef.current = null
+    if (html != null) void persistAcceptanceRef.current(html)
+  }, [])
 
   const totals = useMemo(
     () =>
@@ -2663,6 +2804,16 @@ export default function QuoteCaptureTab({ job, photos, onJobUpdate, onPhotosUpda
 
       <div className="field">
         <label>Authorisation to Proceed</label>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 8px', lineHeight: 1.5 }}>
+          {acceptanceStatus === 'saving'
+            ? 'Saving…'
+            : acceptanceStatus === 'saved'
+              ? 'Saved. Future quotes start with this wording.'
+              : 'Edits save automatically and are reused on future quotes.'}
+        </div>
+        {acceptanceError && (
+          <div style={{ fontSize: 12, color: '#F87171', marginBottom: 8 }} role="alert">{acceptanceError}</div>
+        )}
         <div style={{
           fontSize: 12,
           color: 'var(--text-muted)',
@@ -2679,7 +2830,7 @@ export default function QuoteCaptureTab({ job, photos, onJobUpdate, onPhotosUpda
         </div>
         <RichTextEditor
           value={auth.acceptance_statement}
-          onChange={html => patchAuth({ acceptance_statement: html })}
+          onChange={onAcceptanceChange}
           minHeight={240}
         />
       </div>

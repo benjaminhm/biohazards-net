@@ -1460,6 +1460,8 @@ export interface CompanyProfile {
     payment_terms: string
     engagement_agreement: string
   } | null
+  /** Authorisation to Proceed wording reused on future Quote/Estimate documents. */
+  quote_authorisation_statement?: string | null
   /** Surface Area Cleaning Quote clauses reused on every job. Lists are one item per line. */
   surface_area_cleaning_standards?: {
     inclusions: string
