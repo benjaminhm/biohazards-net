@@ -1,4 +1,4 @@
-const CACHE_NAME = 'biohazard-v3'
+const CACHE_NAME = 'biohazard-v4'
 
 // Only cache truly static public assets — NOT '/' which requires auth
 const STATIC_ASSETS = [
@@ -25,7 +25,13 @@ self.addEventListener('activate', (event) => {
 })
 
 self.addEventListener('fetch', (event) => {
-  // Only handle GET requests for same-origin pages
+  // Document loads must go straight to the browser. Intercepting them on iOS
+  // home-screen web apps can drop the session cookie on the first request
+  // after the app was killed, which sends a still-signed-in user to login.
+  // fetch() also follows redirects, so a logged-out 302 used to be cached as
+  // the login page under the original URL.
+  if (event.request.mode === 'navigate') return
+
   if (
     event.request.method !== 'GET' ||
     event.request.url.includes('/api/') ||
@@ -38,7 +44,13 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     fetch(event.request)
       .then((response) => {
-        if (response.status === 200 && response.type === 'basic') {
+        const type = response.headers.get('content-type') || ''
+        if (
+          response.status === 200 &&
+          response.type === 'basic' &&
+          !response.headers.has('set-cookie') &&
+          !type.includes('text/html')
+        ) {
           const clone = response.clone()
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone))
         }

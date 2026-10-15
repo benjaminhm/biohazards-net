@@ -121,13 +121,22 @@ export function portalCookieHeader(token: string, secure: boolean): string {
     'HttpOnly',
     'SameSite=Lax',
     `Max-Age=${PORTAL_SESSION_DAYS * 24 * 60 * 60}`,
+    // Expires as well as Max-Age: iOS home-screen web apps otherwise drop the cookie.
+    `Expires=${new Date(Date.now() + PORTAL_SESSION_DAYS * 24 * 60 * 60 * 1000).toUTCString()}`,
   ]
   if (secure) parts.push('Secure')
   return parts.join('; ')
 }
 
 export function clearPortalCookieHeader(secure: boolean): string {
-  const parts = [`${PORTAL_COOKIE}=`, 'Path=/', 'HttpOnly', 'SameSite=Lax', 'Max-Age=0']
+  const parts = [
+    `${PORTAL_COOKIE}=`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Lax',
+    'Max-Age=0',
+    'Expires=Thu, 01 Jan 1970 00:00:00 GMT',
+  ]
   if (secure) parts.push('Secure')
   return parts.join('; ')
 }

@@ -28,7 +28,14 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { accountsHostTradingName } from '@/lib/tradingNames'
-import { getStaffSessionFromNextRequest } from '@/lib/staffSession'
+import {
+  STAFF_COOKIE,
+  STAFF_SESSION_MAX_AGE,
+  isSecureStaffRequest,
+  signStaffToken,
+  staffSessionIsStale,
+  verifyStaffToken,
+} from '@/lib/staffSession'
 
 function isPublicPath(pathname: string): boolean {
   if (pathname === '/login' || pathname.startsWith('/login/')) return true
@@ -123,16 +130,41 @@ export async function proxy(request: NextRequest) {
 
   const onAccountsHost = !!accountsBrand && !portalOnAppOrigin
   const onPublicSite = !!slug && !RESERVED_SUBDOMAINS.has(slug) && slug !== 'app' && slug !== 'platform'
+  let renewSession: { token: string; secure: boolean } | null = null
   if (!onAccountsHost && !onPublicSite && !isPublicPath(pathname)) {
-    const session = await getStaffSessionFromNextRequest(request)
+    const raw = request.cookies.get(STAFF_COOKIE)?.value
+    const session = raw ? await verifyStaffToken(raw) : null
     if (!session) {
       const loginUrl = new URL('/login', request.url)
       loginUrl.searchParams.set('redirect_url', request.url)
       return NextResponse.redirect(loginUrl)
     }
+    if (staffSessionIsStale(session.issuedAt)) {
+      try {
+        renewSession = {
+          token: await signStaffToken({ userId: session.userId, email: session.email }),
+          secure: isSecureStaffRequest(request),
+        }
+      } catch {
+        renewSession = null
+      }
+    }
   }
 
-  return NextResponse.next({ request: { headers: requestHeaders } })
+  const res = NextResponse.next({ request: { headers: requestHeaders } })
+  // cookies.set is what the proxy actually forwards. A raw Set-Cookie header is dropped.
+  if (renewSession) {
+    const now = Date.now()
+    res.cookies.set(STAFF_COOKIE, renewSession.token, {
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/',
+      secure: renewSession.secure,
+      maxAge: STAFF_SESSION_MAX_AGE,
+      expires: new Date(now + STAFF_SESSION_MAX_AGE * 1000),
+    })
+  }
+  return res
 }
 
 export const config = {

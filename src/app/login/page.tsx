@@ -7,7 +7,20 @@
 'use client'
 
 import { useSearchParams } from 'next/navigation'
-import { Suspense, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
+
+/** Only follow a same-origin path. The proxy puts the original URL in redirect_url. */
+function sameOriginPath(raw: string | null): string {
+  if (!raw || typeof window === 'undefined') return '/'
+  try {
+    const url = new URL(raw, window.location.origin)
+    if (url.origin !== window.location.origin) return '/'
+    if (url.pathname === '/login' || url.pathname.startsWith('/login/')) return '/'
+    return `${url.pathname}${url.search}${url.hash}`
+  } catch {
+    return '/'
+  }
+}
 
 function linkError(code: string | null): string {
   if (code === 'used') return 'That sign-in link has already been used. Please request a new one.'
@@ -29,7 +42,32 @@ function LoginForm() {
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState('')
   const [error, setError] = useState('')
-  const linkProblem = linkError(useSearchParams().get('error'))
+  const [checkingSession, setCheckingSession] = useState(true)
+  const searchParams = useSearchParams()
+  const linkProblem = linkError(searchParams.get('error'))
+
+  useEffect(() => {
+    let cancelled = false
+    const next = sameOriginPath(searchParams.get('redirect_url'))
+    // redirect: 'manual' so a logged-out proxy bounce to /login is not a 200.
+    fetch('/api/me', { redirect: 'manual' })
+      .then(async (res) => {
+        if (res.ok) {
+          const data = await res.json().catch(() => null)
+          if (data?.userId) {
+            window.location.replace(next)
+            return
+          }
+        }
+        if (!cancelled) setCheckingSession(false)
+      })
+      .catch(() => {
+        if (!cancelled) setCheckingSession(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [searchParams])
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -79,6 +117,7 @@ function LoginForm() {
         <div style={{ fontWeight: 700, fontSize: 20, color: 'var(--text)' }}>biohazards.net</div>
       </div>
 
+      {checkingSession ? null : (
       <form
         onSubmit={submit}
         style={{
@@ -145,6 +184,7 @@ function LoginForm() {
           </>
         )}
       </form>
+      )}
     </div>
   )
 }

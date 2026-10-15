@@ -63,9 +63,33 @@ export async function POST(req: Request) {
   if (!result.ok) return fail(result.reason)
 
   const jwt = await signStaffToken({ userId: result.userId, email: result.email })
-  const res = redirect
-    ? NextResponse.redirect(new URL('/', publicOrigin(req)), 303)
-    : NextResponse.json({ ok: true })
-  res.headers.set('Set-Cookie', staffCookieHeader(jwt, isSecureStaffRequest(req)))
-  return res
+  const cookie = staffCookieHeader(jwt, isSecureStaffRequest(req))
+  // 200, not a redirect. iOS home-screen web apps often drop a Set-Cookie that
+  // arrives on a 303, so the sign-in page would forget the session as soon as
+  // the standalone process is killed.
+  if (!redirect) {
+    const res = NextResponse.json({ ok: true })
+    res.headers.set('Set-Cookie', cookie)
+    return res
+  }
+  const html = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="refresh" content="0;url=/">
+<title>Signed in</title>
+</head>
+<body>
+<p>Signed in. <a href="/">Continue</a></p>
+<script>location.replace('/')</script>
+</body>
+</html>`
+  return new NextResponse(html, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'Set-Cookie': cookie,
+    },
+  })
 }
