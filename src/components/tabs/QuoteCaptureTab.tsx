@@ -413,6 +413,17 @@ function resolveAcceptanceStatement(saved: string | undefined, remembered: strin
   return next || DEFAULT_ACCEPTANCE
 }
 
+interface QuoteTermsDefaults {
+  payment_terms: string
+  validity: string
+}
+
+/** An empty Terms field picks up the org's remembered wording. */
+function withRememberedTerm(saved: string | undefined, remembered: string | undefined): string {
+  const text = saved ?? ''
+  return text.trim() ? text : (remembered ?? '')
+}
+
 const SECTION: CSSProperties = {
   fontSize: 12,
   fontWeight: 700,
@@ -527,6 +538,15 @@ export default function QuoteCaptureTab({ job, photos, onJobUpdate, onPhotosUpda
   const acceptanceSaveSeq = useRef(0)
   const acceptanceTimerRef = useRef<number | null>(null)
   const pendingAcceptanceRef = useRef<string | null>(null)
+  const [termsStatus, setTermsStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [termsError, setTermsError] = useState('')
+  const orgTermsRef = useRef<QuoteTermsDefaults | null>(null)
+  const termsAutosaveRef = useRef(false)
+  const termsSaveSeq = useRef(0)
+  const termsTimerRef = useRef<number | null>(null)
+  const pendingTermsRef = useRef<{ terms: QuoteTermsDefaults; spokeId: string } | null>(null)
+  /** Autosaves PATCH the whole assessment_data, so they run one at a time. */
+  const autosaveQueueRef = useRef<Promise<void>>(Promise.resolve())
   const jobRef = useRef(job)
   const activeSpokeIdRef = useRef(activeSpokeId)
   jobRef.current = job
@@ -578,7 +598,7 @@ export default function QuoteCaptureTab({ job, photos, onJobUpdate, onPhotosUpda
     setCustomSectionTotal(Math.max(0, Number(cap?.custom_section_total ?? 0)))
     setCustomSectionTerms(cap?.custom_section_terms ?? blankSectionTerms())
     setGstMode(cap?.gst_mode ?? 'no_gst')
-    setValidity(cap?.validity ?? '')
+    setValidity(withRememberedTerm(cap?.validity, orgTermsRef.current?.validity))
     setNotes(cap?.notes ?? '')
     const a = cap?.authorisation
     setAuth({
@@ -597,12 +617,16 @@ export default function QuoteCaptureTab({ job, photos, onJobUpdate, onPhotosUpda
       acceptanceAutosaveRef.current = false
       return
     }
+    if (termsAutosaveRef.current) {
+      termsAutosaveRef.current = false
+      return
+    }
     const fresh = getQuoteSpokesOrSeed(job.assessment_data)
     setSpokes(fresh)
     const active = fresh.find(s => s.id === activeSpokeId) ?? fresh[0]
     setActiveSpokeId(active.id)
     applyCapture(active)
-    setPaymentTerms(job.assessment_data?.payment_terms ?? '')
+    setPaymentTerms(withRememberedTerm(job.assessment_data?.payment_terms, orgTermsRef.current?.payment_terms))
     setSaved(false)
     setSaveError('')
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -612,11 +636,22 @@ export default function QuoteCaptureTab({ job, photos, onJobUpdate, onPhotosUpda
     let cancelled = false
     fetch('/api/company')
       .then(r => r.json())
-      .then((data: { company?: { quote_authorisation_statement?: unknown } }) => {
+      .then((data: {
+        company?: { quote_authorisation_statement?: unknown; quote_payment_terms?: unknown; quote_validity?: unknown }
+      }) => {
         if (cancelled) return
         const raw = data.company?.quote_authorisation_statement
         const remembered = typeof raw === 'string' ? raw : null
         orgStatementRef.current = remembered
+        const rawPayment = data.company?.quote_payment_terms
+        const rawValidity = data.company?.quote_validity
+        const terms: QuoteTermsDefaults = {
+          payment_terms: typeof rawPayment === 'string' ? rawPayment : '',
+          validity: typeof rawValidity === 'string' ? rawValidity : '',
+        }
+        orgTermsRef.current = terms
+        setPaymentTerms(prev => withRememberedTerm(prev, terms.payment_terms))
+        setValidity(prev => withRememberedTerm(prev, terms.validity))
         setAuth(prev => {
           const next = resolveAcceptanceStatement(prev.acceptance_statement, remembered)
           if (next === prev.acceptance_statement) return prev
@@ -695,8 +730,13 @@ export default function QuoteCaptureTab({ job, photos, onJobUpdate, onPhotosUpda
       return
     }
     acceptanceAutosaveRef.current = true
+    jobRef.current = data.job
     onJobUpdate(data.job)
     setAcceptanceStatus('saved')
+  }
+
+  function enqueueAutosave(run: () => Promise<void>) {
+    autosaveQueueRef.current = autosaveQueueRef.current.then(run).catch(() => {})
   }
 
   function onAcceptanceChange(html: string) {
@@ -706,20 +746,109 @@ export default function QuoteCaptureTab({ job, photos, onJobUpdate, onPhotosUpda
     acceptanceTimerRef.current = window.setTimeout(() => {
       acceptanceTimerRef.current = null
       pendingAcceptanceRef.current = null
-      void persistAcceptance(html)
+      enqueueAutosave(() => persistAcceptance(html))
     }, 600)
+  }
+
+  async function persistTerms(terms: QuoteTermsDefaults, spokeId: string) {
+    const seq = ++termsSaveSeq.current
+    setTermsStatus('saving')
+    setTermsError('')
+    const companyRes = await fetch('/api/company', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ quote_payment_terms: terms.payment_terms, quote_validity: terms.validity }),
+    })
+    if (seq !== termsSaveSeq.current) return
+    if (!companyRes.ok) {
+      const data = (await companyRes.json().catch(() => ({}))) as { error?: string }
+      setTermsStatus('error')
+      setTermsError(data.error || 'Could not save these terms for future quotes.')
+      return
+    }
+    orgTermsRef.current = terms
+
+    const currentJob = jobRef.current
+    const adNow = currentJob.assessment_data
+    const merged: Record<string, unknown> = { ...(adNow ?? {}), payment_terms: terms.payment_terms }
+    const savedSpokes = getQuoteSpokes(adNow)
+    const activeId = spokeId
+    if (savedSpokes.some(s => s.id === activeId)) {
+      const now = new Date().toISOString()
+      const nextSpokes = savedSpokes.map(s => s.id === activeId
+        ? { ...s, validity: terms.validity, updated_at: now }
+        : s)
+      const legacy = adNow?.outcome_quote_capture
+      merged.outcome_quotes = nextSpokes
+      merged.outcome_quote_capture = legacy
+        ? { ...legacy, validity: terms.validity }
+        : nextSpokes.find(s => s.id === activeId)
+    }
+    const res = await fetch(`/api/jobs/${currentJob.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ assessment_data: merged }),
+    })
+    if (seq !== termsSaveSeq.current) return
+    const data = (await res.json().catch(() => ({}))) as { job?: Job; error?: string }
+    if (!res.ok || !data.job) {
+      setTermsStatus('error')
+      setTermsError(data.error || 'Saved for future quotes, but this job could not be updated.')
+      return
+    }
+    termsAutosaveRef.current = true
+    jobRef.current = data.job
+    onJobUpdate(data.job)
+    setTermsStatus('saved')
+  }
+
+  function scheduleTermsSave(terms: QuoteTermsDefaults) {
+    const spokeId = activeSpokeId
+    pendingTermsRef.current = { terms, spokeId }
+    if (termsTimerRef.current != null) window.clearTimeout(termsTimerRef.current)
+    termsTimerRef.current = window.setTimeout(() => {
+      termsTimerRef.current = null
+      pendingTermsRef.current = null
+      enqueueAutosave(() => persistTerms(terms, spokeId))
+    }, 600)
+  }
+
+  function onPaymentTermsChange(html: string) {
+    setPaymentTerms(html)
+    setSaved(false)
+    setSaveError('')
+    scheduleTermsSave({ payment_terms: html, validity })
+  }
+
+  function onValidityChange(value: string) {
+    setValidity(value)
+    setSaved(false)
+    setSaveError('')
+    scheduleTermsSave({ payment_terms: paymentTerms, validity: value })
   }
 
   const persistAcceptanceRef = useRef(persistAcceptance)
   persistAcceptanceRef.current = persistAcceptance
+  const persistTermsRef = useRef(persistTerms)
+  persistTermsRef.current = persistTerms
+  const enqueueAutosaveRef = useRef(enqueueAutosave)
+  enqueueAutosaveRef.current = enqueueAutosave
 
   useEffect(() => () => {
-    if (acceptanceTimerRef.current == null) return
-    window.clearTimeout(acceptanceTimerRef.current)
-    acceptanceTimerRef.current = null
-    const html = pendingAcceptanceRef.current
-    pendingAcceptanceRef.current = null
-    if (html != null) void persistAcceptanceRef.current(html)
+    if (acceptanceTimerRef.current != null) {
+      window.clearTimeout(acceptanceTimerRef.current)
+      acceptanceTimerRef.current = null
+      const html = pendingAcceptanceRef.current
+      pendingAcceptanceRef.current = null
+      if (html != null) enqueueAutosaveRef.current(() => persistAcceptanceRef.current(html))
+    }
+    if (termsTimerRef.current != null) {
+      window.clearTimeout(termsTimerRef.current)
+      termsTimerRef.current = null
+      const pending = pendingTermsRef.current
+      pendingTermsRef.current = null
+      if (pending != null) enqueueAutosaveRef.current(() => persistTermsRef.current(pending.terms, pending.spokeId))
+    }
   }, [])
 
   const totals = useMemo(
@@ -2735,6 +2864,16 @@ export default function QuoteCaptureTab({ job, photos, onJobUpdate, onPhotosUpda
 
       {/* ── Quote-level fields ── */}
       <div style={SECTION}>Terms</div>
+      <div style={{ fontSize: 12, color: 'var(--text-muted)', margin: '-4px 0 10px', lineHeight: 1.5 }}>
+        {termsStatus === 'saving'
+          ? 'Saving…'
+          : termsStatus === 'saved'
+            ? 'Saved. Future quotes start with these payment terms and validity.'
+            : 'Payment terms and validity save automatically and are reused on future quotes.'}
+      </div>
+      {termsError && (
+        <div style={{ fontSize: 12, color: '#F87171', marginBottom: 8 }} role="alert">{termsError}</div>
+      )}
 
       <div className="field">
         <label>Payment terms</label>
@@ -2744,7 +2883,7 @@ export default function QuoteCaptureTab({ job, photos, onJobUpdate, onPhotosUpda
         </div>
         <RichTextEditor
           value={paymentTerms}
-          onChange={html => { setPaymentTerms(html); setSaved(false); setSaveError('') }}
+          onChange={onPaymentTermsChange}
           minHeight={200}
         />
       </div>
@@ -2753,7 +2892,7 @@ export default function QuoteCaptureTab({ job, photos, onJobUpdate, onPhotosUpda
         <label>Quote validity</label>
         <AutoGrow
           value={validity}
-          onChange={v => { setValidity(v); setSaved(false); setSaveError('') }}
+          onChange={onValidityChange}
           placeholder="e.g. Valid for 30 days from date of issue"
           rows={1}
         />
