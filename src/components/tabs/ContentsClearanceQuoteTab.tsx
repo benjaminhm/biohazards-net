@@ -8,7 +8,8 @@ import PhotoUploadPanel from '@/components/PhotoUploadPanel'
 import RichTextEditor from '@/components/RichTextEditor'
 import { CONTENTS_CLEARANCE_APPENDIX_AREA_REF, isContentsClearanceAppendixPhoto } from '@/lib/photoGroups'
 import type { Job, Photo } from '@/lib/types'
-import { browserDrivingRoundTripKm, browserGeocodeAddress, type MapWaypoint } from '@/lib/geocodeBrowser'
+import { browserDrivingRoundTripKm, type MapWaypoint } from '@/lib/geocodeBrowser'
+import { pinFor, serverRoundTripKm } from '@/lib/roundTripDistance'
 import { mergeAssessmentData } from '@/lib/riskDerivation'
 import { useRegisterUnsavedChanges } from '@/lib/unsavedChangesContext'
 import { formatAud } from '@/lib/disposalManifest'
@@ -60,55 +61,6 @@ const LABEL: CSSProperties = {
   fontWeight: 700,
   marginBottom: 6,
   color: 'var(--text-muted)',
-}
-
-async function pinFor(
-  lat: number | null | undefined,
-  lng: number | null | undefined,
-  address: string,
-): Promise<{ lat: number; lng: number } | null> {
-  if (typeof lat === 'number' && typeof lng === 'number' && Number.isFinite(lat) && Number.isFinite(lng)) {
-    return { lat, lng }
-  }
-  const fromBrowser = await browserGeocodeAddress(address)
-  if (fromBrowser) return fromBrowser
-  try {
-    const res = await fetch('/api/geocode/forward', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ address }),
-    })
-    const data = (await res.json()) as { lat?: number | null; lng?: number | null }
-    if (typeof data.lat === 'number' && typeof data.lng === 'number' && Number.isFinite(data.lat) && Number.isFinite(data.lng)) {
-      return { lat: data.lat, lng: data.lng }
-    }
-  } catch {
-    /* server geocode is the fallback */
-  }
-  return null
-}
-
-async function serverRoundTripKm(
-  origin: { lat: number; lng: number },
-  dest: { lat: number; lng: number },
-): Promise<number | null> {
-  try {
-    const res = await fetch('/api/geocode/distance', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        originLat: origin.lat,
-        originLng: origin.lng,
-        destLat: dest.lat,
-        destLng: dest.lng,
-      }),
-    })
-    const data = (await res.json()) as { km?: number | null }
-    if (!res.ok) return null
-    return typeof data.km === 'number' && Number.isFinite(data.km) && data.km >= 0 ? data.km : null
-  } catch {
-    return null
-  }
 }
 
 function ClickToEditText({

@@ -48,8 +48,14 @@ const DEFAULT_PRINT_ORG_NAME = 'Brisbane Biohazard Cleaning'
 import { proseHasPrintableContent, richBodyHtmlForPrint } from '@/lib/richTextPrint'
 import { presentStatementDocument, statementClientLines, statementPhone, StatementReconciliationError, type StatementPresentation } from '@/lib/statementOfAccounts'
 import type { ContentsClearanceQuoteContent } from '@/lib/contentsClearanceQuote'
-import { fillContentsClearanceEngagement, fillSurfaceAreaCleaningEngagement } from '@/lib/quoteEngagement'
+import { fillBiohazardCleaningEngagement, fillContentsClearanceEngagement, fillSurfaceAreaCleaningEngagement } from '@/lib/quoteEngagement'
 import { SURFACE_AREA_ESTIMATE_NOTE, SURFACE_AREA_LABOUR_NOTE, type SurfaceAreaCleaningQuoteContent } from '@/lib/surfaceAreaCleaningQuote'
+import {
+  BIOHAZARD_ESTIMATE_NOTE,
+  BIOHAZARD_LABOUR_NOTE,
+  BIOHAZARD_TRAVEL_NOTE,
+  type BiohazardCleaningQuoteContent,
+} from '@/lib/biohazardCleaningQuote'
 
 // en-AU locale produces comma separators and dollar sign (e.g. $4,500.00)
 const fmtMoney = (n: number) =>
@@ -3658,6 +3664,104 @@ function buildSurfaceAreaCleaningHTML(
   return wrapBranded(mid, title, title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
+function buildBiohazardCleaningMid(
+  c: BiohazardCleaningQuoteContent,
+  company: CompanyProfile | null = null,
+  client?: ClientInfo,
+): string {
+  type Row = { label: string; quantity: string; note?: string; rate: string; amount: number }
+  const estimated: Row[] = [
+    {
+      label: 'Surface',
+      quantity: clearanceQty(c.estimated_m2, 'm²'),
+      note: BIOHAZARD_ESTIMATE_NOTE,
+      rate: `${fmtMoney(c.rate_per_m2)} / m²`,
+      amount: c.area_amount,
+    },
+  ]
+  if ((c.travel_km ?? 0) > 0 || (c.rate_per_km ?? 0) > 0) {
+    estimated.push({
+      label: 'Travel',
+      quantity: clearanceQty(c.travel_km, 'km'),
+      note: BIOHAZARD_TRAVEL_NOTE,
+      rate: `${fmtMoney(c.rate_per_km)} / km`,
+      amount: c.travel_amount,
+    })
+  }
+  const roomNotes = (c.rooms ?? []).map(room => `${room.name} ${room.detail} — ${clearanceQty(room.area_m2, 'm²')}`)
+  const fixed: Row[] = []
+  if ((c.mobilisation_fee ?? 0) > 0) {
+    fixed.push({ label: 'Mobilisation', quantity: '1 fee', rate: fmtMoney(c.mobilisation_fee), amount: c.mobilisation_fee })
+  }
+  fixed.push({
+    label: 'Labour',
+    quantity: clearanceQty(c.labour_days, c.labour_days === 1 ? 'labour day' : 'labour days'),
+    note: BIOHAZARD_LABOUR_NOTE,
+    rate: 'Fixed',
+    amount: c.labour_amount,
+  })
+  for (const line of c.extra_lines ?? []) {
+    fixed.push({
+      label: line.label,
+      quantity: clearanceQty(line.quantity, line.unit),
+      rate: fmtMoney(line.rate),
+      amount: line.amount,
+    })
+  }
+  const sectionAmount = (lines: { amount: number }[]) =>
+    Math.round(lines.reduce((sum, line) => sum + line.amount, 0) * 100) / 100
+  const meta = (label: string, value: string, first = false) => `
+      <div class="sow-meta-label" style="margin:${first ? '0 0 6px' : '10px 0 6px'};">${label}</div>
+      <div class="body-text" style="font-weight:500;color:var(--sow-navy);">${esc(value || '—')}</div>`
+  return `
+    <div class="sow-summary" style="margin-bottom:20px;">
+      ${meta('Client', c.client_name, true)}
+      ${meta('Job address', c.job_address || c.site_address)}
+      ${c.biohazard_type ? meta('Biohazard', c.biohazard_type) : ''}
+      ${c.area_affected ? meta('Area affected', c.area_affected) : ''}
+    </div>
+    ${section('Description', c.description)}
+    ${section('Objective', c.objective)}
+    ${clearanceList('Scope of work', c.scope_of_work ?? [])}
+    <div class="label" style="margin-top:18px">Estimated quantities</div>
+    ${clearanceTable('Estimated quantities', estimated)}
+    ${roomNotes.map(note => `<div class="body-text" style="margin-top:4px;font-style:italic;color:var(--sow-muted)">${esc(note)}</div>`).join('')}
+    ${clearanceSectionSubtotal('Estimated subtotal (ex GST)', sectionAmount(estimated))}
+    <div class="label" style="margin-top:18px">Fixed Rate Quotations</div>
+    ${clearanceTable('Quantity', fixed)}
+    ${c.mobilisation_reason ? `<div class="body-text" style="margin-top:4px;font-style:italic;color:var(--sow-muted)">${esc(c.mobilisation_reason)}</div>` : ''}
+    ${clearanceSectionSubtotal('Fixed subtotal (ex GST)', sectionAmount(fixed))}
+    <div class="totals">
+      <div class="tot-row"><span>Subtotal (ex GST)</span><span class="amt">${fmtMoney(c.subtotal)}</span></div>
+      <div class="tot-row"><span>GST (10%)</span><span class="amt">${fmtMoney(c.gst)}</span></div>
+      <div class="tot-row grand"><span>TOTAL (INC GST)</span><span class="amt">${fmtMoney(c.total)}</span></div>
+    </div>
+    ${clearanceList('Inclusions', c.inclusions ?? [])}
+    ${clearanceList('Exclusions', c.exclusions ?? [])}
+    ${clearanceList('Assumptions', c.assumptions ?? [])}
+    ${section('Payment terms', c.terms)}
+    ${section('Engagement agreement', fillBiohazardCleaningEngagement(c, {
+      companyName: company?.name,
+      abn: company?.abn,
+      phone: client?.client_phone,
+      email: client?.client_email,
+    }))}
+    ${section('Authority', c.authority)}
+    ${section('Acceptance', c.acceptance)}
+  `
+}
+
+function buildBiohazardCleaningHTML(
+  c: BiohazardCleaningQuoteContent,
+  company: CompanyProfile | null,
+  client: ClientInfo | undefined,
+  screenActionBar: boolean,
+): string {
+  const mid = buildBiohazardCleaningMid(c, company, client)
+  const title = clearancePrintTitle(c.title) || 'Biohazard Cleaning'
+  return wrapBranded(mid, title, title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
+}
+
 /** Mid-body HTML only (no shell). Used for composed bundles. */
 export function buildPrintMidHTML(
   type: DocType,
@@ -3712,6 +3816,8 @@ export function buildPrintMidHTML(
       return buildContentsClearanceMid(c as unknown as ContentsClearanceQuoteContent, photos, company, client)
     case 'surface_area_cleaning_quote':
       return buildSurfaceAreaCleaningMid(c as unknown as SurfaceAreaCleaningQuoteContent, company, client)
+    case 'biohazard_cleaning_quote':
+      return buildBiohazardCleaningMid(c as unknown as BiohazardCleaningQuoteContent, company, client)
     default:
       return `<p class="body-text">${esc('Unknown document type')}</p>`
   }
@@ -3814,6 +3920,7 @@ export function buildPrintHTML(
     case 'assessment_document':        return buildAssessmentDocumentHTML(c as unknown as AssessmentDocumentContent, company, client, areas, photos, groups, screenActionBar)
     case 'contents_clearance_quote':   return buildContentsClearanceHTML(c as unknown as ContentsClearanceQuoteContent, photos, company, client, screenActionBar)
     case 'surface_area_cleaning_quote': return buildSurfaceAreaCleaningHTML(c as unknown as SurfaceAreaCleaningQuoteContent, company, client, screenActionBar)
+    case 'biohazard_cleaning_quote':    return buildBiohazardCleaningHTML(c as unknown as BiohazardCleaningQuoteContent, company, client, screenActionBar)
     case 'iaq_multi': {
       const partsRaw = c.parts
       const bundleTitle =

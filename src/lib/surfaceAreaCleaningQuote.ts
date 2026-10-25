@@ -285,7 +285,7 @@ export function normalizeSurfaceAreaCleaningCapture(raw: unknown): SurfaceAreaCl
   }
 }
 
-function normalizeSurfaceAreaRoom(raw: unknown): SurfaceAreaRoom {
+export function normalizeSurfaceAreaRoom(raw: unknown): SurfaceAreaRoom {
   const row = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {}
   const metres = (value: unknown): number | null => {
     if (value == null || value === '') return null

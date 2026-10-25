@@ -37,6 +37,12 @@ import { preHasV2Content, resolveQuotedLineContext } from '@/lib/postRemediation
 import { richBodyHtmlForPrint, proseHasPrintableContent } from '@/lib/richTextPrint'
 import { contentsClearanceQuoteContent, normalizeContentsClearanceCapture, type ContentsClearanceStandards } from '@/lib/contentsClearanceQuote'
 import { normalizeSurfaceAreaCleaningCapture, surfaceAreaCleaningQuoteContent, type SurfaceAreaCleaningStandards } from '@/lib/surfaceAreaCleaningQuote'
+import {
+  biohazardCleaningQuoteContent,
+  biohazardJobDefaults,
+  normalizeBiohazardCleaningCapture,
+  type BiohazardCleaningClauses,
+} from '@/lib/biohazardCleaningQuote'
 import { mergedSowCapture, staffSowHasContent } from '@/lib/sowCapture'
 import { mergedCompletionReportCapture, completionReportCaptureHasContent } from '@/lib/completionReportCapture'
 import {
@@ -126,6 +132,8 @@ export interface ComposeDocumentOptions {
   contentsClearanceStandards?: ContentsClearanceStandards | null
   /** Org-wide clauses for the surface area cleaning quote. */
   surfaceAreaCleaningStandards?: SurfaceAreaCleaningStandards | null
+  /** Company template for the biohazard cleaning quote. Used when the job has no copy of its own. */
+  biohazardCleaningTemplate?: BiohazardCleaningClauses | null
 }
 
 const todayRef = () => new Date().toISOString().slice(0, 10).replace(/-/g, '')
@@ -151,6 +159,7 @@ function refPrefix(type: DocType, jobId: string): string {
     assessment_document: 'ASD',
     contents_clearance_quote: 'CCQ',
     surface_area_cleaning_quote: 'SACQ',
+    biohazard_cleaning_quote: 'BCQ',
   }
   const p = map[type] ?? 'DOC'
   return `${p}-${todayRef()}-${tail}`
@@ -1132,6 +1141,24 @@ function composeSurfaceAreaCleaningQuote(
   }
 }
 
+function composeBiohazardCleaningQuote(
+  job: Job,
+  template?: ComposeDocumentOptions['biohazardCleaningTemplate'],
+): ComposeDocumentResult {
+  const capture = normalizeBiohazardCleaningCapture(job.assessment_data?.biohazard_cleaning_quote)
+  return {
+    content: biohazardCleaningQuoteContent({
+      reference: refPrefix('biohazard_cleaning_quote', job.id),
+      clientName: job.client_name || '',
+      siteAddress: job.site_address || '',
+      capture,
+      defaults: biohazardJobDefaults(job),
+      template,
+    }) as unknown as Record<string, unknown>,
+    source: 'assessment_capture',
+  }
+}
+
 function composeHouseSurvey(job: Job): ComposeDocumentResult {
   return {
     content: houseSurveyDocument(job.site_address || '', refPrefix('house_survey', job.id), job.assessment_data?.house_survey) as unknown as Record<string, unknown>,
@@ -1253,6 +1280,8 @@ export function composeDocumentContent(type: DocType, job: Job, options?: Compos
       return composeContentsClearanceQuote(job, options?.contentsClearanceStandards)
     case 'surface_area_cleaning_quote':
       return composeSurfaceAreaCleaningQuote(job, options?.surfaceAreaCleaningStandards)
+    case 'biohazard_cleaning_quote':
+      return composeBiohazardCleaningQuote(job, options?.biohazardCleaningTemplate)
     case 'company_letter':
       // Company Letter is composed in CompanyLetterTab and persisted through /api/documents;
       // it intentionally doesn't use the deterministic composer pipeline.

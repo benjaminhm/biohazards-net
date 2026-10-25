@@ -60,6 +60,7 @@ export type DocType =
   | 'company_letter'
   | 'contents_clearance_quote'
   | 'surface_area_cleaning_quote'
+  | 'biohazard_cleaning_quote'
 
 export const DOC_TYPE_LABELS: Record<DocType, string> = {
   iaq_multi:                  'Assessment / Scope / Quote',
@@ -81,6 +82,7 @@ export const DOC_TYPE_LABELS: Record<DocType, string> = {
   company_letter:             'Company Letter',
   contents_clearance_quote:   'Contents Clearance Quote',
   surface_area_cleaning_quote: 'Surface Area Cleaning Quote',
+  biohazard_cleaning_quote:   'Biohazard Cleaning Quote',
 }
 
 /**
@@ -133,7 +135,7 @@ export const DOC_TYPE_GROUPS: DocTypeGroup[] = [
   {
     id: 'quote',
     label: '4. Quote',
-    types: ['quote', 'contents_clearance_quote', 'surface_area_cleaning_quote'],
+    types: ['quote', 'biohazard_cleaning_quote', 'contents_clearance_quote', 'surface_area_cleaning_quote'],
   },
   {
     id: 'legal',
@@ -1155,6 +1157,8 @@ export interface AssessmentData {
       height_m: number | null
     }[]
   }
+  /** Biohazard Cleaning Quote. Shape and defaults are in lib/biohazardCleaningQuote.ts. */
+  biohazard_cleaning_quote?: Record<string, unknown>
   /** Statement of Accounts — deposit taken against the quote, before the balance is worked out. */
   statement_of_accounts?: {
     deposit_taken: boolean
@@ -1467,6 +1471,15 @@ export interface CompanyProfile {
   quote_validity?: string | null
   /** Surface Area Cleaning Quote clauses reused on every job. Lists are one item per line. */
   surface_area_cleaning_standards?: {
+    inclusions: string
+    exclusions: string
+    assumptions: string
+    payment_terms: string
+    engagement_agreement: string
+  } | null
+  /** Biohazard Cleaning Quote template. Each job takes a copy; staff save a job's clause back here. */
+  biohazard_cleaning_standards?: {
+    scope_of_work: string
     inclusions: string
     exclusions: string
     assumptions: string

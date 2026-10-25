@@ -110,6 +110,7 @@ function ref(type: DocType, job: Job): string {
     company_letter: 'LTR',
     contents_clearance_quote: 'CCQ',
     surface_area_cleaning_quote: 'SACQ',
+    biohazard_cleaning_quote: 'BCQ',
   }
   const d = new Date()
   return `${prefix[type]}-${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}-${job.id.slice(0,6).toUpperCase()}`
@@ -441,6 +442,8 @@ Include 6–10 realistic risks based on the job type, contamination level, and s
       '(Not used — Contents Clearance Quote is composed from the job quantities and the fixed schema.)',
     surface_area_cleaning_quote:
       '(Not used — Surface Area Cleaning Quote is composed from the job quantities and the fixed schema.)',
+    biohazard_cleaning_quote:
+      '(Not used — Biohazard Cleaning Quote is composed from the job quantities and the job copy of the company template.)',
   }
 
   const rules = getDocumentRulesForBuild(type, company, platformDbRules)

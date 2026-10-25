@@ -21,6 +21,7 @@ import { mergeQuoteLineItemsIntoDocContent } from '@/lib/quoteLineItemsForDocume
 import { applyTradingBrand } from '@/lib/tradingNames'
 import { normalizeContentsClearanceStandards } from '@/lib/contentsClearanceQuote'
 import { normalizeSurfaceAreaCleaningStandards } from '@/lib/surfaceAreaCleaningQuote'
+import { normalizeBiohazardCleaningClauses } from '@/lib/biohazardCleaningQuote'
 import { sharedEngagementAgreement, withSharedEngagement } from '@/lib/quoteEngagement'
 
 /** True when a quote/iaq_multi doc carries a spoke quote_id (frozen snapshot). */
@@ -248,6 +249,15 @@ function DocViewerInner() {
           composeOpts = docType === 'contents_clearance_quote'
             ? { ...composeOpts, contentsClearanceStandards: withSharedEngagement(clearance, engagement) }
             : { ...composeOpts, surfaceAreaCleaningStandards: withSharedEngagement(surface, engagement) }
+        }
+        if (docType === 'biohazard_cleaning_quote') {
+          const clearance = normalizeContentsClearanceStandards(co?.contents_clearance_standards)
+          const surface = normalizeSurfaceAreaCleaningStandards(co?.surface_area_cleaning_standards)
+          const engagement = sharedEngagementAgreement(clearance.engagement_agreement, surface.engagement_agreement)
+          composeOpts = {
+            ...composeOpts,
+            biohazardCleaningTemplate: normalizeBiohazardCleaningClauses(co?.biohazard_cleaning_standards ?? null, engagement),
+          }
         }
         if (docType === 'statement_of_accounts') {
           const docsRes = await fetch(`/api/documents?jobId=${jobId}`).then(r => r.json())

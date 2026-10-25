@@ -1,6 +1,7 @@
 import type { ContentsClearanceQuoteContent } from '@/lib/contentsClearanceQuote'
 import { proseHasPrintableContent } from '@/lib/richTextPrint'
 import type { SurfaceAreaCleaningQuoteContent } from '@/lib/surfaceAreaCleaningQuote'
+import type { BiohazardCleaningQuoteContent } from '@/lib/biohazardCleaningQuote'
 
 /**
  * One engagement agreement for contents clearance and surface cleaning.
@@ -127,6 +128,8 @@ export interface EngagementTokenValues {
   company?: string
   phone?: string
   email?: string
+  biohazardType?: string
+  areaAffected?: string
 }
 
 export interface EngagementPrintContext {
@@ -188,10 +191,16 @@ const ENGAGEMENT_TOKENS: Record<string, (values: EngagementTokenValues) => strin
   company: values => textValue(values.company),
   phone: values => textValue(values.phone),
   email: values => textValue(values.email),
+  'biohazard type': values => textValue(values.biohazardType),
+  'area affected': values => textValue(values.areaAffected),
 }
 
 function tokenKey(raw: string): string {
   return raw.trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+export function isEngagementToken(raw: string): boolean {
+  return ENGAGEMENT_TOKENS[tokenKey(raw)] != null
 }
 
 function knownTokenKeys(text: string): string[] {
@@ -341,5 +350,39 @@ export function fillSurfaceAreaCleaningEngagement(
     company: companyLabel(context),
     phone: context?.phone ?? undefined,
     email: context?.email ?? undefined,
+  })
+}
+
+export function fillBiohazardCleaningEngagement(
+  content: BiohazardCleaningQuoteContent,
+  context?: EngagementPrintContext,
+): string {
+  const title = content.title.trim().replace(/ Quote$/i, '')
+  const split = halfThePrice(content.total)
+  return fillEngagementAgreement(content.engagement_agreement, {
+    name: content.client_name,
+    address: content.job_address || content.site_address,
+    title,
+    reference: content.reference,
+    labourDays: content.labour_days,
+    labourAmount: content.labour_amount,
+    mobilisation: content.mobilisation_fee,
+    subtotal: content.subtotal,
+    gst: content.gst,
+    total: content.total,
+    kilometres: content.travel_km,
+    distanceAmount: content.travel_amount,
+    ratePerKm: content.rate_per_km,
+    surface: content.estimated_m2,
+    surfaceAmount: content.area_amount,
+    ratePerM2: content.rate_per_m2,
+    deposit: split.deposit,
+    balance: split.balance,
+    date: quoteDate(context),
+    company: companyLabel(context),
+    phone: context?.phone ?? undefined,
+    email: context?.email ?? undefined,
+    biohazardType: content.biohazard_type,
+    areaAffected: content.area_affected,
   })
 }
