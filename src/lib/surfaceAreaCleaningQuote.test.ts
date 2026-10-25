@@ -8,9 +8,25 @@ import {
   SURFACE_AREA_ROOM_PRESETS,
   roomSurfaceArea,
   roomsSurfaceTotal,
+  presetRoomCount,
+  setPresetRoomCount,
   surfaceAreaCleaningFigures,
   surfaceAreaCleaningQuoteContent,
 } from '@/lib/surfaceAreaCleaningQuote'
+
+test('average rooms add and remove rooms by count', () => {
+  const bedroom = SURFACE_AREA_ROOM_PRESETS.find(room => room.id === 'bedroom')!
+  const kitchen = SURFACE_AREA_ROOM_PRESETS.find(room => room.id === 'kitchen')!
+  let rooms = setPresetRoomCount([], kitchen, 1)
+  rooms = setPresetRoomCount(rooms, bedroom, 3)
+  assert.deepEqual(rooms.map(room => room.name), ['Kitchen', 'Bedroom', 'Bedroom 2', 'Bedroom 3'])
+  assert.equal(presetRoomCount(rooms, 'bedroom'), 3)
+  rooms = setPresetRoomCount(rooms, bedroom, 1)
+  assert.deepEqual(rooms.map(room => room.name), ['Kitchen', 'Bedroom'])
+  rooms = setPresetRoomCount(rooms, kitchen, 0)
+  assert.deepEqual(rooms.map(room => room.name), ['Bedroom'])
+  assert.equal(roomsSurfaceTotal(rooms), 52.2)
+})
 
 test('20 square metres at $50 and 5 labour days at $600', () => {
   const figures = surfaceAreaCleaningFigures(20, { ratePerM2: 50, ratePerLabourDay: 600 }, { labourDays: 5 })

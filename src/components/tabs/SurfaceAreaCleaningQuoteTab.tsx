@@ -16,7 +16,9 @@ import {
   newSurfaceAreaRoom,
   normalizeSurfaceAreaCleaningCapture,
   normalizeSurfaceAreaCleaningStandards,
+  presetRoomCount,
   quotedSquareMetres,
+  setPresetRoomCount,
   roomSurfaceArea,
   roomsSurfaceTotal,
   surfaceAreaClauseLines,
@@ -339,15 +341,35 @@ export default function SurfaceAreaCleaningQuoteTab({ job, onJobUpdate }: Props)
         }}>
           <div style={LABEL}>Average rooms</div>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
-            A guide when the room has not been seen. Type the name and the length, width, and height below. The total is the floor, the ceiling, and the walls.
+            A guide when the room has not been seen. Tick a room, or give the number of rooms, to add it below at the average size. You can change the sizes below. The total is the floor, the ceiling, and the walls.
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '4px 16px', fontSize: 13 }}>
-            {SURFACE_AREA_ROOM_PRESETS.map(room => (
-              <div key={room.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                <span>{room.name}</span>
-                <span style={{ color: 'var(--text-muted)' }}>{room.length_m} × {room.width_m} × {room.height_m} m</span>
-              </div>
-            ))}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '6px 16px', fontSize: 13 }}>
+            {SURFACE_AREA_ROOM_PRESETS.map(preset => {
+              const count = presetRoomCount(capture.rooms, preset.id)
+              return (
+                <label key={preset.id} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                  {preset.multiple ? (
+                    <input
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={count || ''}
+                      placeholder="0"
+                      onChange={e => setRooms(setPresetRoomCount(capture.rooms, preset, Math.min(20, Number(e.target.value) || 0)))}
+                      style={{ ...INPUT, width: 52, padding: '4px 6px', fontSize: 13 }}
+                    />
+                  ) : (
+                    <input
+                      type="checkbox"
+                      checked={count > 0}
+                      onChange={e => setRooms(setPresetRoomCount(capture.rooms, preset, e.target.checked ? 1 : 0))}
+                    />
+                  )}
+                  <span style={{ flex: 1 }}>{preset.name}</span>
+                  <span style={{ color: 'var(--text-muted)' }}>{preset.length_m} × {preset.width_m} × {preset.height_m} m</span>
+                </label>
+              )
+            })}
           </div>
         </div>
         <div style={{ display: 'grid', gap: 8 }}>

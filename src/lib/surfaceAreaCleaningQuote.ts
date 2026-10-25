@@ -48,20 +48,22 @@ export const SURFACE_AREA_ESTIMATE_NOTE =
 const PREVIOUS_SURFACE_AREA_ASSUMPTIONS =
   'Square metres are an estimate of the area. The measured area replaces that estimate, at the rate per square metre on this quote.\nThe labour days on this quote are the labour for this cleaning.'
 
-/** Typical sizes shown as a reference. The quote page does not fill a room from this list. Height is 2.4 m except the garage. */
+/** Typical sizes for rooms not yet seen. Ticking one, or giving a count when `multiple`, adds rooms at these sizes. Height is 2.4 m except the garage. */
 export const SURFACE_AREA_ROOM_PRESETS = [
-  { id: 'bedroom', name: 'Bedroom', length_m: 3.5, width_m: 3, height_m: 2.4 },
-  { id: 'main_bedroom', name: 'Main bedroom', length_m: 4, width_m: 3.6, height_m: 2.4 },
-  { id: 'living', name: 'Living', length_m: 5, width_m: 4, height_m: 2.4 },
-  { id: 'kitchen', name: 'Kitchen', length_m: 4, width_m: 3.2, height_m: 2.4 },
-  { id: 'dining', name: 'Dining', length_m: 3.6, width_m: 3, height_m: 2.4 },
-  { id: 'bathroom', name: 'Bathroom', length_m: 2.2, width_m: 1.8, height_m: 2.4 },
-  { id: 'ensuite', name: 'Ensuite', length_m: 2.4, width_m: 1.6, height_m: 2.4 },
-  { id: 'toilet', name: 'Toilet', length_m: 1.8, width_m: 0.9, height_m: 2.4 },
-  { id: 'laundry', name: 'Laundry', length_m: 2.2, width_m: 1.8, height_m: 2.4 },
-  { id: 'hall', name: 'Hall', length_m: 6, width_m: 1.2, height_m: 2.4 },
-  { id: 'garage', name: 'Garage', length_m: 6, width_m: 3, height_m: 2.7 },
+  { id: 'bedroom', name: 'Bedroom', length_m: 3.5, width_m: 3, height_m: 2.4, multiple: true },
+  { id: 'main_bedroom', name: 'Main bedroom', length_m: 4, width_m: 3.6, height_m: 2.4, multiple: false },
+  { id: 'living', name: 'Living', length_m: 5, width_m: 4, height_m: 2.4, multiple: false },
+  { id: 'kitchen', name: 'Kitchen', length_m: 4, width_m: 3.2, height_m: 2.4, multiple: false },
+  { id: 'dining', name: 'Dining', length_m: 3.6, width_m: 3, height_m: 2.4, multiple: false },
+  { id: 'bathroom', name: 'Bathroom', length_m: 2.2, width_m: 1.8, height_m: 2.4, multiple: true },
+  { id: 'ensuite', name: 'Ensuite', length_m: 2.4, width_m: 1.6, height_m: 2.4, multiple: false },
+  { id: 'toilet', name: 'Toilet', length_m: 1.8, width_m: 0.9, height_m: 2.4, multiple: true },
+  { id: 'laundry', name: 'Laundry', length_m: 2.2, width_m: 1.8, height_m: 2.4, multiple: false },
+  { id: 'hall', name: 'Hall', length_m: 6, width_m: 1.2, height_m: 2.4, multiple: false },
+  { id: 'garage', name: 'Garage', length_m: 6, width_m: 3, height_m: 2.7, multiple: false },
 ] as const
+
+export type SurfaceAreaRoomPreset = (typeof SURFACE_AREA_ROOM_PRESETS)[number]
 
 export interface SurfaceAreaRoom {
   id: string
@@ -69,6 +71,8 @@ export interface SurfaceAreaRoom {
   length_m: number | null
   width_m: number | null
   height_m: number | null
+  /** Set when the room was added from an average room, so the count can be changed later. */
+  preset_id?: string | null
 }
 
 export interface SurfaceAreaRoomMeasure {
@@ -294,7 +298,44 @@ function normalizeSurfaceAreaRoom(raw: unknown): SurfaceAreaRoom {
     length_m: metres(row.length_m),
     width_m: metres(row.width_m),
     height_m: metres(row.height_m),
+    preset_id: typeof row.preset_id === 'string' && row.preset_id ? row.preset_id : null,
   }
+}
+
+export function presetRoomCount(rooms: SurfaceAreaRoom[], presetId: string): number {
+  return rooms.filter(room => room.preset_id === presetId).length
+}
+
+/** Adds or removes rooms from an average room until the count matches. Removes the latest added first. */
+export function setPresetRoomCount(rooms: SurfaceAreaRoom[], preset: SurfaceAreaRoomPreset, count: number): SurfaceAreaRoom[] {
+  const target = Math.max(0, Math.floor(Number.isFinite(count) ? count : 0))
+  const existing = presetRoomCount(rooms, preset.id)
+  if (target === existing) return rooms
+  if (target < existing) {
+    let toRemove = existing - target
+    const kept: SurfaceAreaRoom[] = []
+    for (let i = rooms.length - 1; i >= 0; i--) {
+      const room = rooms[i]
+      if (toRemove > 0 && room.preset_id === preset.id) {
+        toRemove--
+        continue
+      }
+      kept.unshift(room)
+    }
+    return kept
+  }
+  const added: SurfaceAreaRoom[] = []
+  for (let n = existing + 1; n <= target; n++) {
+    added.push({
+      id: newSurfaceAreaRoomId(),
+      name: n === 1 ? preset.name : `${preset.name} ${n}`,
+      length_m: preset.length_m,
+      width_m: preset.width_m,
+      height_m: preset.height_m,
+      preset_id: preset.id,
+    })
+  }
+  return [...rooms, ...added]
 }
 
 export function surfaceAreaCleaningFigures(
