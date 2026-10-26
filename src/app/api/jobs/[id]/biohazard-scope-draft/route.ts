@@ -58,7 +58,7 @@ When the secondary zone is in use, add the steps for it after the primary zone, 
 
 Do not include the OTHER_ZONES in the scope. They are inspected and considered non-affected, and they belong in the exclusions.
 
-Do not write about a Certified Occupational Hygienist, a Remediation Action Plan, ATP testing, laboratory testing, or a completion report. Those lines are added separately.
+Do not write about a Certified Occupational Hygienist, a Remediation Action Plan, ATP testing, laboratory testing, or records of the works. Those lines are added separately. Do not call this scope a Remediation Action Plan.
 Do not state prices, quantities of money, or timeframes. Do not invent facts that are not in DETAILS or ASSESSMENT.`
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

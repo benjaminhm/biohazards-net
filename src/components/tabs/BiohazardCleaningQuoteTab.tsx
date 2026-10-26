@@ -950,14 +950,15 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
       </div>
 
       <div style={{ marginBottom: 12 }}>
-        <label style={LABEL}>Description</label>
+        <label style={LABEL}>Site findings</label>
         <textarea
           value={capture.description}
           onChange={e => patch({ description: e.target.value })}
           rows={3}
-          placeholder="What happened, and what was found onsite."
+          placeholder="What was seen onsite: rooms, materials, and how far staining or odour went."
           style={{ ...INPUT, resize: 'vertical', lineHeight: 1.5, fontFamily: 'inherit' }}
         />
+        <div style={HINT}>What was found. Not a hygienist risk assessment.</div>
       </div>
       <div style={{ marginBottom: 12 }}>
         <label style={LABEL}>Objective</label>
@@ -1203,7 +1204,7 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
         </div>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
           <input type="checkbox" checked={capture.coh_rap} onChange={e => patch({ coh_rap: e.target.checked })} />
-          Certified Occupational Hygienist: Remediation Action Plan (RAP)
+          Certified Occupational Hygienist: site inspection and written method
         </label>
         {capture.coh_rap && (
           <div style={{ margin: '8px 0 0 24px', maxWidth: 260 }}>
@@ -1217,7 +1218,7 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
               placeholder="0.00"
               style={INPUT}
             />
-            <div style={HINT}>Added first in the scope: the COH inspects the site and prepares the RAP before the works start.</div>
+            <div style={HINT}>Added first in the scope: the COH inspects the site and issues written instructions. That is not a Remediation Action Plan.</div>
           </div>
         )}
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer', marginTop: 12 }}>

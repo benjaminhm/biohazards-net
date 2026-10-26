@@ -40,7 +40,7 @@ flags — add a flag only when it is clearly true:
   - what: what is removed, cleaned, or treated.
   - how: the method, product, or standard.
   - pass: what counts as done. Only for verification or clearance steps. A step that states conditions that can be observed on site, such as no visible residue or staining and no detectable odour, does say what counts as a pass.
-  evidence is the words of that step, copied exactly. Flag only steps a hygienist could plainly not check, at most the five weakest. Do not flag steps about the hygienist, the RAP, ATP or laboratory testing, or the completion report.
+  evidence is the words of that step, copied exactly. Flag only steps a hygienist could plainly not check, at most the five weakest. Do not flag steps about the hygienist, written instructions, ATP or laboratory testing, or the records of the works.
 - hazard_not_addressed: a presenting health hazard in ASSESSMENT that no stage of the scope of work deals with, even in other words. subject is the hazard exactly as listed. evidence is "".
 - risk_not_covered: a risk in ASSESSMENT that no clause deals with, even in other words, and that is not already in RULE_FLAGS. subject is the risk exactly as listed. evidence is "".
 - inclusion_exclusion_conflict: an exclusion takes away something an inclusion or the scope of work promises. clause is exclusions. subject is "". evidence is the exclusion words, copied exactly. Do not flag "Areas outside the zones on this quote", and do not flag a line that names the other zones as inspected and considered non-affected. Do flag an exclusion that names only the primary zone as in scope when a secondary zone is also included, for example "Areas other than" the primary rooms.

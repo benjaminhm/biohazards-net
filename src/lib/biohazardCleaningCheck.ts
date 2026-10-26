@@ -187,7 +187,7 @@ const FIELD_TEXT: Record<string, string> = {
   lab_tests: 'Laboratory testing is on the quote, but the number of tests or the rate per test is blank.',
   lab_testing: 'COH verification needs laboratory testing as well as ATP testing.',
   atp_testing: 'COH verification needs ATP testing as well as laboratory testing.',
-  description: 'The description is blank.',
+  description: 'The site findings are blank.',
   objective: 'The objective is blank.',
 }
 

@@ -23,7 +23,7 @@ import {
 } from '@/lib/biohazardCleaningCheck'
 
 /** Lines about the COH and testing are added by code when they are ticked, so a draft never carries them. */
-const SERVICE_LINE = /occupational hygien|remediation action plan|\bRAP\b|\bCOH\b|\bATP\b|laborator|completion report/i
+const SERVICE_LINE = /occupational hygien|remediation action plan|\bRAP\b|\bCOH\b|\bATP\b|laborator|completion report|records of the works|records for the hygienist|written instructions/i
 
 const MAX_LINES = 16
 const MAX_LINE_LENGTH = 450

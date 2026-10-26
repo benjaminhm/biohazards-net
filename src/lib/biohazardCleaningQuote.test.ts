@@ -158,15 +158,15 @@ test('COH verification is ATP testing and laboratory testing, each with its own 
     capture,
     defaults: biohazardJobDefaults(job()),
   })
-  assert.match(content.scope_of_work[0], /Certified Occupational Hygienist .*Remediation Action Plan/)
+  assert.match(content.scope_of_work[0], /Certified Occupational Hygienist .*written instructions/)
   assert.match(content.scope_of_work[content.scope_of_work.length - 2], /verifies the decontamination by ATP surface testing and by laboratory testing.*pass limits the hygienist sets/)
-  assert.match(content.scope_of_work[content.scope_of_work.length - 1], /^Provide a completion report/)
+  assert.match(content.scope_of_work[content.scope_of_work.length - 1], /^Provide records of the works/)
   assert.equal(content.scope_of_work.filter(line => /ATP|laborator/i.test(line)).length, 1)
   assert.deepEqual(content.inclusions.slice(-3), [...BIOHAZARD_COH_INCLUSION_LINES])
   assert.deepEqual(
     content.extra_lines.map(line => `${line.label}:${line.quantity}:${line.amount}`),
     [
-      'Certified Occupational Hygienist: Remediation Action Plan:1:900',
+      'Certified Occupational Hygienist: site inspection and written method:1:900',
       'ATP verification testing:6:150',
       'Laboratory testing:3:240',
       'Clinical waste bins:2:100',
@@ -193,7 +193,7 @@ test('unticked, neither the hygienist nor ATP testing is on the quote', () => {
     defaults: biohazardJobDefaults(job()),
   })
   assert.doesNotMatch(content.scope_of_work.join('\n'), /Occupational Hygienist|ATP|laborator/i)
-  assert.doesNotMatch(content.inclusions.join('\n'), /Hygienist|COH|Remediation Action Plan|completion report|retested/i)
+  assert.doesNotMatch(content.inclusions.join('\n'), /Hygienist|COH|Remediation Action Plan|written instructions|retested/i)
   assert.ok(!content.extra_lines.some(line => /Hygienist|ATP|Laboratory/.test(line.label)))
 })
 
@@ -462,7 +462,7 @@ test('the model may flag a scope step a hygienist could not audit, quoting the s
       { code: 'scope_not_auditable', clause: 'scope_of_work', subject: 'where', evidence: 'where odour remains after cleaning' },
       { code: 'scope_not_auditable', clause: 'scope_of_work', subject: 'how', evidence: 'Words that are not there' },
       { code: 'scope_not_auditable', clause: 'scope_of_work', subject: 'vague', evidence: 'where odour remains after cleaning' },
-      { code: 'scope_not_auditable', clause: 'scope_of_work', subject: 'how', evidence: 'inspects the site and issues a Remediation Action Plan' },
+      { code: 'scope_not_auditable', clause: 'scope_of_work', subject: 'how', evidence: 'inspects the site and issues written instructions' },
       { code: 'scope_not_auditable', clause: 'scope_of_work', subject: 'pass', evidence: 'no visible residue or staining on the treated surfaces, and no odour from them' },
     ],
     cleared: [],
