@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { buildPrintHTML } from '@/lib/printDocument'
 import {
+  BIOHAZARD_COH_INCLUSION_LINES,
   biohazardCleaningFigures,
   biohazardCleaningQuoteContent,
   biohazardJobDefaults,
@@ -160,6 +161,7 @@ test('COH verification is ATP testing and laboratory testing, each with its own 
   assert.match(content.scope_of_work[content.scope_of_work.length - 2], /verifies the decontamination by ATP surface testing and by laboratory testing.*pass limits the hygienist sets/)
   assert.match(content.scope_of_work[content.scope_of_work.length - 1], /^Provide a completion report/)
   assert.equal(content.scope_of_work.filter(line => /ATP|laborator/i.test(line)).length, 1)
+  assert.deepEqual(content.inclusions.slice(-3), [...BIOHAZARD_COH_INCLUSION_LINES])
   assert.deepEqual(
     content.extra_lines.map(line => `${line.label}:${line.quantity}:${line.amount}`),
     [
@@ -190,6 +192,7 @@ test('unticked, neither the hygienist nor ATP testing is on the quote', () => {
     defaults: biohazardJobDefaults(job()),
   })
   assert.doesNotMatch(content.scope_of_work.join('\n'), /Occupational Hygienist|ATP|laborator/i)
+  assert.doesNotMatch(content.inclusions.join('\n'), /Hygienist|COH|Remediation Action Plan|completion report|retested/i)
   assert.ok(!content.extra_lines.some(line => /Hygienist|ATP|Laboratory/.test(line.label)))
 })
 

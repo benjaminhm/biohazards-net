@@ -65,8 +65,6 @@ export const BIOHAZARD_CLEANING_SCHEMA = {
     'Removal, cleaning, and disinfection of the primary zone, the [area affected], to the clearance in the scope of work.',
     'Surface decontamination of the estimated primary zone area at the rate per square metre on this quote.',
     'Treatment of [secondary contamination] in the secondary zone, the [secondary zone], at the secondary zone rate per square metre on this quote.',
-    'Re-cleaning of surfaces that fail clearance, once. Further re-cleaning is a written variation.',
-    'The completion report.',
     'Travel at the rate per kilometre on this quote.',
     'Labour for the labour days on this quote, as a fixed amount.',
   ],
@@ -112,6 +110,13 @@ export const BIOHAZARD_LAB_LABEL = 'Laboratory testing'
 /** Added first in the scope of work when the COH is on the quote. */
 export const BIOHAZARD_COH_SCOPE_LINE =
   'Before the works start, a Certified Occupational Hygienist (COH) inspects the site and issues a Remediation Action Plan (RAP). The works follow the RAP. Where this scope and the RAP differ, the RAP applies. Hold point: after removal, the COH inspects the exposed surfaces, including the subfloor, and confirms any further removal before cleaning starts.'
+
+/** Added after the inclusions when the COH is on the quote. */
+export const BIOHAZARD_COH_INCLUSION_LINES = [
+  'A Remediation Action Plan (RAP) by a Certified Occupational Hygienist (COH) before the works start, and the COH inspection at the hold point after removal.',
+  'Clearance of the treated surfaces to the criteria set by the COH. Surfaces that fail are cleaned again and retested once. Further re-cleaning is a written variation.',
+  'A completion report for the COH: photos before, during, and after the works, disinfectant records, waste disposal certificates, and test results.',
+] as const
 
 /** Added at the end, before the completion report, when only ATP testing is on the quote. */
 export const BIOHAZARD_ATP_SCOPE_LINE =
@@ -818,6 +823,15 @@ export function biohazardScopeWithServices(
   return lines.join('\n')
 }
 
+/** The inclusions with the COH lines added when the COH is on the quote. Inclusions that already cover the COH are left as they are. */
+export function biohazardInclusionsWithServices(
+  inclusions: string,
+  capture: Pick<BiohazardCleaningCapture, 'coh_rap'>,
+): string {
+  if (!capture.coh_rap || /occupational hygien|remediation action plan|\bCOH\b/i.test(inclusions)) return inclusions
+  return [inclusions, ...BIOHAZARD_COH_INCLUSION_LINES].filter(Boolean).join('\n')
+}
+
 /** Without a secondary zone, clause lines about it are left off. */
 export function withoutUnusedSecondaryLines(text: string, inUse: boolean): string {
   if (inUse) return text
@@ -907,7 +921,7 @@ export function biohazardCleaningQuoteContent(input: {
     subtotal: figures.subtotal,
     gst: figures.gst,
     total: figures.total,
-    inclusions: lines(clauses.inclusions),
+    inclusions: lines(biohazardInclusionsWithServices(clauses.inclusions, capture)),
     exclusions: lines(clauses.exclusions),
     assumptions: lines(clauses.assumptions),
     terms: fill(clauses.payment_terms).trim(),

@@ -20,6 +20,7 @@ import {
   resolvedBiohazardKind,
   resolvedBiohazardType,
   biohazardScopeWithServices,
+  biohazardInclusionsWithServices,
   resolvedObjective,
   resolvedSecondaryContamination,
   secondaryZoneInUse,
@@ -257,6 +258,7 @@ export function biohazardCheckText(
       secondaryContamination,
     }))
   rawClauses.scope_of_work = biohazardScopeWithServices(rawClauses.scope_of_work, capture)
+  rawClauses.inclusions = biohazardInclusionsWithServices(rawClauses.inclusions, capture)
   const clauses = Object.fromEntries(
     BIOHAZARD_CLAUSE_KEYS.map(key => [key, fill(rawClauses[key] ?? '')]),
   ) as Record<BiohazardClauseKey, string>
