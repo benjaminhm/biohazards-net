@@ -18,6 +18,7 @@ import {
 import {
   acceptBiohazardModelAnswer,
   biohazardCheckContext,
+  biohazardFlagText,
   biohazardRuleFlags,
   mergeBiohazardCheck,
   type BiohazardCheckContext,
@@ -377,4 +378,20 @@ test('the model may add only listed codes and subjects, with real evidence', () 
     accepted.flags.map(flag => `${flag.code}:${flag.subject}`),
     ['hazard_not_addressed:Hepatitis B', 'inclusion_exclusion_conflict:'],
   )
+})
+
+test('the model may flag a scope step a hygienist could not audit, quoting the step', () => {
+  const capture = filled({ coh_rap: true, coh_rap_fee: 900 })
+  const accepted = acceptBiohazardModelAnswer({
+    flags: [
+      { code: 'scope_not_auditable', clause: 'scope_of_work', subject: 'how', evidence: 'where odour remains after cleaning' },
+      { code: 'scope_not_auditable', clause: 'scope_of_work', subject: 'where', evidence: 'where odour remains after cleaning' },
+      { code: 'scope_not_auditable', clause: 'scope_of_work', subject: 'how', evidence: 'Words that are not there' },
+      { code: 'scope_not_auditable', clause: 'scope_of_work', subject: 'vague', evidence: 'where odour remains after cleaning' },
+      { code: 'scope_not_auditable', clause: 'scope_of_work', subject: 'how', evidence: 'inspects the site and issues a Remediation Action Plan' },
+    ],
+    cleared: [],
+  }, capture, NO_ASSESSMENT, [])
+  assert.deepEqual(accepted.flags.map(flag => flag.subject), ['how', 'where'])
+  assert.match(biohazardFlagText(accepted.flags[0]), /could not tell how: the method, product, or standard/)
 })

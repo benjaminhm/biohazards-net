@@ -9,8 +9,13 @@ import { plainClearanceClause } from '@/lib/contentsClearanceFlags'
 import { isEngagementToken } from '@/lib/quoteEngagement'
 import { presentingHealthHazardsFromAssessment, presentingRisksFromAssessment } from '@/lib/documentGenerationDrivers'
 import {
+  BIOHAZARD_ATP_SCOPE_LINE,
   BIOHAZARD_CLAUSE_KEYS,
+  BIOHAZARD_COH_SCOPE_LINE,
+  BIOHAZARD_COMPLETION_REPORT_LINE,
+  BIOHAZARD_LAB_SCOPE_LINE,
   BIOHAZARD_PLACEHOLDERS,
+  BIOHAZARD_VERIFICATION_SCOPE_LINE,
   biohazardCleaningDocumentTitle,
   biohazardCleaningFigures,
   biohazardJobDefaults,
@@ -70,7 +75,22 @@ export const BIOHAZARD_FLAG_CODES = [
   'man_day_wording',
   'inclusion_exclusion_conflict',
   'title_type_mismatch',
+  'scope_not_auditable',
 ] as const
+
+/** What a scope step must say for a Certified Occupational Hygienist to audit it. */
+export const BIOHAZARD_AUDIT_GAPS = {
+  where: 'where: the rooms, surfaces, or limits of the work',
+  what: 'what is removed, cleaned, or treated',
+  how: 'how: the method, product, or standard',
+  pass: 'what counts as a pass',
+} as const
+
+type BiohazardAuditGap = keyof typeof BIOHAZARD_AUDIT_GAPS
+const AUDIT_GAP_IDS = Object.keys(BIOHAZARD_AUDIT_GAPS) as BiohazardAuditGap[]
+
+/** The model may flag at most this many steps, so the list stays readable. */
+const MAX_AUDIT_FLAGS = 5
 
 export type BiohazardFlagCode = (typeof BIOHAZARD_FLAG_CODES)[number]
 
@@ -80,10 +100,12 @@ export const BIOHAZARD_GAP_CODES: ReadonlySet<BiohazardFlagCode> = new Set([
   'area_not_quoted',
   'hazard_not_addressed',
   'risk_not_covered',
+  'scope_not_auditable',
 ])
 
 /** Codes the model may add. */
 const MODEL_FLAG_CODES = [
+  'scope_not_auditable',
   'hazard_not_addressed',
   'risk_not_covered',
   'inclusion_exclusion_conflict',
@@ -187,6 +209,12 @@ export function biohazardFlagText(flag: Pick<BiohazardCheckFlag, 'code' | 'subje
     case 'man_day_wording': return 'This clause says man day. The quote says labour days.'
     case 'inclusion_exclusion_conflict': return 'An exclusion contradicts an inclusion.'
     case 'title_type_mismatch': return 'The client title does not match the biohazard type.'
+    case 'scope_not_auditable': {
+      const gap = BIOHAZARD_AUDIT_GAPS[flag.subject as BiohazardAuditGap]
+      return gap
+        ? `A hygienist auditing this step could not tell ${gap}.`
+        : 'A hygienist auditing this step could not tell what is done.'
+    }
   }
 }
 
@@ -282,7 +310,7 @@ export function biohazardCheckText(
 }
 
 function pushFlag(flags: BiohazardCheckFlag[], flag: BiohazardCheckFlag) {
-  if (flags.some(f => f.code === flag.code && f.clause === flag.clause && f.subject === flag.subject)) return
+  if (flags.some(f => f.code === flag.code && f.clause === flag.clause && f.subject === flag.subject && f.evidence === flag.evidence)) return
   flags.push(flag)
 }
 
@@ -406,6 +434,7 @@ export function biohazardCheckSubjects(context: BiohazardCheckContext): string[]
   return [...new Set([
     '',
     ...BIOHAZARD_STAGES.map(stage => stage.id),
+    ...AUDIT_GAP_IDS,
     ...context.areaNames,
     ...context.hazards,
     ...context.risks,
@@ -512,6 +541,15 @@ function isMember<T extends string>(list: readonly T[], value: unknown): value i
 
 const MIN_EVIDENCE = 4
 
+/** Lines the app adds in fixed wording. They are not the model's to judge. */
+const SERVICE_SCOPE_LINES = [
+  BIOHAZARD_COH_SCOPE_LINE,
+  BIOHAZARD_ATP_SCOPE_LINE,
+  BIOHAZARD_LAB_SCOPE_LINE,
+  BIOHAZARD_VERIFICATION_SCOPE_LINE,
+  BIOHAZARD_COMPLETION_REPORT_LINE,
+]
+
 /**
  * Keep model answers that fit the lists and the quote.
  * A flag that needs words must quote words from its clause. A clear must quote words that are in the quote.
@@ -550,6 +588,14 @@ export function acceptBiohazardModelAnswer(
       pushFlag(flags, { code, clause: 'details', subject: '', source: 'ai' })
       continue
     }
+    if (code === 'scope_not_auditable') {
+      if (!isMember(AUDIT_GAP_IDS, subjectText)) continue
+      if (flags.filter(flag => flag.code === code).length >= MAX_AUDIT_FLAGS) continue
+      if (evidenceText.length < MIN_EVIDENCE || !contains(text.clauses.scope_of_work, evidenceText)) continue
+      if (SERVICE_SCOPE_LINES.some(line => contains(line, evidenceText))) continue
+      pushFlag(flags, { code, clause: 'scope_of_work', subject: subjectText, evidence: evidenceText, source: 'ai' })
+      continue
+    }
     if (evidenceText.length < MIN_EVIDENCE || !contains(body, evidenceText)) continue
     if (code === 'inclusion_exclusion_conflict' && clause !== 'exclusions' && clause !== 'inclusions') continue
     if (code === 'callout_conflict' && !CALLOUT_WORDS.test(evidenceText)) continue
@@ -584,7 +630,7 @@ export function mergeBiohazardCheck(
   const flags: BiohazardCheckFlag[] = []
   for (const flag of ruleFlags) if (!isCleared(flag)) pushFlag(flags, flag)
   for (const flag of model.flags) {
-    if (flags.some(f => f.code === flag.code && f.subject === flag.subject && (flag.subject || f.clause === flag.clause))) continue
+    if (flags.some(f => f.code === flag.code && f.subject === flag.subject && f.evidence === flag.evidence && (flag.subject || f.clause === flag.clause))) continue
     pushFlag(flags, flag)
   }
   return { flags, cleared: model.cleared }

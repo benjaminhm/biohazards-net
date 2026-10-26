@@ -27,7 +27,9 @@ import { getOrgId } from '@/lib/org'
 import { createServiceClient } from '@/lib/supabase'
 import type { Job } from '@/lib/types'
 
-const SYSTEM = `You draft the scope of work of an Australian biohazard cleaning quote. A Certified Occupational Hygienist will read it, so it must be specific enough to check.
+const SYSTEM = `You draft the scope of work of an Australian biohazard cleaning quote.
+
+The standard: a Certified Occupational Hygienist auditing the job must be able to understand each step and check it on site. Every step says where (the rooms, surfaces, or limits), what is removed, cleaned, or treated, and how (the method, product, or standard). The verification step says what counts as a pass.
 
 You get DETAILS of this job, the ASSESSMENT, the STANDARD_STAGES of a biohazard clean, the HOUSE_SCOPE the company usually uses, and the PLACEHOLDERS you may use.
 

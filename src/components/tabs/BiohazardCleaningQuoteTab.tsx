@@ -420,7 +420,7 @@ function FlagList({ title, flags }: { title: string; flags: BiohazardCheckFlag[]
       <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6 }}>{title}</div>
       <ul style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 6, fontSize: 13 }}>
         {flags.map(flag => (
-          <li key={`${flag.code}:${flag.clause}:${flag.subject}`}>
+          <li key={`${flag.code}:${flag.clause}:${flag.subject}:${flag.evidence ?? ''}`}>
             <strong>{BIOHAZARD_CHECK_CLAUSE_LABEL[flag.clause]}.</strong> {biohazardFlagText(flag)}
             {flag.evidence && <span style={{ color: 'var(--text-muted)' }}> “{flag.evidence}”</span>}
             {flag.source === 'ai' && <span style={{ color: 'var(--text-muted)' }}> (AI check)</span>}
