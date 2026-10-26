@@ -31,8 +31,8 @@ function job(assessment: Partial<AssessmentData> = {}, jobType: Job['job_type'] 
 function filled(overrides: Partial<BiohazardCleaningCapture> = {}): BiohazardCleaningCapture {
   return {
     ...emptyBiohazardCleaningCapture(),
-    biohazard_type: 'blood and bodily fluids',
-    area_affected: 'main bedroom',
+    biohazard_types: ['blood and bodily fluids'],
+    areas_affected: ['main bedroom'],
     description: 'Blood on the carpet and walls of the main bedroom.',
     objective: 'Return the main bedroom to a safe, clean condition.',
     estimated_m2: 20,
@@ -107,6 +107,30 @@ test('a job copy of the clauses is kept as typed, and the template falls back to
   assert.equal(saved.clauses?.scope_of_work, 'Only this.')
   assert.equal(saved.clauses?.engagement_agreement, '')
   assert.equal(normalizeBiohazardCleaningClauses(null, 'Shared text').engagement_agreement, 'Shared text')
+})
+
+test('several biohazard types and primary areas are joined into the clauses', () => {
+  const content = biohazardCleaningQuoteContent({
+    reference: 'BCQ-LIST',
+    clientName: 'Acme',
+    siteAddress: '1 Example Street',
+    capture: filled({
+      biohazard_types: ['blood', 'faeces', ' Blood ', 'decomposition fluids'],
+      areas_affected: ['kitchen', 'laundry', 'toilet'],
+    }),
+    defaults: biohazardJobDefaults(job()),
+  })
+  assert.equal(content.biohazard_type, 'blood, faeces and decomposition fluids')
+  assert.equal(content.area_affected, 'kitchen, laundry and toilet')
+  assert.match(content.scope_of_work.join('\n'), /PPE suited to blood, faeces and decomposition fluids/)
+})
+
+test('a quote saved with one biohazard type and one area still opens', () => {
+  const saved = normalizeBiohazardCleaningCapture({ biohazard_type: 'blood', area_affected: 'main bedroom', objective: 'Make it safe ' })
+  assert.deepEqual(saved.biohazard_types, ['blood'])
+  assert.deepEqual(saved.areas_affected, ['main bedroom'])
+  assert.equal(saved.objective, 'Make it safe ')
+  assert.equal(normalizeBiohazardCleaningCapture({}).biohazard_types, null)
 })
 
 test('without a secondary zone, its line and its clause lines stay off the quote', () => {

@@ -33,9 +33,13 @@ import {
   newBiohazardLineId,
   normalizeBiohazardCleaningCapture,
   normalizeBiohazardCleaningClauses,
+  BIOHAZARD_AREA_SUGGESTIONS,
+  BIOHAZARD_TYPE_SUGGESTIONS,
   resolvedAreaAffected,
+  resolvedAreasAffected,
   resolvedBiohazardKind,
   resolvedBiohazardType,
+  resolvedBiohazardTypes,
   resolvedObjective,
   type BiohazardCleaningCapture,
   type BiohazardCleaningClauses,
@@ -174,6 +178,101 @@ function ClickToEditText({
         <span style={{ fontSize: 14, whiteSpace: 'pre-wrap' }}>{value.trim() || 'Click to edit'}</span>
       )}
     </button>
+  )
+}
+
+function NameList({
+  names,
+  onChange,
+  suggestions,
+  placeholder,
+}: {
+  names: string[]
+  onChange: (names: string[]) => void
+  suggestions: readonly string[]
+  placeholder: string
+}) {
+  const [draft, setDraft] = useState('')
+  const has = (name: string) => names.some(item => item.trim().toLowerCase() === name.trim().toLowerCase())
+  const add = (name: string) => {
+    const clean = name.trim()
+    if (!clean || has(clean)) return
+    onChange([...names, clean])
+  }
+  const unused = [...new Set(suggestions.map(s => s.trim()).filter(Boolean))].filter(s => !has(s))
+  return (
+    <div>
+      {names.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+          {names.map(name => (
+            <span
+              key={name}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                padding: '3px 4px 3px 10px',
+                borderRadius: 999,
+                border: '1px solid var(--border)',
+                background: 'var(--surface-2, var(--bg))',
+                fontSize: 13,
+              }}
+            >
+              {name}
+              <button
+                type="button"
+                aria-label={`Remove ${name}`}
+                onClick={() => onChange(names.filter(item => item !== name))}
+                style={{ border: 'none', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 15, lineHeight: 1, padding: '0 4px' }}
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <div style={{ display: 'flex', gap: 6 }}>
+        <input
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter' || e.key === ',') {
+              e.preventDefault()
+              add(draft)
+              setDraft('')
+            }
+          }}
+          placeholder={placeholder}
+          style={{ ...INPUT, flex: 1 }}
+        />
+        <button
+          type="button"
+          className="btn"
+          disabled={!draft.trim()}
+          onClick={() => {
+            add(draft)
+            setDraft('')
+          }}
+        >
+          Add
+        </button>
+      </div>
+      {unused.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+          {unused.map(name => (
+            <button
+              key={name}
+              type="button"
+              className="btn"
+              onClick={() => add(name)}
+              style={{ fontSize: 12, padding: '2px 8px' }}
+            >
+              + {name}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -369,7 +468,9 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
   const defaults = useMemo(() => biohazardJobDefaults(job, companyAddress), [job, companyAddress])
   const figures = useMemo(() => biohazardCleaningFigures(capture), [capture])
   const kind = resolvedBiohazardKind(capture, job.job_type)
+  const biohazardTypes = resolvedBiohazardTypes(capture, defaults)
   const biohazardType = resolvedBiohazardType(capture, defaults)
+  const areasAffected = resolvedAreasAffected(capture, defaults)
   const areaAffected = resolvedAreaAffected(capture, defaults)
   const objective = resolvedObjective(capture, defaults)
   const clauses = capture.clauses ?? template
@@ -673,28 +774,27 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
         <div>
-          <label style={LABEL}>Biohazard type</label>
-          <input
-            value={biohazardType}
-            onChange={e => patch({ biohazard_type: e.target.value })}
-            placeholder="blood and bodily fluids"
-            style={INPUT}
-          />
-          <div style={HINT}>Fills [biohazard type] in the scope and the clauses.</div>
-        </div>
-        <div>
-          <label style={LABEL}>Primary decontamination zone</label>
-          <input
-            value={areaAffected}
-            onChange={e => patch({ area_affected: e.target.value })}
-            placeholder="main bedroom and ensuite"
-            style={INPUT}
+          <div style={LABEL}>Biohazard types</div>
+          <NameList
+            names={biohazardTypes}
+            onChange={names => patch({ biohazard_types: names })}
+            suggestions={BIOHAZARD_TYPE_SUGGESTIONS}
+            placeholder="Add a biohazard type"
           />
           <div style={HINT}>
-            Areas affected by bodily fluids. Fills [area affected].
-            {defaults.assessmentAreaNames && defaults.assessmentAreaNames.length > 0
-              ? ` Assessment areas: ${defaults.assessmentAreaNames.join(', ')}.`
-              : ''}
+            Fills [biohazard type]{biohazardType ? `: “${biohazardType}”` : ''}.
+          </div>
+        </div>
+        <div>
+          <div style={LABEL}>Primary decontamination zone</div>
+          <NameList
+            names={areasAffected}
+            onChange={names => patch({ areas_affected: names })}
+            suggestions={[...(defaults.assessmentAreaNames ?? []), ...BIOHAZARD_AREA_SUGGESTIONS]}
+            placeholder="Add an area"
+          />
+          <div style={HINT}>
+            Areas affected by bodily fluids. Fills [area affected]{areaAffected ? `: “${areaAffected}”` : ''}.
           </div>
         </div>
       </div>
@@ -712,7 +812,7 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
       <div style={{ marginBottom: 12 }}>
         <label style={LABEL}>Objective</label>
         <textarea
-          value={objective}
+          value={capture.objective ?? objective}
           onChange={e => patch({ objective: e.target.value })}
           rows={2}
           placeholder="The outcome this cleaning is meant to achieve."

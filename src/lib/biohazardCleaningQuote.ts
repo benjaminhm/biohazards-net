@@ -137,10 +137,10 @@ export interface BiohazardExtraLine {
 export interface BiohazardCleaningCapture {
   /** Null follows the job type. */
   cleaning_kind: BiohazardCleaningKind | null
-  /** Null follows the assessment, then the job type. Fills [biohazard type]. */
-  biohazard_type: string | null
-  /** Primary decontamination zone: surfaces affected by bodily fluids. Null follows the assessment areas. Fills [area affected]. */
-  area_affected: string | null
+  /** Null follows the assessment, then the job type. Joined, they fill [biohazard type]. */
+  biohazard_types: string[] | null
+  /** Primary decontamination zone: areas affected by bodily fluids. Null follows the assessment areas. Joined, they fill [area affected]. */
+  areas_affected: string[] | null
   description: string
   /** Null follows the Scope of Work objective. */
   objective: string | null
@@ -300,22 +300,46 @@ export function resolvedBiohazardKind(capture: Pick<BiohazardCleaningCapture, 'c
   return capture.cleaning_kind ?? (jobType ? KIND_FOR_JOB_TYPE[jobType] : undefined) ?? 'biohazard'
 }
 
-export function resolvedBiohazardType(capture: Pick<BiohazardCleaningCapture, 'biohazard_type'>, defaults: BiohazardJobDefaults = {}): string {
-  if (capture.biohazard_type != null) return capture.biohazard_type.trim()
-  const fromAssessment = (defaults.assessmentBiohazardType ?? '').trim()
-  if (fromAssessment) return fromAssessment
-  return (defaults.jobType ? BIOHAZARD_FOR_JOB_TYPE[defaults.jobType] : undefined) ?? ''
+function cleanNames(names: string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const name of names) {
+    const clean = name.trim()
+    const key = clean.toLowerCase()
+    if (!clean || seen.has(key)) continue
+    seen.add(key)
+    out.push(clean)
+  }
+  return out
 }
 
 function joinNames(names: string[]): string {
-  const clean = names.map(name => name.trim()).filter(Boolean)
+  const clean = cleanNames(names)
   if (clean.length <= 1) return clean[0] ?? ''
   return `${clean.slice(0, -1).join(', ')} and ${clean[clean.length - 1]}`
 }
 
-export function resolvedAreaAffected(capture: Pick<BiohazardCleaningCapture, 'area_affected'>, defaults: BiohazardJobDefaults = {}): string {
-  if (capture.area_affected != null) return capture.area_affected.trim()
-  return joinNames(defaults.assessmentAreaNames ?? [])
+export function resolvedBiohazardTypes(capture: Pick<BiohazardCleaningCapture, 'biohazard_types'>, defaults: BiohazardJobDefaults = {}): string[] {
+  if (capture.biohazard_types != null) return cleanNames(capture.biohazard_types)
+  const fromAssessment = (defaults.assessmentBiohazardType ?? '').trim()
+  if (fromAssessment) return [fromAssessment]
+  const fromJobType = defaults.jobType ? BIOHAZARD_FOR_JOB_TYPE[defaults.jobType] : undefined
+  return fromJobType ? [fromJobType] : []
+}
+
+/** For example "blood, faeces and decomposition fluids". */
+export function resolvedBiohazardType(capture: Pick<BiohazardCleaningCapture, 'biohazard_types'>, defaults: BiohazardJobDefaults = {}): string {
+  return joinNames(resolvedBiohazardTypes(capture, defaults))
+}
+
+export function resolvedAreasAffected(capture: Pick<BiohazardCleaningCapture, 'areas_affected'>, defaults: BiohazardJobDefaults = {}): string[] {
+  if (capture.areas_affected != null) return cleanNames(capture.areas_affected)
+  return cleanNames(defaults.assessmentAreaNames ?? [])
+}
+
+/** For example "kitchen, laundry and toilet". */
+export function resolvedAreaAffected(capture: Pick<BiohazardCleaningCapture, 'areas_affected'>, defaults: BiohazardJobDefaults = {}): string {
+  return joinNames(resolvedAreasAffected(capture, defaults))
 }
 
 export function resolvedObjective(capture: Pick<BiohazardCleaningCapture, 'objective'>, defaults: BiohazardJobDefaults = {}): string {
@@ -323,11 +347,34 @@ export function resolvedObjective(capture: Pick<BiohazardCleaningCapture, 'objec
   return (defaults.sowObjective ?? '').trim()
 }
 
+/** Quick picks shown beside the lists. */
+export const BIOHAZARD_TYPE_SUGGESTIONS = [
+  'blood',
+  'faeces',
+  'urine',
+  'vomit',
+  'decomposition fluids',
+  'bodily fluids',
+  'sewage',
+  'mould',
+] as const
+
+export const BIOHAZARD_AREA_SUGGESTIONS = [
+  'kitchen',
+  'laundry',
+  'toilet',
+  'bathroom',
+  'ensuite',
+  'bedroom',
+  'lounge',
+  'hallway',
+] as const
+
 export function emptyBiohazardCleaningCapture(): BiohazardCleaningCapture {
   return {
     cleaning_kind: null,
-    biohazard_type: null,
-    area_affected: null,
+    biohazard_types: null,
+    areas_affected: null,
     description: '',
     objective: null,
     estimated_m2: null,
@@ -428,6 +475,12 @@ export function normalizeBiohazardCleaningCapture(raw: unknown): BiohazardCleani
   const coord = (value: unknown): number | null =>
     typeof value === 'number' && Number.isFinite(value) ? value : null
   const optionalText = (value: unknown): string | null => (typeof value === 'string' ? value : null)
+  /** A saved list, else the single text field older quotes saved. */
+  const nameList = (list: unknown, legacy: unknown): string[] | null => {
+    if (Array.isArray(list)) return list.filter((item): item is string => typeof item === 'string')
+    if (typeof legacy === 'string') return legacy.trim() ? [legacy.trim()] : []
+    return null
+  }
   const kind = BIOHAZARD_CLEANING_CLIENT_TITLES.some(option => option.id === o.cleaning_kind)
     ? o.cleaning_kind as BiohazardCleaningKind
     : null
@@ -436,8 +489,8 @@ export function normalizeBiohazardCleaningCapture(raw: unknown): BiohazardCleani
     : null
   return {
     cleaning_kind: kind,
-    biohazard_type: optionalText(o.biohazard_type),
-    area_affected: optionalText(o.area_affected),
+    biohazard_types: nameList(o.biohazard_types, o.biohazard_type),
+    areas_affected: nameList(o.areas_affected, o.area_affected),
     description: typeof o.description === 'string' ? o.description : '',
     objective: optionalText(o.objective),
     estimated_m2: qty(o.estimated_m2),
