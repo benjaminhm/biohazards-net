@@ -244,6 +244,42 @@ test('a secondary zone is priced at its own rate and printed beside the primary 
   assert.doesNotMatch(html, /\[secondary zone\]|\[secondary contamination\]/)
 })
 
+test('Areas other than the primary zone prints as areas outside the zones, and is not a contradiction', () => {
+  const clauses = {
+    ...defaultBiohazardCleaningClauses(),
+    exclusions: 'Repairs.\nAreas other than the [area affected].\nContents removal, other than materials affected by [biohazard type].',
+  }
+  const capture = filled({
+    areas_affected: ['Laundry', 'kitchen', 'toilet'],
+    secondary_zone: 'Living room',
+    secondary_contaminations: ['odour'],
+    secondary_objective: 'Clear the odour.',
+    secondary_m2: 20,
+    secondary_rate_per_m2: 5,
+    clauses,
+  })
+  const content = biohazardCleaningQuoteContent({
+    reference: 'BCQ-EX',
+    clientName: 'Acme',
+    siteAddress: '1 Example Street',
+    capture,
+    defaults: biohazardJobDefaults(job()),
+  })
+  assert.match(content.exclusions.join('\n'), /Areas outside the zones on this quote/)
+  assert.doesNotMatch(content.exclusions.join('\n'), /Areas other than the Laundry/)
+  assert.match(content.exclusions.join('\n'), /Contents removal, other than materials affected by blood and bodily fluids/)
+  const accepted = acceptBiohazardModelAnswer({
+    flags: [{
+      code: 'inclusion_exclusion_conflict',
+      clause: 'exclusions',
+      subject: '',
+      evidence: 'Areas other than the Laundry, kitchen and toilet.',
+    }],
+    cleared: [],
+  }, capture, biohazardCheckContext(job()), [])
+  assert.deepEqual(accepted.flags, [])
+})
+
 test('listed other zones go in the exclusions as non-affected, and stay off the scope', () => {
   const none = biohazardCleaningQuoteContent({
     reference: 'BCQ-NONE',

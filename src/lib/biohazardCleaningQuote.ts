@@ -875,6 +875,26 @@ export function withoutUnusedSecondaryLines(text: string, inUse: boolean): strin
   return withoutUnusedPlaceholderLines(text, inUse ? [] : ['secondary zone', 'secondary contamination'])
 }
 
+/**
+ * "Areas other than the [area affected]" only names the primary zone, so it contradicts a secondary zone.
+ * Print and the check use the zones line instead. The editor copy is left as typed until staff change it.
+ */
+export function rewriteBiohazardAreaExclusion(text: string, areaAffected = ''): string {
+  const primary = areaAffected.trim().toLowerCase()
+  return text
+    .split('\n')
+    .map(line => {
+      const match = line.trim().match(/^areas other than the (.+?)\.?$/i)
+      if (!match) return line
+      const named = match[1].trim().toLowerCase()
+      if (named === '[area affected]' || named === '[primary zone]' || (primary && named === primary)) {
+        return 'Areas outside the zones on this quote.'
+      }
+      return line
+    })
+    .join('\n')
+}
+
 export function withoutUnusedQuoteLines(text: string, secondaryInUse: boolean, otherZonesInUse: boolean): string {
   return withoutUnusedPlaceholderLines(text, [
     ...(secondaryInUse ? [] : ['secondary zone', 'secondary contamination']),
@@ -906,7 +926,11 @@ export function biohazardCleaningQuoteContent(input: {
   const secondaryObjective = (capture.secondary_objective ?? '').trim()
   const otherZones = resolvedOtherZone(capture)
   const fill = (text: string) =>
-    fillBiohazardPlaceholders(withoutUnusedQuoteLines(text, figures.has_secondary, Boolean(otherZones)), {
+    fillBiohazardPlaceholders(withoutUnusedQuoteLines(
+      rewriteBiohazardAreaExclusion(text, areaAffected),
+      figures.has_secondary,
+      Boolean(otherZones),
+    ), {
       biohazardType,
       areaAffected,
       secondaryZone,

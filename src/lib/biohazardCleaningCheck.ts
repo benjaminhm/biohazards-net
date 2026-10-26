@@ -30,6 +30,7 @@ import {
   resolvedSecondaryContamination,
   secondaryZoneInUse,
   resolvedOtherZone,
+  rewriteBiohazardAreaExclusion,
   withoutUnusedQuoteLines,
   type BiohazardCleaningCapture,
   type BiohazardCleaningClauses,
@@ -286,11 +287,15 @@ export function biohazardCheckText(
   const secondaryInUse = secondaryZoneInUse(capture)
   const storedClauses = capture.clauses ?? template ?? normalizeBiohazardCleaningClauses(null)
   const otherZones = resolvedOtherZone(capture)
+  const areaAffected = resolvedAreaAffected(capture, context.defaults)
   const rawClauses = Object.fromEntries(
-    BIOHAZARD_CLAUSE_KEYS.map(key => [key, withoutUnusedQuoteLines(storedClauses[key] ?? '', secondaryInUse, Boolean(otherZones))]),
+    BIOHAZARD_CLAUSE_KEYS.map(key => [key, withoutUnusedQuoteLines(
+      key === 'exclusions' ? rewriteBiohazardAreaExclusion(storedClauses[key] ?? '', areaAffected) : (storedClauses[key] ?? ''),
+      secondaryInUse,
+      Boolean(otherZones),
+    )]),
   ) as unknown as BiohazardCleaningClauses
   const biohazardType = resolvedBiohazardType(capture, context.defaults)
-  const areaAffected = resolvedAreaAffected(capture, context.defaults)
   const secondaryContamination = resolvedSecondaryContamination(capture)
   const fill = (text: string) =>
     plainClearanceClause(fillBiohazardPlaceholders(text.replace(/\n/g, ' \n '), {
