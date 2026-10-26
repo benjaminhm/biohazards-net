@@ -439,6 +439,20 @@ function ReportImages({
               Select
             </button>
           )}
+          {loaded.length > 1 && (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={uploading}
+              onClick={() => {
+                setSelected(new Set(loaded.map(photo => photo.id)))
+                setSelecting(true)
+              }}
+              style={{ padding: '12px 16px', fontWeight: 700 }}
+            >
+              Select all
+            </button>
+          )}
         </div>
       )}
       {missingTime > 0 && (
