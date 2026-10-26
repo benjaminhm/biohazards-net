@@ -211,7 +211,11 @@ function ReportImages({
   const [dragId, setDragId] = useState<string | null>(null)
   const [overId, setOverId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [selecting, setSelecting] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(() => new Set())
+  const [batchDeleting, setBatchDeleting] = useState(false)
   const loaded = orderReportAppendixPhotos(photos, orderedIds)
+  const selectedCount = loaded.filter(photo => selected.has(photo.id)).length
 
   async function onPick(e: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []).filter(file => file.type.startsWith('image/'))
@@ -291,6 +295,56 @@ function ReportImages({
 
   const missingTime = loaded.filter(photo => !photo.taken_at).length
 
+  function toggleSelected(id: string) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function stopSelecting() {
+    setSelecting(false)
+    setSelected(new Set())
+  }
+
+  async function deleteSelected() {
+    const ids = loaded.filter(photo => selected.has(photo.id)).map(photo => photo.id)
+    if (!ids.length) return
+    if (!window.confirm(`Confirm you want to delete ${ids.length === 1 ? 'this image' : `these ${ids.length} images`}?`)) return
+    setBatchDeleting(true)
+    setError('')
+    const deleted = new Set<string>()
+    let failed = 0
+    for (let i = 0; i < ids.length; i += 4) {
+      await Promise.all(ids.slice(i, i + 4).map(async id => {
+        try {
+          const res = await fetch(`/api/photos/${id}`, { method: 'DELETE' })
+          if (res.ok) deleted.add(id)
+          else failed += 1
+        } catch {
+          failed += 1
+        }
+      }))
+    }
+    try {
+      if (deleted.size) {
+        onPhotosUpdate(photos.filter(item => !deleted.has(item.id)))
+        if (orderedIds?.length) await onReorder(orderedIds.filter(id => !deleted.has(id)))
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save the new order')
+    }
+    if (failed) {
+      setError(`${failed} ${failed === 1 ? 'image' : 'images'} could not be deleted. They are still selected; try again.`)
+      setSelected(new Set(ids.filter(id => !deleted.has(id))))
+    } else {
+      stopSelecting()
+    }
+    setBatchDeleting(false)
+  }
+
   async function removePhoto(photo: Photo) {
     if (!window.confirm('Confirm you want to delete this image?')) return
     setDeletingId(photo.id)
@@ -322,25 +376,70 @@ function ReportImages({
         onChange={e => void onPick(e)}
         style={{ display: 'none' }}
       />
-      <button
-        type="button"
-        className="btn btn-secondary"
-        disabled={uploading}
-        onClick={() => fileRef.current?.click()}
-        style={{ padding: '12px 16px', fontWeight: 700 }}
-      >
-        {uploading ? 'Uploading…' : 'Choose images'}
-      </button>
-      {loaded.length > 1 && (
-        <button
-          type="button"
-          className="btn btn-secondary"
-          disabled={uploading}
-          onClick={() => void sortByTimeTaken()}
-          style={{ padding: '12px 16px', fontWeight: 700, marginLeft: 8 }}
-        >
-          Sort by time taken
-        </button>
+      {selecting ? (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled={batchDeleting}
+            onClick={() => setSelected(selectedCount === loaded.length ? new Set() : new Set(loaded.map(photo => photo.id)))}
+            style={{ padding: '12px 16px', fontWeight: 700 }}
+          >
+            {selectedCount === loaded.length ? 'Clear selection' : 'Select all'}
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled={batchDeleting || selectedCount === 0}
+            onClick={() => void deleteSelected()}
+            style={{ padding: '12px 16px', fontWeight: 700, color: '#F87171' }}
+          >
+            {batchDeleting ? 'Deleting…' : `Delete selected (${selectedCount})`}
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled={batchDeleting}
+            onClick={stopSelecting}
+            style={{ padding: '12px 16px', fontWeight: 700 }}
+          >
+            Done
+          </button>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled={uploading}
+            onClick={() => fileRef.current?.click()}
+            style={{ padding: '12px 16px', fontWeight: 700 }}
+          >
+            {uploading ? 'Uploading…' : 'Choose images'}
+          </button>
+          {loaded.length > 1 && (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={uploading}
+              onClick={() => void sortByTimeTaken()}
+              style={{ padding: '12px 16px', fontWeight: 700 }}
+            >
+              Sort by time taken
+            </button>
+          )}
+          {loaded.length > 0 && (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={uploading}
+              onClick={() => setSelecting(true)}
+              style={{ padding: '12px 16px', fontWeight: 700 }}
+            >
+              Select
+            </button>
+          )}
+        </div>
       )}
       {missingTime > 0 && (
         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8, lineHeight: 1.5 }}>
@@ -355,7 +454,17 @@ function ReportImages({
           {loaded.map(photo => (
             <div
               key={photo.id}
-              draggable={deletingId !== photo.id}
+              role={selecting ? 'checkbox' : undefined}
+              aria-checked={selecting ? selected.has(photo.id) : undefined}
+              tabIndex={selecting ? 0 : undefined}
+              onClick={selecting && !batchDeleting ? () => toggleSelected(photo.id) : undefined}
+              onKeyDown={selecting && !batchDeleting ? e => {
+                if (e.key === ' ' || e.key === 'Enter') {
+                  e.preventDefault()
+                  toggleSelected(photo.id)
+                }
+              } : undefined}
+              draggable={!selecting && deletingId !== photo.id}
               onDragStart={e => onDragStart(e, photo.id)}
               onDragOver={e => onDragOver(e, photo.id)}
               onDrop={e => {
@@ -372,9 +481,11 @@ function ReportImages({
               style={{
                 position: 'relative',
                 borderRadius: 8,
-                outline: overId === photo.id && dragId && dragId !== photo.id ? '2px solid var(--accent, #60a5fa)' : 'none',
-                opacity: dragId === photo.id ? 0.45 : 1,
-                cursor: 'grab',
+                outline: selecting && selected.has(photo.id)
+                  ? '3px solid #F87171'
+                  : overId === photo.id && dragId && dragId !== photo.id ? '2px solid var(--accent, #60a5fa)' : 'none',
+                opacity: dragId === photo.id || (selecting && !selected.has(photo.id)) ? 0.55 : 1,
+                cursor: selecting ? 'pointer' : 'grab',
               }}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -400,6 +511,29 @@ function ReportImages({
               >
                 {photo.taken_at ? formatTakenAt(photo.taken_at) : 'No time'}
               </div>
+              {selecting ? (
+                <div
+                  aria-hidden
+                  style={{
+                    position: 'absolute',
+                    top: 4,
+                    right: 4,
+                    width: 22,
+                    height: 22,
+                    borderRadius: 999,
+                    border: '2px solid #fff',
+                    background: selected.has(photo.id) ? '#F87171' : 'rgba(0,0,0,0.45)',
+                    color: '#fff',
+                    fontSize: 13,
+                    fontWeight: 700,
+                    lineHeight: '18px',
+                    textAlign: 'center',
+                    pointerEvents: 'none',
+                  }}
+                >
+                  {selected.has(photo.id) ? '✓' : ''}
+                </div>
+              ) : (
               <button
                 type="button"
                 aria-label="Delete image"
@@ -429,6 +563,7 @@ function ReportImages({
               >
                 ×
               </button>
+              )}
             </div>
           ))}
         </div>
