@@ -273,7 +273,9 @@ function money(n: number): string {
   return '$' + n.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-export function secondarySurfaceSentence(figures: BiohazardCleaningFigures): string {
+export function secondarySurfaceSentence(
+  figures: Pick<BiohazardCleaningFigures, 'has_secondary' | 'secondary_m2' | 'secondary_rate_per_m2' | 'secondary_amount'>,
+): string {
   if (!figures.has_secondary) return ''
   return `Estimated secondary surface: ${figures.secondary_m2.toLocaleString('en-AU', { maximumFractionDigits: 2 })} m² at ${money(figures.secondary_rate_per_m2)} ex GST = ${money(figures.secondary_amount)}.`
 }
