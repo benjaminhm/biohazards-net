@@ -214,7 +214,7 @@ export function withoutDuplicateEncapsulant(lines: string[]): string[] {
 
 export function groupBiohazardScope(lines: string[]): { title: string; steps: string[] }[] {
   const cleaned = withoutDuplicateEncapsulant(lines.map(line => tidyBiohazardPrintText(line)).filter(Boolean))
-  const groups = BIOHAZARD_SCOPE_PHASES.map(phase => ({ title: phase.title, steps: [] as string[] }))
+  const groups: { title: string; steps: string[] }[] = BIOHAZARD_SCOPE_PHASES.map(phase => ({ title: phase.title, steps: [] }))
   const leftover: string[] = []
   for (const line of cleaned) {
     const index = BIOHAZARD_SCOPE_PHASES.findIndex((phase, order) => {
