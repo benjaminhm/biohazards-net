@@ -7,6 +7,7 @@ import {
   resolvedBiohazardKind,
   resolvedBiohazardTypes,
   resolvedObjective,
+  resolvedOtherZones,
   resolvedSecondaryContaminations,
   secondaryZoneInUse,
   type BiohazardCleaningCapture,
@@ -63,6 +64,7 @@ export function biohazardScopeDraftPayload(
       secondary_zone_rooms: secondary ? names(capture.secondary_rooms) : [],
       secondary_contaminations: secondary ? resolvedSecondaryContaminations(capture) : [],
       secondary_objective: secondary ? (capture.secondary_objective ?? '').trim() : '',
+      other_zones: resolvedOtherZones(capture),
     },
     assessment: {
       areas: context.areaNames,
@@ -73,7 +75,11 @@ export function biohazardScopeDraftPayload(
     house_scope: (template?.scope_of_work ?? BIOHAZARD_CLEANING_SCHEMA.scope_of_work.join('\n'))
       .split('\n')
       .filter(line => line.trim() && !SERVICE_LINE.test(line)),
-    placeholders: BIOHAZARD_PLACEHOLDERS.filter(name => name !== 'primary zone' && (secondary || !name.startsWith('secondary'))),
+    placeholders: BIOHAZARD_PLACEHOLDERS.filter(name =>
+      name !== 'primary zone'
+      && (secondary || !name.startsWith('secondary'))
+      && (resolvedOtherZones(capture).length > 0 || (name !== 'other zones' && name !== 'unaffected areas'))
+    ),
   }
 }
 

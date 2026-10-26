@@ -75,6 +75,7 @@ export const BIOHAZARD_CLEANING_SCHEMA = {
   exclusions: [
     'Repairs, rebuilding, and restoration, including replacing removed materials.',
     'Areas outside the zones on this quote.',
+    'The [other zones], inspected and considered non-affected.',
     'Contents removal, other than materials affected by [biohazard type].',
     'Hazardous building materials, such as asbestos.',
   ],
@@ -188,6 +189,8 @@ export interface BiohazardCleaningCapture {
   secondary_rooms: SurfaceAreaRoom[]
   /** Ex GST. Blank is zero. */
   secondary_rate_per_m2: number | null
+  /** Areas inspected and considered non-affected. Fills [other zones] in the exclusions. */
+  other_zones: string[]
   /** Labour days the client is buying. Required before the quote is generated. */
   labour_days: number | null
   /** Ex GST. Blank uses the schema rate. */
@@ -286,6 +289,7 @@ export interface BiohazardCleaningQuoteContent {
   secondary_amount: number
   secondary_rooms: { name: string; detail: string; area_m2: number }[]
   has_secondary: boolean
+  other_zones: string
   travel_km: number
   rate_per_km: number
   travel_amount: number
@@ -446,6 +450,7 @@ export function emptyBiohazardCleaningCapture(): BiohazardCleaningCapture {
     secondary_m2: null,
     secondary_rooms: [],
     secondary_rate_per_m2: null,
+    other_zones: [],
     labour_days: null,
     rate_per_m2: null,
     rate_per_km: null,
@@ -632,6 +637,9 @@ export function normalizeBiohazardCleaningCapture(raw: unknown): BiohazardCleani
     secondary_m2: qty(o.secondary_m2),
     secondary_rooms: Array.isArray(o.secondary_rooms) ? o.secondary_rooms.map(normalizeSurfaceAreaRoom) : [],
     secondary_rate_per_m2: qty(o.secondary_rate_per_m2),
+    other_zones: Array.isArray(o.other_zones)
+      ? o.other_zones.filter((item): item is string => typeof item === 'string')
+      : [],
     labour_days: qty(o.labour_days),
     rate_per_m2: qty(o.rate_per_m2),
     rate_per_km: qty(o.rate_per_km),
@@ -689,6 +697,15 @@ export function resolvedSecondaryContaminations(capture: Pick<BiohazardCleaningC
 /** For example "odour and flies". */
 export function resolvedSecondaryContamination(capture: Pick<BiohazardCleaningCapture, 'secondary_contaminations'>): string {
   return joinNames(resolvedSecondaryContaminations(capture))
+}
+
+export function resolvedOtherZones(capture: Pick<BiohazardCleaningCapture, 'other_zones'>): string[] {
+  return cleanNames(capture.other_zones ?? [])
+}
+
+/** For example "the garage, study and patio". */
+export function resolvedOtherZone(capture: Pick<BiohazardCleaningCapture, 'other_zones'>): string {
+  return joinNames(resolvedOtherZones(capture))
 }
 
 export function secondaryZoneInUse(capture: Pick<BiohazardCleaningCapture, 'secondary_zone' | 'secondary_contaminations' | 'secondary_objective' | 'secondary_m2' | 'secondary_rooms'>): boolean {
@@ -780,19 +797,25 @@ export function biohazardCleaningFigures(capture: BiohazardCleaningCapture): Bio
   }
 }
 
-export const BIOHAZARD_PLACEHOLDERS = ['biohazard type', 'area affected', 'primary zone', 'secondary zone', 'secondary contamination'] as const
+export const BIOHAZARD_PLACEHOLDERS = ['biohazard type', 'area affected', 'primary zone', 'secondary zone', 'secondary contamination', 'other zones', 'unaffected areas'] as const
 
 function placeholderKey(raw: string): string {
   return raw.trim().toLowerCase().replace(/\s+/g, ' ')
 }
 
 /**
- * Fills [biohazard type], [area affected] (also [primary zone]), [secondary zone], and [secondary contamination].
- * A blank value leaves the bracket for the check to find.
+ * Fills [biohazard type], [area affected] (also [primary zone]), [secondary zone], [secondary contamination],
+ * and [other zones] (also [unaffected areas]). A blank value leaves the bracket for the check to find.
  */
 export function fillBiohazardPlaceholders(
   text: string,
-  values: { biohazardType: string; areaAffected: string; secondaryZone?: string; secondaryContamination?: string },
+  values: {
+    biohazardType: string
+    areaAffected: string
+    secondaryZone?: string
+    secondaryContamination?: string
+    otherZones?: string
+  },
 ): string {
   return text.replace(/\[([^\[\]\n]+)\]/g, (match, raw: string) => {
     const key = placeholderKey(raw)
@@ -800,6 +823,7 @@ export function fillBiohazardPlaceholders(
     if ((key === 'area affected' || key === 'primary zone') && values.areaAffected.trim()) return values.areaAffected.trim()
     if (key === 'secondary zone' && values.secondaryZone?.trim()) return values.secondaryZone.trim()
     if (key === 'secondary contamination' && values.secondaryContamination?.trim()) return values.secondaryContamination.trim()
+    if ((key === 'other zones' || key === 'unaffected areas') && values.otherZones?.trim()) return values.otherZones.trim()
     return match
   })
 }
@@ -836,16 +860,26 @@ export function biohazardInclusionsWithServices(
   return [inclusions, ...BIOHAZARD_COH_INCLUSION_LINES].filter(Boolean).join('\n')
 }
 
-/** Without a secondary zone, clause lines about it are left off. */
-export function withoutUnusedSecondaryLines(text: string, inUse: boolean): string {
-  if (inUse) return text
+/** Leave off clause lines whose placeholders are not in use. */
+export function withoutUnusedPlaceholderLines(text: string, unused: readonly string[]): string {
+  if (unused.length === 0) return text
+  const keys = new Set(unused)
   return text
     .split('\n')
-    .filter(line => ![...line.matchAll(/\[([^\[\]\n]+)\]/g)].some(match => {
-      const key = placeholderKey(match[1])
-      return key === 'secondary zone' || key === 'secondary contamination'
-    }))
+    .filter(line => ![...line.matchAll(/\[([^\[\]\n]+)\]/g)].some(match => keys.has(placeholderKey(match[1]))))
     .join('\n')
+}
+
+/** Without a secondary zone, clause lines about it are left off. */
+export function withoutUnusedSecondaryLines(text: string, inUse: boolean): string {
+  return withoutUnusedPlaceholderLines(text, inUse ? [] : ['secondary zone', 'secondary contamination'])
+}
+
+export function withoutUnusedQuoteLines(text: string, secondaryInUse: boolean, otherZonesInUse: boolean): string {
+  return withoutUnusedPlaceholderLines(text, [
+    ...(secondaryInUse ? [] : ['secondary zone', 'secondary contamination']),
+    ...(otherZonesInUse ? [] : ['other zones', 'unaffected areas']),
+  ])
 }
 
 function sentenceStart(line: string): string {
@@ -870,12 +904,14 @@ export function biohazardCleaningQuoteContent(input: {
   const secondaryZone = (capture.secondary_zone ?? '').trim()
   const secondaryContamination = resolvedSecondaryContamination(capture)
   const secondaryObjective = (capture.secondary_objective ?? '').trim()
+  const otherZones = resolvedOtherZone(capture)
   const fill = (text: string) =>
-    fillBiohazardPlaceholders(withoutUnusedSecondaryLines(text, figures.has_secondary), {
+    fillBiohazardPlaceholders(withoutUnusedQuoteLines(text, figures.has_secondary, Boolean(otherZones)), {
       biohazardType,
       areaAffected,
       secondaryZone,
       secondaryContamination,
+      otherZones,
     })
   const lines = (text: string) => biohazardClauseLines(fill(text)).map(sentenceStart)
   const jobAddress = (capture.job_address ?? input.siteAddress).trim()
@@ -911,6 +947,7 @@ export function biohazardCleaningQuoteContent(input: {
     secondary_amount: figures.secondary_amount,
     secondary_rooms: figures.has_secondary ? printedRooms(capture.secondary_rooms ?? []) : [],
     has_secondary: figures.has_secondary,
+    other_zones: otherZones,
     travel_km: figures.travel_km,
     rate_per_km: figures.rate_per_km,
     travel_amount: figures.travel_amount,

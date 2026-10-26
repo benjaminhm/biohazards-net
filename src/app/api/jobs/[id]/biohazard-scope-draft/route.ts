@@ -56,6 +56,8 @@ Deal with each presenting health hazard and risk in ASSESSMENT in the step it be
 
 When the secondary zone is in use, add the steps for it after the primary zone, for the [secondary contamination] in the [secondary zone], working to the secondary objective. When it is not in use, do not mention it.
 
+Do not include the OTHER_ZONES in the scope. They are inspected and considered non-affected, and they belong in the exclusions.
+
 Do not write about a Certified Occupational Hygienist, a Remediation Action Plan, ATP testing, laboratory testing, or a completion report. Those lines are added separately.
 Do not state prices, quantities of money, or timeframes. Do not invent facts that are not in DETAILS or ASSESSMENT.`
 

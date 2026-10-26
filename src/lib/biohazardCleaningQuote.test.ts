@@ -244,6 +244,44 @@ test('a secondary zone is priced at its own rate and printed beside the primary 
   assert.doesNotMatch(html, /\[secondary zone\]|\[secondary contamination\]/)
 })
 
+test('listed other zones go in the exclusions as non-affected, and stay off the scope', () => {
+  const none = biohazardCleaningQuoteContent({
+    reference: 'BCQ-NONE',
+    clientName: 'Acme',
+    siteAddress: '1 Example Street',
+    capture: filled(),
+    defaults: biohazardJobDefaults(job()),
+  })
+  assert.equal(none.other_zones, '')
+  assert.doesNotMatch(none.exclusions.join('\n'), /non-affected/)
+  const capture = filled({ other_zones: ['garage', 'study'] })
+  const content = biohazardCleaningQuoteContent({
+    reference: 'BCQ-OTHER',
+    clientName: 'Acme',
+    siteAddress: '1 Example Street',
+    capture,
+    defaults: biohazardJobDefaults(job()),
+  })
+  assert.equal(content.other_zones, 'garage and study')
+  assert.match(content.exclusions.join('\n'), /The garage and study, inspected and considered non-affected/)
+  assert.doesNotMatch(content.scope_of_work.join('\n'), /garage|study/)
+  const html = buildPrintHTML(
+    'biohazard_cleaning_quote',
+    content as unknown as Record<string, unknown>,
+    [], [], null, 'job', 'http://localhost', undefined, { screenActionBar: false },
+  )
+  assert.match(html, /Non-affected zones/)
+  const context = biohazardCheckContext(job({
+    areas: [
+      { name: 'Main bedroom', sqm: 0, hazard_level: 1, description: '' },
+      { name: 'Garage', sqm: 0, hazard_level: 1, description: '' },
+    ],
+  }))
+  const keys = biohazardRuleFlags(filled({ other_zones: ['Garage'] }), context).map(flag => `${flag.code}:${flag.subject}`)
+  assert.ok(!keys.includes('area_not_quoted:Garage'))
+  assert.ok(!keys.includes('area_not_quoted:Main bedroom'))
+})
+
 test('the check flags a secondary zone without square metres, and square metres without a zone', () => {
   const context = biohazardCheckContext(job())
   const noMetres = biohazardRuleFlags(filled({ secondary_zone: 'hallway' }), context).map(flag => `${flag.code}:${flag.subject}`)

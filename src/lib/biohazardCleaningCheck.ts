@@ -29,7 +29,8 @@ import {
   resolvedObjective,
   resolvedSecondaryContamination,
   secondaryZoneInUse,
-  withoutUnusedSecondaryLines,
+  resolvedOtherZone,
+  withoutUnusedQuoteLines,
   type BiohazardCleaningCapture,
   type BiohazardCleaningClauses,
   type BiohazardCleaningFigures,
@@ -270,6 +271,7 @@ export interface BiohazardCheckText {
   secondaryZone: string
   secondaryContamination: string
   secondaryObjective: string
+  otherZones: string
   description: string
   objective: string
   roomNames: string[]
@@ -283,8 +285,9 @@ export function biohazardCheckText(
   const secondaryZone = (capture.secondary_zone ?? '').trim()
   const secondaryInUse = secondaryZoneInUse(capture)
   const storedClauses = capture.clauses ?? template ?? normalizeBiohazardCleaningClauses(null)
+  const otherZones = resolvedOtherZone(capture)
   const rawClauses = Object.fromEntries(
-    BIOHAZARD_CLAUSE_KEYS.map(key => [key, withoutUnusedSecondaryLines(storedClauses[key] ?? '', secondaryInUse)]),
+    BIOHAZARD_CLAUSE_KEYS.map(key => [key, withoutUnusedQuoteLines(storedClauses[key] ?? '', secondaryInUse, Boolean(otherZones))]),
   ) as unknown as BiohazardCleaningClauses
   const biohazardType = resolvedBiohazardType(capture, context.defaults)
   const areaAffected = resolvedAreaAffected(capture, context.defaults)
@@ -295,6 +298,7 @@ export function biohazardCheckText(
       areaAffected,
       secondaryZone,
       secondaryContamination,
+      otherZones,
     }))
   rawClauses.scope_of_work = biohazardScopeWithServices(rawClauses.scope_of_work, capture)
   rawClauses.inclusions = biohazardInclusionsWithServices(rawClauses.inclusions, capture)
@@ -312,6 +316,7 @@ export function biohazardCheckText(
     secondaryZone,
     secondaryContamination,
     secondaryObjective: (capture.secondary_objective ?? '').trim(),
+    otherZones,
     description: fill(capture.description),
     objective: fill(resolvedObjective(capture, context.defaults)),
     roomNames: [...capture.rooms, ...(secondaryInUse ? capture.secondary_rooms : [])]
@@ -388,7 +393,7 @@ export function biohazardRuleFlags(
     if (!stage.patterns.some(pattern => pattern.test(scope))) rule('stage_missing', 'scope_of_work', stage.id)
   }
 
-  const areaHaystack = [text.areaAffected, text.secondaryZone, ...text.roomNames, scope].join(' \n ')
+  const areaHaystack = [text.areaAffected, text.secondaryZone, text.otherZones, ...text.roomNames, scope].join(' \n ')
   for (const name of context.areaNames) {
     if (!contains(areaHaystack, name)) rule('area_not_quoted', 'details', name)
   }
@@ -508,6 +513,7 @@ export function biohazardCheckPayload(
       secondary_zone: text.secondaryZone,
       secondary_contamination: text.secondaryContamination,
       secondary_objective: text.secondaryObjective,
+      other_zones: text.otherZones,
       rooms: text.roomNames,
       description: text.description,
       objective: text.objective,
@@ -541,7 +547,7 @@ export function biohazardCheckPayload(
 }
 
 function clauseBody(text: BiohazardCheckText, clause: BiohazardCheckClause): string {
-  if (clause === 'details') return [text.biohazardType, text.areaAffected, text.secondaryZone, text.secondaryContamination, text.secondaryObjective, text.description, text.objective, ...text.roomNames].join(' \n ')
+  if (clause === 'details') return [text.biohazardType, text.areaAffected, text.secondaryZone, text.secondaryContamination, text.secondaryObjective, text.otherZones, text.description, text.objective, ...text.roomNames].join(' \n ')
   if (clause === 'quantities') return ''
   return text.clauses[clause]
 }
@@ -616,7 +622,7 @@ export function acceptBiohazardModelAnswer(
   }
 
   const scope = text.clauses.scope_of_work
-  const areaHaystack = [text.areaAffected, text.secondaryZone, ...text.roomNames, scope].join(' \n ')
+  const areaHaystack = [text.areaAffected, text.secondaryZone, text.otherZones, ...text.roomNames, scope].join(' \n ')
   const allClauses = BIOHAZARD_CLAUSE_KEYS.map(key => text.clauses[key]).join(' \n ')
   for (const item of Array.isArray(o.cleared) ? o.cleared : []) {
     if (!item || typeof item !== 'object') continue

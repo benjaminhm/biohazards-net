@@ -48,6 +48,7 @@ import {
   resolvedBiohazardType,
   resolvedBiohazardTypes,
   resolvedObjective,
+  resolvedOtherZone,
   resolvedSecondaryContamination,
   type BiohazardCleaningCapture,
   type BiohazardCleaningClauses,
@@ -1142,6 +1143,26 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
           rate={capture.secondary_rate_per_m2}
           onRate={value => patch({ secondary_rate_per_m2: value })}
         />
+      </div>
+
+      <div style={SECTION}>
+        <div style={LABEL}>Other zones, considered non-affected</div>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+          Areas other than the primary and secondary zones. They are listed in the exclusions as inspected and considered non-affected.
+        </div>
+        <NameList
+          names={capture.other_zones}
+          onChange={names => patch({ other_zones: names })}
+          suggestions={[...(defaults.assessmentAreaNames ?? []), ...BIOHAZARD_AREA_SUGGESTIONS].filter(name => {
+            const lower = name.trim().toLowerCase()
+            return !areasAffected.some(area => area.trim().toLowerCase() === lower)
+              && !(capture.secondary_zone ?? '').toLowerCase().includes(lower)
+          })}
+          placeholder="Add a non-affected area"
+        />
+        <div style={HINT}>
+          Fills [other zones]{resolvedOtherZone(capture) ? `: “${resolvedOtherZone(capture)}”` : ''}. Leave the list blank to keep the generic exclusion only.
+        </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
