@@ -340,6 +340,7 @@ function DocViewerInner() {
           {
             client_name: job.client_name,
             client_organization_name: job.client_organization_name,
+            client_contact_role: job.client_contact_role,
             client_email: job.client_email,
             client_phone: job.client_phone,
             site_address: job.site_address,

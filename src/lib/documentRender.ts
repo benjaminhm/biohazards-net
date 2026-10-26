@@ -105,7 +105,7 @@ export async function renderDocumentHtml(options: RenderDocumentOptions): Promis
     supabase
       .from('jobs')
       .select(
-        'client_name,client_organization_name,client_email,client_phone,site_address,assessment_data,trading_name',
+        'client_name,client_organization_name,client_contact_role,client_email,client_phone,site_address,assessment_data,trading_name',
       )
       .eq('id', doc.job_id)
       .single(),
@@ -193,6 +193,7 @@ export async function renderDocumentHtml(options: RenderDocumentOptions): Promis
     {
       client_name: job?.client_name,
       client_organization_name: job?.client_organization_name,
+      client_contact_role: job?.client_contact_role,
       client_email: includeClientContact ? job?.client_email : undefined,
       client_phone: includeClientContact ? job?.client_phone : undefined,
       site_address: job?.site_address,

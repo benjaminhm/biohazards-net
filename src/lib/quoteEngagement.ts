@@ -41,6 +41,7 @@ Disposal rate: [rate per tonne] ex GST.
 Estimated surface: [surface].
 Surface rate: [rate per m2] ex GST.
 Surface amount: [surface amount] ex GST.
+Estimated secondary surface: [secondary surface] at [secondary rate per m2] ex GST = [secondary amount].
 Labour: [labour days] for the fixed amount of [labour amount] ex GST.
 Mobilisation: [mobilisation].
 Deposit: [deposit], half the price including GST, before the work starts. Balance: [balance], due 7 days from the invoice.
@@ -59,7 +60,7 @@ Deposit: [deposit], half the price including GST, before the work starts. Balanc
 3. Quantities, hazards, and the site
 3.1 Contents are estimated at [volume]. The measured volume replaces that estimate and is charged at [rate per m3] ex GST. The Contractor will tell the Signatory before charging a measured volume above [volume].
 3.2 Travel is estimated at [kilometres] and is charged at [rate per km] ex GST.
-3.3 Surface cleaning is estimated at [surface] and is charged at [rate per m2] ex GST.
+3.3 Surface cleaning is estimated at [surface] and is charged at [rate per m2] ex GST. Secondary zone treatment is estimated at [secondary surface] and is charged at [secondary rate per m2] ex GST.
 3.4 Labour stays the fixed amount in this quote. It is not recalculated from the measured volume or the measured area.
 3.5 If the Contractor finds an undisclosed hazard, such as bodily fluids, sharps, drugs, chemicals, gas cylinders, ammunition or firearms, asbestos, or extensive mould or vermin, it may stop the affected area until the Signatory approves a written variation by text or email. The Contractor reports firearms and illicit substances to police as the law requires.
 3.6 The Signatory provides access and a clear space for the Contractor's vehicles. If access is unavailable, the Contractor may charge the extra cost.
@@ -130,6 +131,9 @@ export interface EngagementTokenValues {
   email?: string
   biohazardType?: string
   areaAffected?: string
+  secondarySurface?: number
+  secondarySurfaceAmount?: number
+  secondaryRatePerM2?: number
 }
 
 export interface EngagementPrintContext {
@@ -193,6 +197,10 @@ const ENGAGEMENT_TOKENS: Record<string, (values: EngagementTokenValues) => strin
   email: values => textValue(values.email),
   'biohazard type': values => textValue(values.biohazardType),
   'area affected': values => textValue(values.areaAffected),
+  'secondary surface': values => quantityValue(values.secondarySurface, 'm²'),
+  'secondary amount': values => moneyValue(values.secondarySurfaceAmount, true),
+  'secondary rate per m2': values => moneyValue(values.secondaryRatePerM2, true),
+  'secondary rate per m²': values => moneyValue(values.secondaryRatePerM2, true),
 }
 
 function tokenKey(raw: string): string {
@@ -384,5 +392,8 @@ export function fillBiohazardCleaningEngagement(
     email: context?.email ?? undefined,
     biohazardType: content.biohazard_type,
     areaAffected: content.area_affected,
+    secondarySurface: content.has_secondary ? content.secondary_m2 : undefined,
+    secondarySurfaceAmount: content.has_secondary ? content.secondary_amount : undefined,
+    secondaryRatePerM2: content.has_secondary ? content.secondary_rate_per_m2 : undefined,
   })
 }

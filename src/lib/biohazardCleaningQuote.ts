@@ -58,10 +58,9 @@ export const BIOHAZARD_CLEANING_SCHEMA = {
     'Remove gross contamination from the [area affected], and porous materials affected by [biohazard type], such as carpet, underlay, and soft furnishings, to at least 300 mm beyond the visible staining. Bag and seal them as clinical waste.',
     'Clean all non-porous surfaces in the [area affected] with detergent, top to bottom and clean to dirty, to remove organic residue.',
     'Disinfect the cleaned surfaces with a TGA-registered hospital-grade disinfectant, at the contact time on the label. Record the product and batch number.',
-    'Seal semi-porous surfaces that stay in place, such as concrete or timber subfloor, with an encapsulant where staining or odour remains after cleaning.',
+    'Deodorise the [area affected] where odour remains after cleaning, by removing the source and then thermal fogging with an odour counteractant or running hydroxyl generators. Seal remaining odour-holding surfaces with an encapsulant.',
     'Verify the cleaning by visual inspection: no visible residue or staining on the treated surfaces, and no odour from them.',
     'Transport and dispose of [biohazard type] waste as clinical waste at a licensed facility, under AS/NZS 3816 and the state EPA rules. Keep the disposal certificates.',
-    'Deodorise the [area affected] where odour remains after cleaning, by removing the source and then thermal fogging with an odour counteractant or running hydroxyl generators. Seal surfaces that keep holding odour.',
     'Treat the secondary zone, the [secondary zone], for [secondary contamination], using the same method as the primary zone where the contamination is the same, and naming the method for each contamination.',
     BIOHAZARD_COMPLETION_REPORT_LINE,
   ],
@@ -280,14 +279,14 @@ export interface BiohazardCleaningQuoteContent {
   estimated_m2: number
   rate_per_m2: number
   area_amount: number
-  rooms: { name: string; detail: string; area_m2: number }[]
+  rooms: { name: string; detail: string; area_m2: number; length_m: number; width_m: number; height_m: number }[]
   secondary_zone: string
   secondary_contamination: string
   secondary_objective: string
   secondary_m2: number
   secondary_rate_per_m2: number
   secondary_amount: number
-  secondary_rooms: { name: string; detail: string; area_m2: number }[]
+  secondary_rooms: { name: string; detail: string; area_m2: number; length_m: number; width_m: number; height_m: number }[]
   has_secondary: boolean
   other_zones: string
   travel_km: number
@@ -371,7 +370,7 @@ function cleanNames(names: string[]): string[] {
   return out
 }
 
-function joinNames(names: string[]): string {
+export function joinBiohazardNames(names: string[]): string {
   const clean = cleanNames(names)
   if (clean.length <= 1) return clean[0] ?? ''
   return `${clean.slice(0, -1).join(', ')} and ${clean[clean.length - 1]}`
@@ -387,7 +386,7 @@ export function resolvedBiohazardTypes(capture: Pick<BiohazardCleaningCapture, '
 
 /** For example "blood, faeces and decomposition fluids". */
 export function resolvedBiohazardType(capture: Pick<BiohazardCleaningCapture, 'biohazard_types'>, defaults: BiohazardJobDefaults = {}): string {
-  return joinNames(resolvedBiohazardTypes(capture, defaults))
+  return joinBiohazardNames(resolvedBiohazardTypes(capture, defaults))
 }
 
 export function resolvedAreasAffected(capture: Pick<BiohazardCleaningCapture, 'areas_affected'>, defaults: BiohazardJobDefaults = {}): string[] {
@@ -397,7 +396,7 @@ export function resolvedAreasAffected(capture: Pick<BiohazardCleaningCapture, 'a
 
 /** For example "kitchen, laundry and toilet". */
 export function resolvedAreaAffected(capture: Pick<BiohazardCleaningCapture, 'areas_affected'>, defaults: BiohazardJobDefaults = {}): string {
-  return joinNames(resolvedAreasAffected(capture, defaults))
+  return joinBiohazardNames(resolvedAreasAffected(capture, defaults))
 }
 
 export function resolvedObjective(capture: Pick<BiohazardCleaningCapture, 'objective'>, defaults: BiohazardJobDefaults = {}): string {
@@ -696,7 +695,7 @@ export function resolvedSecondaryContaminations(capture: Pick<BiohazardCleaningC
 
 /** For example "odour and flies". */
 export function resolvedSecondaryContamination(capture: Pick<BiohazardCleaningCapture, 'secondary_contaminations'>): string {
-  return joinNames(resolvedSecondaryContaminations(capture))
+  return joinBiohazardNames(resolvedSecondaryContaminations(capture))
 }
 
 export function resolvedOtherZones(capture: Pick<BiohazardCleaningCapture, 'other_zones'>): string[] {
@@ -705,7 +704,7 @@ export function resolvedOtherZones(capture: Pick<BiohazardCleaningCapture, 'othe
 
 /** For example "the garage, study and patio". */
 export function resolvedOtherZone(capture: Pick<BiohazardCleaningCapture, 'other_zones'>): string {
-  return joinNames(resolvedOtherZones(capture))
+  return joinBiohazardNames(resolvedOtherZones(capture))
 }
 
 export function secondaryZoneInUse(capture: Pick<BiohazardCleaningCapture, 'secondary_zone' | 'secondary_contaminations' | 'secondary_objective' | 'secondary_m2' | 'secondary_rooms'>): boolean {
@@ -815,10 +814,14 @@ export function fillBiohazardPlaceholders(
     secondaryZone?: string
     secondaryContamination?: string
     otherZones?: string
+    /** Print the zone name instead of repeating the room list. */
+    zoneReferences?: boolean
   },
 ): string {
   return text.replace(/\[([^\[\]\n]+)\]/g, (match, raw: string) => {
     const key = placeholderKey(raw)
+    if (values.zoneReferences && (key === 'area affected' || key === 'primary zone')) return 'primary zone'
+    if (values.zoneReferences && key === 'secondary zone') return 'secondary zone'
     if (key === 'biohazard type' && values.biohazardType.trim()) return values.biohazardType.trim()
     if ((key === 'area affected' || key === 'primary zone') && values.areaAffected.trim()) return values.areaAffected.trim()
     if (key === 'secondary zone' && values.secondaryZone?.trim()) return values.secondaryZone.trim()
@@ -826,6 +829,9 @@ export function fillBiohazardPlaceholders(
     if ((key === 'other zones' || key === 'unaffected areas') && values.otherZones?.trim()) return values.otherZones.trim()
     return match
   })
+    .replace(/primary decontamination zone, the primary zone/gi, 'primary zone')
+    .replace(/the primary zone, the primary zone/gi, 'the primary zone')
+    .replace(/the secondary zone, the secondary zone/gi, 'the secondary zone')
 }
 
 /**
@@ -925,29 +931,37 @@ export function biohazardCleaningQuoteContent(input: {
   const secondaryContamination = resolvedSecondaryContamination(capture)
   const secondaryObjective = (capture.secondary_objective ?? '').trim()
   const otherZones = resolvedOtherZone(capture)
-  const fill = (text: string) =>
-    fillBiohazardPlaceholders(withoutUnusedQuoteLines(
-      rewriteBiohazardAreaExclusion(text, areaAffected),
-      figures.has_secondary,
-      Boolean(otherZones),
-    ), {
-      biohazardType,
-      areaAffected,
-      secondaryZone,
-      secondaryContamination,
-      otherZones,
-    })
-  const lines = (text: string) => biohazardClauseLines(fill(text)).map(sentenceStart)
-  const jobAddress = (capture.job_address ?? input.siteAddress).trim()
   const printedRooms = (list: SurfaceAreaRoom[]) => list.flatMap(room => {
     const measure = roomSurfaceArea(room)
     if (!measure) return []
     return [{
-      name: room.name.trim() || 'Room',
+      name: (room.name.trim() || 'Room').replace(/\bwarddrobe\b/gi, 'wardrobe'),
       detail: `${room.length_m} × ${room.width_m} × ${room.height_m} m`,
       area_m2: measure.total,
+      length_m: room.length_m as number,
+      width_m: room.width_m as number,
+      height_m: room.height_m as number,
     }]
   })
+  const primaryRooms = printedRooms(capture.rooms ?? [])
+  const secondaryRooms = figures.has_secondary ? printedRooms(capture.secondary_rooms ?? []) : []
+  const primaryLabel = joinBiohazardNames(primaryRooms.map(room => room.name)) || areaAffected
+  const secondaryLabel = joinBiohazardNames(secondaryRooms.map(room => room.name)) || secondaryZone
+  const fillValues = {
+    biohazardType,
+    areaAffected: primaryLabel,
+    secondaryZone: secondaryLabel,
+    secondaryContamination,
+    otherZones,
+  }
+  const fill = (text: string, zoneReferences = false) =>
+    fillBiohazardPlaceholders(withoutUnusedQuoteLines(
+      rewriteBiohazardAreaExclusion(text, areaAffected),
+      figures.has_secondary,
+      Boolean(otherZones),
+    ), { ...fillValues, zoneReferences })
+  const lines = (text: string) => biohazardClauseLines(fill(text, true)).map(sentenceStart)
+  const jobAddress = (capture.job_address ?? input.siteAddress).trim().replace(/[,\s]+$/g, '')
   return {
     title: biohazardCleaningDocumentTitle(resolvedBiohazardKind(capture, defaults.jobType)),
     reference: input.reference,
@@ -955,21 +969,21 @@ export function biohazardCleaningQuoteContent(input: {
     site_address: jobAddress,
     job_address: jobAddress,
     biohazard_type: biohazardType,
-    area_affected: areaAffected,
+    area_affected: primaryLabel,
     description: fill(capture.description).trim(),
     objective: fill(resolvedObjective(capture, defaults)).trim(),
     scope_of_work: lines(biohazardScopeWithServices(clauses.scope_of_work, capture)),
     estimated_m2: figures.estimated_m2,
     rate_per_m2: figures.rate_per_m2,
     area_amount: figures.area_amount,
-    rooms: printedRooms(capture.rooms ?? []),
-    secondary_zone: secondaryZone,
+    rooms: primaryRooms,
+    secondary_zone: figures.has_secondary ? secondaryLabel : '',
     secondary_contamination: figures.has_secondary ? secondaryContamination : '',
     secondary_objective: figures.has_secondary ? secondaryObjective : '',
     secondary_m2: figures.secondary_m2,
     secondary_rate_per_m2: figures.secondary_rate_per_m2,
     secondary_amount: figures.secondary_amount,
-    secondary_rooms: figures.has_secondary ? printedRooms(capture.secondary_rooms ?? []) : [],
+    secondary_rooms: secondaryRooms,
     has_secondary: figures.has_secondary,
     other_zones: otherZones,
     travel_km: figures.travel_km,

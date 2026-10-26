@@ -8,6 +8,7 @@ import type { Job } from '@/lib/types'
 import { plainClearanceClause } from '@/lib/contentsClearanceFlags'
 import { isEngagementToken } from '@/lib/quoteEngagement'
 import { presentingHealthHazardsFromAssessment, presentingRisksFromAssessment } from '@/lib/documentGenerationDrivers'
+import { biohazardQuoteZones } from '@/lib/biohazardQuoteLayout'
 import {
   BIOHAZARD_ATP_SCOPE_LINE,
   BIOHAZARD_CLAUSE_KEYS,
@@ -78,6 +79,8 @@ export const BIOHAZARD_FLAG_CODES = [
   'inclusion_exclusion_conflict',
   'title_type_mismatch',
   'scope_not_auditable',
+  'zone_room_unmeasured',
+  'measured_room_not_in_zone',
 ] as const
 
 /** What a scope step must say for a Certified Occupational Hygienist to audit it. */
@@ -228,6 +231,8 @@ export function biohazardFlagText(flag: Pick<BiohazardCheckFlag, 'code' | 'subje
         ? `A hygienist auditing this step could not tell ${gap}.`
         : 'A hygienist auditing this step could not tell what is done.'
     }
+    case 'zone_room_unmeasured': return `"${flag.subject}" is listed in a zone but has no measurement.`
+    case 'measured_room_not_in_zone': return `"${flag.subject}" is measured but is not listed in that zone.`
   }
 }
 
@@ -392,6 +397,9 @@ export function biohazardRuleFlags(
   if (capture.lab_testing && !capture.atp_testing) rule('missing_field', 'quantities', 'atp_testing')
   if (!text.description) rule('missing_field', 'details', 'description')
   if (!text.objective) rule('missing_field', 'details', 'objective')
+  for (const miss of biohazardQuoteZones(capture, figures, context.defaults).mismatches) {
+    rule(miss.issue === 'listed_not_measured' ? 'zone_room_unmeasured' : 'measured_room_not_in_zone', 'details', miss.room)
+  }
 
   const scope = text.clauses.scope_of_work
   for (const stage of BIOHAZARD_STAGES) {

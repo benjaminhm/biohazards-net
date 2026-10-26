@@ -23,6 +23,8 @@ import {
   mergeBiohazardCheck,
   type BiohazardCheckContext,
 } from '@/lib/biohazardCleaningCheck'
+import { biohazardQuoteZones, depositFromTotal } from '@/lib/biohazardQuoteLayout'
+import { DEFAULT_ENGAGEMENT_AGREEMENT } from '@/lib/quoteEngagement'
 import type { AssessmentData, Job } from '@/lib/types'
 
 function job(assessment: Partial<AssessmentData> = {}, jobType: Job['job_type'] = 'trauma') {
@@ -77,8 +79,8 @@ test('the job type and assessment fill the title, biohazard type, and area affec
   assert.equal(content.title, 'Unattended Death Cleaning')
   assert.equal(content.biohazard_type, 'decomposition fluids')
   assert.equal(content.area_affected, 'Lounge')
-  assert.match(content.scope_of_work[0], /Isolate the primary decontamination zone, the Lounge, with containment/)
-  assert.match(content.assumptions.join('\n'), /^Decomposition fluids has not spread beyond the Lounge/m)
+  assert.match(content.scope_of_work[0], /Isolate the primary zone, with containment/)
+  assert.match(content.assumptions.join('\n'), /^Decomposition fluids has not spread beyond the primary zone/m)
 })
 
 test('the printed quote fills the placeholders and the engagement agreement', () => {
@@ -230,7 +232,7 @@ test('a secondary zone is priced at its own rate and printed beside the primary 
     defaults: biohazardJobDefaults(job()),
   })
   assert.equal(content.secondary_contamination, 'odour and flies')
-  assert.match(content.scope_of_work.join('\n'), /Treat the secondary zone, the hallway and lounge, for odour and flies/)
+  assert.match(content.scope_of_work.join('\n'), /Treat the secondary zone, for odour and flies/)
   assert.match(content.inclusions.join('\n'), /Treatment of odour and flies in the secondary zone/)
   const html = buildPrintHTML(
     'biohazard_cleaning_quote',
@@ -238,8 +240,8 @@ test('a secondary zone is priced at its own rate and printed beside the primary 
     [], [], null, 'job', 'http://localhost', undefined, { screenActionBar: false },
   )
   assert.match(html, /Primary decontamination zone/)
-  assert.match(html, /Secondary contamination/)
-  assert.match(html, /Secondary zone objective/)
+  assert.match(html, /Contaminant/)
+  assert.match(html, /Secondary zone/)
   assert.match(html, /Remove the odour and the flies/)
   assert.doesNotMatch(html, /\[secondary zone\]|\[secondary contamination\]/)
 })
@@ -306,7 +308,7 @@ test('listed other zones go in the exclusions as non-affected, and stay off the 
     content as unknown as Record<string, unknown>,
     [], [], null, 'job', 'http://localhost', undefined, { screenActionBar: false },
   )
-  assert.match(html, /Non-affected zones/)
+  assert.match(html, /inspected and considered non-affected/)
   const context = biohazardCheckContext(job({
     areas: [
       { name: 'Main bedroom', sqm: 0, hazard_level: 1, description: '' },
@@ -366,7 +368,7 @@ test('the last unattended death quote is remembered for the next one, and other 
     capture: filled({ cleaning_kind: 'unattended_death', biohazard_types: ['decomposition fluids'], areas_affected: ['lounge'], clauses: next }),
     defaults: biohazardJobDefaults(job()),
   })
-  assert.deepEqual(content.inclusions, ['Removal of decomposition fluids from the lounge.'])
+  assert.deepEqual(content.inclusions, ['Removal of decomposition fluids from the primary zone.'])
   assert.equal(normalizeBiohazardCleaningCapture({ clauses_from_kind: 'unattended_death' }).clauses_from_kind, 'unattended_death')
   assert.equal(normalizeBiohazardCleaningCapture({ clauses_from_kind: 'made_up' }).clauses_from_kind, null)
 })
@@ -469,4 +471,150 @@ test('the model may flag a scope step a hygienist could not audit, quoting the s
   }, capture, NO_ASSESSMENT, [])
   assert.deepEqual(accepted.flags.map(flag => flag.subject), ['how', 'where'])
   assert.match(biohazardFlagText(accepted.flags[0]), /could not tell how: the method, product, or standard/)
+})
+
+const BCQ_355F_SCOPE = `Isolate the primary decontamination zone, the [area affected], with containment barriers and signage, and control access to the work area. Set up a decontamination point at the zone exit.
+Technicians wear PPE suited to [biohazard type]: disposable coveralls, nitrile gloves (double gloved), eye protection, and a P2 respirator or better, fitted to AS/NZS 1715.
+Remove gross [biohazard type] from the tiled floors, tiled skirting boards, and gyprock plasterboard walls in the [area affected]. Remove all porous materials visibly affected by [biohazard type] to at least 300 mm beyond the visible staining, including any affected gyprock plasterboard. Bag and seal all removed material as clinical waste.
+Clean all non-porous surfaces in the [area affected], including tiled floors and tiled skirting boards, with a detergent solution, working top to bottom and clean to dirty, to remove all organic residue.
+Disinfect all cleaned non-porous surfaces in the [area affected] with a TGA-registered hospital-grade disinfectant, applied at the contact time stated on the label. Record the product name and batch number.
+Seal any semi-porous surfaces in the [area affected], such as exposed substrate or grout lines, with an encapsulant where staining or odour remains after cleaning and disinfection.
+Verify the primary zone clean by visual inspection of all treated surfaces in the [area affected]: no visible residue or staining on the tiled floors, tiled skirting boards, or remaining wall surfaces, and no detectable odour from them.
+Transport and dispose of all [biohazard type] waste, including bagged porous materials and clinical waste, at a licensed facility under AS/NZS 3816 and the applicable state EPA rules. Retain all disposal certificates.
+Deodorise the [area affected] after cleaning. First confirm the contamination source has been fully removed, then apply thermal fogging with an odour counteractant to the Kitchen, Laundry, and Toilet. Seal any remaining semi-porous surfaces such as grout or exposed substrate that continue to hold odour with an encapsulant.
+Treat the secondary zone, the [secondary zone], for [secondary contamination]. Remove all dead flies from surfaces, floors, window sills, and ledges throughout the [secondary zone] by HEPA-vacuum and wipe-down. Clean and sanitise all surfaces in the [secondary zone] that flies may have contacted, using a TGA-registered hospital-grade disinfectant at the label contact time.
+Deodorise the [secondary zone] to remove odours and VOCs affecting paint and carpet. Run hydroxyl/ozon2 generators throughout the [secondary zone] for sufficient dwell time to neutralise VOCs. Where carpet retains odour after hydroxyl/ozon2 treatment, apply a topical odour counteractant by spray application.
+Provide a completion report: photos before, during, and after the works, disinfectant records, waste disposal certificates, and test results where testing is on this quote.`
+
+function quote355F(): BiohazardCleaningCapture {
+  return {
+    ...emptyBiohazardCleaningCapture(),
+    cleaning_kind: 'unattended_death',
+    biohazard_types: ['decomposition fluids'],
+    areas_affected: ['Laundry', 'kitchen', 'toilet'],
+    description: 'Tenant of property located deceased in the kitchen at the entryway to the laundry. Decomposition fluids have migrated from that location into the laundry, and toilet. Structural elements affected are tiled floors, tiled skirting board, gyprock plasterboard walls.',
+    objective: 'To remove fuild contamination, malodours from structural and non-strucutral elements to remediate and make safe the property to enable structural ',
+    estimated_m2: 103.48,
+    rate_per_m2: 39,
+    rooms: [
+      { id: '1', name: 'Kitchen', length_m: 4, width_m: 3.2, height_m: 2.4 },
+      { id: '2', name: 'Laundry', length_m: 2.2, width_m: 1.8, height_m: 2.4 },
+      { id: '3', name: 'Toilet', length_m: 1.8, width_m: 0.9, height_m: 2.4 },
+    ],
+    secondary_zone: 'Living room, staircase, hallway, bedroom, bathroom, master bedroom, walk-in warddrobe.',
+    secondary_contaminations: ['odour', 'flies'],
+    secondary_objective: 'Remove  dead flys, clean and sanitise all surfaces potentially and assumes to have be contaminated by flies, and remove odours (VOCs) affecting paint and carpet.',
+    secondary_m2: 361.36,
+    secondary_rate_per_m2: 15,
+    secondary_rooms: [
+      { id: '4', name: 'Living', length_m: 5, width_m: 4, height_m: 2.4 },
+      { id: '5', name: 'Main bedroom', length_m: 4, width_m: 3.6, height_m: 2.4 },
+      { id: '6', name: 'Bedroom', length_m: 3.5, width_m: 3, height_m: 2.4 },
+      { id: '7', name: 'Hall', length_m: 6, width_m: 1.2, height_m: 2.4 },
+      { id: '8', name: 'Bathroom', length_m: 2.2, width_m: 1.8, height_m: 2.4 },
+      { id: '9', name: 'Garage', length_m: 6, width_m: 3, height_m: 2.7 },
+    ],
+    travel_km: 27.3,
+    rate_per_km: 2,
+    labour_days: 5,
+    rate_per_labour_day: 650,
+    mobilisation_fee: 1000,
+    atp_testing: true,
+    atp_tests: 1,
+    atp_rate: 1500,
+    lab_testing: true,
+    lab_tests: 3,
+    lab_rate: 150,
+    clauses: {
+      ...defaultBiohazardCleaningClauses(DEFAULT_ENGAGEMENT_AGREEMENT),
+      scope_of_work: BCQ_355F_SCOPE,
+      inclusions: 'Biohazard cleaning of the [area affected], as set out in the scope of work.\nSurface cleaning of the estimated area at the rate per square metre on this quote.\nTravel at the rate per kilometre on this quote.\nLabour for the labour days on this quote, as a fixed amount.',
+      exclusions: 'Repairs, rebuilding, and restoration, including replacing removed materials.\nAreas other than the [area affected].\nContents removal, other than materials affected by [biohazard type].\nHazardous building materials, such as asbestos.',
+    },
+  }
+}
+
+test('BCQ-20261026-355F keeps the total and deposit, and prints matching zone rooms', () => {
+  const capture = quote355F()
+  const figures = biohazardCleaningFigures(capture)
+  assert.equal(figures.estimated_m2, 103.48)
+  assert.equal(figures.secondary_m2, 361.36)
+  assert.equal(figures.subtotal, 15710.72)
+  assert.equal(figures.gst, 1571.07)
+  assert.equal(figures.total, 17281.79)
+  assert.deepEqual(depositFromTotal(figures.total), { deposit: 8640.90, balance: 8640.89 })
+
+  const zones = biohazardQuoteZones(capture, figures)
+  assert.equal(zones.primary.rooms_label, 'Kitchen, Laundry and Toilet')
+  assert.equal(zones.secondary?.rooms_label, 'Living, Main bedroom, Bedroom, Hall, Bathroom and Garage')
+  assert.deepEqual(
+    zones.mismatches.map(flag => `${flag.issue}:${flag.room}`).sort(),
+    ['listed_not_measured:staircase', 'listed_not_measured:walk-in wardrobe', 'measured_not_listed:Garage'].sort(),
+  )
+  const flags = biohazardRuleFlags(capture, biohazardCheckContext(job())).map(flag => `${flag.code}:${flag.subject}`)
+  assert.ok(flags.includes('zone_room_unmeasured:staircase'))
+  assert.ok(flags.includes('zone_room_unmeasured:walk-in wardrobe'))
+  assert.ok(flags.includes('measured_room_not_in_zone:Garage'))
+
+  const content = biohazardCleaningQuoteContent({
+    reference: 'BCQ-20261026-355F',
+    clientName: 'Jemma Archibald (Property Manager)',
+    siteAddress: '7/2 Bishop Street, Eagleby QLD 4207,',
+    capture,
+  })
+  assert.equal(content.total, 17281.79)
+  assert.equal(content.area_affected, 'Kitchen, Laundry and Toilet')
+  assert.equal(content.secondary_zone, 'Living, Main bedroom, Bedroom, Hall, Bathroom and Garage')
+  assert.equal(content.job_address, '7/2 Bishop Street, Eagleby QLD 4207')
+  assert.equal(content.scope_of_work.filter(line => /encapsul/i.test(line) && !/secondary zone/i.test(line)).length, 2)
+
+  const html = buildPrintHTML(
+    'biohazard_cleaning_quote',
+    content as unknown as Record<string, unknown>,
+    [],
+    [],
+    { name: 'Forensic Cleaning QLD' } as never,
+    '355fd28f-83d5-4a27-90c5-91ccaa1cf673',
+    'http://localhost',
+    {
+      client_name: 'Jemma Archibald (Property Manager)',
+      client_organization_name: 'Ray White Waterford',
+      client_contact_role: '',
+      client_phone: '+61480473391',
+      site_address: '7/2 Bishop Street, Eagleby QLD 4207,',
+    },
+    { screenActionBar: false },
+  )
+  assert.match(html, /Jemma Archibald, Property Manager, Ray White Waterford/)
+  assert.match(html, /bcq-nowrap">\+61480473391/)
+  assert.match(html, /Quote summary/)
+  assert.match(html, /Kitchen, Laundry and Toilet · 103\.48 m²/)
+  assert.match(html, /Living, Main bedroom, Bedroom, Hall, Bathroom and Garage · 361\.36 m²/)
+  assert.match(html, /\$17,281\.79/)
+  assert.match(html, /\$8,640\.90/)
+  assert.match(html, /Odour and insect treatment of the secondary zone/)
+  assert.match(html, /Secondary zone square metres on this quote are an estimate/)
+  assert.match(html, /Estimated secondary surface: 361\.36 m² at \$15\.00 ex GST = \$5,420\.40/)
+  assert.match(html, /☐ Agent for owner \(authority held\)/)
+  assert.match(html, /☐ Owner/)
+  assert.doesNotMatch(html, /Executor, probate|Administrator, letters granted/)
+  assert.doesNotMatch(html, /3\.1 Contents/)
+  assert.match(html, /3\.1 Travel is estimated/)
+  assert.match(html, /Measured items \(estimated\)/)
+  assert.match(html, /Fixed items/)
+  assert.match(html, />Totals</)
+  assert.match(html, /m² = floor \+ walls \+ ceiling/)
+  assert.match(html, />Travel</)
+  assert.equal((html.match(/This figure is an estimate/g) ?? []).length, 1)
+  assert.match(html, /to enable structural repairs/)
+  assert.match(html, /assumed to have been/)
+  assert.match(html, /hydroxyl\/ozone/)
+  assert.doesNotMatch(html, /fuild|strucutral|warddrobe|flys|ozon2|assumes to have be/)
+  assert.equal((html.match(/encapsulant/gi) ?? []).length, 1)
+  assert.match(html, /1\. Site setup and PPE/)
+  assert.match(html, /2\. Primary zone/)
+  assert.match(html, /3\. Secondary zone/)
+  assert.match(html, /6\. Completion records/)
+  assert.match(html, /Forensic Cleaning QLD — Confidential · BCQ-20261026-355F · Page/)
+  assert.match(html, /bcq-sign/)
 })

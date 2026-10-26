@@ -56,6 +56,17 @@ import {
   BIOHAZARD_TRAVEL_NOTE,
   type BiohazardCleaningQuoteContent,
 } from '@/lib/biohazardCleaningQuote'
+import {
+  adaptBiohazardEngagement,
+  biohazardClientKind,
+  depositFromTotal,
+  formatBcqClientLine,
+  groupBiohazardScope,
+  quoteValidUntil,
+  tidyBiohazardAddress,
+  tidyBiohazardPrintText,
+  withBothZonePrintClauses,
+} from '@/lib/biohazardQuoteLayout'
 
 // en-AU locale produces comma separators and dollar sign (e.g. $4,500.00)
 const fmtMoney = (n: number) =>
@@ -831,6 +842,64 @@ function cssSowPrint(): string {
     .sow-root.ccq-doc .ccq-sign { display: flex; gap: 18px; margin-top: 10px; }
     .sow-root.ccq-doc .ccq-sign span { flex: 1; }
     .sow-root.ccq-doc .sow-foot span { letter-spacing: 0; }
+    .sow-root.bcq-doc { font-size: 10.25pt; line-height: 1.4; }
+    .sow-root.bcq-doc .sow-doc-title { letter-spacing: 0; }
+    .sow-root.bcq-doc .sow-mid .label,
+    .sow-root.bcq-doc .label,
+    .sow-root.bcq-doc .sow-sec-title {
+      letter-spacing: 0.03em;
+      font-size: 8.5pt;
+      margin-top: 22px;
+    }
+    .sow-root.bcq-doc .sow-mid .body-text { font-size: 10.25pt; line-height: 1.4; max-width: 90ch; }
+    .sow-root.bcq-doc .bcq-nowrap { white-space: nowrap; }
+    .sow-root.bcq-doc .bcq-meta {
+      display: grid;
+      grid-template-columns: 1.15fr 1.25fr 1fr;
+      gap: 0;
+      border: 1px solid var(--sow-rule);
+      margin-bottom: 16px;
+      background: var(--sow-blue-xs);
+    }
+    .sow-root.bcq-doc .bcq-meta-cell { padding: 10px 12px; border-right: 1px solid var(--sow-rule); min-width: 0; }
+    .sow-root.bcq-doc .bcq-meta-cell:last-child { border-right: none; }
+    .sow-root.bcq-doc .bcq-meta-value {
+      font-size: 9.5pt;
+      font-weight: 500;
+      overflow-wrap: break-word;
+      word-break: normal;
+      hyphens: none;
+    }
+    .sow-root.bcq-doc .bcq-summary {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 10px 16px;
+      padding: 12px 14px;
+      margin-bottom: 20px;
+      background: var(--sow-blue-lt);
+      border-left: 3px solid var(--sow-blue);
+      page-break-inside: avoid;
+    }
+    .sow-root.bcq-doc .bcq-summary-label { font-size: 7.5pt; font-weight: 700; text-transform: uppercase; color: var(--sow-muted); letter-spacing: 0.03em; }
+    .sow-root.bcq-doc .bcq-summary-value { font-size: 10pt; font-weight: 600; max-width: 90ch; overflow-wrap: break-word; word-break: normal; }
+    .sow-root.bcq-doc .bcq-zones { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 0 0 22px; }
+    .sow-root.bcq-doc .bcq-zone { border: 1px solid var(--sow-rule); padding: 10px 12px; page-break-inside: avoid; }
+    .sow-root.bcq-doc .bcq-zone-primary { background: #e8f0fa; border-left: 4px solid var(--sow-navy); }
+    .sow-root.bcq-doc .bcq-zone-secondary { background: var(--sow-blue-xs); border-left: 4px solid var(--sow-muted); }
+    .sow-root.bcq-doc .bcq-zone h3 { margin: 0 0 8px; font-size: 10.5pt; letter-spacing: 0; }
+    .sow-root.bcq-doc .bcq-phase { margin: 16px 0 0; }
+    .sow-root.bcq-doc .bcq-phase h3 { font-size: 10.5pt; margin: 0 0 6px; letter-spacing: 0; }
+    .sow-root.bcq-doc .bcq-phase ol { margin: 0; padding-left: 1.2em; }
+    .sow-root.bcq-doc .bcq-phase li { margin: 0 0 6px; max-width: 90ch; }
+    .sow-root.bcq-doc .bcq-rooms { padding: 4px 8px 8px 18px !important; }
+    .sow-root.bcq-doc .bcq-rooms table { margin: 4px 0 0; width: 100%; }
+    .sow-root.bcq-doc .bcq-rooms th,
+    .sow-root.bcq-doc .bcq-rooms td { font-size: 8.5pt; color: var(--sow-mid); }
+    .sow-root.bcq-doc .bcq-foot-note { font-size: 8.5pt; font-style: italic; color: var(--sow-muted); margin: 6px 0 12px; }
+    .sow-root.bcq-doc .bcq-totals { margin-left: auto; max-width: 280px; }
+    .sow-root.bcq-doc .bcq-sign { page-break-before: always; padding-top: 8px; }
+    .sow-root.bcq-doc .engagement-text { white-space: pre-wrap; font-size: 10pt; max-width: 90ch; line-height: 1.4; }
+    .sow-root.bcq-doc .bcq-page::after { content: counter(page) " of " counter(pages); }
     @media screen {
       .sow-root.ccq-doc .sow-sheet { box-sizing: border-box; padding: 15mm; }
     }
@@ -875,6 +944,27 @@ function cssSowPrint(): string {
         orphans: unset !important;
         widows: unset !important;
       }
+      .sow-root.bcq-doc table,
+      .sow-root.bcq-doc .bcq-zone,
+      .sow-root.bcq-doc .bcq-zones,
+      .sow-root.bcq-doc .bcq-summary,
+      .sow-root.bcq-doc .bcq-sign {
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
+      }
+      .sow-root.bcq-doc .bcq-sign {
+        break-before: page !important;
+        page-break-before: always !important;
+      }
+      .sow-root.bcq-doc .sow-foot {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        break-inside: auto !important;
+        page-break-inside: auto !important;
+      }
+      .sow-root.bcq-doc .sow-sheet { padding-bottom: 14mm; }
     }
   `
 }
@@ -885,6 +975,7 @@ export interface ClientInfo {
   client_name?: string
   /** When set, shown with contact name in the Client meta cell (e.g. "ACME — Jane Smith"). */
   client_organization_name?: string
+  client_contact_role?: string
   client_email?: string
   client_phone?: string
   /** Job site / address of works (from jobs.site_address). */
@@ -3664,53 +3755,68 @@ function buildSurfaceAreaCleaningHTML(
   return wrapBranded(mid, title, title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
+function bcqRoomTable(rooms: BiohazardCleaningQuoteContent['rooms']): string {
+  if (!rooms.length) return ''
+  return `
+    <tr>
+      <td colspan="4" class="bcq-rooms">
+        <table>
+          <thead><tr><th>Room</th><th class="r">L × W × H</th><th class="r">m²</th></tr></thead>
+          <tbody>
+            ${rooms.map(room => `
+              <tr>
+                <td>${esc(room.name)}</td>
+                <td class="r">${esc(`${room.length_m} × ${room.width_m} × ${room.height_m}`)}</td>
+                <td class="r">${esc(clearanceQty(room.area_m2, 'm²'))}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+        <div class="bcq-foot-note">m² = floor + walls + ceiling</div>
+      </td>
+    </tr>`
+}
+
 function buildBiohazardCleaningMid(
   c: BiohazardCleaningQuoteContent,
   company: CompanyProfile | null = null,
   client?: ClientInfo,
 ): string {
-  type Row = { label: string; quantity: string; note?: string; rate: string; amount: number }
-  const estimated: Row[] = [
-    {
-      label: c.has_secondary ? 'Primary zone (decontamination)' : 'Surface',
-      quantity: clearanceQty(c.estimated_m2, 'm²'),
-      note: BIOHAZARD_ESTIMATE_NOTE,
-      rate: `${fmtMoney(c.rate_per_m2)} / m²`,
-      amount: c.area_amount,
-    },
-  ]
-  if (c.has_secondary) {
-    estimated.push({
-      label: 'Secondary zone (odour and insects)',
-      quantity: clearanceQty(c.secondary_m2, 'm²'),
-      note: BIOHAZARD_ESTIMATE_NOTE,
-      rate: `${fmtMoney(c.secondary_rate_per_m2)} / m²`,
-      amount: c.secondary_amount,
-    })
-  }
-  if ((c.travel_km ?? 0) > 0 || (c.rate_per_km ?? 0) > 0) {
-    estimated.push({
-      label: 'Travel',
-      quantity: clearanceQty(c.travel_km, 'km'),
-      note: BIOHAZARD_TRAVEL_NOTE,
-      rate: `${fmtMoney(c.rate_per_km)} / km`,
-      amount: c.travel_amount,
-    })
-  }
-  const roomNote = (prefix: string) => (room: { name: string; detail: string; area_m2: number }) =>
-    `${prefix}${room.name} ${room.detail} — ${clearanceQty(room.area_m2, 'm²')}`
-  const roomNotes = [
-    ...(c.rooms ?? []).map(roomNote(c.has_secondary ? 'Primary zone: ' : '')),
-    ...(c.has_secondary ? (c.secondary_rooms ?? []).map(roomNote('Secondary zone: ')) : []),
-  ]
-  const fixed: Row[] = []
+  const address = tidyBiohazardAddress(c.job_address || c.site_address)
+  const kind = biohazardClientKind({
+    clientName: c.client_name || client?.client_name,
+    contactRole: client?.client_contact_role,
+    organization: client?.client_organization_name,
+  })
+  const split = depositFromTotal(c.total)
+  const clauses = withBothZonePrintClauses(c.inclusions ?? [], c.assumptions ?? [], {
+    has_secondary: c.has_secondary,
+    mobilisation_fee: c.mobilisation_fee,
+    extra_labels: (c.extra_lines ?? []).map(line => line.label),
+  })
+  const phases = groupBiohazardScope(c.scope_of_work ?? [])
+  const measuredRows = (label: string, amount: number, rate: number, m2: number, rooms: BiohazardCleaningQuoteContent['rooms']) => `
+    <tr>
+      <td>${esc(label)}</td>
+      <td class="r">${esc(clearanceQty(m2, 'm²'))}</td>
+      <td class="r">${esc(`${fmtMoney(rate)} / m²`)}</td>
+      <td class="r">${fmtMoney(amount)}</td>
+    </tr>
+    ${bcqRoomTable(rooms)}`
+  const travel = (c.travel_km ?? 0) > 0 || (c.rate_per_km ?? 0) > 0
+    ? `<tr>
+        <td>Travel</td>
+        <td class="r">${esc(clearanceQty(c.travel_km, 'km'))}</td>
+        <td class="r">${esc(`${fmtMoney(c.rate_per_km)} / km`)}</td>
+        <td class="r">${fmtMoney(c.travel_amount)}</td>
+      </tr>`
+    : ''
+  const fixed: { label: string; quantity: string; rate: string; amount: number }[] = []
   if ((c.mobilisation_fee ?? 0) > 0) {
     fixed.push({ label: 'Mobilisation', quantity: '1 fee', rate: fmtMoney(c.mobilisation_fee), amount: c.mobilisation_fee })
   }
   fixed.push({
     label: 'Labour',
     quantity: clearanceQty(c.labour_days, c.labour_days === 1 ? 'labour day' : 'labour days'),
-    note: BIOHAZARD_LABOUR_NOTE,
     rate: 'Fixed',
     amount: c.labour_amount,
   })
@@ -3722,50 +3828,81 @@ function buildBiohazardCleaningMid(
       amount: line.amount,
     })
   }
-  const sectionAmount = (lines: { amount: number }[]) =>
-    Math.round(lines.reduce((sum, line) => sum + line.amount, 0) * 100) / 100
-  const meta = (label: string, value: string, first = false) => `
-      <div class="sow-meta-label" style="margin:${first ? '0 0 6px' : '10px 0 6px'};">${label}</div>
-      <div class="body-text" style="font-weight:500;color:var(--sow-navy);">${esc(value || '—')}</div>`
-  return `
-    <div class="sow-summary" style="margin-bottom:20px;">
-      ${meta('Client', c.client_name, true)}
-      ${meta('Job address', c.job_address || c.site_address)}
-      ${c.biohazard_type ? meta('Biohazard', c.biohazard_type) : ''}
-      ${c.area_affected ? meta(c.has_secondary ? 'Primary decontamination zone' : 'Area affected', c.area_affected) : ''}
-      ${c.has_secondary && c.secondary_zone ? meta('Secondary zone', c.secondary_zone) : ''}
-      ${c.has_secondary && c.secondary_contamination ? meta('Secondary contamination', c.secondary_contamination) : ''}
-      ${c.other_zones ? meta('Non-affected zones', c.other_zones) : ''}
-    </div>
-    ${section('Site findings', c.description)}
-    ${section('Objective', c.objective)}
-    ${c.has_secondary && c.secondary_objective ? section('Secondary zone objective', c.secondary_objective) : ''}
-    ${clearanceList('Scope of work', c.scope_of_work ?? [])}
-    <div class="label" style="margin-top:18px">Estimated quantities</div>
-    ${clearanceTable('Estimated quantities', estimated)}
-    ${roomNotes.map(note => `<div class="body-text" style="margin-top:4px;font-style:italic;color:var(--sow-muted)">${esc(note)}</div>`).join('')}
-    ${clearanceSectionSubtotal('Estimated subtotal (ex GST)', sectionAmount(estimated))}
-    <div class="label" style="margin-top:18px">Fixed Rate Quotations</div>
-    ${clearanceTable('Quantity', fixed)}
-    ${c.mobilisation_reason ? `<div class="body-text" style="margin-top:4px;font-style:italic;color:var(--sow-muted)">${esc(c.mobilisation_reason)}</div>` : ''}
-    ${clearanceSectionSubtotal('Fixed subtotal (ex GST)', sectionAmount(fixed))}
-    <div class="totals">
-      <div class="tot-row"><span>Subtotal (ex GST)</span><span class="amt">${fmtMoney(c.subtotal)}</span></div>
-      <div class="tot-row"><span>GST (10%)</span><span class="amt">${fmtMoney(c.gst)}</span></div>
-      <div class="tot-row grand"><span>TOTAL (INC GST)</span><span class="amt">${fmtMoney(c.total)}</span></div>
-    </div>
-    ${clearanceList('Inclusions', c.inclusions ?? [])}
-    ${clearanceList('Exclusions', c.exclusions ?? [])}
-    ${clearanceList('Assumptions', c.assumptions ?? [])}
-    ${section('Payment terms', c.terms)}
-    ${section('Engagement agreement', fillBiohazardCleaningEngagement(c, {
+  const engagement = tidyBiohazardPrintText(adaptBiohazardEngagement(
+    fillBiohazardCleaningEngagement(c, {
       companyName: company?.name,
       abn: company?.abn,
       phone: client?.client_phone,
       email: client?.client_email,
-    }))}
-    ${section('Authority', c.authority)}
-    ${section('Acceptance', c.acceptance)}
+    }),
+    kind,
+    {
+      has_secondary: c.has_secondary,
+      secondary_m2: c.secondary_m2,
+      secondary_rate_per_m2: c.secondary_rate_per_m2,
+      secondary_amount: c.secondary_amount,
+    },
+  ))
+  const zoneCard = (title: string, variant: 'primary' | 'secondary', rooms: string, contaminant: string, objective: string) => `
+    <div class="bcq-zone bcq-zone-${variant}">
+      <h3>${esc(title)}</h3>
+      <div><strong>Rooms.</strong> ${esc(rooms || '—')}</div>
+      <div><strong>Contaminant.</strong> ${esc(contaminant || '—')}</div>
+      <div><strong>Objective.</strong> ${esc(tidyBiohazardPrintText(objective) || '—')}</div>
+    </div>`
+  return `
+    <div class="label">Quote summary</div>
+    <div class="bcq-summary">
+      <div><div class="bcq-summary-label">Job type</div><div class="bcq-summary-value">${esc(c.title.replace(/ Quote$/i, ''))}</div></div>
+      <div><div class="bcq-summary-label">Address</div><div class="bcq-summary-value">${esc(address || '—')}</div></div>
+      <div><div class="bcq-summary-label">Primary zone</div><div class="bcq-summary-value">${esc(`${c.area_affected || '—'} · ${clearanceQty(c.estimated_m2, 'm²')}`)}</div></div>
+      ${c.has_secondary ? `<div><div class="bcq-summary-label">Secondary zone</div><div class="bcq-summary-value">${esc(`${c.secondary_zone || '—'} · ${clearanceQty(c.secondary_m2, 'm²')}`)}</div></div>` : ''}
+      <div><div class="bcq-summary-label">Total inc GST</div><div class="bcq-summary-value">${fmtMoney(c.total)}</div></div>
+      <div><div class="bcq-summary-label">Deposit due</div><div class="bcq-summary-value">${fmtMoney(split.deposit)}</div></div>
+      <div><div class="bcq-summary-label">Quote valid until</div><div class="bcq-summary-value">${esc(quoteValidUntil())}</div></div>
+    </div>
+    ${section('Site findings', tidyBiohazardPrintText(c.description))}
+    <div class="bcq-zones">
+      ${zoneCard('Primary decontamination zone', 'primary', c.area_affected, c.biohazard_type, c.objective)}
+      ${c.has_secondary ? zoneCard('Secondary zone — odour and insects', 'secondary', c.secondary_zone, c.secondary_contamination, c.secondary_objective) : ''}
+    </div>
+    <div class="label" style="margin-top:8px">Scope of work</div>
+    ${phases.map(phase => `
+      <div class="bcq-phase">
+        <h3>${esc(phase.title)}</h3>
+        <ol>${phase.steps.map(step => `<li>${esc(step)}</li>`).join('')}</ol>
+      </div>`).join('')}
+    <div class="label" style="margin-top:18px">Measured items (estimated)</div>
+    <table>
+      <thead><tr><th>Item</th><th class="r">Quantity</th><th class="r">Rate (ex GST)</th><th class="r">Amount</th></tr></thead>
+      <tbody>
+        ${measuredRows(c.has_secondary ? 'Primary zone (decontamination)' : 'Surface', c.area_amount, c.rate_per_m2, c.estimated_m2, c.rooms ?? [])}
+        ${c.has_secondary ? measuredRows('Secondary zone (odour and insects)', c.secondary_amount, c.secondary_rate_per_m2, c.secondary_m2, c.secondary_rooms ?? []) : ''}
+        ${travel}
+      </tbody>
+    </table>
+    <div class="bcq-foot-note">${esc(BIOHAZARD_ESTIMATE_NOTE)} Travel: ${esc(BIOHAZARD_TRAVEL_NOTE)}</div>
+    <div class="label" style="margin-top:18px">Fixed items</div>
+    ${clearanceTable('Quantity', fixed)}
+    ${c.mobilisation_reason ? `<div class="bcq-foot-note">${esc(c.mobilisation_reason)}</div>` : ''}
+    <div class="bcq-foot-note">${esc(BIOHAZARD_LABOUR_NOTE)}</div>
+    <div class="label" style="margin-top:18px">Totals</div>
+    <div class="totals bcq-totals">
+      <div class="tot-row"><span>Subtotal (ex GST)</span><span class="amt">${fmtMoney(c.subtotal)}</span></div>
+      <div class="tot-row"><span>GST (10%)</span><span class="amt">${fmtMoney(c.gst)}</span></div>
+      <div class="tot-row grand"><span>TOTAL (INC GST)</span><span class="amt">${fmtMoney(c.total)}</span></div>
+      <div class="tot-row"><span>Deposit (50%)</span><span class="amt">${fmtMoney(split.deposit)}</span></div>
+      <div class="tot-row"><span>Balance</span><span class="amt">${fmtMoney(split.balance)}</span></div>
+    </div>
+    ${clearanceList('Inclusions', clauses.inclusions.map(tidyBiohazardPrintText))}
+    ${clearanceList('Exclusions', (c.exclusions ?? []).map(tidyBiohazardPrintText))}
+    ${clearanceList('Assumptions', clauses.assumptions.map(tidyBiohazardPrintText))}
+    ${section('Payment terms', c.terms)}
+    ${section('Engagement agreement', engagement)}
+    <div class="bcq-sign">
+      ${section('Authority', c.authority)}
+      ${section('Acceptance', c.acceptance)}
+    </div>
   `
 }
 
@@ -3777,7 +3914,40 @@ function buildBiohazardCleaningHTML(
 ): string {
   const mid = buildBiohazardCleaningMid(c, company, client)
   const title = clearancePrintTitle(c.title) || 'Biohazard Cleaning'
-  return wrapBranded(mid, title, title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
+  const clientLine = formatBcqClientLine({
+    clientName: c.client_name || client?.client_name,
+    contactRole: client?.client_contact_role,
+    organization: client?.client_organization_name,
+  })
+  const companyName = company?.name?.trim() || DEFAULT_PRINT_ORG_NAME
+  const companyBits = [(company?.phone || '').trim(), (company?.email || '').trim(), tidyBiohazardAddress(company?.address || '')].filter(Boolean)
+  const jobBits = [(client?.client_phone || '').trim(), (client?.client_email || '').trim(), tidyBiohazardAddress(c.job_address || c.site_address || client?.site_address || '')].filter(Boolean)
+  const nowrap = (value: string) => /@|\d/.test(value)
+    ? `<div class="bcq-nowrap">${esc(value)}</div>`
+    : `<div>${esc(value)}</div>`
+  const metaHtml = `
+        <div class="bcq-meta">
+          <div class="bcq-meta-cell">
+            <div class="sow-meta-label">Business details</div>
+            <div class="bcq-meta-value"><div>${esc(companyName)}</div>${companyBits.map(bit => nowrap(bit)).join('')}</div>
+          </div>
+          <div class="bcq-meta-cell">
+            <div class="sow-meta-label">Client</div>
+            <div class="bcq-meta-value">${esc(clientLine)}</div>
+          </div>
+          <div class="bcq-meta-cell">
+            <div class="sow-meta-label">Job</div>
+            <div class="bcq-meta-value">${jobBits.map(bit => nowrap(bit)).join('') || '—'}</div>
+          </div>
+        </div>`
+  const footerHtml = `<footer class="sow-foot">
+        <span>${esc(companyName)} — Confidential · ${esc(c.reference)} · Page <span class="bcq-page"></span></span>
+      </footer>`
+  return wrapBranded(mid, title, title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar, {
+    rootClass: 'bcq-doc',
+    metaHtml,
+    footerHtml,
+  }))
 }
 
 /** Mid-body HTML only (no shell). Used for composed bundles. */
