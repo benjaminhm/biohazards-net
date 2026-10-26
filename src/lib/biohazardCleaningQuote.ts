@@ -49,20 +49,24 @@ export const BIOHAZARD_CLEANING_SCHEMA = {
   ratePerKm: 0,
   ratePerLabourDay: 0,
   scope_of_work: [
-    'Set up containment around the primary decontamination zone, the [area affected], and control access to the work area.',
-    'Wear PPE suited to [biohazard type], including disposable coveralls, gloves, eye protection, and respiratory protection.',
-    'Remove gross contamination and affected porous materials from the [area affected].',
-    'Clean all affected surfaces in the [area affected] with detergent to remove residue.',
-    'Disinfect the affected surfaces with a TGA-registered hospital-grade disinfectant, at the contact time on the label.',
-    'Verify the cleaning by visual inspection.',
-    'Package, transport, and dispose of [biohazard type] waste as clinical waste at a licensed facility.',
+    'Isolate the primary decontamination zone, the [area affected], with containment, barriers, and signage, and control access to the work area. Set up a decontamination point at the zone exit.',
+    'Technicians wear PPE suited to [biohazard type]: disposable coveralls, nitrile gloves (double gloved), eye protection, and a P2 respirator or better, fitted to AS/NZS 1715.',
+    'Remove gross contamination from the [area affected], and porous materials affected by [biohazard type], such as carpet, underlay, and soft furnishings, to at least 300 mm beyond the visible staining. Bag and seal them as clinical waste.',
+    'Clean all non-porous surfaces in the [area affected] with detergent, top to bottom and clean to dirty, to remove organic residue.',
+    'Disinfect the cleaned surfaces with a TGA-registered hospital-grade disinfectant, at the contact time on the label. Record the product and batch number.',
+    'Seal semi-porous surfaces that stay in place, such as concrete or timber subfloor, with an encapsulant where staining or odour remains after cleaning.',
+    'Verify the cleaning by visual inspection: no visible residue or staining on the treated surfaces, and no odour from them.',
+    'Transport and dispose of [biohazard type] waste as clinical waste at a licensed facility, under AS/NZS 3816 and the state EPA rules. Keep the disposal certificates.',
     'Deodorise the [area affected] where odour remains after cleaning.',
     'Treat the secondary zone, the [secondary zone], for [secondary contamination].',
+    'Provide a completion report: photos before, during, and after the works, disinfectant records, waste disposal certificates, and test results where testing is on this quote.',
   ],
   inclusions: [
-    'Decontamination of the primary zone, the [area affected], as set out in the scope of work.',
+    'Removal, cleaning, and disinfection of the primary zone, the [area affected], to the clearance in the scope of work.',
     'Surface decontamination of the estimated primary zone area at the rate per square metre on this quote.',
     'Treatment of [secondary contamination] in the secondary zone, the [secondary zone], at the secondary zone rate per square metre on this quote.',
+    'Re-cleaning of surfaces that fail clearance, once. Further re-cleaning is a written variation.',
+    'The completion report.',
     'Travel at the rate per kilometre on this quote.',
     'Labour for the labour days on this quote, as a fixed amount.',
   ],
@@ -107,19 +111,19 @@ export const BIOHAZARD_LAB_LABEL = 'Laboratory testing'
 
 /** Added first in the scope of work when the COH is on the quote. */
 export const BIOHAZARD_COH_SCOPE_LINE =
-  'Engage a Certified Occupational Hygienist to inspect the site and prepare a Remediation Action Plan (RAP) before the works start. Carry out the works to the RAP.'
+  'Before the works start, a Certified Occupational Hygienist (COH) inspects the site and issues a Remediation Action Plan (RAP). The works follow the RAP. Where this scope and the RAP differ, the RAP applies. Hold point: after removal, the COH inspects the exposed surfaces, including the subfloor, and confirms any further removal before cleaning starts.'
 
-/** Added last when only ATP testing is on the quote. */
+/** Added at the end, before the completion report, when only ATP testing is on the quote. */
 export const BIOHAZARD_ATP_SCOPE_LINE =
-  'At the end of the works, verify the decontamination with ATP surface testing of the cleaned surfaces, and record the results.'
+  'Hold point, clearance: at the end of the works, verify the decontamination by ATP surface testing of the cleaned surfaces, at the sampling points and to the pass limits set by the Certified Occupational Hygienist, and record the results. Surfaces that fail are cleaned again and retested.'
 
-/** Added last when only laboratory testing is on the quote. */
+/** Added at the end, before the completion report, when only laboratory testing is on the quote. */
 export const BIOHAZARD_LAB_SCOPE_LINE =
-  'At the end of the works, take surface samples from the cleaned surfaces for laboratory testing, and record the results.'
+  'Hold point, clearance: at the end of the works, take surface samples from the cleaned surfaces for laboratory testing, to the criteria set by the Certified Occupational Hygienist, and record the results. Surfaces that fail are cleaned again and retested.'
 
-/** COH verification is both. Added last when ATP testing and laboratory testing are on the quote. */
+/** COH verification is both. Added at the end, before the completion report, when ATP testing and laboratory testing are on the quote. */
 export const BIOHAZARD_VERIFICATION_SCOPE_LINE =
-  'At the end of the works, the Certified Occupational Hygienist verifies the decontamination by ATP surface testing and by laboratory testing of surface samples, and records the results.'
+  'Hold point, clearance: at the end of the works, the Certified Occupational Hygienist verifies the decontamination by ATP surface testing and by laboratory testing of surface samples, at the sampling points and to the pass limits the hygienist sets, and records the results. Surfaces that fail are cleaned again and retested.'
 
 /** Clauses kept on the job. The company template has the same shape. */
 export interface BiohazardCleaningClauses {
@@ -792,8 +796,8 @@ export function fillBiohazardPlaceholders(
 }
 
 /**
- * The scope of work with the COH line first and the verification line last, when they are on the quote.
- * Verification is ATP testing and laboratory testing. A scope that already covers a part is left as it is.
+ * The scope of work with the COH line first and the verification line at the end, before the completion report,
+ * when they are on the quote. Verification is ATP testing and laboratory testing. A scope that already covers a part is left as it is.
  */
 export function biohazardScopeWithServices(
   scope: string,
@@ -803,11 +807,14 @@ export function biohazardScopeWithServices(
   if (capture.coh_rap && !/occupational hygien|remediation action plan/i.test(scope)) lines.unshift(BIOHAZARD_COH_SCOPE_LINE)
   const hasAtp = /\bATP\b/.test(scope)
   const hasLab = /laborator/i.test(scope)
-  if (capture.atp_testing && capture.lab_testing && !hasAtp && !hasLab) lines.push(BIOHAZARD_VERIFICATION_SCOPE_LINE)
+  const verification: string[] = []
+  if (capture.atp_testing && capture.lab_testing && !hasAtp && !hasLab) verification.push(BIOHAZARD_VERIFICATION_SCOPE_LINE)
   else {
-    if (capture.atp_testing && !hasAtp) lines.push(BIOHAZARD_ATP_SCOPE_LINE)
-    if (capture.lab_testing && !hasLab) lines.push(BIOHAZARD_LAB_SCOPE_LINE)
+    if (capture.atp_testing && !hasAtp) verification.push(BIOHAZARD_ATP_SCOPE_LINE)
+    if (capture.lab_testing && !hasLab) verification.push(BIOHAZARD_LAB_SCOPE_LINE)
   }
+  const report = lines.findIndex(line => /completion report/i.test(line))
+  lines.splice(report === -1 ? lines.length : report, 0, ...verification)
   return lines.join('\n')
 }
 

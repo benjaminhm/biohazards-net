@@ -75,7 +75,7 @@ test('the job type and assessment fill the title, biohazard type, and area affec
   assert.equal(content.title, 'Unattended Death Cleaning')
   assert.equal(content.biohazard_type, 'decomposition fluids')
   assert.equal(content.area_affected, 'Lounge')
-  assert.match(content.scope_of_work[0], /containment around the primary decontamination zone, the Lounge/)
+  assert.match(content.scope_of_work[0], /Isolate the primary decontamination zone, the Lounge, with containment/)
   assert.match(content.assumptions.join('\n'), /^Decomposition fluids has not spread beyond the Lounge/m)
 })
 
@@ -157,7 +157,8 @@ test('COH verification is ATP testing and laboratory testing, each with its own 
     defaults: biohazardJobDefaults(job()),
   })
   assert.match(content.scope_of_work[0], /Certified Occupational Hygienist .*Remediation Action Plan/)
-  assert.match(content.scope_of_work[content.scope_of_work.length - 1], /verifies the decontamination by ATP surface testing and by laboratory testing/)
+  assert.match(content.scope_of_work[content.scope_of_work.length - 2], /verifies the decontamination by ATP surface testing and by laboratory testing.*pass limits the hygienist sets/)
+  assert.match(content.scope_of_work[content.scope_of_work.length - 1], /^Provide a completion report/)
   assert.equal(content.scope_of_work.filter(line => /ATP|laborator/i.test(line)).length, 1)
   assert.deepEqual(
     content.extra_lines.map(line => `${line.label}:${line.quantity}:${line.amount}`),
