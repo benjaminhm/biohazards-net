@@ -113,16 +113,21 @@ function ClauseHeader({
   onSaveDefault,
   onUseDefault,
   savingDefault,
+  action,
 }: {
   label: string
   differs: boolean
   onSaveDefault: () => void
   onUseDefault: () => void
   savingDefault: boolean
+  action?: ReactNode
 }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
-      <div style={{ ...LABEL, marginBottom: 0 }}>{label}</div>
+    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ ...LABEL, marginBottom: 0 }}>{label}</div>
+        {action}
+      </div>
       {differs && (
         <div style={{ display: 'flex', gap: 6 }}>
           <button type="button" className="btn" style={{ fontSize: 12, padding: '2px 8px' }} onClick={onUseDefault}>
@@ -829,7 +834,38 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
           savingDefault={savingDefault === key}
           onSaveDefault={() => void saveClauseAsDefault(key)}
           onUseDefault={() => template && editClause(key, template[key])}
+          action={key === 'scope_of_work' ? (
+            <button type="button" className="btn btn-primary" style={{ fontSize: 12, padding: '2px 10px' }} onClick={() => void draftScope()} disabled={drafting}>
+              {drafting ? 'Generating…' : 'Generate scope of work'}
+            </button>
+          ) : undefined}
         />
+        {key === 'scope_of_work' && (
+          <div style={{ ...HINT, marginTop: 0, marginBottom: 6 }}>
+            Written from the biohazard types, zones, rooms, objectives, and assessment. You review it before it replaces the scope below.
+            {draftError && <span style={{ color: 'var(--danger, #f87171)' }}> {draftError}</span>}
+          </div>
+        )}
+        {key === 'scope_of_work' && scopeDraft != null && (
+          <div style={{ ...SECTION, marginBottom: 8, borderStyle: 'dashed' }}>
+            <div style={LABEL}>Generated scope of work</div>
+            <ol style={{ margin: 0, paddingLeft: 18, fontSize: 14, display: 'grid', gap: 4 }}>
+              {scopeDraft.split('\n').map((line, i) => <li key={`${i}:${line}`}>{line}</li>)}
+            </ol>
+            {draftMissingStages.length > 0 && (
+              <div style={{ ...HINT, color: 'var(--danger, #f87171)' }}>{draftMissingStages.join(' ')}</div>
+            )}
+            <div style={HINT}>The hygienist and testing lines are added on the quote when they are ticked.</div>
+            <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+              <button type="button" className="btn btn-primary" style={{ fontSize: 12, padding: '4px 10px' }} onClick={applyScopeDraft}>
+                Use this scope
+              </button>
+              <button type="button" className="btn" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => setScopeDraft(null)}>
+                Discard
+              </button>
+            </div>
+          </div>
+        )}
         <ClickToEditText
           value={clauses[key]}
           onChange={value => editClause(key, value)}
@@ -1333,35 +1369,6 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
                 Use the last {biohazardCleaningDocumentTitle(kind)} clauses
               </button>
             )}
-          </div>
-        )}
-        {clauses && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-            <button type="button" className="btn" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => void draftScope()} disabled={drafting}>
-              {drafting ? 'Drafting the scope…' : 'Draft the scope of work from the details'}
-            </button>
-            <span style={{ ...HINT, marginTop: 0 }}>Uses the biohazard types, zones, rooms, objectives, and assessment. You review it before it is used.</span>
-            {draftError && <span style={{ fontSize: 12, color: 'var(--danger, #f87171)' }}>{draftError}</span>}
-          </div>
-        )}
-        {scopeDraft != null && (
-          <div style={{ ...SECTION, marginBottom: 0, borderStyle: 'dashed' }}>
-            <div style={LABEL}>Drafted scope of work</div>
-            <ol style={{ margin: 0, paddingLeft: 18, fontSize: 14, display: 'grid', gap: 4 }}>
-              {scopeDraft.split('\n').map((line, i) => <li key={`${i}:${line}`}>{line}</li>)}
-            </ol>
-            {draftMissingStages.length > 0 && (
-              <div style={{ ...HINT, color: 'var(--danger, #f87171)' }}>{draftMissingStages.join(' ')}</div>
-            )}
-            <div style={HINT}>The hygienist and testing lines are added on the quote when they are ticked.</div>
-            <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-              <button type="button" className="btn btn-primary" style={{ fontSize: 12, padding: '4px 10px' }} onClick={applyScopeDraft}>
-                Use this scope
-              </button>
-              <button type="button" className="btn" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => setScopeDraft(null)}>
-                Discard
-              </button>
-            </div>
           </div>
         )}
         {clauseBlock('scope_of_work', 'Scope of work', 'numbered')}
