@@ -56,7 +56,7 @@ test('surface, travel, call-out, labour, and other lines add up with GST', () =>
   assert.equal(figures.subtotal, 1650)
   assert.equal(figures.gst, 165)
   assert.equal(figures.total, 1815)
-  assert.deepEqual(figures.lines.map(line => line.label), ['Surface area', 'Travel', 'Mobilisation', 'Labour', 'Clinical waste bins'])
+  assert.deepEqual(figures.lines.map(line => line.label), ['Primary zone', 'Travel', 'Mobilisation', 'Labour', 'Clinical waste bins'])
   assert.equal(biohazardCleaningFigures(filled({ mobilisation_waived: true })).mobilisation_fee, 0)
 })
 
@@ -72,7 +72,7 @@ test('the job type and assessment fill the title, biohazard type, and area affec
   assert.equal(content.title, 'Unattended Death Cleaning')
   assert.equal(content.biohazard_type, 'decomposition fluids')
   assert.equal(content.area_affected, 'Lounge')
-  assert.match(content.scope_of_work[0], /containment around the Lounge/)
+  assert.match(content.scope_of_work[0], /containment around the primary decontamination zone, the Lounge/)
   assert.match(content.assumptions.join('\n'), /^Decomposition fluids has not spread beyond the Lounge/m)
 })
 
@@ -107,6 +107,52 @@ test('a job copy of the clauses is kept as typed, and the template falls back to
   assert.equal(saved.clauses?.scope_of_work, 'Only this.')
   assert.equal(saved.clauses?.engagement_agreement, '')
   assert.equal(normalizeBiohazardCleaningClauses(null, 'Shared text').engagement_agreement, 'Shared text')
+})
+
+test('without a secondary zone, its line and its clause lines stay off the quote', () => {
+  const content = biohazardCleaningQuoteContent({
+    reference: 'BCQ-ONE',
+    clientName: 'Acme',
+    siteAddress: '1 Example Street',
+    capture: filled(),
+    defaults: biohazardJobDefaults(job()),
+  })
+  assert.equal(content.has_secondary, false)
+  assert.ok(!biohazardCleaningFigures(filled()).lines.some(line => line.kind === 'secondary'))
+  assert.doesNotMatch([...content.scope_of_work, ...content.inclusions].join('\n'), /secondary zone/i)
+})
+
+test('a secondary zone is priced at its own rate and printed beside the primary zone', () => {
+  const capture = filled({ secondary_zone: 'hallway and lounge', secondary_m2: 40, secondary_rate_per_m2: 5 })
+  const figures = biohazardCleaningFigures(capture)
+  assert.equal(figures.secondary_amount, 200)
+  assert.equal(figures.subtotal, 1850)
+  assert.deepEqual(figures.lines.slice(0, 2).map(line => line.label), ['Primary zone', 'Secondary zone'])
+  const content = biohazardCleaningQuoteContent({
+    reference: 'BCQ-TWO',
+    clientName: 'Acme',
+    siteAddress: '1 Example Street',
+    capture,
+    defaults: biohazardJobDefaults(job()),
+  })
+  assert.match(content.scope_of_work.join('\n'), /Treat the secondary zone, the hallway and lounge, for odour and insects/)
+  const html = buildPrintHTML(
+    'biohazard_cleaning_quote',
+    content as unknown as Record<string, unknown>,
+    [], [], null, 'job', 'http://localhost', undefined, { screenActionBar: false },
+  )
+  assert.match(html, /Primary decontamination zone/)
+  assert.match(html, /Secondary zone \(odour and insects\)/)
+  assert.doesNotMatch(html, /\[secondary zone\]/)
+})
+
+test('the check flags a secondary zone without square metres, and square metres without a zone', () => {
+  const context = biohazardCheckContext(job())
+  const noMetres = biohazardRuleFlags(filled({ secondary_zone: 'hallway' }), context).map(flag => `${flag.code}:${flag.subject}`)
+  assert.ok(noMetres.includes('surface_incomplete:secondary'))
+  const noName = biohazardRuleFlags(filled({ secondary_m2: 30 }), context).map(flag => `${flag.code}:${flag.subject}`)
+  assert.ok(noName.includes('missing_field:secondary_zone'))
+  assert.deepEqual(biohazardRuleFlags(filled({ secondary_zone: 'hallway', secondary_m2: 30, secondary_rate_per_m2: 5 }), context), [])
 })
 
 const NO_ASSESSMENT: BiohazardCheckContext = biohazardCheckContext(job())
@@ -181,7 +227,7 @@ test('the model may add only listed codes and subjects, with real evidence', () 
       { code: 'hazard_not_addressed', clause: 'scope_of_work', subject: 'Hepatitis B', evidence: '' },
       { code: 'hazard_not_addressed', clause: 'scope_of_work', subject: 'Anthrax', evidence: '' },
       { code: 'inclusion_exclusion_conflict', clause: 'exclusions', subject: '', evidence: 'Words that are not there' },
-      { code: 'inclusion_exclusion_conflict', clause: 'exclusions', subject: '', evidence: 'Areas other than the main bedroom' },
+      { code: 'inclusion_exclusion_conflict', clause: 'exclusions', subject: '', evidence: 'Areas outside the zones on this quote' },
       { code: 'rewrite', clause: 'exclusions', subject: '', evidence: 'x' },
     ],
     cleared: [],

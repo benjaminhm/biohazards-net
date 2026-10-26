@@ -19,6 +19,7 @@ import {
   roomSurfaceArea,
   roomsSurfaceTotal,
   setPresetRoomCount,
+  type SurfaceAreaRoom,
 } from '@/lib/surfaceAreaCleaningQuote'
 import {
   BIOHAZARD_CLEANING_CLIENT_TITLES,
@@ -26,6 +27,7 @@ import {
   biohazardClauseLines,
   biohazardCleaningFigures,
   biohazardJobDefaults,
+  biohazardSecondarySquareMetres,
   biohazardSquareMetres,
   emptyBiohazardCleaningCapture,
   newBiohazardLineId,
@@ -175,6 +177,135 @@ function ClickToEditText({
   )
 }
 
+function ZoneRooms({
+  rooms,
+  onRoomsChange,
+  squareMetres,
+  typedSquareMetres,
+  onTypedSquareMetres,
+  rate,
+  onRate,
+}: {
+  rooms: SurfaceAreaRoom[]
+  onRoomsChange: (rooms: SurfaceAreaRoom[]) => void
+  squareMetres: number | null
+  typedSquareMetres: number | null
+  onTypedSquareMetres: (value: number | null) => void
+  rate: number | null
+  onRate: (value: number | null) => void
+}) {
+  return (
+    <>
+      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+        Tick a room, or give the number of rooms, to add it at the average size. You can change the sizes below. The total is the floor, the ceiling, and the walls.
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '6px 16px', fontSize: 13, marginBottom: 10 }}>
+        {SURFACE_AREA_ROOM_PRESETS.map(preset => {
+          const count = presetRoomCount(rooms, preset.id)
+          return (
+            <label key={preset.id} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+              {preset.multiple ? (
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={count || ''}
+                  placeholder="0"
+                  onChange={e => onRoomsChange(setPresetRoomCount(rooms, preset, Math.min(20, Number(e.target.value) || 0)))}
+                  style={{ ...INPUT, width: 52, padding: '4px 6px', fontSize: 13 }}
+                />
+              ) : (
+                <input
+                  type="checkbox"
+                  checked={count > 0}
+                  onChange={e => onRoomsChange(setPresetRoomCount(rooms, preset, e.target.checked ? 1 : 0))}
+                />
+              )}
+              <span style={{ flex: 1 }}>{preset.name}</span>
+              <span style={{ color: 'var(--text-muted)' }}>{preset.length_m} × {preset.width_m} × {preset.height_m} m</span>
+            </label>
+          )
+        })}
+      </div>
+      <div style={{ display: 'grid', gap: 8 }}>
+        {rooms.map(room => {
+          const measure = roomSurfaceArea(room)
+          const metres = (key: 'length_m' | 'width_m' | 'height_m', raw: string) =>
+            onRoomsChange(rooms.map(item => item.id === room.id ? { ...item, [key]: numberOrNull(raw) } : item))
+          return (
+            <div key={room.id} style={{ display: 'grid', gridTemplateColumns: '1.4fr 0.7fr 0.7fr 0.7fr auto auto', gap: 8, alignItems: 'end' }}>
+              <div>
+                <label style={LABEL}>Room</label>
+                <input
+                  value={room.name}
+                  onChange={e => onRoomsChange(rooms.map(item => item.id === room.id ? { ...item, name: e.target.value } : item))}
+                  placeholder="Bedroom"
+                  style={INPUT}
+                />
+              </div>
+              <div>
+                <label style={LABEL}>L (m)</label>
+                <input type="number" min={0} step="0.01" value={room.length_m ?? ''} onChange={e => metres('length_m', e.target.value)} style={INPUT} />
+              </div>
+              <div>
+                <label style={LABEL}>W (m)</label>
+                <input type="number" min={0} step="0.01" value={room.width_m ?? ''} onChange={e => metres('width_m', e.target.value)} style={INPUT} />
+              </div>
+              <div>
+                <label style={LABEL}>H (m)</label>
+                <input type="number" min={0} step="0.01" value={room.height_m ?? ''} onChange={e => metres('height_m', e.target.value)} style={INPUT} />
+              </div>
+              <div style={{ fontSize: 13, paddingBottom: 8, whiteSpace: 'nowrap' }}>
+                {measure ? `${measure.total.toLocaleString('en-AU', { maximumFractionDigits: 2 })} m²` : '—'}
+              </div>
+              <button type="button" className="btn" onClick={() => onRoomsChange(rooms.filter(item => item.id !== room.id))}>
+                Remove
+              </button>
+            </div>
+          )
+        })}
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
+        <button type="button" className="btn" onClick={() => onRoomsChange([...rooms, newSurfaceAreaRoom()])}>
+          Add a room
+        </button>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
+        <div>
+          <label style={LABEL}>Estimated square metres</label>
+          {rooms.length > 0 ? (
+            <div style={{ ...INPUT, background: 'transparent' }}>
+              {(squareMetres ?? 0).toLocaleString('en-AU', { maximumFractionDigits: 2 })}
+            </div>
+          ) : (
+            <input
+              type="number"
+              min={0}
+              step="0.01"
+              value={typedSquareMetres ?? ''}
+              onChange={e => onTypedSquareMetres(numberOrNull(e.target.value))}
+              placeholder="0"
+              style={INPUT}
+            />
+          )}
+        </div>
+        <div>
+          <label style={LABEL}>Rate per m² ($)</label>
+          <input
+            type="number"
+            min={0}
+            step="0.01"
+            value={rate ?? ''}
+            onChange={e => onRate(numberOrNull(e.target.value))}
+            placeholder="0.00"
+            style={INPUT}
+          />
+        </div>
+      </div>
+    </>
+  )
+}
+
 function FlagList({ title, flags }: { title: string; flags: BiohazardCheckFlag[] }): ReactNode {
   if (flags.length === 0) return null
   return (
@@ -313,6 +444,11 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
   function setRooms(rooms: BiohazardCleaningCapture['rooms']) {
     const total = roomsSurfaceTotal(rooms)
     setCapture(prev => ({ ...prev, rooms, estimated_m2: total ?? prev.estimated_m2 }))
+  }
+
+  function setSecondaryRooms(secondary_rooms: BiohazardCleaningCapture['secondary_rooms']) {
+    const total = roomsSurfaceTotal(secondary_rooms)
+    setCapture(prev => ({ ...prev, secondary_rooms, secondary_m2: total ?? prev.secondary_m2 }))
   }
 
   function editClause(key: BiohazardClauseKey, value: string) {
@@ -547,7 +683,7 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
           <div style={HINT}>Fills [biohazard type] in the scope and the clauses.</div>
         </div>
         <div>
-          <label style={LABEL}>Area affected</label>
+          <label style={LABEL}>Primary decontamination zone</label>
           <input
             value={areaAffected}
             onChange={e => patch({ area_affected: e.target.value })}
@@ -555,7 +691,7 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
             style={INPUT}
           />
           <div style={HINT}>
-            Fills [area affected].
+            Areas affected by bodily fluids. Fills [area affected].
             {defaults.assessmentAreaNames && defaults.assessmentAreaNames.length > 0
               ? ` Assessment areas: ${defaults.assessmentAreaNames.join(', ')}.`
               : ''}
@@ -696,113 +832,45 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
       </div>
 
       <div style={SECTION}>
-        <div style={LABEL}>Affected area</div>
+        <div style={LABEL}>Primary zone: decontamination</div>
         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
-          Tick a room, or give the number of rooms, to add it at the average size. You can change the sizes below. The total is the floor, the ceiling, and the walls.
+          Surfaces affected by bodily fluids. The primary zone is named under Details above.
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '6px 16px', fontSize: 13, marginBottom: 10 }}>
-          {SURFACE_AREA_ROOM_PRESETS.map(preset => {
-            const count = presetRoomCount(capture.rooms, preset.id)
-            return (
-              <label key={preset.id} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                {preset.multiple ? (
-                  <input
-                    type="number"
-                    min={0}
-                    step={1}
-                    value={count || ''}
-                    placeholder="0"
-                    onChange={e => setRooms(setPresetRoomCount(capture.rooms, preset, Math.min(20, Number(e.target.value) || 0)))}
-                    style={{ ...INPUT, width: 52, padding: '4px 6px', fontSize: 13 }}
-                  />
-                ) : (
-                  <input
-                    type="checkbox"
-                    checked={count > 0}
-                    onChange={e => setRooms(setPresetRoomCount(capture.rooms, preset, e.target.checked ? 1 : 0))}
-                  />
-                )}
-                <span style={{ flex: 1 }}>{preset.name}</span>
-                <span style={{ color: 'var(--text-muted)' }}>{preset.length_m} × {preset.width_m} × {preset.height_m} m</span>
-              </label>
-            )
-          })}
+        <ZoneRooms
+          rooms={capture.rooms}
+          onRoomsChange={setRooms}
+          squareMetres={biohazardSquareMetres(capture)}
+          typedSquareMetres={capture.estimated_m2}
+          onTypedSquareMetres={value => patch({ estimated_m2: value })}
+          rate={capture.rate_per_m2}
+          onRate={value => patch({ rate_per_m2: value })}
+        />
+      </div>
+
+      <div style={SECTION}>
+        <div style={LABEL}>Secondary zone: odour and insects</div>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+          Areas affected by odour or flies, but not by bodily fluids. Leave it blank when there is none, and it stays off the quote.
         </div>
-        <div style={{ display: 'grid', gap: 8 }}>
-          {capture.rooms.map(room => {
-            const measure = roomSurfaceArea(room)
-            const metres = (key: 'length_m' | 'width_m' | 'height_m', raw: string) =>
-              setRooms(capture.rooms.map(item => item.id === room.id ? { ...item, [key]: numberOrNull(raw) } : item))
-            return (
-              <div key={room.id} style={{ display: 'grid', gridTemplateColumns: '1.4fr 0.7fr 0.7fr 0.7fr auto auto', gap: 8, alignItems: 'end' }}>
-                <div>
-                  <label style={LABEL}>Room</label>
-                  <input
-                    value={room.name}
-                    onChange={e => setRooms(capture.rooms.map(item => item.id === room.id ? { ...item, name: e.target.value } : item))}
-                    placeholder="Bedroom"
-                    style={INPUT}
-                  />
-                </div>
-                <div>
-                  <label style={LABEL}>L (m)</label>
-                  <input type="number" min={0} step="0.01" value={room.length_m ?? ''} onChange={e => metres('length_m', e.target.value)} style={INPUT} />
-                </div>
-                <div>
-                  <label style={LABEL}>W (m)</label>
-                  <input type="number" min={0} step="0.01" value={room.width_m ?? ''} onChange={e => metres('width_m', e.target.value)} style={INPUT} />
-                </div>
-                <div>
-                  <label style={LABEL}>H (m)</label>
-                  <input type="number" min={0} step="0.01" value={room.height_m ?? ''} onChange={e => metres('height_m', e.target.value)} style={INPUT} />
-                </div>
-                <div style={{ fontSize: 13, paddingBottom: 8, whiteSpace: 'nowrap' }}>
-                  {measure ? `${measure.total.toLocaleString('en-AU', { maximumFractionDigits: 2 })} m²` : '—'}
-                </div>
-                <button type="button" className="btn" onClick={() => setRooms(capture.rooms.filter(item => item.id !== room.id))}>
-                  Remove
-                </button>
-              </div>
-            )
-          })}
+        <div style={{ marginBottom: 10 }}>
+          <label style={LABEL}>Secondary zone</label>
+          <input
+            value={capture.secondary_zone}
+            onChange={e => patch({ secondary_zone: e.target.value })}
+            placeholder="hallway, lounge, and kitchen"
+            style={INPUT}
+          />
+          <div style={HINT}>Fills [secondary zone] in the scope and the clauses.</div>
         </div>
-        <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
-          <button type="button" className="btn" onClick={() => setRooms([...capture.rooms, newSurfaceAreaRoom()])}>
-            Add a room
-          </button>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
-          <div>
-            <label style={LABEL}>Estimated square metres</label>
-            {capture.rooms.length > 0 ? (
-              <div style={{ ...INPUT, background: 'transparent' }}>
-                {(biohazardSquareMetres(capture) ?? 0).toLocaleString('en-AU', { maximumFractionDigits: 2 })}
-              </div>
-            ) : (
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                value={capture.estimated_m2 ?? ''}
-                onChange={e => patch({ estimated_m2: numberOrNull(e.target.value) })}
-                placeholder="0"
-                style={INPUT}
-              />
-            )}
-          </div>
-          <div>
-            <label style={LABEL}>Rate per m² ($)</label>
-            <input
-              type="number"
-              min={0}
-              step="0.01"
-              value={capture.rate_per_m2 ?? ''}
-              onChange={e => patch({ rate_per_m2: numberOrNull(e.target.value) })}
-              placeholder="0.00"
-              style={INPUT}
-            />
-          </div>
-        </div>
+        <ZoneRooms
+          rooms={capture.secondary_rooms}
+          onRoomsChange={setSecondaryRooms}
+          squareMetres={biohazardSecondarySquareMetres(capture)}
+          typedSquareMetres={capture.secondary_m2}
+          onTypedSquareMetres={value => patch({ secondary_m2: value })}
+          rate={capture.secondary_rate_per_m2}
+          onRate={value => patch({ secondary_rate_per_m2: value })}
+        />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>

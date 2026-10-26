@@ -41,7 +41,7 @@ flags — add a flag only when it is clearly true:
 
 cleared — for a RULE_FLAG of stage_missing, area_not_quoted, or risk_not_covered that the quote does cover in other words:
 - stage_missing: the scope of work has that stage under another name. evidence is the stage words, copied exactly from the scope of work.
-- area_not_quoted: the area affected, a room, or the scope of work names the same place another way, for example "Main bedroom" for "Master bed". evidence is those words, copied exactly.
+- area_not_quoted: the primary zone, the secondary zone, a room, or the scope of work names the same place another way, for example "Main bedroom" for "Master bed". evidence is those words, copied exactly.
 - risk_not_covered: a clause deals with that risk in other words. evidence is those words, copied exactly.
 Only clear when you are sure. Evidence must be copied character for character from the quote.
 

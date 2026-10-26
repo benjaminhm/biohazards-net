@@ -3672,13 +3672,22 @@ function buildBiohazardCleaningMid(
   type Row = { label: string; quantity: string; note?: string; rate: string; amount: number }
   const estimated: Row[] = [
     {
-      label: 'Surface',
+      label: c.has_secondary ? 'Primary zone (decontamination)' : 'Surface',
       quantity: clearanceQty(c.estimated_m2, 'm²'),
       note: BIOHAZARD_ESTIMATE_NOTE,
       rate: `${fmtMoney(c.rate_per_m2)} / m²`,
       amount: c.area_amount,
     },
   ]
+  if (c.has_secondary) {
+    estimated.push({
+      label: 'Secondary zone (odour and insects)',
+      quantity: clearanceQty(c.secondary_m2, 'm²'),
+      note: BIOHAZARD_ESTIMATE_NOTE,
+      rate: `${fmtMoney(c.secondary_rate_per_m2)} / m²`,
+      amount: c.secondary_amount,
+    })
+  }
   if ((c.travel_km ?? 0) > 0 || (c.rate_per_km ?? 0) > 0) {
     estimated.push({
       label: 'Travel',
@@ -3688,7 +3697,12 @@ function buildBiohazardCleaningMid(
       amount: c.travel_amount,
     })
   }
-  const roomNotes = (c.rooms ?? []).map(room => `${room.name} ${room.detail} — ${clearanceQty(room.area_m2, 'm²')}`)
+  const roomNote = (prefix: string) => (room: { name: string; detail: string; area_m2: number }) =>
+    `${prefix}${room.name} ${room.detail} — ${clearanceQty(room.area_m2, 'm²')}`
+  const roomNotes = [
+    ...(c.rooms ?? []).map(roomNote(c.has_secondary ? 'Primary zone: ' : '')),
+    ...(c.has_secondary ? (c.secondary_rooms ?? []).map(roomNote('Secondary zone: ')) : []),
+  ]
   const fixed: Row[] = []
   if ((c.mobilisation_fee ?? 0) > 0) {
     fixed.push({ label: 'Mobilisation', quantity: '1 fee', rate: fmtMoney(c.mobilisation_fee), amount: c.mobilisation_fee })
@@ -3718,7 +3732,8 @@ function buildBiohazardCleaningMid(
       ${meta('Client', c.client_name, true)}
       ${meta('Job address', c.job_address || c.site_address)}
       ${c.biohazard_type ? meta('Biohazard', c.biohazard_type) : ''}
-      ${c.area_affected ? meta('Area affected', c.area_affected) : ''}
+      ${c.area_affected ? meta(c.has_secondary ? 'Primary decontamination zone' : 'Area affected', c.area_affected) : ''}
+      ${c.has_secondary && c.secondary_zone ? meta('Secondary zone', c.secondary_zone) : ''}
     </div>
     ${section('Description', c.description)}
     ${section('Objective', c.objective)}

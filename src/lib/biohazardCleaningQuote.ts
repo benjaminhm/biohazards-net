@@ -49,7 +49,7 @@ export const BIOHAZARD_CLEANING_SCHEMA = {
   ratePerKm: 0,
   ratePerLabourDay: 0,
   scope_of_work: [
-    'Set up containment around the [area affected] and control access to the work area.',
+    'Set up containment around the primary decontamination zone, the [area affected], and control access to the work area.',
     'Wear PPE suited to [biohazard type], including disposable coveralls, gloves, eye protection, and respiratory protection.',
     'Remove gross contamination and affected porous materials from the [area affected].',
     'Clean all affected surfaces in the [area affected] with detergent to remove residue.',
@@ -57,16 +57,18 @@ export const BIOHAZARD_CLEANING_SCHEMA = {
     'Verify the cleaning by visual inspection and ATP surface testing.',
     'Package, transport, and dispose of [biohazard type] waste as clinical waste at a licensed facility.',
     'Deodorise the [area affected] where odour remains after cleaning.',
+    'Treat the secondary zone, the [secondary zone], for odour and insects, including deodorisation and fly control.',
   ],
   inclusions: [
-    'Biohazard cleaning of the [area affected], as set out in the scope of work.',
-    'Surface cleaning of the estimated area at the rate per square metre on this quote.',
+    'Decontamination of the primary zone, the [area affected], as set out in the scope of work.',
+    'Surface decontamination of the estimated primary zone area at the rate per square metre on this quote.',
+    'Odour and insect treatment of the secondary zone, the [secondary zone], at the secondary zone rate per square metre on this quote.',
     'Travel at the rate per kilometre on this quote.',
     'Labour for the labour days on this quote, as a fixed amount.',
   ],
   exclusions: [
     'Repairs, rebuilding, and restoration, including replacing removed materials.',
-    'Areas other than the [area affected].',
+    'Areas outside the zones on this quote.',
     'Contents removal, other than materials affected by [biohazard type].',
     'Hazardous building materials, such as asbestos.',
   ],
@@ -137,13 +139,19 @@ export interface BiohazardCleaningCapture {
   cleaning_kind: BiohazardCleaningKind | null
   /** Null follows the assessment, then the job type. Fills [biohazard type]. */
   biohazard_type: string | null
-  /** Null follows the assessment areas. Fills [area affected]. */
+  /** Primary decontamination zone: surfaces affected by bodily fluids. Null follows the assessment areas. Fills [area affected]. */
   area_affected: string | null
   description: string
   /** Null follows the Scope of Work objective. */
   objective: string | null
   estimated_m2: number | null
   rooms: SurfaceAreaRoom[]
+  /** Areas affected by odour or insects, not by bodily fluids. Fills [secondary zone]. Blank leaves the zone off the quote. */
+  secondary_zone: string
+  secondary_m2: number | null
+  secondary_rooms: SurfaceAreaRoom[]
+  /** Ex GST. Blank is zero. */
+  secondary_rate_per_m2: number | null
   /** Labour days the client is buying. Required before the quote is generated. */
   labour_days: number | null
   /** Ex GST. Blank uses the schema rate. */
@@ -178,11 +186,16 @@ export interface BiohazardCleaningLine {
   unit: string
   rate: number
   amount: number
-  kind: 'surface' | 'travel' | 'mobilisation' | 'labour' | 'extra'
+  kind: 'surface' | 'secondary' | 'travel' | 'mobilisation' | 'labour' | 'extra'
 }
 
 export interface BiohazardCleaningFigures {
   estimated_m2: number
+  secondary_m2: number
+  secondary_rate_per_m2: number
+  secondary_amount: number
+  /** True when the secondary zone is on the quote. */
+  has_secondary: boolean
   travel_km: number
   labour_days: number
   mobilisation_fee: number
@@ -213,6 +226,12 @@ export interface BiohazardCleaningQuoteContent {
   rate_per_m2: number
   area_amount: number
   rooms: { name: string; detail: string; area_m2: number }[]
+  secondary_zone: string
+  secondary_m2: number
+  secondary_rate_per_m2: number
+  secondary_amount: number
+  secondary_rooms: { name: string; detail: string; area_m2: number }[]
+  has_secondary: boolean
   travel_km: number
   rate_per_km: number
   travel_amount: number
@@ -313,6 +332,10 @@ export function emptyBiohazardCleaningCapture(): BiohazardCleaningCapture {
     objective: null,
     estimated_m2: null,
     rooms: [],
+    secondary_zone: '',
+    secondary_m2: null,
+    secondary_rooms: [],
+    secondary_rate_per_m2: null,
     labour_days: null,
     rate_per_m2: null,
     rate_per_km: null,
@@ -419,6 +442,10 @@ export function normalizeBiohazardCleaningCapture(raw: unknown): BiohazardCleani
     objective: optionalText(o.objective),
     estimated_m2: qty(o.estimated_m2),
     rooms: Array.isArray(o.rooms) ? o.rooms.map(normalizeSurfaceAreaRoom) : [],
+    secondary_zone: typeof o.secondary_zone === 'string' ? o.secondary_zone : '',
+    secondary_m2: qty(o.secondary_m2),
+    secondary_rooms: Array.isArray(o.secondary_rooms) ? o.secondary_rooms.map(normalizeSurfaceAreaRoom) : [],
+    secondary_rate_per_m2: qty(o.secondary_rate_per_m2),
     labour_days: qty(o.labour_days),
     rate_per_m2: qty(o.rate_per_m2),
     rate_per_km: qty(o.rate_per_km),
@@ -452,8 +479,18 @@ export function biohazardSquareMetres(capture: Pick<BiohazardCleaningCapture, 'e
   return capture.estimated_m2
 }
 
+export function biohazardSecondarySquareMetres(capture: Pick<BiohazardCleaningCapture, 'secondary_m2' | 'secondary_rooms'>): number | null {
+  const fromRooms = roomsSurfaceTotal(capture.secondary_rooms ?? [])
+  if (fromRooms != null) return fromRooms
+  return capture.secondary_m2
+}
+
 export function biohazardCleaningFigures(capture: BiohazardCleaningCapture): BiohazardCleaningFigures {
   const estimated_m2 = round2(quantityOrZero(biohazardSquareMetres(capture)))
+  const secondary_m2 = round2(quantityOrZero(biohazardSecondarySquareMetres(capture)))
+  const secondary_rate_per_m2 = round2(quantityOrZero(capture.secondary_rate_per_m2))
+  const secondary_amount = round2(secondary_m2 * secondary_rate_per_m2)
+  const has_secondary = (capture.secondary_zone ?? '').trim() !== '' || secondary_m2 > 0
   const travel_km = round2(quantityOrZero(capture.travel_km))
   const labour_days = Math.round(quantityOrZero(capture.labour_days))
   const mobilisation_fee = capture.mobilisation_waived ? 0 : round2(quantityOrZero(capture.mobilisation_fee))
@@ -464,8 +501,11 @@ export function biohazardCleaningFigures(capture: BiohazardCleaningCapture): Bio
   const travel_amount = round2(travel_km * rate_per_km)
   const labour_amount = round2(labour_days * rate_per_labour_day)
   const lines: BiohazardCleaningLine[] = [
-    { label: 'Surface area', quantity: estimated_m2, unit: 'm²', rate: rate_per_m2, amount: area_amount, kind: 'surface' },
+    { label: 'Primary zone', quantity: estimated_m2, unit: 'm²', rate: rate_per_m2, amount: area_amount, kind: 'surface' },
   ]
+  if (has_secondary) {
+    lines.push({ label: 'Secondary zone', quantity: secondary_m2, unit: 'm²', rate: secondary_rate_per_m2, amount: secondary_amount, kind: 'secondary' })
+  }
   if (travel_km > 0 || rate_per_km > 0) {
     lines.push({ label: 'Travel', quantity: travel_km, unit: 'km', rate: rate_per_km, amount: travel_amount, kind: 'travel' })
   }
@@ -491,6 +531,10 @@ export function biohazardCleaningFigures(capture: BiohazardCleaningCapture): Bio
   const gst = round2(subtotal * 0.1)
   return {
     estimated_m2,
+    secondary_m2,
+    secondary_rate_per_m2,
+    secondary_amount,
+    has_secondary,
     travel_km,
     labour_days,
     mobilisation_fee,
@@ -507,16 +551,36 @@ export function biohazardCleaningFigures(capture: BiohazardCleaningCapture): Bio
   }
 }
 
-export const BIOHAZARD_PLACEHOLDERS = ['biohazard type', 'area affected'] as const
+export const BIOHAZARD_PLACEHOLDERS = ['biohazard type', 'area affected', 'primary zone', 'secondary zone'] as const
 
-/** Fills [biohazard type] and [area affected]. A blank value leaves the bracket for the check to find. */
-export function fillBiohazardPlaceholders(text: string, values: { biohazardType: string; areaAffected: string }): string {
+function placeholderKey(raw: string): string {
+  return raw.trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+/**
+ * Fills [biohazard type], [area affected] (also [primary zone]), and [secondary zone].
+ * A blank value leaves the bracket for the check to find.
+ */
+export function fillBiohazardPlaceholders(
+  text: string,
+  values: { biohazardType: string; areaAffected: string; secondaryZone?: string },
+): string {
   return text.replace(/\[([^\[\]\n]+)\]/g, (match, raw: string) => {
-    const key = raw.trim().toLowerCase().replace(/\s+/g, ' ')
+    const key = placeholderKey(raw)
     if (key === 'biohazard type' && values.biohazardType.trim()) return values.biohazardType.trim()
-    if (key === 'area affected' && values.areaAffected.trim()) return values.areaAffected.trim()
+    if ((key === 'area affected' || key === 'primary zone') && values.areaAffected.trim()) return values.areaAffected.trim()
+    if (key === 'secondary zone' && values.secondaryZone?.trim()) return values.secondaryZone.trim()
     return match
   })
+}
+
+/** Without a secondary zone, clause lines about it are left off. */
+export function withoutUnusedSecondaryLines(text: string, secondaryZone: string): string {
+  if (secondaryZone.trim()) return text
+  return text
+    .split('\n')
+    .filter(line => ![...line.matchAll(/\[([^\[\]\n]+)\]/g)].some(match => placeholderKey(match[1]) === 'secondary zone'))
+    .join('\n')
 }
 
 function sentenceStart(line: string): string {
@@ -538,10 +602,12 @@ export function biohazardCleaningQuoteContent(input: {
   const figures = biohazardCleaningFigures(capture)
   const biohazardType = resolvedBiohazardType(capture, defaults)
   const areaAffected = resolvedAreaAffected(capture, defaults)
-  const fill = (text: string) => fillBiohazardPlaceholders(text, { biohazardType, areaAffected })
+  const secondaryZone = (capture.secondary_zone ?? '').trim()
+  const fill = (text: string) =>
+    fillBiohazardPlaceholders(withoutUnusedSecondaryLines(text, secondaryZone), { biohazardType, areaAffected, secondaryZone })
   const lines = (text: string) => biohazardClauseLines(fill(text)).map(sentenceStart)
   const jobAddress = (capture.job_address ?? input.siteAddress).trim()
-  const rooms = (capture.rooms ?? []).flatMap(room => {
+  const printedRooms = (list: SurfaceAreaRoom[]) => list.flatMap(room => {
     const measure = roomSurfaceArea(room)
     if (!measure) return []
     return [{
@@ -564,7 +630,13 @@ export function biohazardCleaningQuoteContent(input: {
     estimated_m2: figures.estimated_m2,
     rate_per_m2: figures.rate_per_m2,
     area_amount: figures.area_amount,
-    rooms,
+    rooms: printedRooms(capture.rooms ?? []),
+    secondary_zone: secondaryZone,
+    secondary_m2: figures.secondary_m2,
+    secondary_rate_per_m2: figures.secondary_rate_per_m2,
+    secondary_amount: figures.secondary_amount,
+    secondary_rooms: figures.has_secondary ? printedRooms(capture.secondary_rooms ?? []) : [],
+    has_secondary: figures.has_secondary,
     travel_km: figures.travel_km,
     rate_per_km: figures.rate_per_km,
     travel_amount: figures.travel_amount,
