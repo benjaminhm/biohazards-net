@@ -3734,9 +3734,11 @@ function buildBiohazardCleaningMid(
       ${c.biohazard_type ? meta('Biohazard', c.biohazard_type) : ''}
       ${c.area_affected ? meta(c.has_secondary ? 'Primary decontamination zone' : 'Area affected', c.area_affected) : ''}
       ${c.has_secondary && c.secondary_zone ? meta('Secondary zone', c.secondary_zone) : ''}
+      ${c.has_secondary && c.secondary_contamination ? meta('Secondary contamination', c.secondary_contamination) : ''}
     </div>
     ${section('Description', c.description)}
     ${section('Objective', c.objective)}
+    ${c.has_secondary && c.secondary_objective ? section('Secondary zone objective', c.secondary_objective) : ''}
     ${clearanceList('Scope of work', c.scope_of_work ?? [])}
     <div class="label" style="margin-top:18px">Estimated quantities</div>
     ${clearanceTable('Estimated quantities', estimated)}

@@ -35,12 +35,14 @@ import {
   normalizeBiohazardCleaningClauses,
   BIOHAZARD_AREA_SUGGESTIONS,
   BIOHAZARD_TYPE_SUGGESTIONS,
+  SECONDARY_CONTAMINATION_SUGGESTIONS,
   resolvedAreaAffected,
   resolvedAreasAffected,
   resolvedBiohazardKind,
   resolvedBiohazardType,
   resolvedBiohazardTypes,
   resolvedObjective,
+  resolvedSecondaryContamination,
   type BiohazardCleaningCapture,
   type BiohazardCleaningClauses,
   type BiohazardClauseKey,
@@ -948,12 +950,12 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
       </div>
 
       <div style={SECTION}>
-        <div style={LABEL}>Secondary zone: odour and insects</div>
+        <div style={LABEL}>Secondary zone</div>
         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
           Areas affected by odour or flies, but not by bodily fluids. Leave it blank when there is none, and it stays off the quote.
         </div>
         <div style={{ marginBottom: 10 }}>
-          <label style={LABEL}>Secondary zone</label>
+          <label style={LABEL}>Areas</label>
           <input
             value={capture.secondary_zone}
             onChange={e => patch({ secondary_zone: e.target.value })}
@@ -961,6 +963,28 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
             style={INPUT}
           />
           <div style={HINT}>Fills [secondary zone] in the scope and the clauses.</div>
+        </div>
+        <div style={{ marginBottom: 10 }}>
+          <div style={LABEL}>Contaminations</div>
+          <NameList
+            names={capture.secondary_contaminations}
+            onChange={names => patch({ secondary_contaminations: names })}
+            suggestions={SECONDARY_CONTAMINATION_SUGGESTIONS}
+            placeholder="Add a contamination"
+          />
+          <div style={HINT}>
+            Fills [secondary contamination]{resolvedSecondaryContamination(capture) ? `: “${resolvedSecondaryContamination(capture)}”` : ''}.
+          </div>
+        </div>
+        <div style={{ marginBottom: 10 }}>
+          <label style={LABEL}>Objective</label>
+          <textarea
+            value={capture.secondary_objective}
+            onChange={e => patch({ secondary_objective: e.target.value })}
+            rows={2}
+            placeholder="Remove the odour and the flies from these areas."
+            style={{ ...INPUT, resize: 'vertical', lineHeight: 1.5, fontFamily: 'inherit' }}
+          />
         </div>
         <ZoneRooms
           rooms={capture.secondary_rooms}
@@ -1029,36 +1053,77 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
           </div>
         )}
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer', marginTop: 12 }}>
-          <input type="checkbox" checked={capture.atp_testing} onChange={e => patch({ atp_testing: e.target.checked })} />
-          ATP verification testing at the end of the works
+          <input
+            type="checkbox"
+            checked={capture.atp_testing && capture.lab_testing}
+            onChange={e => patch({ atp_testing: e.target.checked, lab_testing: e.target.checked })}
+          />
+          COH verification at the end of the works
         </label>
-        {capture.atp_testing && (
-          <div style={{ margin: '8px 0 0 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, maxWidth: 420 }}>
+        <div style={{ ...HINT, marginLeft: 24 }}>Verification is both ATP testing and laboratory testing.</div>
+        {capture.atp_testing && capture.lab_testing && (
+          <div style={{ margin: '8px 0 0 24px', display: 'grid', gap: 12, maxWidth: 480 }}>
             <div>
-              <label style={LABEL}>Number of tests</label>
-              <input
-                type="number"
-                min={0}
-                step={1}
-                value={capture.atp_tests ?? ''}
-                onChange={e => patch({ atp_tests: numberOrNull(e.target.value) })}
-                placeholder="0"
-                style={INPUT}
-              />
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>ATP testing</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={LABEL}>Number of tests</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={capture.atp_tests ?? ''}
+                    onChange={e => patch({ atp_tests: numberOrNull(e.target.value) })}
+                    placeholder="0"
+                    style={INPUT}
+                  />
+                </div>
+                <div>
+                  <label style={LABEL}>Rate per test ($)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={capture.atp_rate ?? ''}
+                    onChange={e => patch({ atp_rate: numberOrNull(e.target.value) })}
+                    placeholder="0.00"
+                    style={INPUT}
+                  />
+                </div>
+              </div>
             </div>
             <div>
-              <label style={LABEL}>Rate per test ($)</label>
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                value={capture.atp_rate ?? ''}
-                onChange={e => patch({ atp_rate: numberOrNull(e.target.value) })}
-                placeholder="0.00"
-                style={INPUT}
-              />
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Laboratory testing</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={LABEL}>Number of tests</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={capture.lab_tests ?? ''}
+                    onChange={e => patch({ lab_tests: numberOrNull(e.target.value) })}
+                    placeholder="0"
+                    style={INPUT}
+                  />
+                </div>
+                <div>
+                  <label style={LABEL}>Rate per test ($)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={capture.lab_rate ?? ''}
+                    onChange={e => patch({ lab_rate: numberOrNull(e.target.value) })}
+                    placeholder="0.00"
+                    style={INPUT}
+                  />
+                </div>
+              </div>
             </div>
-            <div style={{ ...HINT, gridColumn: '1 / -1', marginTop: 0 }}>Added last in the scope: ATP surface testing verifies the decontamination.</div>
+            <div style={{ ...HINT, marginTop: 0 }}>
+              Added last in the scope: the COH verifies the decontamination by ATP testing and by laboratory testing. Each is its own line on the quote.
+            </div>
           </div>
         )}
       </div>

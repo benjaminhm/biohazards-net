@@ -133,10 +133,19 @@ test('a quote saved with one biohazard type and one area still opens', () => {
   assert.equal(normalizeBiohazardCleaningCapture({}).biohazard_types, null)
 })
 
-test('the hygienist goes first in the scope and ATP testing goes last, each with its own line', () => {
-  const capture = filled({ coh_rap: true, coh_rap_fee: 900, atp_testing: true, atp_tests: 6, atp_rate: 25 })
+test('COH verification is ATP testing and laboratory testing, each with its own line', () => {
+  const capture = filled({
+    coh_rap: true,
+    coh_rap_fee: 900,
+    atp_testing: true,
+    atp_tests: 6,
+    atp_rate: 25,
+    lab_testing: true,
+    lab_tests: 3,
+    lab_rate: 80,
+  })
   const figures = biohazardCleaningFigures(capture)
-  assert.equal(figures.subtotal, 1650 + 900 + 150)
+  assert.equal(figures.subtotal, 1650 + 900 + 150 + 240)
   const content = biohazardCleaningQuoteContent({
     reference: 'BCQ-COH',
     clientName: 'Acme',
@@ -145,14 +154,27 @@ test('the hygienist goes first in the scope and ATP testing goes last, each with
     defaults: biohazardJobDefaults(job()),
   })
   assert.match(content.scope_of_work[0], /Certified Occupational Hygienist .*Remediation Action Plan/)
-  assert.match(content.scope_of_work[content.scope_of_work.length - 1], /ATP surface testing/)
+  assert.match(content.scope_of_work[content.scope_of_work.length - 1], /verifies the decontamination by ATP surface testing and by laboratory testing/)
+  assert.equal(content.scope_of_work.filter(line => /ATP|laborator/i.test(line)).length, 1)
   assert.deepEqual(
     content.extra_lines.map(line => `${line.label}:${line.quantity}:${line.amount}`),
-    ['Certified Occupational Hygienist: Remediation Action Plan:1:900', 'ATP verification testing:6:150', 'Clinical waste bins:2:100'],
+    [
+      'Certified Occupational Hygienist: Remediation Action Plan:1:900',
+      'ATP verification testing:6:150',
+      'Laboratory testing:3:240',
+      'Clinical waste bins:2:100',
+    ],
   )
   assert.deepEqual(biohazardRuleFlags(capture, biohazardCheckContext(job())), [])
-  const blank = biohazardRuleFlags(filled({ coh_rap: true, atp_testing: true, atp_tests: 4 }), biohazardCheckContext(job()))
-  assert.deepEqual(blank.map(flag => flag.subject).sort(), ['atp_tests', 'coh_rap_fee'])
+  const blank = biohazardRuleFlags(filled({
+    coh_rap: true,
+    atp_testing: true,
+    atp_tests: 4,
+    lab_testing: true,
+  }), biohazardCheckContext(job()))
+  assert.deepEqual(blank.map(flag => flag.subject).sort(), ['atp_tests', 'coh_rap_fee', 'lab_tests'])
+  const onlyAtp = biohazardRuleFlags(filled({ atp_testing: true, atp_tests: 4, atp_rate: 25 }), biohazardCheckContext(job()))
+  assert.ok(onlyAtp.some(flag => flag.subject === 'lab_testing'))
 })
 
 test('unticked, neither the hygienist nor ATP testing is on the quote', () => {
@@ -163,8 +185,8 @@ test('unticked, neither the hygienist nor ATP testing is on the quote', () => {
     capture: filled({ coh_rap_fee: 900, atp_tests: 6, atp_rate: 25 }),
     defaults: biohazardJobDefaults(job()),
   })
-  assert.doesNotMatch(content.scope_of_work.join('\n'), /Occupational Hygienist|ATP/)
-  assert.ok(!content.extra_lines.some(line => /Hygienist|ATP/.test(line.label)))
+  assert.doesNotMatch(content.scope_of_work.join('\n'), /Occupational Hygienist|ATP|laborator/i)
+  assert.ok(!content.extra_lines.some(line => /Hygienist|ATP|Laboratory/.test(line.label)))
 })
 
 test('without a secondary zone, its line and its clause lines stay off the quote', () => {
@@ -181,7 +203,13 @@ test('without a secondary zone, its line and its clause lines stay off the quote
 })
 
 test('a secondary zone is priced at its own rate and printed beside the primary zone', () => {
-  const capture = filled({ secondary_zone: 'hallway and lounge', secondary_m2: 40, secondary_rate_per_m2: 5 })
+  const capture = filled({
+    secondary_zone: 'hallway and lounge',
+    secondary_contaminations: ['odour', 'flies'],
+    secondary_objective: 'Remove the odour and the flies.',
+    secondary_m2: 40,
+    secondary_rate_per_m2: 5,
+  })
   const figures = biohazardCleaningFigures(capture)
   assert.equal(figures.secondary_amount, 200)
   assert.equal(figures.subtotal, 1850)
@@ -193,24 +221,36 @@ test('a secondary zone is priced at its own rate and printed beside the primary 
     capture,
     defaults: biohazardJobDefaults(job()),
   })
-  assert.match(content.scope_of_work.join('\n'), /Treat the secondary zone, the hallway and lounge, for odour and insects/)
+  assert.equal(content.secondary_contamination, 'odour and flies')
+  assert.match(content.scope_of_work.join('\n'), /Treat the secondary zone, the hallway and lounge, for odour and flies/)
+  assert.match(content.inclusions.join('\n'), /Treatment of odour and flies in the secondary zone/)
   const html = buildPrintHTML(
     'biohazard_cleaning_quote',
     content as unknown as Record<string, unknown>,
     [], [], null, 'job', 'http://localhost', undefined, { screenActionBar: false },
   )
   assert.match(html, /Primary decontamination zone/)
-  assert.match(html, /Secondary zone \(odour and insects\)/)
-  assert.doesNotMatch(html, /\[secondary zone\]/)
+  assert.match(html, /Secondary contamination/)
+  assert.match(html, /Secondary zone objective/)
+  assert.match(html, /Remove the odour and the flies/)
+  assert.doesNotMatch(html, /\[secondary zone\]|\[secondary contamination\]/)
 })
 
 test('the check flags a secondary zone without square metres, and square metres without a zone', () => {
   const context = biohazardCheckContext(job())
   const noMetres = biohazardRuleFlags(filled({ secondary_zone: 'hallway' }), context).map(flag => `${flag.code}:${flag.subject}`)
   assert.ok(noMetres.includes('surface_incomplete:secondary'))
+  assert.ok(noMetres.includes('missing_field:secondary_contamination'))
+  assert.ok(noMetres.includes('missing_field:secondary_objective'))
   const noName = biohazardRuleFlags(filled({ secondary_m2: 30 }), context).map(flag => `${flag.code}:${flag.subject}`)
   assert.ok(noName.includes('missing_field:secondary_zone'))
-  assert.deepEqual(biohazardRuleFlags(filled({ secondary_zone: 'hallway', secondary_m2: 30, secondary_rate_per_m2: 5 }), context), [])
+  assert.deepEqual(biohazardRuleFlags(filled({
+    secondary_zone: 'hallway',
+    secondary_contaminations: ['odour'],
+    secondary_objective: 'Clear the odour.',
+    secondary_m2: 30,
+    secondary_rate_per_m2: 5,
+  }), context), [])
 })
 
 const NO_ASSESSMENT: BiohazardCheckContext = biohazardCheckContext(job())

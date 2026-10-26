@@ -21,6 +21,8 @@ import {
   resolvedBiohazardType,
   biohazardScopeWithServices,
   resolvedObjective,
+  resolvedSecondaryContamination,
+  secondaryZoneInUse,
   withoutUnusedSecondaryLines,
   type BiohazardCleaningCapture,
   type BiohazardCleaningClauses,
@@ -142,8 +144,13 @@ const FIELD_TEXT: Record<string, string> = {
   biohazard_type: 'The biohazard type is blank. It fills [biohazard type] on the quote.',
   area_affected: 'The primary zone is blank. It fills [area affected] on the quote.',
   secondary_zone: 'The secondary zone has square metres but no description. It fills [secondary zone] on the quote.',
+  secondary_contamination: 'The secondary zone has no contaminations. They fill [secondary contamination] on the quote.',
+  secondary_objective: 'The secondary zone objective is blank.',
   coh_rap_fee: 'The Certified Occupational Hygienist is on the quote, but the fee is blank.',
   atp_tests: 'ATP testing is on the quote, but the number of tests or the rate per test is blank.',
+  lab_tests: 'Laboratory testing is on the quote, but the number of tests or the rate per test is blank.',
+  lab_testing: 'COH verification needs laboratory testing as well as ATP testing.',
+  atp_testing: 'COH verification needs ATP testing as well as laboratory testing.',
   description: 'The description is blank.',
   objective: 'The objective is blank.',
 }
@@ -221,6 +228,8 @@ export interface BiohazardCheckText {
   biohazardType: string
   areaAffected: string
   secondaryZone: string
+  secondaryContamination: string
+  secondaryObjective: string
   description: string
   objective: string
   roomNames: string[]
@@ -232,14 +241,21 @@ export function biohazardCheckText(
   template?: BiohazardCleaningClauses | null,
 ): BiohazardCheckText {
   const secondaryZone = (capture.secondary_zone ?? '').trim()
+  const secondaryInUse = secondaryZoneInUse(capture)
   const storedClauses = capture.clauses ?? template ?? normalizeBiohazardCleaningClauses(null)
   const rawClauses = Object.fromEntries(
-    BIOHAZARD_CLAUSE_KEYS.map(key => [key, withoutUnusedSecondaryLines(storedClauses[key] ?? '', secondaryZone)]),
+    BIOHAZARD_CLAUSE_KEYS.map(key => [key, withoutUnusedSecondaryLines(storedClauses[key] ?? '', secondaryInUse)]),
   ) as unknown as BiohazardCleaningClauses
   const biohazardType = resolvedBiohazardType(capture, context.defaults)
   const areaAffected = resolvedAreaAffected(capture, context.defaults)
+  const secondaryContamination = resolvedSecondaryContamination(capture)
   const fill = (text: string) =>
-    plainClearanceClause(fillBiohazardPlaceholders(text.replace(/\n/g, ' \n '), { biohazardType, areaAffected, secondaryZone }))
+    plainClearanceClause(fillBiohazardPlaceholders(text.replace(/\n/g, ' \n '), {
+      biohazardType,
+      areaAffected,
+      secondaryZone,
+      secondaryContamination,
+    }))
   rawClauses.scope_of_work = biohazardScopeWithServices(rawClauses.scope_of_work, capture)
   const clauses = Object.fromEntries(
     BIOHAZARD_CLAUSE_KEYS.map(key => [key, fill(rawClauses[key] ?? '')]),
@@ -253,9 +269,11 @@ export function biohazardCheckText(
     biohazardType,
     areaAffected,
     secondaryZone,
+    secondaryContamination,
+    secondaryObjective: (capture.secondary_objective ?? '').trim(),
     description: fill(capture.description),
     objective: fill(resolvedObjective(capture, context.defaults)),
-    roomNames: [...capture.rooms, ...(secondaryZone ? capture.secondary_rooms : [])]
+    roomNames: [...capture.rooms, ...(secondaryInUse ? capture.secondary_rooms : [])]
       .map(room => room.name.trim())
       .filter(Boolean),
   }
@@ -314,8 +332,13 @@ export function biohazardRuleFlags(
   if (!text.biohazardType) rule('missing_field', 'details', 'biohazard_type')
   if (!text.areaAffected) rule('missing_field', 'details', 'area_affected')
   if (!text.secondaryZone && figures.secondary_m2 > 0) rule('missing_field', 'details', 'secondary_zone')
+  if (secondaryZoneInUse(capture) && !text.secondaryContamination) rule('missing_field', 'details', 'secondary_contamination')
+  if (secondaryZoneInUse(capture) && !text.secondaryObjective) rule('missing_field', 'details', 'secondary_objective')
   if (capture.coh_rap && !(Number(capture.coh_rap_fee) > 0)) rule('missing_field', 'quantities', 'coh_rap_fee')
   if (capture.atp_testing && !(Number(capture.atp_tests) > 0 && Number(capture.atp_rate) > 0)) rule('missing_field', 'quantities', 'atp_tests')
+  if (capture.lab_testing && !(Number(capture.lab_tests) > 0 && Number(capture.lab_rate) > 0)) rule('missing_field', 'quantities', 'lab_tests')
+  if (capture.atp_testing && !capture.lab_testing) rule('missing_field', 'quantities', 'lab_testing')
+  if (capture.lab_testing && !capture.atp_testing) rule('missing_field', 'quantities', 'atp_testing')
   if (!text.description) rule('missing_field', 'details', 'description')
   if (!text.objective) rule('missing_field', 'details', 'objective')
 
@@ -359,7 +382,7 @@ export function biohazardRuleFlags(
 
   if (figures.rate_per_km > 0 && figures.travel_km <= 0) rule('travel_incomplete', 'quantities')
   if (figures.rate_per_m2 > 0 && figures.estimated_m2 <= 0) rule('surface_incomplete', 'quantities')
-  if (text.secondaryZone && figures.secondary_m2 <= 0) rule('surface_incomplete', 'quantities', 'secondary')
+  if (secondaryZoneInUse(capture) && figures.secondary_m2 <= 0) rule('surface_incomplete', 'quantities', 'secondary')
 
   const money = quoteMoney(figures)
   for (const clause of BIOHAZARD_CLAUSE_KEYS) {
@@ -441,6 +464,8 @@ export function biohazardCheckPayload(
       biohazard_type: text.biohazardType,
       primary_zone: text.areaAffected,
       secondary_zone: text.secondaryZone,
+      secondary_contamination: text.secondaryContamination,
+      secondary_objective: text.secondaryObjective,
       rooms: text.roomNames,
       description: text.description,
       objective: text.objective,
@@ -458,7 +483,7 @@ export function biohazardCheckPayload(
       call_out_waived: capture.mobilisation_waived,
       call_out_reason: capture.mobilisation_waived ? capture.mobilisation_reason.trim() : '',
       other_lines: figures.lines
-        .filter(line => line.kind === 'coh' || line.kind === 'atp' || line.kind === 'extra')
+        .filter(line => line.kind === 'coh' || line.kind === 'atp' || line.kind === 'lab' || line.kind === 'extra')
         .map(line => line.label),
       total: figures.total,
     },
@@ -474,7 +499,7 @@ export function biohazardCheckPayload(
 }
 
 function clauseBody(text: BiohazardCheckText, clause: BiohazardCheckClause): string {
-  if (clause === 'details') return [text.biohazardType, text.areaAffected, text.secondaryZone, text.description, text.objective, ...text.roomNames].join(' \n ')
+  if (clause === 'details') return [text.biohazardType, text.areaAffected, text.secondaryZone, text.secondaryContamination, text.secondaryObjective, text.description, text.objective, ...text.roomNames].join(' \n ')
   if (clause === 'quantities') return ''
   return text.clauses[clause]
 }

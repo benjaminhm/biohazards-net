@@ -57,12 +57,12 @@ export const BIOHAZARD_CLEANING_SCHEMA = {
     'Verify the cleaning by visual inspection.',
     'Package, transport, and dispose of [biohazard type] waste as clinical waste at a licensed facility.',
     'Deodorise the [area affected] where odour remains after cleaning.',
-    'Treat the secondary zone, the [secondary zone], for odour and insects, including deodorisation and fly control.',
+    'Treat the secondary zone, the [secondary zone], for [secondary contamination].',
   ],
   inclusions: [
     'Decontamination of the primary zone, the [area affected], as set out in the scope of work.',
     'Surface decontamination of the estimated primary zone area at the rate per square metre on this quote.',
-    'Odour and insect treatment of the secondary zone, the [secondary zone], at the secondary zone rate per square metre on this quote.',
+    'Treatment of [secondary contamination] in the secondary zone, the [secondary zone], at the secondary zone rate per square metre on this quote.',
     'Travel at the rate per kilometre on this quote.',
     'Labour for the labour days on this quote, as a fixed amount.',
   ],
@@ -103,14 +103,23 @@ export const BIOHAZARD_EXTRA_LINE_PRESETS = [
 
 export const BIOHAZARD_COH_LABEL = 'Certified Occupational Hygienist: Remediation Action Plan'
 export const BIOHAZARD_ATP_LABEL = 'ATP verification testing'
+export const BIOHAZARD_LAB_LABEL = 'Laboratory testing'
 
 /** Added first in the scope of work when the COH is on the quote. */
 export const BIOHAZARD_COH_SCOPE_LINE =
   'Engage a Certified Occupational Hygienist to inspect the site and prepare a Remediation Action Plan (RAP) before the works start. Carry out the works to the RAP.'
 
-/** Added last in the scope of work when ATP testing is on the quote. */
+/** Added last when only ATP testing is on the quote. */
 export const BIOHAZARD_ATP_SCOPE_LINE =
   'At the end of the works, verify the decontamination with ATP surface testing of the cleaned surfaces, and record the results.'
+
+/** Added last when only laboratory testing is on the quote. */
+export const BIOHAZARD_LAB_SCOPE_LINE =
+  'At the end of the works, take surface samples from the cleaned surfaces for laboratory testing, and record the results.'
+
+/** COH verification is both. Added last when ATP testing and laboratory testing are on the quote. */
+export const BIOHAZARD_VERIFICATION_SCOPE_LINE =
+  'At the end of the works, the Certified Occupational Hygienist verifies the decontamination by ATP surface testing and by laboratory testing of surface samples, and records the results.'
 
 /** Clauses kept on the job. The company template has the same shape. */
 export interface BiohazardCleaningClauses {
@@ -158,6 +167,10 @@ export interface BiohazardCleaningCapture {
   rooms: SurfaceAreaRoom[]
   /** Areas affected by odour or insects, not by bodily fluids. Fills [secondary zone]. Blank leaves the zone off the quote. */
   secondary_zone: string
+  /** What is in the secondary zone, for example odour and flies. Fills [secondary contamination]. */
+  secondary_contaminations: string[]
+  /** What the secondary zone treatment is meant to achieve. */
+  secondary_objective: string
   secondary_m2: number | null
   secondary_rooms: SurfaceAreaRoom[]
   /** Ex GST. Blank is zero. */
@@ -188,11 +201,16 @@ export interface BiohazardCleaningCapture {
   coh_rap: boolean
   /** Ex GST. */
   coh_rap_fee: number | null
-  /** ATP surface testing at the end of the works. */
+  /** ATP surface testing. One of the two parts of COH verification. */
   atp_testing: boolean
   atp_tests: number | null
   /** Ex GST, per test. */
   atp_rate: number | null
+  /** Laboratory testing of surface samples. The other part of COH verification. */
+  lab_testing: boolean
+  lab_tests: number | null
+  /** Ex GST, per test. */
+  lab_rate: number | null
   /** Null until the job takes a copy of the company template. */
   clauses: BiohazardCleaningClauses | null
   /** Set when staff generate the quote while the check still shows issues. */
@@ -205,7 +223,7 @@ export interface BiohazardCleaningLine {
   unit: string
   rate: number
   amount: number
-  kind: 'surface' | 'secondary' | 'travel' | 'mobilisation' | 'labour' | 'coh' | 'atp' | 'extra'
+  kind: 'surface' | 'secondary' | 'travel' | 'mobilisation' | 'labour' | 'coh' | 'atp' | 'lab' | 'extra'
 }
 
 export interface BiohazardCleaningFigures {
@@ -246,6 +264,8 @@ export interface BiohazardCleaningQuoteContent {
   area_amount: number
   rooms: { name: string; detail: string; area_m2: number }[]
   secondary_zone: string
+  secondary_contamination: string
+  secondary_objective: string
   secondary_m2: number
   secondary_rate_per_m2: number
   secondary_amount: number
@@ -389,6 +409,13 @@ export const BIOHAZARD_AREA_SUGGESTIONS = [
   'hallway',
 ] as const
 
+export const SECONDARY_CONTAMINATION_SUGGESTIONS = [
+  'odour',
+  'flies',
+  'insects',
+  'mould',
+] as const
+
 export function emptyBiohazardCleaningCapture(): BiohazardCleaningCapture {
   return {
     cleaning_kind: null,
@@ -399,6 +426,8 @@ export function emptyBiohazardCleaningCapture(): BiohazardCleaningCapture {
     estimated_m2: null,
     rooms: [],
     secondary_zone: '',
+    secondary_contaminations: [],
+    secondary_objective: '',
     secondary_m2: null,
     secondary_rooms: [],
     secondary_rate_per_m2: null,
@@ -423,6 +452,9 @@ export function emptyBiohazardCleaningCapture(): BiohazardCleaningCapture {
     atp_testing: false,
     atp_tests: null,
     atp_rate: null,
+    lab_testing: false,
+    lab_tests: null,
+    lab_rate: null,
     clauses: null,
     check_override: null,
   }
@@ -520,6 +552,10 @@ export function normalizeBiohazardCleaningCapture(raw: unknown): BiohazardCleani
     estimated_m2: qty(o.estimated_m2),
     rooms: Array.isArray(o.rooms) ? o.rooms.map(normalizeSurfaceAreaRoom) : [],
     secondary_zone: typeof o.secondary_zone === 'string' ? o.secondary_zone : '',
+    secondary_contaminations: Array.isArray(o.secondary_contaminations)
+      ? o.secondary_contaminations.filter((item): item is string => typeof item === 'string')
+      : [],
+    secondary_objective: typeof o.secondary_objective === 'string' ? o.secondary_objective : '',
     secondary_m2: qty(o.secondary_m2),
     secondary_rooms: Array.isArray(o.secondary_rooms) ? o.secondary_rooms.map(normalizeSurfaceAreaRoom) : [],
     secondary_rate_per_m2: qty(o.secondary_rate_per_m2),
@@ -544,6 +580,9 @@ export function normalizeBiohazardCleaningCapture(raw: unknown): BiohazardCleani
     atp_testing: o.atp_testing === true,
     atp_tests: qty(o.atp_tests),
     atp_rate: qty(o.atp_rate),
+    lab_testing: o.lab_testing === true,
+    lab_tests: qty(o.lab_tests),
+    lab_rate: qty(o.lab_rate),
     clauses: o.clauses && typeof o.clauses === 'object' ? jobBiohazardClauses(o.clauses) : null,
     check_override: override && typeof override.at === 'string'
       ? {
@@ -567,12 +606,30 @@ export function biohazardSecondarySquareMetres(capture: Pick<BiohazardCleaningCa
   return capture.secondary_m2
 }
 
+export function resolvedSecondaryContaminations(capture: Pick<BiohazardCleaningCapture, 'secondary_contaminations'>): string[] {
+  return cleanNames(capture.secondary_contaminations ?? [])
+}
+
+/** For example "odour and flies". */
+export function resolvedSecondaryContamination(capture: Pick<BiohazardCleaningCapture, 'secondary_contaminations'>): string {
+  return joinNames(resolvedSecondaryContaminations(capture))
+}
+
+export function secondaryZoneInUse(capture: Pick<BiohazardCleaningCapture, 'secondary_zone' | 'secondary_contaminations' | 'secondary_objective' | 'secondary_m2' | 'secondary_rooms'>): boolean {
+  return Boolean(
+    (capture.secondary_zone ?? '').trim()
+    || resolvedSecondaryContamination(capture)
+    || (capture.secondary_objective ?? '').trim()
+    || quantityOrZero(biohazardSecondarySquareMetres(capture)) > 0
+  )
+}
+
 export function biohazardCleaningFigures(capture: BiohazardCleaningCapture): BiohazardCleaningFigures {
   const estimated_m2 = round2(quantityOrZero(biohazardSquareMetres(capture)))
   const secondary_m2 = round2(quantityOrZero(biohazardSecondarySquareMetres(capture)))
   const secondary_rate_per_m2 = round2(quantityOrZero(capture.secondary_rate_per_m2))
   const secondary_amount = round2(secondary_m2 * secondary_rate_per_m2)
-  const has_secondary = (capture.secondary_zone ?? '').trim() !== '' || secondary_m2 > 0
+  const has_secondary = secondaryZoneInUse(capture)
   const travel_km = round2(quantityOrZero(capture.travel_km))
   const labour_days = Math.round(quantityOrZero(capture.labour_days))
   const mobilisation_fee = capture.mobilisation_waived ? 0 : round2(quantityOrZero(capture.mobilisation_fee))
@@ -611,6 +668,11 @@ export function biohazardCleaningFigures(capture: BiohazardCleaningCapture): Bio
     const rate = round2(quantityOrZero(capture.atp_rate))
     lines.push({ label: BIOHAZARD_ATP_LABEL, quantity: tests, unit: tests === 1 ? 'test' : 'tests', rate, amount: round2(tests * rate), kind: 'atp' })
   }
+  if (capture.lab_testing) {
+    const tests = Math.round(quantityOrZero(capture.lab_tests))
+    const rate = round2(quantityOrZero(capture.lab_rate))
+    lines.push({ label: BIOHAZARD_LAB_LABEL, quantity: tests, unit: tests === 1 ? 'test' : 'tests', rate, amount: round2(tests * rate), kind: 'lab' })
+  }
   for (const extra of capture.extra_lines ?? []) {
     const label = extra.label.trim()
     if (!label) continue
@@ -642,49 +704,59 @@ export function biohazardCleaningFigures(capture: BiohazardCleaningCapture): Bio
   }
 }
 
-export const BIOHAZARD_PLACEHOLDERS = ['biohazard type', 'area affected', 'primary zone', 'secondary zone'] as const
+export const BIOHAZARD_PLACEHOLDERS = ['biohazard type', 'area affected', 'primary zone', 'secondary zone', 'secondary contamination'] as const
 
 function placeholderKey(raw: string): string {
   return raw.trim().toLowerCase().replace(/\s+/g, ' ')
 }
 
 /**
- * Fills [biohazard type], [area affected] (also [primary zone]), and [secondary zone].
+ * Fills [biohazard type], [area affected] (also [primary zone]), [secondary zone], and [secondary contamination].
  * A blank value leaves the bracket for the check to find.
  */
 export function fillBiohazardPlaceholders(
   text: string,
-  values: { biohazardType: string; areaAffected: string; secondaryZone?: string },
+  values: { biohazardType: string; areaAffected: string; secondaryZone?: string; secondaryContamination?: string },
 ): string {
   return text.replace(/\[([^\[\]\n]+)\]/g, (match, raw: string) => {
     const key = placeholderKey(raw)
     if (key === 'biohazard type' && values.biohazardType.trim()) return values.biohazardType.trim()
     if ((key === 'area affected' || key === 'primary zone') && values.areaAffected.trim()) return values.areaAffected.trim()
     if (key === 'secondary zone' && values.secondaryZone?.trim()) return values.secondaryZone.trim()
+    if (key === 'secondary contamination' && values.secondaryContamination?.trim()) return values.secondaryContamination.trim()
     return match
   })
 }
 
 /**
- * The scope of work with the COH line first and the ATP line last, when they are on the quote.
- * A scope that already covers either one is left as it is.
+ * The scope of work with the COH line first and the verification line last, when they are on the quote.
+ * Verification is ATP testing and laboratory testing. A scope that already covers a part is left as it is.
  */
 export function biohazardScopeWithServices(
   scope: string,
-  capture: Pick<BiohazardCleaningCapture, 'coh_rap' | 'atp_testing'>,
+  capture: Pick<BiohazardCleaningCapture, 'coh_rap' | 'atp_testing' | 'lab_testing'>,
 ): string {
   const lines = scope.split('\n')
   if (capture.coh_rap && !/occupational hygien|remediation action plan/i.test(scope)) lines.unshift(BIOHAZARD_COH_SCOPE_LINE)
-  if (capture.atp_testing && !/\bATP\b/.test(scope)) lines.push(BIOHAZARD_ATP_SCOPE_LINE)
+  const hasAtp = /\bATP\b/.test(scope)
+  const hasLab = /laborator/i.test(scope)
+  if (capture.atp_testing && capture.lab_testing && !hasAtp && !hasLab) lines.push(BIOHAZARD_VERIFICATION_SCOPE_LINE)
+  else {
+    if (capture.atp_testing && !hasAtp) lines.push(BIOHAZARD_ATP_SCOPE_LINE)
+    if (capture.lab_testing && !hasLab) lines.push(BIOHAZARD_LAB_SCOPE_LINE)
+  }
   return lines.join('\n')
 }
 
 /** Without a secondary zone, clause lines about it are left off. */
-export function withoutUnusedSecondaryLines(text: string, secondaryZone: string): string {
-  if (secondaryZone.trim()) return text
+export function withoutUnusedSecondaryLines(text: string, inUse: boolean): string {
+  if (inUse) return text
   return text
     .split('\n')
-    .filter(line => ![...line.matchAll(/\[([^\[\]\n]+)\]/g)].some(match => placeholderKey(match[1]) === 'secondary zone'))
+    .filter(line => ![...line.matchAll(/\[([^\[\]\n]+)\]/g)].some(match => {
+      const key = placeholderKey(match[1])
+      return key === 'secondary zone' || key === 'secondary contamination'
+    }))
     .join('\n')
 }
 
@@ -708,8 +780,15 @@ export function biohazardCleaningQuoteContent(input: {
   const biohazardType = resolvedBiohazardType(capture, defaults)
   const areaAffected = resolvedAreaAffected(capture, defaults)
   const secondaryZone = (capture.secondary_zone ?? '').trim()
+  const secondaryContamination = resolvedSecondaryContamination(capture)
+  const secondaryObjective = (capture.secondary_objective ?? '').trim()
   const fill = (text: string) =>
-    fillBiohazardPlaceholders(withoutUnusedSecondaryLines(text, secondaryZone), { biohazardType, areaAffected, secondaryZone })
+    fillBiohazardPlaceholders(withoutUnusedSecondaryLines(text, figures.has_secondary), {
+      biohazardType,
+      areaAffected,
+      secondaryZone,
+      secondaryContamination,
+    })
   const lines = (text: string) => biohazardClauseLines(fill(text)).map(sentenceStart)
   const jobAddress = (capture.job_address ?? input.siteAddress).trim()
   const printedRooms = (list: SurfaceAreaRoom[]) => list.flatMap(room => {
@@ -737,6 +816,8 @@ export function biohazardCleaningQuoteContent(input: {
     area_amount: figures.area_amount,
     rooms: printedRooms(capture.rooms ?? []),
     secondary_zone: secondaryZone,
+    secondary_contamination: figures.has_secondary ? secondaryContamination : '',
+    secondary_objective: figures.has_secondary ? secondaryObjective : '',
     secondary_m2: figures.secondary_m2,
     secondary_rate_per_m2: figures.secondary_rate_per_m2,
     secondary_amount: figures.secondary_amount,
@@ -751,7 +832,7 @@ export function biohazardCleaningQuoteContent(input: {
     mobilisation_fee: figures.mobilisation_fee,
     mobilisation_reason: capture.mobilisation_waived ? capture.mobilisation_reason.trim() : '',
     extra_lines: figures.lines
-      .filter(line => line.kind === 'coh' || line.kind === 'atp' || line.kind === 'extra')
+      .filter(line => line.kind === 'coh' || line.kind === 'atp' || line.kind === 'lab' || line.kind === 'extra')
       .map(({ label, quantity, unit, rate, amount }) => ({ label, quantity, unit, rate, amount })),
     subtotal: figures.subtotal,
     gst: figures.gst,
