@@ -19,6 +19,7 @@ import {
   resolvedAreaAffected,
   resolvedBiohazardKind,
   resolvedBiohazardType,
+  biohazardScopeWithServices,
   resolvedObjective,
   withoutUnusedSecondaryLines,
   type BiohazardCleaningCapture,
@@ -141,6 +142,8 @@ const FIELD_TEXT: Record<string, string> = {
   biohazard_type: 'The biohazard type is blank. It fills [biohazard type] on the quote.',
   area_affected: 'The primary zone is blank. It fills [area affected] on the quote.',
   secondary_zone: 'The secondary zone has square metres but no description. It fills [secondary zone] on the quote.',
+  coh_rap_fee: 'The Certified Occupational Hygienist is on the quote, but the fee is blank.',
+  atp_tests: 'ATP testing is on the quote, but the number of tests or the rate per test is blank.',
   description: 'The description is blank.',
   objective: 'The objective is blank.',
 }
@@ -237,6 +240,7 @@ export function biohazardCheckText(
   const areaAffected = resolvedAreaAffected(capture, context.defaults)
   const fill = (text: string) =>
     plainClearanceClause(fillBiohazardPlaceholders(text.replace(/\n/g, ' \n '), { biohazardType, areaAffected, secondaryZone }))
+  rawClauses.scope_of_work = biohazardScopeWithServices(rawClauses.scope_of_work, capture)
   const clauses = Object.fromEntries(
     BIOHAZARD_CLAUSE_KEYS.map(key => [key, fill(rawClauses[key] ?? '')]),
   ) as Record<BiohazardClauseKey, string>
@@ -310,6 +314,8 @@ export function biohazardRuleFlags(
   if (!text.biohazardType) rule('missing_field', 'details', 'biohazard_type')
   if (!text.areaAffected) rule('missing_field', 'details', 'area_affected')
   if (!text.secondaryZone && figures.secondary_m2 > 0) rule('missing_field', 'details', 'secondary_zone')
+  if (capture.coh_rap && !(Number(capture.coh_rap_fee) > 0)) rule('missing_field', 'quantities', 'coh_rap_fee')
+  if (capture.atp_testing && !(Number(capture.atp_tests) > 0 && Number(capture.atp_rate) > 0)) rule('missing_field', 'quantities', 'atp_tests')
   if (!text.description) rule('missing_field', 'details', 'description')
   if (!text.objective) rule('missing_field', 'details', 'objective')
 
@@ -451,7 +457,9 @@ export function biohazardCheckPayload(
       call_out_fee: figures.mobilisation_fee,
       call_out_waived: capture.mobilisation_waived,
       call_out_reason: capture.mobilisation_waived ? capture.mobilisation_reason.trim() : '',
-      other_lines: figures.lines.filter(line => line.kind === 'extra').map(line => line.label),
+      other_lines: figures.lines
+        .filter(line => line.kind === 'coh' || line.kind === 'atp' || line.kind === 'extra')
+        .map(line => line.label),
       total: figures.total,
     },
     clauses: text.clauses,

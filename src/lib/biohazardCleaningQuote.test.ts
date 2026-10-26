@@ -133,6 +133,40 @@ test('a quote saved with one biohazard type and one area still opens', () => {
   assert.equal(normalizeBiohazardCleaningCapture({}).biohazard_types, null)
 })
 
+test('the hygienist goes first in the scope and ATP testing goes last, each with its own line', () => {
+  const capture = filled({ coh_rap: true, coh_rap_fee: 900, atp_testing: true, atp_tests: 6, atp_rate: 25 })
+  const figures = biohazardCleaningFigures(capture)
+  assert.equal(figures.subtotal, 1650 + 900 + 150)
+  const content = biohazardCleaningQuoteContent({
+    reference: 'BCQ-COH',
+    clientName: 'Acme',
+    siteAddress: '1 Example Street',
+    capture,
+    defaults: biohazardJobDefaults(job()),
+  })
+  assert.match(content.scope_of_work[0], /Certified Occupational Hygienist .*Remediation Action Plan/)
+  assert.match(content.scope_of_work[content.scope_of_work.length - 1], /ATP surface testing/)
+  assert.deepEqual(
+    content.extra_lines.map(line => `${line.label}:${line.quantity}:${line.amount}`),
+    ['Certified Occupational Hygienist: Remediation Action Plan:1:900', 'ATP verification testing:6:150', 'Clinical waste bins:2:100'],
+  )
+  assert.deepEqual(biohazardRuleFlags(capture, biohazardCheckContext(job())), [])
+  const blank = biohazardRuleFlags(filled({ coh_rap: true, atp_testing: true, atp_tests: 4 }), biohazardCheckContext(job()))
+  assert.deepEqual(blank.map(flag => flag.subject).sort(), ['atp_tests', 'coh_rap_fee'])
+})
+
+test('unticked, neither the hygienist nor ATP testing is on the quote', () => {
+  const content = biohazardCleaningQuoteContent({
+    reference: 'BCQ-NONE',
+    clientName: 'Acme',
+    siteAddress: '1 Example Street',
+    capture: filled({ coh_rap_fee: 900, atp_tests: 6, atp_rate: 25 }),
+    defaults: biohazardJobDefaults(job()),
+  })
+  assert.doesNotMatch(content.scope_of_work.join('\n'), /Occupational Hygienist|ATP/)
+  assert.ok(!content.extra_lines.some(line => /Hygienist|ATP/.test(line.label)))
+})
+
 test('without a secondary zone, its line and its clause lines stay off the quote', () => {
   const content = biohazardCleaningQuoteContent({
     reference: 'BCQ-ONE',
@@ -194,7 +228,7 @@ test('rules find gaps against the assessment and the standard stages', () => {
     special_risks: { sharps: true, chemicals: false, structural_damage: false, infectious_disease: false, vermin: false, mold_spores: false },
   }))
   const clauses = defaultBiohazardCleaningClauses()
-  const scope = clauses.scope_of_work.split('\n').filter(line => !/ATP/.test(line)).join('\n')
+  const scope = clauses.scope_of_work.split('\n').filter(line => !/^Verify/.test(line)).join('\n')
   const flags = biohazardRuleFlags(filled({ description: '', clauses: { ...clauses, scope_of_work: scope } }), context)
   const keys = flags.map(flag => `${flag.code}:${flag.subject}`)
   assert.ok(keys.includes('missing_field:description'))

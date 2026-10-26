@@ -54,7 +54,7 @@ export const BIOHAZARD_CLEANING_SCHEMA = {
     'Remove gross contamination and affected porous materials from the [area affected].',
     'Clean all affected surfaces in the [area affected] with detergent to remove residue.',
     'Disinfect the affected surfaces with a TGA-registered hospital-grade disinfectant, at the contact time on the label.',
-    'Verify the cleaning by visual inspection and ATP surface testing.',
+    'Verify the cleaning by visual inspection.',
     'Package, transport, and dispose of [biohazard type] waste as clinical waste at a licensed facility.',
     'Deodorise the [area affected] where odour remains after cleaning.',
     'Treat the secondary zone, the [secondary zone], for odour and insects, including deodorisation and fly control.',
@@ -97,10 +97,20 @@ export const BIOHAZARD_TRAVEL_NOTE = 'The return drive between our base and the 
 /** Fixed lines staff often add. They start at a rate of zero. */
 export const BIOHAZARD_EXTRA_LINE_PRESETS = [
   { label: 'Clinical waste bins', unit: 'bins' },
-  { label: 'ATP verification', unit: 'tests' },
   { label: 'Deodorisation', unit: 'treatment' },
   { label: 'Consumables and PPE', unit: 'kit' },
 ] as const
+
+export const BIOHAZARD_COH_LABEL = 'Certified Occupational Hygienist: Remediation Action Plan'
+export const BIOHAZARD_ATP_LABEL = 'ATP verification testing'
+
+/** Added first in the scope of work when the COH is on the quote. */
+export const BIOHAZARD_COH_SCOPE_LINE =
+  'Engage a Certified Occupational Hygienist to inspect the site and prepare a Remediation Action Plan (RAP) before the works start. Carry out the works to the RAP.'
+
+/** Added last in the scope of work when ATP testing is on the quote. */
+export const BIOHAZARD_ATP_SCOPE_LINE =
+  'At the end of the works, verify the decontamination with ATP surface testing of the cleaned surfaces, and record the results.'
 
 /** Clauses kept on the job. The company template has the same shape. */
 export interface BiohazardCleaningClauses {
@@ -174,6 +184,15 @@ export interface BiohazardCleaningCapture {
   mobilisation_waived: boolean
   mobilisation_reason: string
   extra_lines: BiohazardExtraLine[]
+  /** Certified Occupational Hygienist prepares the Remediation Action Plan. */
+  coh_rap: boolean
+  /** Ex GST. */
+  coh_rap_fee: number | null
+  /** ATP surface testing at the end of the works. */
+  atp_testing: boolean
+  atp_tests: number | null
+  /** Ex GST, per test. */
+  atp_rate: number | null
   /** Null until the job takes a copy of the company template. */
   clauses: BiohazardCleaningClauses | null
   /** Set when staff generate the quote while the check still shows issues. */
@@ -186,7 +205,7 @@ export interface BiohazardCleaningLine {
   unit: string
   rate: number
   amount: number
-  kind: 'surface' | 'secondary' | 'travel' | 'mobilisation' | 'labour' | 'extra'
+  kind: 'surface' | 'secondary' | 'travel' | 'mobilisation' | 'labour' | 'coh' | 'atp' | 'extra'
 }
 
 export interface BiohazardCleaningFigures {
@@ -399,6 +418,11 @@ export function emptyBiohazardCleaningCapture(): BiohazardCleaningCapture {
     mobilisation_waived: false,
     mobilisation_reason: '',
     extra_lines: [],
+    coh_rap: false,
+    coh_rap_fee: null,
+    atp_testing: false,
+    atp_tests: null,
+    atp_rate: null,
     clauses: null,
     check_override: null,
   }
@@ -515,6 +539,11 @@ export function normalizeBiohazardCleaningCapture(raw: unknown): BiohazardCleani
     mobilisation_waived: o.mobilisation_waived === true,
     mobilisation_reason: typeof o.mobilisation_reason === 'string' ? o.mobilisation_reason : '',
     extra_lines: Array.isArray(o.extra_lines) ? o.extra_lines.map(normalizeExtraLine) : [],
+    coh_rap: o.coh_rap === true,
+    coh_rap_fee: qty(o.coh_rap_fee),
+    atp_testing: o.atp_testing === true,
+    atp_tests: qty(o.atp_tests),
+    atp_rate: qty(o.atp_rate),
     clauses: o.clauses && typeof o.clauses === 'object' ? jobBiohazardClauses(o.clauses) : null,
     check_override: override && typeof override.at === 'string'
       ? {
@@ -573,6 +602,15 @@ export function biohazardCleaningFigures(capture: BiohazardCleaningCapture): Bio
     amount: labour_amount,
     kind: 'labour',
   })
+  if (capture.coh_rap) {
+    const fee = round2(quantityOrZero(capture.coh_rap_fee))
+    lines.push({ label: BIOHAZARD_COH_LABEL, quantity: 1, unit: 'plan', rate: fee, amount: fee, kind: 'coh' })
+  }
+  if (capture.atp_testing) {
+    const tests = Math.round(quantityOrZero(capture.atp_tests))
+    const rate = round2(quantityOrZero(capture.atp_rate))
+    lines.push({ label: BIOHAZARD_ATP_LABEL, quantity: tests, unit: tests === 1 ? 'test' : 'tests', rate, amount: round2(tests * rate), kind: 'atp' })
+  }
   for (const extra of capture.extra_lines ?? []) {
     const label = extra.label.trim()
     if (!label) continue
@@ -627,6 +665,20 @@ export function fillBiohazardPlaceholders(
   })
 }
 
+/**
+ * The scope of work with the COH line first and the ATP line last, when they are on the quote.
+ * A scope that already covers either one is left as it is.
+ */
+export function biohazardScopeWithServices(
+  scope: string,
+  capture: Pick<BiohazardCleaningCapture, 'coh_rap' | 'atp_testing'>,
+): string {
+  const lines = scope.split('\n')
+  if (capture.coh_rap && !/occupational hygien|remediation action plan/i.test(scope)) lines.unshift(BIOHAZARD_COH_SCOPE_LINE)
+  if (capture.atp_testing && !/\bATP\b/.test(scope)) lines.push(BIOHAZARD_ATP_SCOPE_LINE)
+  return lines.join('\n')
+}
+
 /** Without a secondary zone, clause lines about it are left off. */
 export function withoutUnusedSecondaryLines(text: string, secondaryZone: string): string {
   if (secondaryZone.trim()) return text
@@ -679,7 +731,7 @@ export function biohazardCleaningQuoteContent(input: {
     area_affected: areaAffected,
     description: fill(capture.description).trim(),
     objective: fill(resolvedObjective(capture, defaults)).trim(),
-    scope_of_work: lines(clauses.scope_of_work),
+    scope_of_work: lines(biohazardScopeWithServices(clauses.scope_of_work, capture)),
     estimated_m2: figures.estimated_m2,
     rate_per_m2: figures.rate_per_m2,
     area_amount: figures.area_amount,
@@ -699,7 +751,7 @@ export function biohazardCleaningQuoteContent(input: {
     mobilisation_fee: figures.mobilisation_fee,
     mobilisation_reason: capture.mobilisation_waived ? capture.mobilisation_reason.trim() : '',
     extra_lines: figures.lines
-      .filter(line => line.kind === 'extra')
+      .filter(line => line.kind === 'coh' || line.kind === 'atp' || line.kind === 'extra')
       .map(({ label, quantity, unit, rate, amount }) => ({ label, quantity, unit, rate, amount })),
     subtotal: figures.subtotal,
     gst: figures.gst,

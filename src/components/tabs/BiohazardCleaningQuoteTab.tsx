@@ -1005,6 +1005,65 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
       </div>
 
       <div style={SECTION}>
+        <div style={LABEL}>Hygienist and verification</div>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+          Each one ticked adds a line to the scope of work and a line to the quote.
+        </div>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+          <input type="checkbox" checked={capture.coh_rap} onChange={e => patch({ coh_rap: e.target.checked })} />
+          Certified Occupational Hygienist: Remediation Action Plan (RAP)
+        </label>
+        {capture.coh_rap && (
+          <div style={{ margin: '8px 0 0 24px', maxWidth: 260 }}>
+            <label style={LABEL}>Fee ($)</label>
+            <input
+              type="number"
+              min={0}
+              step="0.01"
+              value={capture.coh_rap_fee ?? ''}
+              onChange={e => patch({ coh_rap_fee: numberOrNull(e.target.value) })}
+              placeholder="0.00"
+              style={INPUT}
+            />
+            <div style={HINT}>Added first in the scope: the COH inspects the site and prepares the RAP before the works start.</div>
+          </div>
+        )}
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer', marginTop: 12 }}>
+          <input type="checkbox" checked={capture.atp_testing} onChange={e => patch({ atp_testing: e.target.checked })} />
+          ATP verification testing at the end of the works
+        </label>
+        {capture.atp_testing && (
+          <div style={{ margin: '8px 0 0 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, maxWidth: 420 }}>
+            <div>
+              <label style={LABEL}>Number of tests</label>
+              <input
+                type="number"
+                min={0}
+                step={1}
+                value={capture.atp_tests ?? ''}
+                onChange={e => patch({ atp_tests: numberOrNull(e.target.value) })}
+                placeholder="0"
+                style={INPUT}
+              />
+            </div>
+            <div>
+              <label style={LABEL}>Rate per test ($)</label>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                value={capture.atp_rate ?? ''}
+                onChange={e => patch({ atp_rate: numberOrNull(e.target.value) })}
+                placeholder="0.00"
+                style={INPUT}
+              />
+            </div>
+            <div style={{ ...HINT, gridColumn: '1 / -1', marginTop: 0 }}>Added last in the scope: ATP surface testing verifies the decontamination.</div>
+          </div>
+        )}
+      </div>
+
+      <div style={SECTION}>
         <div style={LABEL}>Other fixed lines</div>
         <div style={{ display: 'grid', gap: 8 }}>
           {capture.extra_lines.map(line => {
