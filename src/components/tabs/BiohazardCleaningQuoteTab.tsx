@@ -453,6 +453,9 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
   const [check, setCheck] = useState<BiohazardCheckResult | null>(null)
   const [checkedKey, setCheckedKey] = useState('')
   const [generating, setGenerating] = useState(false)
+  const [drafting, setDrafting] = useState(false)
+  const [scopeDraft, setScopeDraft] = useState<string | null>(null)
+  const [draftError, setDraftError] = useState('')
 
   const captureRef = useRef(capture)
   const jobRef = useRef(job)
@@ -715,6 +718,43 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
     setCheckedKey(checkKey)
     return result
   }
+
+  async function draftScope() {
+    if (drafting) return
+    setDrafting(true)
+    setDraftError('')
+    try {
+      const res = await fetch(`/api/jobs/${job.id}/biohazard-scope-draft`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ capture: { ...capture, clauses } }),
+      })
+      const data = (await res.json().catch(() => ({}))) as { scope?: string; error?: string }
+      if (!res.ok || !data.scope) throw new Error(data.error || 'The scope could not be drafted.')
+      setScopeDraft(data.scope)
+    } catch (e) {
+      setDraftError(e instanceof Error ? e.message : 'The scope could not be drafted.')
+    } finally {
+      setDrafting(false)
+    }
+  }
+
+  function applyScopeDraft() {
+    if (scopeDraft == null) return
+    editClause('scope_of_work', scopeDraft)
+    setScopeDraft(null)
+  }
+
+  const draftMissingStages = useMemo(() => {
+    if (scopeDraft == null || !clauses) return []
+    return biohazardRuleFlags(
+      { ...capture, clauses: { ...clauses, scope_of_work: scopeDraft } },
+      biohazardCheckContext(job, companyAddress),
+      template,
+    )
+      .filter(flag => flag.code === 'stage_missing')
+      .map(flag => biohazardFlagText(flag))
+  }, [scopeDraft, capture, clauses, job, companyAddress, template])
 
   async function checkOnly() {
     if (checking) return
@@ -1293,6 +1333,35 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
                 Use the last {biohazardCleaningDocumentTitle(kind)} clauses
               </button>
             )}
+          </div>
+        )}
+        {clauses && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+            <button type="button" className="btn" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => void draftScope()} disabled={drafting}>
+              {drafting ? 'Drafting the scope…' : 'Draft the scope of work from the details'}
+            </button>
+            <span style={{ ...HINT, marginTop: 0 }}>Uses the biohazard types, zones, rooms, objectives, and assessment. You review it before it is used.</span>
+            {draftError && <span style={{ fontSize: 12, color: 'var(--danger, #f87171)' }}>{draftError}</span>}
+          </div>
+        )}
+        {scopeDraft != null && (
+          <div style={{ ...SECTION, marginBottom: 0, borderStyle: 'dashed' }}>
+            <div style={LABEL}>Drafted scope of work</div>
+            <ol style={{ margin: 0, paddingLeft: 18, fontSize: 14, display: 'grid', gap: 4 }}>
+              {scopeDraft.split('\n').map((line, i) => <li key={`${i}:${line}`}>{line}</li>)}
+            </ol>
+            {draftMissingStages.length > 0 && (
+              <div style={{ ...HINT, color: 'var(--danger, #f87171)' }}>{draftMissingStages.join(' ')}</div>
+            )}
+            <div style={HINT}>The hygienist and testing lines are added on the quote when they are ticked.</div>
+            <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+              <button type="button" className="btn btn-primary" style={{ fontSize: 12, padding: '4px 10px' }} onClick={applyScopeDraft}>
+                Use this scope
+              </button>
+              <button type="button" className="btn" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => setScopeDraft(null)}>
+                Discard
+              </button>
+            </div>
           </div>
         )}
         {clauseBlock('scope_of_work', 'Scope of work', 'numbered')}

@@ -44,6 +44,10 @@ const BIOHAZARD_FOR_JOB_TYPE: Partial<Record<JobType, string>> = {
   flood: 'floodwater contamination',
 }
 
+/** The last line of the scope of work. */
+export const BIOHAZARD_COMPLETION_REPORT_LINE =
+  'Provide a completion report: photos before, during, and after the works, disinfectant records, waste disposal certificates, and test results where testing is on this quote.'
+
 export const BIOHAZARD_CLEANING_SCHEMA = {
   ratePerM2: 0,
   ratePerKm: 0,
@@ -59,7 +63,7 @@ export const BIOHAZARD_CLEANING_SCHEMA = {
     'Transport and dispose of [biohazard type] waste as clinical waste at a licensed facility, under AS/NZS 3816 and the state EPA rules. Keep the disposal certificates.',
     'Deodorise the [area affected] where odour remains after cleaning.',
     'Treat the secondary zone, the [secondary zone], for [secondary contamination].',
-    'Provide a completion report: photos before, during, and after the works, disinfectant records, waste disposal certificates, and test results where testing is on this quote.',
+    BIOHAZARD_COMPLETION_REPORT_LINE,
   ],
   inclusions: [
     'Removal, cleaning, and disinfection of the primary zone, the [area affected], to the clearance in the scope of work.',
