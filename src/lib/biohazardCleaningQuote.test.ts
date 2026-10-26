@@ -7,8 +7,11 @@ import {
   biohazardJobDefaults,
   defaultBiohazardCleaningClauses,
   emptyBiohazardCleaningCapture,
+  applyRememberedBiohazardClauses,
   normalizeBiohazardCleaningCapture,
   normalizeBiohazardCleaningClauses,
+  rememberedBiohazardClauses,
+  withRememberedBiohazardClauses,
   type BiohazardCleaningCapture,
 } from '@/lib/biohazardCleaningQuote'
 import {
@@ -251,6 +254,42 @@ test('the check flags a secondary zone without square metres, and square metres 
     secondary_m2: 30,
     secondary_rate_per_m2: 5,
   }), context), [])
+})
+
+test('the last unattended death quote is remembered for the next one, and other kinds are not', () => {
+  const clauses = {
+    ...defaultBiohazardCleaningClauses('Engagement for [biohazard type].'),
+    inclusions: 'Removal of [biohazard type] from the [area affected].',
+    exclusions: 'Contents.',
+    assumptions: 'Power and water are on.',
+  }
+  const standards = withRememberedBiohazardClauses(
+    { scope_of_work: 'Company scope.', by_kind: { trauma: { inclusions: 'T', exclusions: 'T', assumptions: 'T', engagement_agreement: 'T' } } },
+    'unattended_death',
+    clauses,
+    'job-1',
+    '2026-10-26T00:00:00.000Z',
+  )
+  assert.equal(standards.scope_of_work, 'Company scope.')
+  const remembered = rememberedBiohazardClauses(standards, 'unattended_death')
+  assert.equal(remembered?.inclusions, 'Removal of [biohazard type] from the [area affected].')
+  assert.equal(remembered?.job_id, 'job-1')
+  assert.equal(rememberedBiohazardClauses(standards, 'trauma')?.inclusions, 'T')
+  assert.equal(rememberedBiohazardClauses(standards, 'sewage'), null)
+
+  const next = applyRememberedBiohazardClauses(defaultBiohazardCleaningClauses('Company engagement.'), remembered!)
+  assert.equal(next.scope_of_work, defaultBiohazardCleaningClauses().scope_of_work)
+  assert.equal(next.engagement_agreement, 'Engagement for [biohazard type].')
+  const content = biohazardCleaningQuoteContent({
+    reference: 'BCQ-NEXT',
+    clientName: 'Acme',
+    siteAddress: '2 Other Street',
+    capture: filled({ cleaning_kind: 'unattended_death', biohazard_types: ['decomposition fluids'], areas_affected: ['lounge'], clauses: next }),
+    defaults: biohazardJobDefaults(job()),
+  })
+  assert.deepEqual(content.inclusions, ['Removal of decomposition fluids from the lounge.'])
+  assert.equal(normalizeBiohazardCleaningCapture({ clauses_from_kind: 'unattended_death' }).clauses_from_kind, 'unattended_death')
+  assert.equal(normalizeBiohazardCleaningCapture({ clauses_from_kind: 'made_up' }).clauses_from_kind, null)
 })
 
 const NO_ASSESSMENT: BiohazardCheckContext = biohazardCheckContext(job())

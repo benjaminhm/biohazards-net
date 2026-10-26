@@ -24,6 +24,12 @@ import {
 import {
   BIOHAZARD_CLEANING_CLIENT_TITLES,
   BIOHAZARD_EXTRA_LINE_PRESETS,
+  BIOHAZARD_REMEMBERED_KEYS,
+  applyRememberedBiohazardClauses,
+  biohazardCleaningDocumentTitle,
+  rememberedBiohazardClauses,
+  withRememberedBiohazardClauses,
+  type BiohazardCleaningKind,
   biohazardClauseLines,
   biohazardCleaningFigures,
   biohazardJobDefaults,
@@ -438,6 +444,7 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'error'>('idle')
   const [saveError, setSaveError] = useState('')
   const [template, setTemplate] = useState<BiohazardCleaningClauses | null>(null)
+  const [standardsRaw, setStandardsRaw] = useState<unknown>(null)
   const [companyAddress, setCompanyAddress] = useState('')
   const [savingDefault, setSavingDefault] = useState<BiohazardClauseKey | null>(null)
   const [distanceBusy, setDistanceBusy] = useState(false)
@@ -490,6 +497,7 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
           normalizeContentsClearanceStandards(co?.contents_clearance_standards).engagement_agreement,
           normalizeSurfaceAreaCleaningStandards(co?.surface_area_cleaning_standards).engagement_agreement,
         )
+        setStandardsRaw(co?.biohazard_cleaning_standards ?? null)
         setTemplate(normalizeBiohazardCleaningClauses(co?.biohazard_cleaning_standards ?? null, engagement))
         setCompanyAddress((co?.address ?? '').trim())
       })
@@ -499,11 +507,62 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
     return () => { cancelled = true }
   }, [])
 
+  const remembered = useMemo(() => rememberedBiohazardClauses(standardsRaw, kind), [standardsRaw, kind])
+
   useEffect(() => {
     if (template && capture.clauses == null) {
-      setCapture(prev => (prev.clauses == null ? { ...prev, clauses: template } : prev))
+      setCapture(prev => {
+        if (prev.clauses != null) return prev
+        return remembered
+          ? { ...prev, clauses: applyRememberedBiohazardClauses(template, remembered), clauses_from_kind: kind }
+          : { ...prev, clauses: template, clauses_from_kind: null }
+      })
     }
-  }, [template, capture.clauses])
+  }, [template, capture.clauses, remembered, kind])
+
+  /** True when the four remembered clauses have not been edited on this job. */
+  function rememberedClausesUntouched(current: BiohazardCleaningCapture): boolean {
+    if (!current.clauses || !template) return true
+    const source = current.clauses_from_kind
+      ? rememberedBiohazardClauses(standardsRaw, current.clauses_from_kind)
+      : null
+    return BIOHAZARD_REMEMBERED_KEYS.every(key =>
+      sameText(current.clauses![key], (source ?? template)[key]),
+    )
+  }
+
+  function changeKind(next: BiohazardCleaningKind) {
+    setCapture(prev => {
+      const updated = { ...prev, cleaning_kind: next }
+      if (!prev.clauses || !template || !rememberedClausesUntouched(prev)) return updated
+      const memory = rememberedBiohazardClauses(standardsRaw, next)
+      return memory
+        ? { ...updated, clauses: applyRememberedBiohazardClauses(prev.clauses, memory), clauses_from_kind: next }
+        : { ...updated, clauses: applyRememberedBiohazardClauses(prev.clauses, { ...template, job_id: null, saved_at: null }), clauses_from_kind: null }
+    })
+  }
+
+  function applyLastKindClauses() {
+    if (!remembered) return
+    setCapture(prev => {
+      const base = prev.clauses ?? template
+      if (!base) return prev
+      return { ...prev, clauses: applyRememberedBiohazardClauses(base, remembered), clauses_from_kind: kind }
+    })
+  }
+
+  async function saveCompanyStandards(next: Record<string, unknown>): Promise<void> {
+    const res = await fetch('/api/company', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ biohazard_cleaning_standards: next }),
+    })
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { error?: string }
+      throw new Error(data.error || 'The company clauses could not be saved.')
+    }
+    setStandardsRaw(next)
+  }
 
   const persist = useCallback((next: BiohazardCleaningCapture): Promise<boolean> => {
     const run = async (): Promise<boolean> => {
@@ -567,15 +626,8 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
     const next = { ...template, [key]: clauses[key] }
     setSavingDefault(key)
     try {
-      const res = await fetch('/api/company', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ biohazard_cleaning_standards: next }),
-      })
-      if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as { error?: string }
-        throw new Error(data.error || 'The default could not be saved.')
-      }
+      const base = standardsRaw && typeof standardsRaw === 'object' ? standardsRaw as Record<string, unknown> : {}
+      await saveCompanyStandards({ ...base, ...next })
       setTemplate(next)
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : 'The default could not be saved.')
@@ -701,7 +753,17 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
       }
       setCapture(next)
       const ok = await persist(next)
-      if (ok) router.push(`/jobs/${job.id}/docs/biohazard_cleaning_quote?compose=1`)
+      if (!ok) return
+      if (next.clauses) {
+        try {
+          await saveCompanyStandards(
+            withRememberedBiohazardClauses(standardsRaw, kind, next.clauses, job.id, new Date().toISOString()),
+          )
+        } catch {
+          // The quote is saved on the job. Remembering the clauses for the next job is best effort.
+        }
+      }
+      router.push(`/jobs/${job.id}/docs/biohazard_cleaning_quote?compose=1`)
     } finally {
       setGenerating(false)
     }
@@ -760,7 +822,7 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
           <label style={LABEL}>For the client, this is</label>
           <select
             value={kind}
-            onChange={e => patch({ cleaning_kind: e.target.value as BiohazardCleaningCapture['cleaning_kind'] })}
+            onChange={e => changeKind(e.target.value as BiohazardCleaningKind)}
             style={INPUT}
           >
             {BIOHAZARD_CLEANING_CLIENT_TITLES.map(option => (
@@ -1205,6 +1267,34 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
         <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
           These clauses start from the company default and are kept on this job. [biohazard type] and [area affected] are filled when the quote is printed. Use “Save as default for future jobs” to update the company default with this job’s wording.
         </div>
+        {(remembered || capture.clauses_from_kind) && (
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 8,
+              padding: '8px 10px',
+              borderRadius: 8,
+              border: '1px solid var(--border)',
+              fontSize: 13,
+            }}
+          >
+            <span>
+              {capture.clauses_from_kind === kind && remembered
+                ? `Inclusions, exclusions, assumptions, and the engagement agreement are from the last ${biohazardCleaningDocumentTitle(kind)} quote${remembered.saved_at ? ` (${new Date(remembered.saved_at).toLocaleDateString('en-AU')})` : ''}. Generating this quote remembers them for the next one.`
+                : remembered
+                  ? `There are remembered clauses from the last ${biohazardCleaningDocumentTitle(kind)} quote.`
+                  : `Generating this quote remembers these clauses for the next ${biohazardCleaningDocumentTitle(kind)} quote.`}
+            </span>
+            {remembered && clauses && BIOHAZARD_REMEMBERED_KEYS.some(key => !sameText(clauses[key], remembered[key])) && (
+              <button type="button" className="btn" style={{ fontSize: 12, padding: '2px 8px' }} onClick={applyLastKindClauses}>
+                Use the last {biohazardCleaningDocumentTitle(kind)} clauses
+              </button>
+            )}
+          </div>
+        )}
         {clauseBlock('scope_of_work', 'Scope of work', 'numbered')}
         {clauseBlock('inclusions', 'Inclusions', 'list')}
         {clauseBlock('exclusions', 'Exclusions', 'list')}

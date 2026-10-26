@@ -213,6 +213,8 @@ export interface BiohazardCleaningCapture {
   lab_rate: number | null
   /** Null until the job takes a copy of the company template. */
   clauses: BiohazardCleaningClauses | null
+  /** Set when the inclusions, exclusions, assumptions, and engagement came from the last quote of this kind. */
+  clauses_from_kind: BiohazardCleaningKind | null
   /** Set when staff generate the quote while the check still shows issues. */
   check_override: { at: string; codes: string[] } | null
 }
@@ -456,6 +458,7 @@ export function emptyBiohazardCleaningCapture(): BiohazardCleaningCapture {
     lab_tests: null,
     lab_rate: null,
     clauses: null,
+    clauses_from_kind: null,
     check_override: null,
   }
 }
@@ -487,6 +490,63 @@ export function normalizeBiohazardCleaningClauses(raw: unknown, sharedEngagement
     ...jobBiohazardClauses(o),
     engagement_agreement: storedEngagementAgreement(engagement, DEFAULT_ENGAGEMENT_AGREEMENT),
   }
+}
+
+/** Clauses remembered from the last quote of the same kind, for example the last unattended death. */
+export const BIOHAZARD_REMEMBERED_KEYS = [
+  'inclusions',
+  'exclusions',
+  'assumptions',
+  'engagement_agreement',
+] as const satisfies readonly BiohazardClauseKey[]
+
+export type BiohazardRememberedClauses = Pick<BiohazardCleaningClauses, (typeof BIOHAZARD_REMEMBERED_KEYS)[number]> & {
+  job_id: string | null
+  saved_at: string | null
+}
+
+/** Stored in the company template JSON as by_kind[kind]. */
+export function rememberedBiohazardClauses(standardsRaw: unknown, kind: BiohazardCleaningKind): BiohazardRememberedClauses | null {
+  const o = standardsRaw && typeof standardsRaw === 'object' ? standardsRaw as Record<string, unknown> : {}
+  const byKind = o.by_kind && typeof o.by_kind === 'object' ? o.by_kind as Record<string, unknown> : {}
+  const entry = byKind[kind] && typeof byKind[kind] === 'object' ? byKind[kind] as Record<string, unknown> : null
+  if (!entry) return null
+  if (!BIOHAZARD_REMEMBERED_KEYS.every(key => typeof entry[key] === 'string')) return null
+  return {
+    inclusions: entry.inclusions as string,
+    exclusions: entry.exclusions as string,
+    assumptions: entry.assumptions as string,
+    engagement_agreement: entry.engagement_agreement as string,
+    job_id: typeof entry.job_id === 'string' ? entry.job_id : null,
+    saved_at: typeof entry.saved_at === 'string' ? entry.saved_at : null,
+  }
+}
+
+/** The company template JSON with this job's clauses remembered for its kind. Other keys are kept. */
+export function withRememberedBiohazardClauses(
+  standardsRaw: unknown,
+  kind: BiohazardCleaningKind,
+  clauses: BiohazardCleaningClauses,
+  jobId: string,
+  savedAt: string,
+): Record<string, unknown> {
+  const o = standardsRaw && typeof standardsRaw === 'object' ? { ...standardsRaw as Record<string, unknown> } : {}
+  const byKind = o.by_kind && typeof o.by_kind === 'object' ? { ...o.by_kind as Record<string, unknown> } : {}
+  byKind[kind] = {
+    ...Object.fromEntries(BIOHAZARD_REMEMBERED_KEYS.map(key => [key, clauses[key]])),
+    job_id: jobId,
+    saved_at: savedAt,
+  }
+  return { ...o, by_kind: byKind }
+}
+
+export function applyRememberedBiohazardClauses(
+  clauses: BiohazardCleaningClauses,
+  remembered: BiohazardRememberedClauses,
+): BiohazardCleaningClauses {
+  const next = { ...clauses }
+  for (const key of BIOHAZARD_REMEMBERED_KEYS) next[key] = remembered[key]
+  return next
 }
 
 /** The job's own copy. Text is kept as typed, including a cleared clause. */
@@ -584,6 +644,9 @@ export function normalizeBiohazardCleaningCapture(raw: unknown): BiohazardCleani
     lab_tests: qty(o.lab_tests),
     lab_rate: qty(o.lab_rate),
     clauses: o.clauses && typeof o.clauses === 'object' ? jobBiohazardClauses(o.clauses) : null,
+    clauses_from_kind: BIOHAZARD_CLEANING_CLIENT_TITLES.some(option => option.id === o.clauses_from_kind)
+      ? o.clauses_from_kind as BiohazardCleaningKind
+      : null,
     check_override: override && typeof override.at === 'string'
       ? {
           at: override.at,
