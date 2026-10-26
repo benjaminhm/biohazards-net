@@ -11,7 +11,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { auth } from '@/lib/staffAuth'
 import { CLAUDE_SONNET_MODEL } from '@/lib/anthropicModels'
-import { biohazardCheckContext } from '@/lib/biohazardCleaningCheck'
+import { BIOHAZARD_AUDIT_GAPS, biohazardCheckContext } from '@/lib/biohazardCleaningCheck'
 import {
   normalizeBiohazardCleaningCapture,
   normalizeBiohazardCleaningClauses,
@@ -33,9 +33,19 @@ The standard: a Certified Occupational Hygienist auditing the job must be able t
 
 You get DETAILS of this job, the ASSESSMENT, the STANDARD_STAGES of a biohazard clean, the HOUSE_SCOPE the company usually uses, and the PLACEHOLDERS you may use.
 
-Return the scope as a list of lines, one step per line, in the order the work is done. No numbering.
+Return the scope as a list of steps, in the order the work is done. For each step:
+- stage: the STANDARD_STAGE it belongs to, or secondary for a step in the secondary zone.
+- text: the step as it will print. No numbering.
+- where: the words in text that say where, copied exactly from text.
+- what: the words in text that say what is removed, cleaned, or treated, copied exactly from text.
+- how: the words in text that say how (the method, the product or product type, or the standard), copied exactly from text.
+- pass: for the verification step, the words in text that say what counts as a pass, copied exactly from text. "" for other steps.
+If you cannot fill where, what, or how from the text, the text is not specific enough. Rewrite the text until you can.
 
-Write each line:
+Deodorisation steps, in either zone, name the method and the product type, for example removing the source, then thermal fogging with an odour counteractant or running hydroxyl generators, and sealing surfaces that keep holding odour. "An appropriate treatment" is not a method.
+The verification step states conditions that can be observed on site, for example no visible residue or staining on the treated surfaces and no detectable odour from them.
+
+Write each step's text:
 - As an instruction for the work, in plain Australian English. One or two short sentences.
 - Specific to this job: name the rooms, surfaces, and materials from DETAILS and ASSESSMENT where they are given, and say how far removal goes and how each kind of surface is treated (porous removed, non-porous cleaned and disinfected, semi-porous sealed where staining or odour remains).
 - Using the PLACEHOLDERS in square brackets, exactly as given, for the biohazard types and the zones, for example [biohazard type] and [area affected]. Do not write the joined list of names instead, and do not repeat the names after a placeholder, because the placeholder is replaced with them.
@@ -89,24 +99,46 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const context = biohazardCheckContext(job, company?.address ?? null)
 
     const client = new Anthropic({ apiKey })
-    const message = await client.messages.create({
-      model: CLAUDE_SONNET_MODEL,
-      max_tokens: 2000,
-      temperature: 0.2,
-      system: SYSTEM,
-      messages: [{ role: 'user', content: JSON.stringify(biohazardScopeDraftPayload(capture, context, template)) }],
-      output_config: {
-        format: {
-          type: 'json_schema',
-          schema: biohazardScopeDraftSchema(),
+    const secondaryInUse = secondaryZoneInUse(capture)
+    const ask = async (messages: Anthropic.MessageParam[]) => {
+      const message = await client.messages.create({
+        model: CLAUDE_SONNET_MODEL,
+        max_tokens: 4000,
+        temperature: 0.2,
+        system: SYSTEM,
+        messages,
+        output_config: {
+          format: {
+            type: 'json_schema',
+            schema: biohazardScopeDraftSchema(),
+          },
         },
-      },
-    })
-    const block = message.content.find(part => part.type === 'text')
-    const parsed = block?.type === 'text' ? JSON.parse(block.text) as unknown : null
-    const scope = acceptBiohazardScopeDraft(parsed, secondaryZoneInUse(capture))
-    if (!scope) return NextResponse.json({ error: 'The draft was not usable. Try again.' }, { status: 502 })
-    return NextResponse.json({ scope })
+      })
+      const block = message.content.find(part => part.type === 'text')
+      const text = block?.type === 'text' ? block.text : ''
+      return { text, draft: text ? acceptBiohazardScopeDraft(JSON.parse(text) as unknown, secondaryInUse) : null }
+    }
+
+    const opening: Anthropic.MessageParam = { role: 'user', content: JSON.stringify(biohazardScopeDraftPayload(capture, context, template)) }
+    const first = await ask([opening])
+    let draft = first.draft
+    if (first.draft && first.draft.weak.length > 0) {
+      const fixes = first.draft.weak
+        .map(step => `- "${step.line}" does not say ${BIOHAZARD_AUDIT_GAPS[step.gap]}.`)
+        .join('\n')
+      try {
+        const second = await ask([
+          opening,
+          { role: 'assistant', content: first.text },
+          { role: 'user', content: `A hygienist could not audit these steps:\n${fixes}\nReturn all the steps again, with these rewritten so they say it.` },
+        ])
+        if (second.draft && second.draft.weak.length < first.draft.weak.length) draft = second.draft
+      } catch (e: unknown) {
+        console.error('[biohazard-scope-draft] retry', e)
+      }
+    }
+    if (!draft) return NextResponse.json({ error: 'The draft was not usable. Try again.' }, { status: 502 })
+    return NextResponse.json(draft)
   } catch (e: unknown) {
     console.error('[biohazard-scope-draft]', e)
     return NextResponse.json(

@@ -61,8 +61,8 @@ export const BIOHAZARD_CLEANING_SCHEMA = {
     'Seal semi-porous surfaces that stay in place, such as concrete or timber subfloor, with an encapsulant where staining or odour remains after cleaning.',
     'Verify the cleaning by visual inspection: no visible residue or staining on the treated surfaces, and no odour from them.',
     'Transport and dispose of [biohazard type] waste as clinical waste at a licensed facility, under AS/NZS 3816 and the state EPA rules. Keep the disposal certificates.',
-    'Deodorise the [area affected] where odour remains after cleaning.',
-    'Treat the secondary zone, the [secondary zone], for [secondary contamination].',
+    'Deodorise the [area affected] where odour remains after cleaning, by removing the source and then thermal fogging with an odour counteractant or running hydroxyl generators. Seal surfaces that keep holding odour.',
+    'Treat the secondary zone, the [secondary zone], for [secondary contamination], using the same method as the primary zone where the contamination is the same, and naming the method for each contamination.',
     BIOHAZARD_COMPLETION_REPORT_LINE,
   ],
   inclusions: [

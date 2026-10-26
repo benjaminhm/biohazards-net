@@ -389,6 +389,7 @@ test('the model may flag a scope step a hygienist could not audit, quoting the s
       { code: 'scope_not_auditable', clause: 'scope_of_work', subject: 'how', evidence: 'Words that are not there' },
       { code: 'scope_not_auditable', clause: 'scope_of_work', subject: 'vague', evidence: 'where odour remains after cleaning' },
       { code: 'scope_not_auditable', clause: 'scope_of_work', subject: 'how', evidence: 'inspects the site and issues a Remediation Action Plan' },
+      { code: 'scope_not_auditable', clause: 'scope_of_work', subject: 'pass', evidence: 'no visible residue or staining on the treated surfaces, and no odour from them' },
     ],
     cleared: [],
   }, capture, NO_ASSESSMENT, [])

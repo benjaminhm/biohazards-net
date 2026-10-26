@@ -86,8 +86,19 @@ export const BIOHAZARD_AUDIT_GAPS = {
   pass: 'what counts as a pass',
 } as const
 
-type BiohazardAuditGap = keyof typeof BIOHAZARD_AUDIT_GAPS
+export type BiohazardAuditGap = keyof typeof BIOHAZARD_AUDIT_GAPS
 const AUDIT_GAP_IDS = Object.keys(BIOHAZARD_AUDIT_GAPS) as BiohazardAuditGap[]
+
+/** A named method, product, or standard a hygienist can check. */
+export const BIOHAZARD_NAMED_METHOD =
+  /thermal fogg|hydroxyl|ozone|odour counteract|odor counteract|encapsul|\bTGA\b|AS\/NZS|detergent|degreaser|P2 respirator|clinical waste|300 mm|contact time|containment|barrier|negative air|nitrile|hospital-grade/i
+
+/** Wording that names a treatment without saying which one. */
+export const BIOHAZARD_VAGUE_METHOD = /\b(?:appropriate|suitable|as required|as necessary|as needed)\b/i
+
+/** Observable pass wording a hygienist can check on site. */
+export const BIOHAZARD_PASS_CRITERIA =
+  /no visible|no odour|no odor|no detectable|constitutes a pass|counts as (?:a )?pass|pass (?:limit|criteria)/i
 
 /** The model may flag at most this many steps, so the list stays readable. */
 const MAX_AUDIT_FLAGS = 5
@@ -593,6 +604,8 @@ export function acceptBiohazardModelAnswer(
       if (flags.filter(flag => flag.code === code).length >= MAX_AUDIT_FLAGS) continue
       if (evidenceText.length < MIN_EVIDENCE || !contains(text.clauses.scope_of_work, evidenceText)) continue
       if (SERVICE_SCOPE_LINES.some(line => contains(line, evidenceText))) continue
+      if (subjectText === 'pass' && BIOHAZARD_PASS_CRITERIA.test(evidenceText)) continue
+      if (subjectText === 'how' && BIOHAZARD_NAMED_METHOD.test(evidenceText) && !BIOHAZARD_VAGUE_METHOD.test(evidenceText)) continue
       pushFlag(flags, { code, clause: 'scope_of_work', subject: subjectText, evidence: evidenceText, source: 'ai' })
       continue
     }

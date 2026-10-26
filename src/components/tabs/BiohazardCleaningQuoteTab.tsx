@@ -64,6 +64,7 @@ import {
   type BiohazardCheckFlag,
   type BiohazardCheckResult,
 } from '@/lib/biohazardCleaningCheck'
+import type { BiohazardDraftWeakStep } from '@/lib/biohazardScopeDraft'
 
 interface Props {
   job: Job
@@ -460,6 +461,7 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
   const [generating, setGenerating] = useState(false)
   const [drafting, setDrafting] = useState(false)
   const [scopeDraft, setScopeDraft] = useState<string | null>(null)
+  const [scopeDraftWeak, setScopeDraftWeak] = useState<BiohazardDraftWeakStep[]>([])
   const [draftError, setDraftError] = useState('')
 
   const captureRef = useRef(capture)
@@ -734,9 +736,10 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ capture: { ...capture, clauses } }),
       })
-      const data = (await res.json().catch(() => ({}))) as { scope?: string; error?: string }
+      const data = (await res.json().catch(() => ({}))) as { scope?: string; weak?: BiohazardDraftWeakStep[]; error?: string }
       if (!res.ok || !data.scope) throw new Error(data.error || 'The scope could not be drafted.')
       setScopeDraft(data.scope)
+      setScopeDraftWeak(Array.isArray(data.weak) ? data.weak : [])
     } catch (e) {
       setDraftError(e instanceof Error ? e.message : 'The scope could not be drafted.')
     } finally {
@@ -748,6 +751,7 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
     if (scopeDraft == null) return
     editClause('scope_of_work', scopeDraft)
     setScopeDraft(null)
+    setScopeDraftWeak([])
   }
 
   const draftMissingStages = useMemo(() => {
@@ -855,12 +859,17 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
             {draftMissingStages.length > 0 && (
               <div style={{ ...HINT, color: 'var(--danger, #f87171)' }}>{draftMissingStages.join(' ')}</div>
             )}
+            {scopeDraftWeak.map(step => (
+              <div key={`${step.gap}:${step.line}`} style={{ ...HINT, color: 'var(--danger, #f87171)' }}>
+                {biohazardFlagText({ code: 'scope_not_auditable', subject: step.gap })} “{step.line}”
+              </div>
+            ))}
             <div style={HINT}>The hygienist and testing lines are added on the quote when they are ticked.</div>
             <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
               <button type="button" className="btn btn-primary" style={{ fontSize: 12, padding: '4px 10px' }} onClick={applyScopeDraft}>
                 Use this scope
               </button>
-              <button type="button" className="btn" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => setScopeDraft(null)}>
+              <button type="button" className="btn" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => { setScopeDraft(null); setScopeDraftWeak([]) }}>
                 Discard
               </button>
             </div>
