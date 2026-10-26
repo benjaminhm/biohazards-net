@@ -171,12 +171,37 @@ export function reportAppendixPhotos(photos: Photo[]): Photo[] {
   )
 }
 
-/** Report images in upload order, or in an explicit id list when the user has dragged them. */
+function photoTime(photo: Photo): number {
+  const t = Date.parse(photo.taken_at || photo.uploaded_at)
+  return Number.isFinite(t) ? t : 0
+}
+
+function compareByTimeTaken(a: Photo, b: Photo): number {
+  const byTime = photoTime(a) - photoTime(b)
+  if (byTime !== 0) return byTime
+  const byUpload = a.uploaded_at.localeCompare(b.uploaded_at)
+  return byUpload !== 0 ? byUpload : a.id.localeCompare(b.id)
+}
+
+/** Photos ordered by when they were taken; photos without a taken time use their upload time. */
+export function sortPhotosByTimeTaken(photos: Photo[]): Photo[] {
+  return [...photos].sort(compareByTimeTaken)
+}
+
+/** Puts each new photo into an existing order just before the first photo taken after it. */
+export function insertPhotosByTimeTaken(ordered: Photo[], added: Photo[]): Photo[] {
+  const next = [...ordered]
+  for (const photo of sortPhotosByTimeTaken(added)) {
+    const at = next.findIndex(existing => compareByTimeTaken(photo, existing) < 0)
+    if (at < 0) next.push(photo)
+    else next.splice(at, 0, photo)
+  }
+  return next
+}
+
+/** Report images in the order they were taken, or in an explicit id list when the user has dragged them. */
 export function orderReportAppendixPhotos(photos: Photo[], orderedIds?: string[] | null): Photo[] {
-  const byCreated = [...reportAppendixPhotos(photos)].sort((a, b) => {
-    const byTime = a.uploaded_at.localeCompare(b.uploaded_at)
-    return byTime !== 0 ? byTime : a.id.localeCompare(b.id)
-  })
+  const byCreated = sortPhotosByTimeTaken(reportAppendixPhotos(photos))
   if (!orderedIds?.length) return byCreated
   const byId = new Map(byCreated.map(photo => [photo.id, photo]))
   const ordered: Photo[] = []
@@ -187,10 +212,7 @@ export function orderReportAppendixPhotos(photos: Photo[], orderedIds?: string[]
     ordered.push(photo)
     seen.add(id)
   }
-  for (const photo of byCreated) {
-    if (!seen.has(photo.id)) ordered.push(photo)
-  }
-  return ordered
+  return insertPhotosByTimeTaken(ordered, byCreated.filter(photo => !seen.has(photo.id)))
 }
 
 /** True when a PRE carries any v2 completion-report section content, i.e. it

@@ -65,6 +65,31 @@ test('images stay in upload order unless they have been moved', () => {
   assert.deepEqual(orderReportAppendixPhotos(photos, ['later', 'first']).map(p => p.id), ['later', 'first'])
 })
 
+test('images order by time taken, not upload time', () => {
+  const photos = [
+    photo({ id: 'shot-second', uploaded_at: '2026-10-05T01:00:00.000Z', taken_at: '2026-10-04T03:00:00.000Z' }),
+    photo({ id: 'shot-first', uploaded_at: '2026-10-05T02:00:00.000Z', taken_at: '2026-10-04T01:00:00.000Z' }),
+  ]
+  assert.deepEqual(orderReportAppendixPhotos(photos).map(p => p.id), ['shot-first', 'shot-second'])
+})
+
+test('an image without a time taken sorts by upload time', () => {
+  const photos = [
+    photo({ id: 'taken', uploaded_at: '2026-10-05T09:00:00.000Z', taken_at: '2026-10-04T02:00:00.000Z' }),
+    photo({ id: 'no-time', uploaded_at: '2026-10-04T01:00:00.000Z' }),
+  ]
+  assert.deepEqual(orderReportAppendixPhotos(photos).map(p => p.id), ['no-time', 'taken'])
+})
+
+test('new images slot into a moved order by time taken', () => {
+  const photos = [
+    photo({ id: 'a', taken_at: '2026-10-04T01:00:00.000Z' }),
+    photo({ id: 'c', taken_at: '2026-10-04T03:00:00.000Z' }),
+    photo({ id: 'b', taken_at: '2026-10-04T02:00:00.000Z' }),
+  ]
+  assert.deepEqual(orderReportAppendixPhotos(photos, ['a', 'c']).map(p => p.id), ['a', 'b', 'c'])
+})
+
 test('a moved image keeps that place in the printed report', () => {
   const content: PostRemediationEvaluationContent = {
     title: 'Completion Report',

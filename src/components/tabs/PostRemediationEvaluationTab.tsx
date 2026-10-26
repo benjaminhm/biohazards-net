@@ -23,11 +23,14 @@ import type {
 import { mergeAssessmentData } from '@/lib/riskDerivation'
 import {
   getPreBySourceQuoteId,
+  insertPhotosByTimeTaken,
   makeBlankPre,
   orderReportAppendixPhotos,
   seedScopeLinesFromQuoteContent,
+  sortPhotosByTimeTaken,
   upsertPre,
 } from '@/lib/postRemediationEvaluations'
+import { readPhotoExif } from '@/lib/photoExif'
 import { useRegisterUnsavedChanges } from '@/lib/unsavedChangesContext'
 
 interface Props {
@@ -175,6 +178,20 @@ async function compressImage(file: File, maxDim = 1920, quality = 0.82): Promise
   })
 }
 
+/** Camera time from the original file; must run before compressImage, which strips it. */
+async function takenAtIso(file: File): Promise<string | null> {
+  const { takenAt } = await readPhotoExif(file)
+  if (!takenAt) return null
+  const t = new Date(takenAt)
+  return Number.isNaN(t.getTime()) ? null : t.toISOString()
+}
+
+function formatTakenAt(iso: string): string {
+  const t = new Date(iso)
+  if (Number.isNaN(t.getTime())) return 'No time'
+  return t.toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })
+}
+
 function ReportImages({
   jobId,
   photos,
@@ -204,7 +221,14 @@ function ReportImages({
     setError('')
     const added: Photo[] = []
     try {
-      for (const file of files) {
+      const picked = await Promise.all(files.map(async (file, index) => ({ file, index, takenAt: await takenAtIso(file) })))
+      picked.sort((a, b) => {
+        if (a.takenAt && b.takenAt && a.takenAt !== b.takenAt) return a.takenAt < b.takenAt ? -1 : 1
+        if (a.takenAt && !b.takenAt) return -1
+        if (!a.takenAt && b.takenAt) return 1
+        return a.index - b.index
+      })
+      for (const { file, takenAt } of picked) {
         const compressed = await compressImage(file)
         const body = new FormData()
         body.append('job_id', jobId)
@@ -213,6 +237,7 @@ function ReportImages({
         body.append('area_ref', '')
         body.append('category', 'after')
         body.append('capture_phase', 'progress')
+        if (takenAt) body.append('taken_at', takenAt)
         const res = await fetch('/api/photos/upload', { method: 'POST', body })
         const data = (await res.json()) as { photo?: Photo; error?: string }
         if (!res.ok || !data.photo) throw new Error(data.error || 'Upload failed')
@@ -220,7 +245,7 @@ function ReportImages({
       }
       if (added.length) {
         onPhotosUpdate([...photos, ...added])
-        if (orderedIds?.length) await onReorder([...orderedIds, ...added.map(photo => photo.id)])
+        if (orderedIds?.length) await onReorder(insertPhotosByTimeTaken(loaded, added).map(photo => photo.id))
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed')
@@ -255,6 +280,17 @@ function ReportImages({
     if (overId !== id) setOverId(id)
   }
 
+  async function sortByTimeTaken() {
+    setError('')
+    try {
+      await onReorder(sortPhotosByTimeTaken(loaded).map(photo => photo.id))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save the new order')
+    }
+  }
+
+  const missingTime = loaded.filter(photo => !photo.taken_at).length
+
   async function removePhoto(photo: Photo) {
     if (!window.confirm('Confirm you want to delete this image?')) return
     setDeletingId(photo.id)
@@ -276,7 +312,7 @@ function ReportImages({
     <div>
       <div style={sectionHeading}>Images</div>
       <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 10px', lineHeight: 1.5 }}>
-        Choose one or more images. They print at the end of the report in the order they were uploaded. Drag a photo to move it.
+        Choose one or more images. They print at the end of the report in the order they were taken. Drag a photo to move it.
       </p>
       <input
         ref={fileRef}
@@ -295,6 +331,22 @@ function ReportImages({
       >
         {uploading ? 'Uploading…' : 'Choose images'}
       </button>
+      {loaded.length > 1 && (
+        <button
+          type="button"
+          className="btn btn-secondary"
+          disabled={uploading}
+          onClick={() => void sortByTimeTaken()}
+          style={{ padding: '12px 16px', fontWeight: 700, marginLeft: 8 }}
+        >
+          Sort by time taken
+        </button>
+      )}
+      {missingTime > 0 && (
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8, lineHeight: 1.5 }}>
+          {missingTime === 1 ? '1 image has' : `${missingTime} images have`} no time taken (marked “No time”), so {missingTime === 1 ? 'it sorts' : 'they sort'} by upload time. Re-upload the original file or drag {missingTime === 1 ? 'it' : 'them'} into place.
+        </div>
+      )}
       {error && (
         <div style={{ color: '#F87171', fontSize: 13, marginTop: 8 }} role="alert">{error}</div>
       )}
@@ -332,6 +384,22 @@ function ReportImages({
                 draggable={false}
                 style={{ width: '100%', height: 96, objectFit: 'cover', borderRadius: 8, display: 'block', background: 'var(--surface-2)', pointerEvents: 'none' }}
               />
+              <div
+                style={{
+                  position: 'absolute',
+                  left: 4,
+                  bottom: 4,
+                  padding: '1px 5px',
+                  borderRadius: 4,
+                  background: 'rgba(0,0,0,0.72)',
+                  color: '#fff',
+                  fontSize: 10,
+                  fontWeight: 600,
+                  pointerEvents: 'none',
+                }}
+              >
+                {photo.taken_at ? formatTakenAt(photo.taken_at) : 'No time'}
+              </div>
               <button
                 type="button"
                 aria-label="Delete image"
