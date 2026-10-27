@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
 import AddressAutocomplete from '@/components/AddressAutocomplete'
+import DocumentAskPanel from '@/components/DocumentAskPanel'
 import RichTextEditor from '@/components/RichTextEditor'
 import type { Job } from '@/lib/types'
 import { mergeAssessmentData } from '@/lib/riskDerivation'
@@ -32,6 +33,7 @@ import {
   type BiohazardCleaningKind,
   biohazardClauseLines,
   biohazardCleaningFigures,
+  biohazardCleaningQuoteContent,
   biohazardJobDefaults,
   biohazardSecondarySquareMetres,
   biohazardSquareMetres,
@@ -66,6 +68,7 @@ import {
   type BiohazardCheckResult,
 } from '@/lib/biohazardCleaningCheck'
 import type { BiohazardDraftWeakStep } from '@/lib/biohazardScopeDraft'
+import { documentPlainText } from '@/lib/documentAsk'
 
 interface Props {
   job: Job
@@ -519,6 +522,19 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
   }, [])
 
   const remembered = useMemo(() => rememberedBiohazardClauses(standardsRaw, kind), [standardsRaw, kind])
+  const askText = useMemo(() => {
+    const wording = documentPlainText(biohazardCleaningQuoteContent({
+      reference: 'Draft',
+      clientName: job.client_name || '',
+      siteAddress: job.site_address || '',
+      capture,
+      defaults,
+      template,
+    }))
+    const draft = scopeDraft?.trim()
+    if (!draft || draft === (clauses?.scope_of_work ?? '').trim()) return wording
+    return `${wording}\n\n## AI-generated scope\nThis draft is on screen and is not the quote wording until it is used.\n${draft}`
+  }, [capture, clauses, defaults, job.client_name, job.site_address, scopeDraft, template])
 
   useEffect(() => {
     if (template && capture.clauses == null) {
@@ -902,6 +918,8 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
         </div>
         <div style={{ fontSize: 12, color: saveState === 'error' ? 'var(--danger, #f87171)' : 'var(--text-muted)' }}>{saveStatus}</div>
       </div>
+
+      <DocumentAskPanel jobId={job.id} label="this biohazard cleaning quote" text={askText} />
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
         <div>

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
+import DocumentAskPanel from '@/components/DocumentAskPanel'
 import RichTextEditor from '@/components/RichTextEditor'
 import type { Job } from '@/lib/types'
 import { mergeAssessmentData } from '@/lib/riskDerivation'
@@ -23,9 +24,11 @@ import {
   roomsSurfaceTotal,
   surfaceAreaClauseLines,
   surfaceAreaCleaningFigures,
+  surfaceAreaCleaningQuoteContent,
   type SurfaceAreaCleaningCapture,
   type SurfaceAreaCleaningStandards,
 } from '@/lib/surfaceAreaCleaningQuote'
+import { documentPlainText } from '@/lib/documentAsk'
 import { sharedEngagementAgreement, withSharedEngagement } from '@/lib/quoteEngagement'
 import {
   normalizeContentsClearanceStandards,
@@ -152,6 +155,13 @@ export default function SurfaceAreaCleaningQuoteTab({ job, onJobUpdate }: Props)
     }),
     [capture],
   )
+  const askText = useMemo(() => documentPlainText(surfaceAreaCleaningQuoteContent({
+    reference: 'Draft',
+    clientName: job.client_name || '',
+    siteAddress: job.site_address || '',
+    capture,
+    standards,
+  })), [capture, job.client_name, job.site_address, standards])
 
   useEffect(() => {
     let cancelled = false
@@ -269,6 +279,7 @@ export default function SurfaceAreaCleaningQuoteTab({ job, onJobUpdate }: Props)
       <div style={{ fontWeight: 800, fontSize: 13, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 12 }}>
         Surface Area Cleaning Quote
       </div>
+      <DocumentAskPanel jobId={job.id} label="this surface area cleaning quote" text={askText} />
       <div style={{ marginBottom: 12, maxWidth: 360 }}>
         <label style={LABEL}>For the client, this is</label>
         <select

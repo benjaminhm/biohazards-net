@@ -4,11 +4,13 @@
  */
 'use client'
 
-import { useEffect, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import Link from 'next/link'
+import DocumentAskPanel from '@/components/DocumentAskPanel'
 import type { Job, AssessmentData, SowCapture, Document } from '@/lib/types'
 import { mergeAssessmentData } from '@/lib/riskDerivation'
 import { mergedSowCapture } from '@/lib/sowCapture'
+import { documentPlainText } from '@/lib/documentAsk'
 import { useRegisterUnsavedChanges } from '@/lib/unsavedChangesContext'
 
 interface Props {
@@ -179,6 +181,16 @@ export default function ScopeOfWorkTab({ job, documents, onJobUpdate }: Props) {
   }
 
   const existingSow = documents.find(d => d.type === 'sow')
+  const askText = useMemo(() => documentPlainText({
+    objective: capture.objective,
+    scope_work: capture.scope_work,
+    methodology: capture.methodology,
+    timeline: capture.timeline,
+    safety: capture.safety,
+    waste: capture.waste,
+    exclusions: capture.exclusions,
+    caveats: capture.caveats,
+  }), [capture])
 
   const sectionLabelStyle: CSSProperties = {
     fontSize: 12,
@@ -198,6 +210,7 @@ export default function ScopeOfWorkTab({ job, documents, onJobUpdate }: Props) {
       <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
         Objective first, then roadmap (scope, methodology, timeline), then boundaries (exclusions, caveats).
       </p>
+      <DocumentAskPanel jobId={job.id} label="this scope of work" text={askText} />
 
       <div
         style={{

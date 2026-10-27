@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
 import AddressAutocomplete from '@/components/AddressAutocomplete'
+import DocumentAskPanel from '@/components/DocumentAskPanel'
 import PhotoCard from '@/components/PhotoCard'
 import PhotoUploadPanel from '@/components/PhotoUploadPanel'
 import RichTextEditor from '@/components/RichTextEditor'
@@ -25,6 +26,7 @@ import {
   CONTENTS_CLEARANCE_SCHEMA,
   clauseLines,
   contentsClearanceFigures,
+  contentsClearanceQuoteContent,
   defaultContentsClearanceStandards,
   emptyContentsClearanceCapture,
   normalizeContentsClearanceCapture,
@@ -32,6 +34,7 @@ import {
   type ContentsClearanceCapture,
   type ContentsClearanceStandards,
 } from '@/lib/contentsClearanceQuote'
+import { documentPlainText } from '@/lib/documentAsk'
 import { sharedEngagementAgreement, withSharedEngagement } from '@/lib/quoteEngagement'
 import {
   normalizeSurfaceAreaCleaningStandards,
@@ -210,6 +213,13 @@ export default function ContentsClearanceQuoteTab({ job, photos, onJobUpdate, on
     standards,
   }), [figures, standards])
   const shownFlags = flagsCheckedKey === flagCheckKey ? clauseFlags : []
+  const askText = useMemo(() => documentPlainText(contentsClearanceQuoteContent({
+    reference: 'Draft',
+    clientName: job.client_name || '',
+    siteAddress: job.site_address || '',
+    capture,
+    standards,
+  })), [capture, job.client_name, job.site_address, standards])
 
   useEffect(() => {
     let cancelled = false
@@ -428,6 +438,7 @@ export default function ContentsClearanceQuoteTab({ job, photos, onJobUpdate, on
       <div style={{ fontWeight: 800, fontSize: 13, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 12 }}>
         Contents Clearance Quote
       </div>
+      <DocumentAskPanel jobId={job.id} label="this contents clearance quote" text={askText} />
       <div style={{ marginBottom: 12, maxWidth: 360 }}>
         <label style={LABEL}>For the client, this is</label>
         <select

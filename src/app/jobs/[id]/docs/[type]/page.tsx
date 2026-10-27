@@ -11,11 +11,13 @@
  */
 'use client'
 
-import { useEffect, useState, useRef, Suspense } from 'react'
+import { useEffect, useMemo, useState, useRef, Suspense } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import type { AreaPricingRow, CompanyProfile, CustomPricingRow, DocType, Document, Job, OutcomeQuoteRow, Photo, ProgressNote, ProgressRoomNote, QuoteContent, QuoteLineItemRow, QuotePricingLayout, SectionTerms, StatementOfAccountsContent, VolumeDisposalFeeMode, VolumePricingBlock } from '@/lib/types'
 import { DOC_TYPE_LABELS } from '@/lib/types'
 import { composeDocumentContent, buildComposedPreviewHtml, type ComposeDocumentOptions } from '@/lib/composeDocument'
+import { documentPlainText } from '@/lib/documentAsk'
+import DocumentAskPanel from '@/components/DocumentAskPanel'
 import { presentStatementDocument, StatementReconciliationError } from '@/lib/statementOfAccounts'
 import { mergeQuoteLineItemsIntoDocContent } from '@/lib/quoteLineItemsForDocuments'
 import { applyTradingBrand } from '@/lib/tradingNames'
@@ -67,6 +69,14 @@ function DocViewerInner() {
 
   const docLabel   = DOC_TYPE_LABELS[docType] ?? docType
   const hasContent = Object.keys(content).length > 0
+  const canAskDocument = docType === 'sow'
+    || docType === 'biohazard_cleaning_quote'
+    || docType === 'contents_clearance_quote'
+    || docType === 'surface_area_cleaning_quote'
+  const askText = useMemo(
+    () => (canAskDocument && hasContent ? documentPlainText(content) : ''),
+    [canAskDocument, hasContent, content],
+  )
   // Assessment Document treats photos as an opt-in extra (default off) since
   // the doc historically had no photo block; flipping the default ON would
   // retroactively grow every existing assessment doc print. Reports keep
@@ -485,6 +495,12 @@ function DocViewerInner() {
           {isMobile ? '🖨' : 'Print'}
         </button>
       </div>
+
+      {canAskDocument && hasContent && (
+        <div style={{ flexShrink: 0, maxHeight: '40%', overflow: 'auto', padding: '8px 16px 0' }}>
+          <DocumentAskPanel jobId={jobId} label={docLabel} text={askText} defaultOpen={false} />
+        </div>
+      )}
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         {mainPanel}
