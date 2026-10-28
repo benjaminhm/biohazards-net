@@ -3,8 +3,11 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
 import DocumentAskPanel from '@/components/DocumentAskPanel'
+import PhotoCard from '@/components/PhotoCard'
+import PhotoUploadPanel from '@/components/PhotoUploadPanel'
 import RichTextEditor from '@/components/RichTextEditor'
-import type { Job } from '@/lib/types'
+import { SURFACE_AREA_APPENDIX_AREA_REF, isSurfaceAreaAppendixPhoto } from '@/lib/photoGroups'
+import type { Job, Photo } from '@/lib/types'
 import { mergeAssessmentData } from '@/lib/riskDerivation'
 import { useRegisterUnsavedChanges } from '@/lib/unsavedChangesContext'
 import { formatAud } from '@/lib/disposalManifest'
@@ -38,7 +41,9 @@ import {
 
 interface Props {
   job: Job
+  photos: Photo[]
   onJobUpdate: (job: Job) => void
+  onPhotosUpdate: (photos: Photo[]) => void
 }
 
 const INPUT: CSSProperties = {
@@ -126,7 +131,7 @@ function ClickToEditText({
   )
 }
 
-export default function SurfaceAreaCleaningQuoteTab({ job, onJobUpdate }: Props) {
+export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, onPhotosUpdate }: Props) {
   const router = useRouter()
   const saved = useMemo(
     () => normalizeSurfaceAreaCleaningCapture(job.assessment_data?.surface_area_cleaning_quote ?? emptySurfaceAreaCleaningCapture()),
@@ -767,6 +772,44 @@ export default function SurfaceAreaCleaningQuoteTab({ job, onJobUpdate }: Props)
           <span>Total (inc GST)</span>
           <span>{formatAud(figures.total)}</span>
         </div>
+      </div>
+      <div style={{ marginTop: 18, marginBottom: 4 }}>
+        <div style={LABEL}>Photos</div>
+        <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5, margin: '0 0 12px' }}>
+          Choose several at once from Gallery. They print together at the end of the document.
+        </p>
+        <PhotoUploadPanel
+          jobId={job.id}
+          photos={photos}
+          onPhotosUpdate={onPhotosUpdate}
+          defaultPendingCategory="assessment"
+          allowedCategories={['assessment', 'before']}
+          fixedCapturePhase="assessment"
+          fixedAreaRef={SURFACE_AREA_APPENDIX_AREA_REF}
+          compact
+        />
+        {photos.some(isSurfaceAreaAppendixPhoto) && (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+              gap: 8,
+              marginTop: 4,
+            }}
+          >
+            {photos.filter(isSurfaceAreaAppendixPhoto).map(photo => (
+              <PhotoCard
+                key={photo.id}
+                photo={photo}
+                allowedCategories={['assessment', 'before']}
+                showAreaChip={false}
+                hideArea
+                onDelete={id => onPhotosUpdate(photos.filter(p => p.id !== id))}
+                onUpdate={updated => onPhotosUpdate(photos.map(p => (p.id === updated.id ? updated : p)))}
+              />
+            ))}
+          </div>
+        )}
       </div>
       <div style={{ marginTop: 18, display: 'grid', gap: 14 }}>
         <ClickToEditText label="Inclusions" asList value={standards.inclusions} onChange={inclusions => editStandards({ inclusions })} />

@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { buildPrintHTML } from '@/lib/printDocument'
+import { CONTENTS_CLEARANCE_APPENDIX_AREA_REF, SURFACE_AREA_APPENDIX_AREA_REF } from '@/lib/photoGroups'
 import { DEFAULT_ENGAGEMENT_AGREEMENT } from '@/lib/quoteEngagement'
+import type { Photo } from '@/lib/types'
 import {
   defaultSurfaceAreaCleaningStandards,
   emptySurfaceAreaCleaningCapture,
@@ -421,4 +423,44 @@ test('engagement brackets are filled on the surface cleaning document', () => {
   assert.match(html, /Deposit: \$2,200\.00/)
   assert.doesNotMatch(html, /Estimated contents/)
   assert.match(content.engagement_agreement, /\[name\]/)
+})
+
+test('surface cleaning photos print at the end, and another quote photo does not', () => {
+  const content = surfaceAreaCleaningQuoteContent({
+    reference: 'SACQ-TEST',
+    clientName: 'Acme Pty Ltd',
+    siteAddress: '1 Example Street',
+    capture: emptySurfaceAreaCleaningCapture(),
+  })
+  const surfacePhoto: Photo = {
+    id: 'sacq-photo',
+    job_id: 'job',
+    file_url: 'https://example.com/living-room.jpg',
+    caption: 'Living room',
+    area_ref: SURFACE_AREA_APPENDIX_AREA_REF,
+    category: 'before',
+    uploaded_at: '2026-09-30T00:00:00.000Z',
+  }
+  const clearancePhoto: Photo = {
+    ...surfacePhoto,
+    id: 'ccq-photo',
+    file_url: 'https://example.com/clearance-only.jpg',
+    caption: 'Clearance only',
+    area_ref: CONTENTS_CLEARANCE_APPENDIX_AREA_REF,
+  }
+  const html = buildPrintHTML(
+    'surface_area_cleaning_quote',
+    content as unknown as Record<string, unknown>,
+    [surfacePhoto, clearancePhoto],
+    [],
+    null,
+    'job',
+    'http://localhost',
+    undefined,
+    { screenActionBar: false },
+  )
+  assert.match(html, /living-room\.jpg/)
+  assert.match(html, /Living room/)
+  assert.match(html, />Photos</)
+  assert.doesNotMatch(html, /clearance-only\.jpg/)
 })

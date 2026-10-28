@@ -39,7 +39,7 @@ import type {
   PostRemediationEvaluationContent,
   PreScopeLineResolved,
 } from '@/lib/types'
-import { filterGroupedStages, groupPhotosByRoomAndStage, isQuoteAppendixPhoto } from '@/lib/photoGroups'
+import { filterGroupedStages, groupPhotosByRoomAndStage, isDocumentAppendixPhoto, isQuoteAppendixPhoto } from '@/lib/photoGroups'
 import { photosForComposedReports } from '@/lib/photosForComposedReports'
 import { effectiveAreaDimensions } from '@/lib/areaSubzones'
 
@@ -673,7 +673,7 @@ function QuotePDF({
   const today = new Date().toLocaleDateString('en-AU', { day: '2-digit', month: 'long', year: 'numeric' })
   const fmt = (n: number) => `$${Number(n).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
   const quoteAppendix = photos.filter(isQuoteAppendixPhoto)
-  const beforePhotos = photos.filter(p => !isQuoteAppendixPhoto(p) && (p.category === 'before' || p.category === 'assessment')).slice(0, 6)
+  const beforePhotos = photos.filter(p => !isDocumentAppendixPhoto(p) && (p.category === 'before' || p.category === 'assessment')).slice(0, 6)
   const site = (siteAddress ?? '').trim()
   const gstMode = content.gst_mode ?? (content.gst > 0 ? 'exclusive' : 'no_gst')
   const subtotalLabel = gstMode === 'inclusive' || gstMode === 'exclusive' ? 'Subtotal (ex GST)' : 'Subtotal'
@@ -775,7 +775,7 @@ function IaqMultiPDF({
   const bundleTitle = String(bundle.title ?? 'Assessment / Scope / Quote').trim()
 
   const quoteAppendix = photos.filter(isQuoteAppendixPhoto)
-  const beforePhotos = photos.filter(p => p.category === 'before' || p.category === 'assessment')
+  const beforePhotos = photos.filter(p => !isDocumentAppendixPhoto(p) && (p.category === 'before' || p.category === 'assessment'))
   const fmt = (n: number) => `$${Number(n).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
   const gstMode = quote.gst_mode ?? (quote.gst > 0 ? 'exclusive' : 'no_gst')
   const subtotalLabel = gstMode === 'inclusive' || gstMode === 'exclusive' ? 'Subtotal (ex GST)' : 'Subtotal'
@@ -914,7 +914,7 @@ function SOWOrReportPDF({
 }) {
   const today = new Date().toLocaleDateString('en-AU', { day: '2-digit', month: 'long', year: 'numeric' })
 
-  const beforePhotos = photos.filter(p => p.category === 'before' || p.category === 'assessment').slice(0, 6)
+  const beforePhotos = photos.filter(p => !isDocumentAppendixPhoto(p) && (p.category === 'before' || p.category === 'assessment')).slice(0, 6)
   const afterPhotos = photos.filter(p => p.category === 'after').slice(0, 6)
 
   const sowSections: Array<{ key: keyof SOWContent; label: string }> = [

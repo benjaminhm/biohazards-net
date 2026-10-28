@@ -31,7 +31,7 @@ import type {
 } from './types'
 import { DOC_TYPE_LABELS } from './types'
 import type { HouseSurveyDocumentContent, SurveySketch } from './houseSurvey'
-import { filterGroupedStages, groupPhotosByRoomAndStage, isContentsClearanceAppendixPhoto, isQuoteAppendixPhoto, type RoomPhotoGroup } from './photoGroups'
+import { filterGroupedStages, groupPhotosByRoomAndStage, isContentsClearanceAppendixPhoto, isDocumentAppendixPhoto, isQuoteAppendixPhoto, isSurfaceAreaAppendixPhoto, type RoomPhotoGroup } from './photoGroups'
 import { photosForComposedReports } from '@/lib/photosForComposedReports'
 import { docketStatusLabel, dimensionTrioToMetres, formatAud, formatDistanceLegs, formatKg, formatM3 } from '@/lib/disposalManifest'
 import { formatLongDate } from '@/lib/paymentOverdue'
@@ -2535,7 +2535,7 @@ function buildSOWMid(
   groups: RoomPhotoGroup[],
   areas: Area[] = [],
 ): string {
-  const before = photos.filter(p => ['before', 'assessment'].includes(p.category))
+  const before = photos.filter(p => ['before', 'assessment'].includes(p.category) && !isDocumentAppendixPhoto(p))
 
   const photosInner =
     c.include_photos !== false
@@ -3583,8 +3583,11 @@ function clearanceList(label: string, items: string[]): string {
   return `<div class="label" style="margin-top:18px">${label}</div><ul class="body-text">${rows.map(item => `<li>${esc(item)}</li>`).join('')}</ul>`
 }
 
-function clearanceAppendixHtml(photos: Photo[]): string {
-  const pics = photos.filter(isContentsClearanceAppendixPhoto)
+function clearanceAppendixHtml(
+  photos: Photo[],
+  include: (photo: { area_ref?: string | null }) => boolean = isContentsClearanceAppendixPhoto,
+): string {
+  const pics = photos.filter(include)
   if (!pics.length) return ''
   return `
     <div class="label" style="margin-top:22px">Photos</div>
@@ -3705,6 +3708,7 @@ function buildSurfaceAreaCleaningMid(
   c: SurfaceAreaCleaningQuoteContent,
   company: CompanyProfile | null = null,
   client?: ClientInfo,
+  photos: Photo[] = [],
 ): string {
   const estimated = [
     {
@@ -3778,6 +3782,7 @@ function buildSurfaceAreaCleaningMid(
     }))}
     ${section('Authority', c.authority)}
     ${section('Acceptance', c.acceptance)}
+    ${clearanceAppendixHtml(photos, isSurfaceAreaAppendixPhoto)}
   `
 }
 
@@ -3786,8 +3791,9 @@ function buildSurfaceAreaCleaningHTML(
   company: CompanyProfile | null,
   client: ClientInfo | undefined,
   screenActionBar: boolean,
+  photos: Photo[] = [],
 ): string {
-  const mid = buildSurfaceAreaCleaningMid(c, company, client)
+  const mid = buildSurfaceAreaCleaningMid(c, company, client, photos)
   const title = clearancePrintTitle(c.title) || 'Surface Area Cleaning'
   return wrapBranded(mid, title, title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
@@ -4040,7 +4046,7 @@ export function buildPrintMidHTML(
     case 'contents_clearance_quote':
       return buildContentsClearanceMid(c as unknown as ContentsClearanceQuoteContent, photos, company, client)
     case 'surface_area_cleaning_quote':
-      return buildSurfaceAreaCleaningMid(c as unknown as SurfaceAreaCleaningQuoteContent, company, client)
+      return buildSurfaceAreaCleaningMid(c as unknown as SurfaceAreaCleaningQuoteContent, company, client, photos)
     case 'biohazard_cleaning_quote':
       return buildBiohazardCleaningMid(c as unknown as BiohazardCleaningQuoteContent, company, client)
     default:
@@ -4144,7 +4150,7 @@ export function buildPrintHTML(
     case 'risk_assessment':            return buildRAHTML(c as unknown as RiskAssessmentContent, company, client, screenActionBar)
     case 'assessment_document':        return buildAssessmentDocumentHTML(c as unknown as AssessmentDocumentContent, company, client, areas, photos, groups, screenActionBar)
     case 'contents_clearance_quote':   return buildContentsClearanceHTML(c as unknown as ContentsClearanceQuoteContent, photos, company, client, screenActionBar)
-    case 'surface_area_cleaning_quote': return buildSurfaceAreaCleaningHTML(c as unknown as SurfaceAreaCleaningQuoteContent, company, client, screenActionBar)
+    case 'surface_area_cleaning_quote': return buildSurfaceAreaCleaningHTML(c as unknown as SurfaceAreaCleaningQuoteContent, company, client, screenActionBar, photos)
     case 'biohazard_cleaning_quote':    return buildBiohazardCleaningHTML(c as unknown as BiohazardCleaningQuoteContent, company, client, screenActionBar)
     case 'iaq_multi': {
       const partsRaw = c.parts

@@ -1801,7 +1801,12 @@ export default function JobPage() {
           />
         )}
         {showSurfaceAreaCleaning && (
-          <SurfaceAreaCleaningQuoteTab job={job} onJobUpdate={setJob} />
+          <SurfaceAreaCleaningQuoteTab
+            job={job}
+            photos={photos}
+            onJobUpdate={setJob}
+            onPhotosUpdate={setPhotos}
+          />
         )}
         {showBiohazardCleaning && (
           <BiohazardCleaningQuoteTab job={job} onJobUpdate={setJob} />
