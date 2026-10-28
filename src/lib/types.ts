@@ -1134,8 +1134,10 @@ export interface AssessmentData {
   }
   /** Surface Area Cleaning Quote — estimated square metres. Rates and clauses are schema. */
   surface_area_cleaning_quote?: {
-    /** surface | squalor | estate. Printed as the client document title. */
-    cleaning_kind?: 'surface' | 'squalor' | 'estate'
+    /** surface | squalor | estate | custom. Printed as the client document title. */
+    cleaning_kind?: 'surface' | 'squalor' | 'estate' | 'custom'
+    /** Printed when cleaning_kind is custom. */
+    custom_title?: string
     estimated_m2: number | null
     /** Labour days the client is buying. */
     labour_days?: number | null
@@ -1169,6 +1171,13 @@ export interface AssessmentData {
     lab_testing?: boolean
     lab_tests?: number | null
     lab_rate?: number | null
+    /** Other costs. A blank title stays off the quote. Price is ex GST. */
+    other_lines?: {
+      id: string
+      title: string
+      description: string
+      price: number | null
+    }[]
   }
   /** Biohazard Cleaning Quote. Shape and defaults are in lib/biohazardCleaningQuote.ts. */
   biohazard_cleaning_quote?: Record<string, unknown>

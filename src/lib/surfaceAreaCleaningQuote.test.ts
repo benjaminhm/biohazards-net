@@ -78,6 +78,7 @@ test('the cleaning quote prints square metres, then fixed labour', () => {
   assert.doesNotMatch(html, /sow-doc-title">[^<]*Quote/)
   assert.match(html, /Estimated quantities/)
   assert.match(html, /Fixed Rate Quotations/)
+  assert.doesNotMatch(html, /Other costs/)
   assert.match(html, /20 m²/)
   assert.match(html, /\$50\.00 \/ m²/)
   assert.match(html, /5 labour days/)
@@ -311,6 +312,78 @@ test('a ticked hygienist adds the same lines as the biohazard quote, and an unti
   assert.match(html, /\$900\.00/)
   assert.match(html, /6 tests/)
   assert.match(html, /3 tests/)
+})
+
+test('a custom title prints, and an other line is a title, description, and price ex GST', () => {
+  const hidden = surfaceAreaCleaningQuoteContent({
+    reference: 'SACQ-OTHER',
+    clientName: 'Acme Pty Ltd',
+    siteAddress: '1 Example Street',
+    capture: {
+      ...emptySurfaceAreaCleaningCapture(),
+      cleaning_kind: 'custom',
+      custom_title: '   ',
+      estimated_m2: 20,
+      rate_per_m2: 50,
+      labour_days: 1,
+      rate_per_labour_day: 0,
+      other_lines: [{ id: 'blank', title: '  ', description: 'Not printed', price: 80 }],
+    },
+  })
+  assert.equal(hidden.title, 'Surface Area Cleaning')
+  assert.equal(hidden.other_lines.length, 0)
+  assert.equal(hidden.subtotal, 1000)
+
+  const content = surfaceAreaCleaningQuoteContent({
+    reference: 'SACQ-OTHER',
+    clientName: 'Acme Pty Ltd',
+    siteAddress: '1 Example Street',
+    capture: {
+      ...emptySurfaceAreaCleaningCapture(),
+      cleaning_kind: 'custom',
+      custom_title: 'Forensic clean',
+      estimated_m2: 20,
+      rate_per_m2: 50,
+      labour_days: 1,
+      rate_per_labour_day: 0,
+      other_lines: [
+        { id: 'a', title: 'Odour treatment', description: 'Ozone in the living room.', price: 250 },
+        { id: 'b', title: 'Skip bin', description: '', price: 180 },
+        { id: 'c', title: '', description: 'Not printed', price: 80 },
+      ],
+    },
+  })
+  assert.equal(content.title, 'Forensic clean')
+  assert.deepEqual(content.other_lines, [
+    { label: 'Odour treatment', description: 'Ozone in the living room.', amount: 250 },
+    { label: 'Skip bin', description: '', amount: 180 },
+  ])
+  assert.equal(content.subtotal, 1430)
+  assert.equal(content.total, 1573)
+  const html = buildPrintHTML(
+    'surface_area_cleaning_quote',
+    content as unknown as Record<string, unknown>,
+    [],
+    [],
+    null,
+    'job',
+    'http://localhost',
+    undefined,
+    { screenActionBar: false },
+  )
+  assert.match(html, /class="sow-doc-title">Forensic clean</)
+  assert.match(html, /Other costs/)
+  assert.match(html, />Title</)
+  assert.match(html, />Description</)
+  assert.match(html, /Price \(ex GST\)/)
+  assert.ok(html.indexOf('Fixed Rate Quotations') < html.indexOf('Other costs'))
+  assert.match(html, /Odour treatment/)
+  assert.match(html, /Ozone in the living room\./)
+  assert.match(html, /Skip bin/)
+  assert.match(html, /\$250\.00/)
+  assert.match(html, /\$180\.00/)
+  assert.match(html, /Other costs subtotal \(ex GST\)/)
+  assert.doesNotMatch(html, /Not printed/)
 })
 
 test('engagement brackets are filled on the surface cleaning document', () => {

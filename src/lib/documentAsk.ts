@@ -56,6 +56,7 @@ const LABELS: Record<string, string> = {
   rooms: 'Rooms',
   secondary_rooms: 'Secondary zone rooms',
   extra_lines: 'Additional charges',
+  other_lines: 'Other costs',
   secondary_zone: 'Secondary zone',
   secondary_contamination: 'Secondary contamination',
   secondary_objective: 'Secondary objective',
@@ -157,7 +158,9 @@ function formatRecord(value: Record<string, unknown>): string | null {
     const unit = typeof value.unit === 'string' ? value.unit : ''
     const rate = typeof value.rate === 'number' ? `at ${aud(value.rate)}` : ''
     const left = [qty, unit, rate].filter(Boolean).join(' ')
-    return left ? `${value.label}: ${left} = ${aud(value.amount)}` : `${value.label}: ${aud(value.amount)}`
+    const money = left ? `${value.label}: ${left} = ${aud(value.amount)}` : `${value.label}: ${aud(value.amount)}`
+    const description = typeof value.description === 'string' ? value.description.trim() : ''
+    return description ? `${money}\n${description}` : money
   }
   const lines: string[] = []
   for (const [key, child] of Object.entries(value)) {

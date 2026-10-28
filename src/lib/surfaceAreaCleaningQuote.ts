@@ -20,7 +20,7 @@ export const SURFACE_AREA_CLIENT_TITLES = [
   { id: 'estate', title: 'Estate Cleaning' },
 ] as const
 
-export type SurfaceAreaCleaningKind = (typeof SURFACE_AREA_CLIENT_TITLES)[number]['id']
+export type SurfaceAreaCleaningKind = (typeof SURFACE_AREA_CLIENT_TITLES)[number]['id'] | 'custom'
 
 export const SURFACE_AREA_SCHEMA = {
   ratePerM2: 0,
@@ -98,8 +98,18 @@ export interface SurfaceAreaCleaningStandards {
   engagement_agreement: string
 }
 
+export interface SurfaceAreaOtherLine {
+  id: string
+  title: string
+  description: string
+  /** Ex GST. Blank is zero. A blank title stays off the quote. */
+  price: number | null
+}
+
 export interface SurfaceAreaCleaningCapture extends HygienistServices {
   cleaning_kind: SurfaceAreaCleaningKind
+  /** Printed when the title is Custom. */
+  custom_title: string
   estimated_m2: number | null
   /** Labour days the client is buying. Required before the quote is generated. */
   labour_days: number | null
@@ -119,6 +129,8 @@ export interface SurfaceAreaCleaningCapture extends HygienistServices {
   presentation: string
   objective: string
   scope_of_work: string
+  /** Other costs. Each line is a title, a description, and a price ex GST. */
+  other_lines: SurfaceAreaOtherLine[]
 }
 
 export interface SurfaceAreaCleaningLine {
@@ -127,6 +139,9 @@ export interface SurfaceAreaCleaningLine {
   unit: string
   rate: number
   amount: number
+  description?: string
+  /** Set on other-cost lines so the quote summary can keep them in their own section. */
+  section?: 'other'
 }
 
 export interface SurfaceAreaCleaningFigures {
@@ -160,6 +175,8 @@ export interface SurfaceAreaCleaningQuoteContent {
   rooms: { name: string; detail: string; area_m2: number }[]
   /** Hygienist lines. Empty when none are ticked. */
   service_lines: { label: string; quantity: number; unit: string; rate: number; amount: number }[]
+  /** Other costs with a title. A blank title is left off. */
+  other_lines: { label: string; description: string; amount: number }[]
   subtotal: number
   gst: number
   total: number
@@ -184,13 +201,26 @@ function quantityOrZero(value: number | null | undefined): number {
   return Number.isFinite(n) && n > 0 ? n : 0
 }
 
-export function surfaceAreaCleaningDocumentTitle(kind: string | null | undefined): string {
+export function surfaceAreaCleaningDocumentTitle(kind: string | null | undefined, customTitle?: string | null): string {
+  if (kind === 'custom') {
+    const written = (customTitle ?? '').trim()
+    if (written) return written
+  }
   return SURFACE_AREA_CLIENT_TITLES.find(option => option.id === kind)?.title
     ?? SURFACE_AREA_CLIENT_TITLES[0].title
 }
 
 export function newSurfaceAreaRoomId(): string {
   return `room_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+}
+
+export function newSurfaceAreaOtherLine(): SurfaceAreaOtherLine {
+  return {
+    id: newSurfaceAreaRoomId(),
+    title: '',
+    description: '',
+    price: null,
+  }
 }
 
 export function newSurfaceAreaRoom(): SurfaceAreaRoom {
@@ -206,6 +236,7 @@ export function newSurfaceAreaRoom(): SurfaceAreaRoom {
 export function emptySurfaceAreaCleaningCapture(): SurfaceAreaCleaningCapture {
   return {
     cleaning_kind: 'surface',
+    custom_title: '',
     estimated_m2: null,
     labour_days: null,
     rate_per_m2: null,
@@ -218,8 +249,18 @@ export function emptySurfaceAreaCleaningCapture(): SurfaceAreaCleaningCapture {
     presentation: '',
     objective: '',
     scope_of_work: '',
+    other_lines: [],
     ...emptyHygienistServices(),
   }
+}
+
+/** Other lines that have a title. The price is ex GST. A blank price is zero. */
+export function quotedOtherLines(lines: SurfaceAreaOtherLine[]): { title: string; description: string; price: number }[] {
+  return lines.flatMap(line => {
+    const title = line.title.trim()
+    if (!title) return []
+    return [{ title, description: line.description.trim(), price: round2(quantityOrZero(line.price)) }]
+  })
 }
 
 /** A rectangular room: floor and ceiling are length × width, walls are the perimeter × height. */
@@ -288,12 +329,14 @@ export function normalizeSurfaceAreaCleaningCapture(raw: unknown): SurfaceAreaCl
     const n = typeof value === 'number' ? value : Number(value)
     return Number.isFinite(n) && n >= 0 ? n : null
   }
-  const kind = SURFACE_AREA_CLIENT_TITLES.some(option => option.id === o.cleaning_kind)
+  const kind = o.cleaning_kind === 'custom' || SURFACE_AREA_CLIENT_TITLES.some(option => option.id === o.cleaning_kind)
     ? o.cleaning_kind as SurfaceAreaCleaningKind
     : 'surface'
   const rooms = Array.isArray(o.rooms) ? o.rooms.map(normalizeSurfaceAreaRoom) : []
+  const otherLines = Array.isArray(o.other_lines) ? o.other_lines.map(normalizeSurfaceAreaOtherLine) : []
   return {
     cleaning_kind: kind,
+    custom_title: typeof o.custom_title === 'string' ? o.custom_title : '',
     estimated_m2: qty(o.estimated_m2),
     labour_days: qty(o.labour_days),
     rate_per_m2: qty(o.rate_per_m2),
@@ -306,7 +349,21 @@ export function normalizeSurfaceAreaCleaningCapture(raw: unknown): SurfaceAreaCl
     presentation: typeof o.presentation === 'string' ? o.presentation : '',
     objective: typeof o.objective === 'string' ? o.objective : '',
     scope_of_work: typeof o.scope_of_work === 'string' ? o.scope_of_work : '',
+    other_lines: otherLines,
     ...normalizeHygienistServices(o, qty),
+  }
+}
+
+export function normalizeSurfaceAreaOtherLine(raw: unknown): SurfaceAreaOtherLine {
+  const row = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {}
+  const price = row.price == null || row.price === ''
+    ? null
+    : Number(row.price)
+  return {
+    id: typeof row.id === 'string' && row.id ? row.id : newSurfaceAreaRoomId(),
+    title: typeof row.title === 'string' ? row.title : '',
+    description: typeof row.description === 'string' ? row.description : '',
+    price: Number.isFinite(price) && price != null && price >= 0 ? price : null,
   }
 }
 
@@ -371,6 +428,7 @@ export function surfaceAreaCleaningFigures(
     mobilisationFee?: number | null
     mobilisationWaived?: boolean
     hygienist?: HygienistServices
+    otherLines?: SurfaceAreaOtherLine[]
   } = {},
 ): SurfaceAreaCleaningFigures {
   const estimated_m2 = round2(quantityOrZero(m2))
@@ -395,6 +453,17 @@ export function surfaceAreaCleaningFigures(
   })
   for (const line of hygienistQuoteLines(extras.hygienist ?? emptyHygienistServices())) {
     lines.push({ label: line.label, quantity: line.quantity, unit: line.unit, rate: line.rate, amount: line.amount })
+  }
+  for (const line of quotedOtherLines(extras.otherLines ?? [])) {
+    lines.push({
+      label: line.title,
+      description: line.description,
+      quantity: 1,
+      unit: '',
+      rate: line.price,
+      amount: line.price,
+      section: 'other',
+    })
   }
   const subtotal = round2(lines.reduce((sum, line) => sum + line.amount, 0))
   const gst = round2(subtotal * 0.1)
@@ -430,6 +499,7 @@ export function surfaceAreaCleaningQuoteContent(input: {
     mobilisationFee: capture.mobilisation_fee,
     mobilisationWaived: capture.mobilisation_waived,
     hygienist: capture,
+    otherLines: capture.other_lines,
   })
   const jobAddress = (capture.job_address ?? input.siteAddress).trim()
   const rooms = (capture.rooms ?? []).flatMap(room => {
@@ -442,7 +512,7 @@ export function surfaceAreaCleaningQuoteContent(input: {
     }]
   })
   return {
-    title: surfaceAreaCleaningDocumentTitle(capture.cleaning_kind),
+    title: surfaceAreaCleaningDocumentTitle(capture.cleaning_kind, capture.custom_title),
     reference: input.reference,
     client_name: input.clientName.trim(),
     site_address: jobAddress,
@@ -465,6 +535,11 @@ export function surfaceAreaCleaningQuoteContent(input: {
       .join('\n'),
     service_lines: hygienistQuoteLines(capture).map(({ label, quantity, unit, rate, amount }) => ({
       label, quantity, unit, rate, amount,
+    })),
+    other_lines: quotedOtherLines(capture.other_lines).map(line => ({
+      label: line.title,
+      description: line.description,
+      amount: line.price,
     })),
     subtotal: figures.subtotal,
     gst: figures.gst,

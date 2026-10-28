@@ -14,6 +14,7 @@ import {
   SURFACE_AREA_SCHEMA,
   defaultSurfaceAreaCleaningStandards,
   emptySurfaceAreaCleaningCapture,
+  newSurfaceAreaOtherLine,
   newSurfaceAreaRoom,
   normalizeSurfaceAreaCleaningCapture,
   normalizeSurfaceAreaCleaningStandards,
@@ -144,6 +145,7 @@ export default function SurfaceAreaCleaningQuoteTab({ job, onJobUpdate }: Props)
   }, [job.id, job.updated_at])
 
   const isDirty = capture.cleaning_kind !== saved.cleaning_kind
+    || capture.custom_title !== saved.custom_title
     || capture.estimated_m2 !== saved.estimated_m2
     || capture.labour_days !== saved.labour_days
     || capture.rate_per_m2 !== saved.rate_per_m2
@@ -164,6 +166,7 @@ export default function SurfaceAreaCleaningQuoteTab({ job, onJobUpdate }: Props)
     || capture.lab_tests !== saved.lab_tests
     || capture.lab_rate !== saved.lab_rate
     || JSON.stringify(capture.rooms) !== JSON.stringify(saved.rooms)
+    || JSON.stringify(capture.other_lines) !== JSON.stringify(saved.other_lines)
   useRegisterUnsavedChanges('surface-area-cleaning-quote', isDirty)
 
   const figures = useMemo(
@@ -175,6 +178,7 @@ export default function SurfaceAreaCleaningQuoteTab({ job, onJobUpdate }: Props)
       mobilisationFee: capture.mobilisation_fee,
       mobilisationWaived: capture.mobilisation_waived,
       hygienist: capture,
+      otherLines: capture.other_lines,
     }),
     [capture],
   )
@@ -303,7 +307,7 @@ export default function SurfaceAreaCleaningQuoteTab({ job, onJobUpdate }: Props)
         Surface Area Cleaning Quote
       </div>
       <DocumentAskPanel jobId={job.id} label="this surface area cleaning quote" text={askText} />
-      <div style={{ marginBottom: 12, maxWidth: 360 }}>
+      <div style={{ marginBottom: 12, maxWidth: 480 }}>
         <label style={LABEL}>For the client, this is</label>
         <select
           value={capture.cleaning_kind}
@@ -313,7 +317,16 @@ export default function SurfaceAreaCleaningQuoteTab({ job, onJobUpdate }: Props)
           {SURFACE_AREA_CLIENT_TITLES.map(option => (
             <option key={option.id} value={option.id}>{option.title}</option>
           ))}
+          <option value="custom">Custom</option>
         </select>
+        {capture.cleaning_kind === 'custom' && (
+          <input
+            value={capture.custom_title}
+            onChange={e => patch({ custom_title: e.target.value })}
+            placeholder="Title on the quote"
+            style={{ ...INPUT, marginTop: 8 }}
+          />
+        )}
       </div>
       <div style={{ fontSize: 14, marginBottom: 12 }}>
         <div style={LABEL}>Client</div>
@@ -671,10 +684,74 @@ export default function SurfaceAreaCleaningQuoteTab({ job, onJobUpdate }: Props)
           </div>
         )}
       </div>
+      <div style={SECTION}>
+        <div style={LABEL}>Other costs</div>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+          Each line is a title, a description, and a price ex GST. A line with no title stays off the quote.
+        </div>
+        <div style={{ display: 'grid', gap: 12 }}>
+          {capture.other_lines.map(line => {
+            const update = (next: Partial<typeof line>) =>
+              patch({ other_lines: capture.other_lines.map(item => item.id === line.id ? { ...item, ...next } : item) })
+            return (
+              <div key={line.id} style={{ display: 'grid', gap: 8 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 160px auto', gap: 8, alignItems: 'end' }}>
+                  <div>
+                    <label style={LABEL}>Title</label>
+                    <input value={line.title} onChange={e => update({ title: e.target.value })} style={INPUT} />
+                  </div>
+                  <div>
+                    <label style={LABEL}>Price ex GST ($)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={line.price ?? ''}
+                      onChange={e => update({ price: numberOrNull(e.target.value) })}
+                      placeholder="0.00"
+                      style={INPUT}
+                    />
+                  </div>
+                  <button type="button" className="btn" onClick={() => patch({ other_lines: capture.other_lines.filter(item => item.id !== line.id) })}>
+                    Remove
+                  </button>
+                </div>
+                <div>
+                  <label style={LABEL}>Description</label>
+                  <textarea
+                    value={line.description}
+                    onChange={e => update({ description: e.target.value })}
+                    rows={2}
+                    style={{ ...INPUT, resize: 'vertical', lineHeight: 1.5, fontFamily: 'inherit' }}
+                  />
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        <button type="button" className="btn" style={{ marginTop: 8 }} onClick={() => patch({ other_lines: [...capture.other_lines, newSurfaceAreaOtherLine()] })}>
+          Add a line
+        </button>
+      </div>
       <div style={{ marginTop: 14, display: 'grid', gap: 6, fontSize: 14 }}>
-        {figures.lines.map((line, i) => (
+        {figures.lines.filter(line => line.section !== 'other').map((line, i) => (
           <div key={`${line.label}:${i}`} style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-            <span>{line.label} · {line.quantity.toLocaleString('en-AU', { maximumFractionDigits: 2 })} {line.unit}</span>
+            <span>
+              {line.label}
+              {line.unit ? ` · ${line.quantity.toLocaleString('en-AU', { maximumFractionDigits: 2 })} ${line.unit}` : ''}
+            </span>
+            <span>{formatAud(line.amount)}</span>
+          </div>
+        ))}
+        {figures.lines.some(line => line.section === 'other') && (
+          <div style={{ ...LABEL, marginTop: 8 }}>Other costs</div>
+        )}
+        {figures.lines.filter(line => line.section === 'other').map((line, i) => (
+          <div key={`other:${line.label}:${i}`} style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+            <span>
+              {line.label}
+              {line.description ? <span style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)' }}>{line.description}</span> : null}
+            </span>
             <span>{formatAud(line.amount)}</span>
           </div>
         ))}

@@ -3552,6 +3552,31 @@ function clearanceSectionSubtotal(label: string, amount: number): string {
     </div>`
 }
 
+/** Other costs. Each row is a title, a description, and a price ex GST. Hidden when there are none. */
+function otherCostsSection(lines: { label: string; description: string; amount: number }[]): string {
+  if (!lines.length) return ''
+  const body = lines.map(line => `
+    <tr>
+      <td>${esc(line.label)}</td>
+      <td>${esc(line.description)}</td>
+      <td class="r">${fmtMoney(line.amount)}</td>
+    </tr>`).join('')
+  const total = Math.round(lines.reduce((sum, line) => sum + line.amount, 0) * 100) / 100
+  return `
+    <div class="label" style="margin-top:18px">Other costs</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Title</th>
+          <th>Description</th>
+          <th class="r">Price (ex GST)</th>
+        </tr>
+      </thead>
+      <tbody>${body}</tbody>
+    </table>
+    ${clearanceSectionSubtotal('Other costs subtotal (ex GST)', total)}`
+}
+
 function clearanceList(label: string, items: string[]): string {
   const rows = items.filter(item => item.trim())
   if (!rows.length) return ''
@@ -3735,6 +3760,7 @@ function buildSurfaceAreaCleaningMid(
     ${clearanceTable('Quantity', fixed)}
     ${c.mobilisation_reason ? `<div class="body-text" style="margin-top:4px;font-style:italic;color:var(--sow-muted)">${esc(c.mobilisation_reason)}</div>` : ''}
     ${clearanceSectionSubtotal('Fixed subtotal (ex GST)', sectionAmount(fixed))}
+    ${otherCostsSection(c.other_lines ?? [])}
     <div class="totals">
       <div class="tot-row"><span>Subtotal (ex GST)</span><span class="amt">${fmtMoney(c.subtotal)}</span></div>
       <div class="tot-row"><span>GST (10%)</span><span class="amt">${fmtMoney(c.gst)}</span></div>
