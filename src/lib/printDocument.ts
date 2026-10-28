@@ -3707,6 +3707,14 @@ function buildSurfaceAreaCleaningMid(
     rate: 'Fixed',
     amount: c.labour_amount,
   })
+  for (const line of c.service_lines ?? []) {
+    fixed.push({
+      label: line.label,
+      quantity: clearanceQty(line.quantity, line.unit),
+      rate: fmtMoney(line.rate),
+      amount: line.amount,
+    })
+  }
   const sectionAmount = (lines: { amount: number }[]) =>
     Math.round(lines.reduce((sum, line) => sum + line.amount, 0) * 100) / 100
   return `
@@ -3716,6 +3724,9 @@ function buildSurfaceAreaCleaningMid(
       <div class="sow-meta-label" style="margin:10px 0 6px;">Job address</div>
       <div class="body-text" style="font-weight:500;color:var(--sow-navy);">${esc(c.job_address || c.site_address || '—')}</div>
     </div>
+    ${section('Presentation', c.presentation)}
+    ${section('Objective', c.objective)}
+    ${section('Scope of work', c.scope_of_work)}
     <div class="label">Estimated quantities</div>
     ${clearanceTable('Estimated quantities', estimated)}
     ${roomNotes.map(note => `<div class="body-text" style="margin-top:4px;font-style:italic;color:var(--sow-muted)">${esc(note)}</div>`).join('')}

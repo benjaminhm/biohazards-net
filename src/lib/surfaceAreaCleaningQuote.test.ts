@@ -171,6 +171,148 @@ test('the quote uses the room total and lists each room', () => {
   assert.match(html, /57\.6 m²/)
 })
 
+test('presentation, objective, and scope print only when written', () => {
+  const blank = surfaceAreaCleaningQuoteContent({
+    reference: 'SACQ-NARRATIVE',
+    clientName: 'Acme Pty Ltd',
+    siteAddress: '1 Example Street',
+    capture: {
+      ...emptySurfaceAreaCleaningCapture(),
+      estimated_m2: 20,
+      labour_days: 1,
+      presentation: '   ',
+      objective: '',
+      scope_of_work: '\n',
+    },
+  })
+  assert.equal(blank.presentation, '')
+  assert.equal(blank.objective, '')
+  assert.equal(blank.scope_of_work, '')
+  const blankHtml = buildPrintHTML(
+    'surface_area_cleaning_quote',
+    blank as unknown as Record<string, unknown>,
+    [],
+    [],
+    null,
+    'job',
+    'http://localhost',
+    undefined,
+    { screenActionBar: false },
+  )
+  assert.doesNotMatch(blankHtml, /class="label">Presentation/)
+  assert.doesNotMatch(blankHtml, /class="label">Objective/)
+  assert.doesNotMatch(blankHtml, /class="label">Scope of work/)
+
+  const written = surfaceAreaCleaningQuoteContent({
+    reference: 'SACQ-NARRATIVE',
+    clientName: 'Acme Pty Ltd',
+    siteAddress: '1 Example Street',
+    capture: {
+      ...emptySurfaceAreaCleaningCapture(),
+      estimated_m2: 20,
+      labour_days: 1,
+      presentation: 'Heavy soiling through the living areas.',
+      objective: 'Return the living areas to a clean condition.',
+      scope_of_work: 'Clean floors, walls, and ceilings in the living areas.',
+    },
+  })
+  const writtenHtml = buildPrintHTML(
+    'surface_area_cleaning_quote',
+    written as unknown as Record<string, unknown>,
+    [],
+    [],
+    null,
+    'job',
+    'http://localhost',
+    undefined,
+    { screenActionBar: false },
+  )
+  assert.match(writtenHtml, /class="label">Presentation/)
+  assert.match(writtenHtml, /Heavy soiling through the living areas\./)
+  assert.match(writtenHtml, /class="label">Objective/)
+  assert.match(writtenHtml, /Return the living areas to a clean condition\./)
+  assert.match(writtenHtml, /class="label">Scope of work/)
+  assert.match(writtenHtml, /Clean floors, walls, and ceilings in the living areas\./)
+})
+
+test('a ticked hygienist adds the same lines as the biohazard quote, and an unticked one stays off', () => {
+  const unticked = surfaceAreaCleaningQuoteContent({
+    reference: 'SACQ-COH',
+    clientName: 'Acme Pty Ltd',
+    siteAddress: '1 Example Street',
+    capture: {
+      ...emptySurfaceAreaCleaningCapture(),
+      estimated_m2: 20,
+      rate_per_m2: 50,
+      labour_days: 5,
+      rate_per_labour_day: 600,
+      coh_rap_fee: 900,
+      atp_tests: 6,
+      atp_rate: 25,
+      lab_tests: 3,
+      lab_rate: 80,
+    },
+  })
+  assert.equal(unticked.service_lines.length, 0)
+  assert.equal(unticked.scope_of_work, '')
+  assert.equal(unticked.total, 4400)
+  assert.doesNotMatch(unticked.inclusions.join('\n'), /Hygienist|COH/)
+
+  const content = surfaceAreaCleaningQuoteContent({
+    reference: 'SACQ-COH',
+    clientName: 'Acme Pty Ltd',
+    siteAddress: '1 Example Street',
+    capture: {
+      ...emptySurfaceAreaCleaningCapture(),
+      estimated_m2: 20,
+      rate_per_m2: 50,
+      labour_days: 5,
+      rate_per_labour_day: 600,
+      scope_of_work: 'Clean the living areas.',
+      coh_rap: true,
+      coh_rap_fee: 900,
+      atp_testing: true,
+      atp_tests: 6,
+      atp_rate: 25,
+      lab_testing: true,
+      lab_tests: 3,
+      lab_rate: 80,
+    },
+  })
+  assert.equal(content.scope_of_work.startsWith('Before the works start, a Certified Occupational Hygienist'), true)
+  assert.match(content.scope_of_work, /Clean the living areas\./)
+  assert.match(content.scope_of_work, /verifies the decontamination by ATP surface testing and by laboratory testing/)
+  assert.equal(content.inclusions.slice(-3).length, 3)
+  assert.match(content.inclusions.join('\n'), /site inspection by a Certified Occupational Hygienist/)
+  assert.deepEqual(
+    content.service_lines.map(line => `${line.label}:${line.quantity}:${line.amount}`),
+    [
+      'Certified Occupational Hygienist: site inspection and written method:1:900',
+      'ATP verification testing:6:150',
+      'Laboratory testing:3:240',
+    ],
+  )
+  assert.equal(content.subtotal, 5290)
+  assert.equal(content.total, 5819)
+  const html = buildPrintHTML(
+    'surface_area_cleaning_quote',
+    content as unknown as Record<string, unknown>,
+    [],
+    [],
+    null,
+    'job',
+    'http://localhost',
+    undefined,
+    { screenActionBar: false },
+  )
+  assert.match(html, /Certified Occupational Hygienist: site inspection and written method/)
+  assert.match(html, /ATP verification testing/)
+  assert.match(html, /Laboratory testing/)
+  assert.match(html, /\$900\.00/)
+  assert.match(html, /6 tests/)
+  assert.match(html, /3 tests/)
+})
+
 test('engagement brackets are filled on the surface cleaning document', () => {
   const content = surfaceAreaCleaningQuoteContent({
     reference: 'SACQ-TEST',

@@ -4,6 +4,14 @@
  * Labour days are the agreed quantity. Rates are ex GST.
  */
 
+import {
+  biohazardInclusionsWithServices,
+  biohazardScopeWithServices,
+  emptyHygienistServices,
+  hygienistQuoteLines,
+  normalizeHygienistServices,
+  type HygienistServices,
+} from '@/lib/hygienistServices'
 import { DEFAULT_ENGAGEMENT_AGREEMENT, storedEngagementAgreement } from '@/lib/quoteEngagement'
 
 export const SURFACE_AREA_CLIENT_TITLES = [
@@ -90,7 +98,7 @@ export interface SurfaceAreaCleaningStandards {
   engagement_agreement: string
 }
 
-export interface SurfaceAreaCleaningCapture {
+export interface SurfaceAreaCleaningCapture extends HygienistServices {
   cleaning_kind: SurfaceAreaCleaningKind
   estimated_m2: number | null
   /** Labour days the client is buying. Required before the quote is generated. */
@@ -107,6 +115,10 @@ export interface SurfaceAreaCleaningCapture {
   mobilisation_reason: string
   /** Rooms that make up the estimated square metres. Empty keeps the typed total. */
   rooms: SurfaceAreaRoom[]
+  /** Job narrative. A blank field is left off the quote. */
+  presentation: string
+  objective: string
+  scope_of_work: string
 }
 
 export interface SurfaceAreaCleaningLine {
@@ -146,9 +158,14 @@ export interface SurfaceAreaCleaningQuoteContent {
   mobilisation_fee: number
   mobilisation_reason: string
   rooms: { name: string; detail: string; area_m2: number }[]
+  /** Hygienist lines. Empty when none are ticked. */
+  service_lines: { label: string; quantity: number; unit: string; rate: number; amount: number }[]
   subtotal: number
   gst: number
   total: number
+  presentation: string
+  objective: string
+  scope_of_work: string
   inclusions: string[]
   exclusions: string[]
   assumptions: string[]
@@ -198,6 +215,10 @@ export function emptySurfaceAreaCleaningCapture(): SurfaceAreaCleaningCapture {
     mobilisation_waived: false,
     mobilisation_reason: '',
     rooms: [],
+    presentation: '',
+    objective: '',
+    scope_of_work: '',
+    ...emptyHygienistServices(),
   }
 }
 
@@ -282,6 +303,10 @@ export function normalizeSurfaceAreaCleaningCapture(raw: unknown): SurfaceAreaCl
     mobilisation_waived: o.mobilisation_waived === true,
     mobilisation_reason: typeof o.mobilisation_reason === 'string' ? o.mobilisation_reason : '',
     rooms,
+    presentation: typeof o.presentation === 'string' ? o.presentation : '',
+    objective: typeof o.objective === 'string' ? o.objective : '',
+    scope_of_work: typeof o.scope_of_work === 'string' ? o.scope_of_work : '',
+    ...normalizeHygienistServices(o, qty),
   }
 }
 
@@ -341,7 +366,12 @@ export function setPresetRoomCount(rooms: SurfaceAreaRoom[], preset: SurfaceArea
 export function surfaceAreaCleaningFigures(
   m2: number | null | undefined,
   schema: { ratePerM2: number; ratePerLabourDay: number } = SURFACE_AREA_SCHEMA,
-  extras: { labourDays?: number | null; mobilisationFee?: number | null; mobilisationWaived?: boolean } = {},
+  extras: {
+    labourDays?: number | null
+    mobilisationFee?: number | null
+    mobilisationWaived?: boolean
+    hygienist?: HygienistServices
+  } = {},
 ): SurfaceAreaCleaningFigures {
   const estimated_m2 = round2(quantityOrZero(m2))
   const mobilisation_fee = extras.mobilisationWaived ? 0 : round2(quantityOrZero(extras.mobilisationFee))
@@ -363,6 +393,9 @@ export function surfaceAreaCleaningFigures(
     rate: rate_per_labour_day,
     amount: labour_amount,
   })
+  for (const line of hygienistQuoteLines(extras.hygienist ?? emptyHygienistServices())) {
+    lines.push({ label: line.label, quantity: line.quantity, unit: line.unit, rate: line.rate, amount: line.amount })
+  }
   const subtotal = round2(lines.reduce((sum, line) => sum + line.amount, 0))
   const gst = round2(subtotal * 0.1)
   return {
@@ -396,6 +429,7 @@ export function surfaceAreaCleaningQuoteContent(input: {
     labourDays: capture.labour_days,
     mobilisationFee: capture.mobilisation_fee,
     mobilisationWaived: capture.mobilisation_waived,
+    hygienist: capture,
   })
   const jobAddress = (capture.job_address ?? input.siteAddress).trim()
   const rooms = (capture.rooms ?? []).flatMap(room => {
@@ -422,10 +456,20 @@ export function surfaceAreaCleaningQuoteContent(input: {
     mobilisation_fee: figures.mobilisation_fee,
     mobilisation_reason: capture.mobilisation_waived ? capture.mobilisation_reason.trim() : '',
     rooms,
+    presentation: capture.presentation.trim(),
+    objective: capture.objective.trim(),
+    scope_of_work: biohazardScopeWithServices(capture.scope_of_work.trim(), capture)
+      .split('\n')
+      .map(line => line.trim())
+      .filter(Boolean)
+      .join('\n'),
+    service_lines: hygienistQuoteLines(capture).map(({ label, quantity, unit, rate, amount }) => ({
+      label, quantity, unit, rate, amount,
+    })),
     subtotal: figures.subtotal,
     gst: figures.gst,
     total: figures.total,
-    inclusions: surfaceAreaClauseLines(standards.inclusions),
+    inclusions: surfaceAreaClauseLines(biohazardInclusionsWithServices(standards.inclusions, capture)),
     exclusions: surfaceAreaClauseLines(standards.exclusions),
     assumptions: surfaceAreaClauseLines(standards.assumptions),
     terms: standards.payment_terms.trim(),

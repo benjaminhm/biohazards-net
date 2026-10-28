@@ -58,6 +58,17 @@ const LABEL: CSSProperties = {
   color: 'var(--text-muted)',
 }
 
+const SECTION: CSSProperties = {
+  border: '1px solid var(--border)',
+  borderRadius: 8,
+  padding: '10px 12px',
+  marginTop: 14,
+}
+
+function numberOrNull(raw: string): number | null {
+  return raw === '' ? null : Number(raw)
+}
+
 function ClickToEditText({
   label,
   value,
@@ -141,6 +152,17 @@ export default function SurfaceAreaCleaningQuoteTab({ job, onJobUpdate }: Props)
     || capture.mobilisation_fee !== saved.mobilisation_fee
     || capture.mobilisation_waived !== saved.mobilisation_waived
     || capture.mobilisation_reason !== saved.mobilisation_reason
+    || capture.presentation !== saved.presentation
+    || capture.objective !== saved.objective
+    || capture.scope_of_work !== saved.scope_of_work
+    || capture.coh_rap !== saved.coh_rap
+    || capture.coh_rap_fee !== saved.coh_rap_fee
+    || capture.atp_testing !== saved.atp_testing
+    || capture.atp_tests !== saved.atp_tests
+    || capture.atp_rate !== saved.atp_rate
+    || capture.lab_testing !== saved.lab_testing
+    || capture.lab_tests !== saved.lab_tests
+    || capture.lab_rate !== saved.lab_rate
     || JSON.stringify(capture.rooms) !== JSON.stringify(saved.rooms)
   useRegisterUnsavedChanges('surface-area-cleaning-quote', isDirty)
 
@@ -152,6 +174,7 @@ export default function SurfaceAreaCleaningQuoteTab({ job, onJobUpdate }: Props)
       labourDays: capture.labour_days,
       mobilisationFee: capture.mobilisation_fee,
       mobilisationWaived: capture.mobilisation_waived,
+      hygienist: capture,
     }),
     [capture],
   )
@@ -342,6 +365,41 @@ export default function SurfaceAreaCleaningQuoteTab({ job, onJobUpdate }: Props)
           style={INPUT}
         />
       </div>
+      <div style={{ marginBottom: 12, display: 'grid', gap: 12 }}>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+          A blank field stays off the quote.
+        </div>
+        <div>
+          <label style={LABEL}>Presentation</label>
+          <textarea
+            value={capture.presentation}
+            onChange={e => patch({ presentation: e.target.value })}
+            rows={3}
+            placeholder="How the property presents, and what was found."
+            style={{ ...INPUT, resize: 'vertical', lineHeight: 1.5, fontFamily: 'inherit' }}
+          />
+        </div>
+        <div>
+          <label style={LABEL}>Objective</label>
+          <textarea
+            value={capture.objective}
+            onChange={e => patch({ objective: e.target.value })}
+            rows={2}
+            placeholder="The outcome this cleaning is meant to achieve."
+            style={{ ...INPUT, resize: 'vertical', lineHeight: 1.5, fontFamily: 'inherit' }}
+          />
+        </div>
+        <div>
+          <label style={LABEL}>Scope of work</label>
+          <textarea
+            value={capture.scope_of_work}
+            onChange={e => patch({ scope_of_work: e.target.value })}
+            rows={5}
+            placeholder="The work this quote covers."
+            style={{ ...INPUT, resize: 'vertical', lineHeight: 1.5, fontFamily: 'inherit' }}
+          />
+        </div>
+      </div>
       <div style={{ marginBottom: 12 }}>
         <div style={LABEL}>Rooms</div>
         <div style={{
@@ -510,9 +568,112 @@ export default function SurfaceAreaCleaningQuoteTab({ job, onJobUpdate }: Props)
           />
         </div>
       </div>
+      <div style={SECTION}>
+        <div style={LABEL}>Hygienist and verification</div>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+          Each one ticked adds a line to the scope of work and a line to the quote. Leave them unticked and they stay off the quote.
+        </div>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+          <input type="checkbox" checked={capture.coh_rap} onChange={e => patch({ coh_rap: e.target.checked })} />
+          Certified Occupational Hygienist: site inspection and written method
+        </label>
+        {capture.coh_rap && (
+          <div style={{ margin: '8px 0 0 24px', maxWidth: 260 }}>
+            <label style={LABEL}>Fee ($)</label>
+            <input
+              type="number"
+              min={0}
+              step="0.01"
+              value={capture.coh_rap_fee ?? ''}
+              onChange={e => patch({ coh_rap_fee: numberOrNull(e.target.value) })}
+              placeholder="0.00"
+              style={INPUT}
+            />
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
+              Added first in the scope: the COH inspects the site and issues written instructions. That is not a Remediation Action Plan.
+            </div>
+          </div>
+        )}
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer', marginTop: 12 }}>
+          <input
+            type="checkbox"
+            checked={capture.atp_testing && capture.lab_testing}
+            onChange={e => patch({ atp_testing: e.target.checked, lab_testing: e.target.checked })}
+          />
+          COH verification at the end of the works
+        </label>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6, marginLeft: 24 }}>
+          Verification is both ATP testing and laboratory testing.
+        </div>
+        {capture.atp_testing && capture.lab_testing && (
+          <div style={{ margin: '8px 0 0 24px', display: 'grid', gap: 12, maxWidth: 480 }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>ATP testing</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={LABEL}>Number of tests</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={capture.atp_tests ?? ''}
+                    onChange={e => patch({ atp_tests: numberOrNull(e.target.value) })}
+                    placeholder="0"
+                    style={INPUT}
+                  />
+                </div>
+                <div>
+                  <label style={LABEL}>Rate per test ($)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={capture.atp_rate ?? ''}
+                    onChange={e => patch({ atp_rate: numberOrNull(e.target.value) })}
+                    placeholder="0.00"
+                    style={INPUT}
+                  />
+                </div>
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Laboratory testing</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={LABEL}>Number of tests</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={capture.lab_tests ?? ''}
+                    onChange={e => patch({ lab_tests: numberOrNull(e.target.value) })}
+                    placeholder="0"
+                    style={INPUT}
+                  />
+                </div>
+                <div>
+                  <label style={LABEL}>Rate per test ($)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={capture.lab_rate ?? ''}
+                    onChange={e => patch({ lab_rate: numberOrNull(e.target.value) })}
+                    placeholder="0.00"
+                    style={INPUT}
+                  />
+                </div>
+              </div>
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              Added last in the scope: the COH verifies the decontamination by ATP testing and by laboratory testing. Each is its own line on the quote.
+            </div>
+          </div>
+        )}
+      </div>
       <div style={{ marginTop: 14, display: 'grid', gap: 6, fontSize: 14 }}>
-        {figures.lines.map(line => (
-          <div key={line.label} style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+        {figures.lines.map((line, i) => (
+          <div key={`${line.label}:${i}`} style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
             <span>{line.label} · {line.quantity.toLocaleString('en-AU', { maximumFractionDigits: 2 })} {line.unit}</span>
             <span>{formatAud(line.amount)}</span>
           </div>

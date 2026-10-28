@@ -10,11 +10,29 @@ import type { Job, JobType } from '@/lib/types'
 import { DEFAULT_ENGAGEMENT_AGREEMENT, storedEngagementAgreement } from '@/lib/quoteEngagement'
 import { mergedSowCapture } from '@/lib/sowCapture'
 import {
+  biohazardInclusionsWithServices,
+  biohazardScopeWithServices,
+  hygienistQuoteLines,
+} from '@/lib/hygienistServices'
+import {
   normalizeSurfaceAreaRoom,
   roomSurfaceArea,
   roomsSurfaceTotal,
   type SurfaceAreaRoom,
 } from '@/lib/surfaceAreaCleaningQuote'
+
+export {
+  biohazardInclusionsWithServices,
+  biohazardScopeWithServices,
+  BIOHAZARD_ATP_LABEL,
+  BIOHAZARD_ATP_SCOPE_LINE,
+  BIOHAZARD_COH_INCLUSION_LINES,
+  BIOHAZARD_COH_LABEL,
+  BIOHAZARD_COH_SCOPE_LINE,
+  BIOHAZARD_LAB_LABEL,
+  BIOHAZARD_LAB_SCOPE_LINE,
+  BIOHAZARD_VERIFICATION_SCOPE_LINE,
+} from '@/lib/hygienistServices'
 
 export const BIOHAZARD_CLEANING_CLIENT_TITLES = [
   { id: 'biohazard', title: 'Biohazard Cleaning' },
@@ -106,33 +124,6 @@ export const BIOHAZARD_EXTRA_LINE_PRESETS = [
   { label: 'Deodorisation', unit: 'treatment' },
   { label: 'Consumables and PPE', unit: 'kit' },
 ] as const
-
-export const BIOHAZARD_COH_LABEL = 'Certified Occupational Hygienist: site inspection and written method'
-export const BIOHAZARD_ATP_LABEL = 'ATP verification testing'
-export const BIOHAZARD_LAB_LABEL = 'Laboratory testing'
-
-/** Added first in the scope of work when the COH is on the quote. */
-export const BIOHAZARD_COH_SCOPE_LINE =
-  'Before the works start, a Certified Occupational Hygienist (COH) inspects the site and issues written instructions for the method and the clearance. The works follow those instructions. Where this scope and the hygienist differ, the hygienist applies. Hold point: after removal, the COH inspects the exposed surfaces, including the subfloor, and confirms any further removal before cleaning starts.'
-
-/** Added after the inclusions when the COH is on the quote. */
-export const BIOHAZARD_COH_INCLUSION_LINES = [
-  'A site inspection by a Certified Occupational Hygienist (COH) before the works start, written instructions for the method and the clearance, and the COH inspection at the hold point after removal.',
-  'Clearance of the treated surfaces to the criteria set by the COH. Surfaces that fail are cleaned again and retested once. Further re-cleaning is a written variation.',
-  'Records for the hygienist: photos before, during, and after the works, disinfectant product and batch numbers, waste disposal certificates, and test results.',
-] as const
-
-/** Added at the end, before the completion report, when only ATP testing is on the quote. */
-export const BIOHAZARD_ATP_SCOPE_LINE =
-  'Hold point, clearance: at the end of the works, verify the decontamination by ATP surface testing of the cleaned surfaces, at the sampling points and to the pass limits set by the Certified Occupational Hygienist, and record the results. Surfaces that fail are cleaned again and retested.'
-
-/** Added at the end, before the completion report, when only laboratory testing is on the quote. */
-export const BIOHAZARD_LAB_SCOPE_LINE =
-  'Hold point, clearance: at the end of the works, take surface samples from the cleaned surfaces for laboratory testing, to the criteria set by the Certified Occupational Hygienist, and record the results. Surfaces that fail are cleaned again and retested.'
-
-/** COH verification is both. Added at the end, before the completion report, when ATP testing and laboratory testing are on the quote. */
-export const BIOHAZARD_VERIFICATION_SCOPE_LINE =
-  'Hold point, clearance: at the end of the works, the Certified Occupational Hygienist verifies the decontamination by ATP surface testing and by laboratory testing of surface samples, at the sampling points and to the pass limits the hygienist sets, and records the results. Surfaces that fail are cleaned again and retested.'
 
 /** Clauses kept on the job. The company template has the same shape. */
 export interface BiohazardCleaningClauses {
@@ -751,20 +742,7 @@ export function biohazardCleaningFigures(capture: BiohazardCleaningCapture): Bio
     amount: labour_amount,
     kind: 'labour',
   })
-  if (capture.coh_rap) {
-    const fee = round2(quantityOrZero(capture.coh_rap_fee))
-    lines.push({ label: BIOHAZARD_COH_LABEL, quantity: 1, unit: 'plan', rate: fee, amount: fee, kind: 'coh' })
-  }
-  if (capture.atp_testing) {
-    const tests = Math.round(quantityOrZero(capture.atp_tests))
-    const rate = round2(quantityOrZero(capture.atp_rate))
-    lines.push({ label: BIOHAZARD_ATP_LABEL, quantity: tests, unit: tests === 1 ? 'test' : 'tests', rate, amount: round2(tests * rate), kind: 'atp' })
-  }
-  if (capture.lab_testing) {
-    const tests = Math.round(quantityOrZero(capture.lab_tests))
-    const rate = round2(quantityOrZero(capture.lab_rate))
-    lines.push({ label: BIOHAZARD_LAB_LABEL, quantity: tests, unit: tests === 1 ? 'test' : 'tests', rate, amount: round2(tests * rate), kind: 'lab' })
-  }
+  for (const line of hygienistQuoteLines(capture)) lines.push(line)
   for (const extra of capture.extra_lines ?? []) {
     const label = extra.label.trim()
     if (!label) continue
@@ -832,38 +810,6 @@ export function fillBiohazardPlaceholders(
     .replace(/primary decontamination zone, the primary zone/gi, 'primary zone')
     .replace(/the primary zone, the primary zone/gi, 'the primary zone')
     .replace(/the secondary zone, the secondary zone/gi, 'the secondary zone')
-}
-
-/**
- * The scope of work with the COH line first and the verification line at the end, before the completion report,
- * when they are on the quote. Verification is ATP testing and laboratory testing. A scope that already covers a part is left as it is.
- */
-export function biohazardScopeWithServices(
-  scope: string,
-  capture: Pick<BiohazardCleaningCapture, 'coh_rap' | 'atp_testing' | 'lab_testing'>,
-): string {
-  const lines = scope.split('\n')
-  if (capture.coh_rap && !/occupational hygien|written instructions/i.test(scope)) lines.unshift(BIOHAZARD_COH_SCOPE_LINE)
-  const hasAtp = /\bATP\b/.test(scope)
-  const hasLab = /laborator/i.test(scope)
-  const verification: string[] = []
-  if (capture.atp_testing && capture.lab_testing && !hasAtp && !hasLab) verification.push(BIOHAZARD_VERIFICATION_SCOPE_LINE)
-  else {
-    if (capture.atp_testing && !hasAtp) verification.push(BIOHAZARD_ATP_SCOPE_LINE)
-    if (capture.lab_testing && !hasLab) verification.push(BIOHAZARD_LAB_SCOPE_LINE)
-  }
-  const report = lines.findIndex(line => /completion report|records of the works/i.test(line))
-  lines.splice(report === -1 ? lines.length : report, 0, ...verification)
-  return lines.join('\n')
-}
-
-/** The inclusions with the COH lines added when the COH is on the quote. Inclusions that already cover the COH are left as they are. */
-export function biohazardInclusionsWithServices(
-  inclusions: string,
-  capture: Pick<BiohazardCleaningCapture, 'coh_rap'>,
-): string {
-  if (!capture.coh_rap || /occupational hygien|written instructions|\bCOH\b/i.test(inclusions)) return inclusions
-  return [inclusions, ...BIOHAZARD_COH_INCLUSION_LINES].filter(Boolean).join('\n')
 }
 
 /** Leave off clause lines whose placeholders are not in use. */

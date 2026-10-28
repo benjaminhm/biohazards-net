@@ -31,6 +31,7 @@ const LABELS: Record<string, string> = {
   biohazard_type: 'Biohazard type',
   area_affected: 'Area affected',
   description: 'Site findings',
+  presentation: 'Presentation',
   objective: 'Objective',
   scope_of_work: 'Scope of work',
   scope: 'Scope',

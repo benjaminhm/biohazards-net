@@ -1156,6 +1156,19 @@ export interface AssessmentData {
       width_m: number | null
       height_m: number | null
     }[]
+    /** Blank fields stay off the generated quote. */
+    presentation?: string
+    objective?: string
+    scope_of_work?: string
+    /** Same hygienist lines as the biohazard quote. Unticked lines stay off the quote. */
+    coh_rap?: boolean
+    coh_rap_fee?: number | null
+    atp_testing?: boolean
+    atp_tests?: number | null
+    atp_rate?: number | null
+    lab_testing?: boolean
+    lab_tests?: number | null
+    lab_rate?: number | null
   }
   /** Biohazard Cleaning Quote. Shape and defaults are in lib/biohazardCleaningQuote.ts. */
   biohazard_cleaning_quote?: Record<string, unknown>
