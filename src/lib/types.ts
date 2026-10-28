@@ -1158,6 +1158,8 @@ export interface AssessmentData {
       width_m: number | null
       height_m: number | null
     }[]
+    /** When true, ceiling area is left out of the priced square metres and stated on the quote. */
+    exclude_ceiling?: boolean
     /** Blank fields stay off the generated quote. */
     presentation?: string
     objective?: string

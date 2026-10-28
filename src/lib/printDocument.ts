@@ -3759,6 +3759,7 @@ function buildSurfaceAreaCleaningMid(
     <div class="label">Estimated quantities</div>
     ${clearanceTable('Estimated quantities', estimated)}
     ${roomNotes.map(note => `<div class="body-text" style="margin-top:4px;font-style:italic;color:var(--sow-muted)">${esc(note)}</div>`).join('')}
+    ${c.ceiling_note ? `<div class="body-text" style="margin-top:4px;font-style:italic;color:var(--sow-muted)">${esc(c.ceiling_note)}</div>` : ''}
     ${clearanceSectionSubtotal('Estimated subtotal (ex GST)', sectionAmount(estimated))}
     <div class="label" style="margin-top:18px">Fixed Rate Quotations</div>
     ${clearanceTable('Quantity', fixed)}

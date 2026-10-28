@@ -22,9 +22,11 @@ import {
   normalizeSurfaceAreaCleaningCapture,
   normalizeSurfaceAreaCleaningStandards,
   presetRoomCount,
+  pricedRoomSurface,
   quotedSquareMetres,
   setPresetRoomCount,
   roomSurfaceArea,
+  roomsCeilingTotal,
   roomsSurfaceTotal,
   surfaceAreaClauseLines,
   surfaceAreaCleaningFigures,
@@ -170,6 +172,7 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
     || capture.lab_testing !== saved.lab_testing
     || capture.lab_tests !== saved.lab_tests
     || capture.lab_rate !== saved.lab_rate
+    || capture.exclude_ceiling !== saved.exclude_ceiling
     || JSON.stringify(capture.rooms) !== JSON.stringify(saved.rooms)
     || JSON.stringify(capture.other_lines) !== JSON.stringify(saved.other_lines)
   useRegisterUnsavedChanges('surface-area-cleaning-quote', isDirty)
@@ -257,9 +260,9 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
     setCapture(prev => ({ ...prev, ...next }))
   }
 
-  function setRooms(rooms: SurfaceAreaCleaningCapture['rooms']) {
-    const total = roomsSurfaceTotal(rooms)
-    patch({ rooms, estimated_m2: total ?? capture.estimated_m2 })
+  function setRooms(rooms: SurfaceAreaCleaningCapture['rooms'], excludeCeiling = capture.exclude_ceiling) {
+    const total = roomsSurfaceTotal(rooms, excludeCeiling)
+    patch({ rooms, exclude_ceiling: excludeCeiling, estimated_m2: total ?? capture.estimated_m2 })
   }
 
   async function save(next = capture): Promise<boolean> {
@@ -428,7 +431,7 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
         }}>
           <div style={LABEL}>Average rooms</div>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
-            A guide when the room has not been seen. Tick a room, or give the number of rooms, to add it below at the average size. You can change the sizes below. The total is the floor, the ceiling, and the walls.
+            A guide when the room has not been seen. Tick a room, or give the number of rooms, to add it below at the average size. You can change the sizes below. The total is the floor, the ceiling, and the walls. The ceiling is length × width.
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '6px 16px', fontSize: 13 }}>
             {SURFACE_AREA_ROOM_PRESETS.map(preset => {
@@ -462,6 +465,7 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
         <div style={{ display: 'grid', gap: 8 }}>
           {capture.rooms.map(room => {
             const measure = roomSurfaceArea(room)
+            const priced = pricedRoomSurface(room, capture.exclude_ceiling)
             const metres = (key: 'length_m' | 'width_m' | 'height_m', raw: string) => {
               const next = capture.rooms.map(item => item.id === room.id
                 ? { ...item, [key]: raw === '' ? null : Number(raw) }
@@ -492,7 +496,12 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
                   <input type="number" min={0} step="0.01" value={room.height_m ?? ''} onChange={e => metres('height_m', e.target.value)} style={INPUT} />
                 </div>
                 <div style={{ fontSize: 13, paddingBottom: 8, whiteSpace: 'nowrap' }}>
-                  {measure ? `${measure.total.toLocaleString('en-AU', { maximumFractionDigits: 2 })} m²` : '—'}
+                  {priced ? `${priced.total.toLocaleString('en-AU', { maximumFractionDigits: 2 })} m²` : '—'}
+                  {measure ? (
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                      ceiling {measure.ceiling.toLocaleString('en-AU', { maximumFractionDigits: 2 })} m²
+                    </div>
+                  ) : null}
                 </div>
                 <button type="button" className="btn" onClick={() => setRooms(capture.rooms.filter(item => item.id !== room.id))}>
                   Remove
@@ -501,16 +510,34 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
             )
           })}
         </div>
-        <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <button type="button" className="btn" onClick={() => setRooms([...capture.rooms, newSurfaceAreaRoom()])}>
             Add a room
           </button>
-          {roomsSurfaceTotal(capture.rooms) != null && (
+          {roomsSurfaceTotal(capture.rooms, capture.exclude_ceiling) != null && (
             <span style={{ fontSize: 13, fontWeight: 700 }}>
-              {roomsSurfaceTotal(capture.rooms)?.toLocaleString('en-AU', { maximumFractionDigits: 2 })} m²
+              {roomsSurfaceTotal(capture.rooms, capture.exclude_ceiling)?.toLocaleString('en-AU', { maximumFractionDigits: 2 })} m²
             </span>
           )}
         </div>
+        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: 10, fontSize: 14, cursor: roomsCeilingTotal(capture.rooms) == null ? 'default' : 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={capture.exclude_ceiling}
+            disabled={roomsCeilingTotal(capture.rooms) == null && !capture.exclude_ceiling}
+            onChange={e => setRooms(capture.rooms, e.target.checked)}
+            style={{ marginTop: 3 }}
+          />
+          <span>
+            Exclude ceiling
+            {roomsCeilingTotal(capture.rooms) != null
+              ? ` (${roomsCeilingTotal(capture.rooms)?.toLocaleString('en-AU', { maximumFractionDigits: 2 })} m²)`
+              : ''}
+            <span style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+              Tick this to leave the ceiling out of the priced square metres. The quote states that the ceiling is excluded.
+            </span>
+          </span>
+        </label>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
         <div>

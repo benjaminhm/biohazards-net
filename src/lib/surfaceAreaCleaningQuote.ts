@@ -125,6 +125,8 @@ export interface SurfaceAreaCleaningCapture extends HygienistServices {
   mobilisation_reason: string
   /** Rooms that make up the estimated square metres. Empty keeps the typed total. */
   rooms: SurfaceAreaRoom[]
+  /** Ceiling is length × width. When set, that area is left out of the priced square metres and stated on the quote. */
+  exclude_ceiling: boolean
   /** Job narrative. A blank field is left off the quote. */
   presentation: string
   objective: string
@@ -173,6 +175,10 @@ export interface SurfaceAreaCleaningQuoteContent {
   mobilisation_fee: number
   mobilisation_reason: string
   rooms: { name: string; detail: string; area_m2: number }[]
+  /** Square metres of ceiling left out of the priced area. Absent when the ceiling is included. */
+  ceiling_m2?: number
+  /** Printed under the quantities when the ceiling is excluded. Blank otherwise. */
+  ceiling_note: string
   /** Hygienist lines. Empty when none are ticked. */
   service_lines: { label: string; quantity: number; unit: string; rate: number; amount: number }[]
   /** Other costs with a title. A blank title is left off. */
@@ -246,6 +252,7 @@ export function emptySurfaceAreaCleaningCapture(): SurfaceAreaCleaningCapture {
     mobilisation_waived: false,
     mobilisation_reason: '',
     rooms: [],
+    exclude_ceiling: false,
     presentation: '',
     objective: '',
     scope_of_work: '',
@@ -279,15 +286,34 @@ export function roomSurfaceArea(room: Pick<SurfaceAreaRoom, 'length_m' | 'width_
   }
 }
 
-export function roomsSurfaceTotal(rooms: SurfaceAreaRoom[]): number | null {
-  const totals = rooms.map(roomSurfaceArea).filter((measure): measure is SurfaceAreaRoomMeasure => measure != null)
+/** Priced room area. Excluding the ceiling leaves the floor and the walls. */
+export function pricedRoomSurface(room: SurfaceAreaRoom, excludeCeiling = false): SurfaceAreaRoomMeasure | null {
+  const measure = roomSurfaceArea(room)
+  if (!measure || !excludeCeiling) return measure
+  return { ...measure, total: round2(measure.floor + measure.walls) }
+}
+
+export function roomsSurfaceTotal(rooms: SurfaceAreaRoom[], excludeCeiling = false): number | null {
+  const totals = rooms.map(room => pricedRoomSurface(room, excludeCeiling)).filter((measure): measure is SurfaceAreaRoomMeasure => measure != null)
   if (totals.length === 0) return null
   return round2(totals.reduce((sum, measure) => sum + measure.total, 0))
 }
 
+/** Ceiling across rooms that have dimensions. Null when none can be measured. */
+export function roomsCeilingTotal(rooms: SurfaceAreaRoom[]): number | null {
+  const totals = rooms.map(roomSurfaceArea).filter((measure): measure is SurfaceAreaRoomMeasure => measure != null)
+  if (totals.length === 0) return null
+  return round2(totals.reduce((sum, measure) => sum + measure.ceiling, 0))
+}
+
+export function ceilingExclusionNote(ceilingM2: number): string {
+  const qty = ceilingM2.toLocaleString('en-AU', { maximumFractionDigits: 2 })
+  return `Ceiling is excluded. The ceiling is ${qty} m² and is not included in the square metres on this quote.`
+}
+
 /** Room composite when any room has dimensions. Otherwise the typed square metres. */
-export function quotedSquareMetres(capture: Pick<SurfaceAreaCleaningCapture, 'estimated_m2' | 'rooms'>): number | null {
-  const fromRooms = roomsSurfaceTotal(capture.rooms ?? [])
+export function quotedSquareMetres(capture: Pick<SurfaceAreaCleaningCapture, 'estimated_m2' | 'rooms' | 'exclude_ceiling'>): number | null {
+  const fromRooms = roomsSurfaceTotal(capture.rooms ?? [], capture.exclude_ceiling === true)
   if (fromRooms != null) return fromRooms
   return capture.estimated_m2
 }
@@ -346,6 +372,7 @@ export function normalizeSurfaceAreaCleaningCapture(raw: unknown): SurfaceAreaCl
     mobilisation_waived: o.mobilisation_waived === true,
     mobilisation_reason: typeof o.mobilisation_reason === 'string' ? o.mobilisation_reason : '',
     rooms,
+    exclude_ceiling: o.exclude_ceiling === true,
     presentation: typeof o.presentation === 'string' ? o.presentation : '',
     objective: typeof o.objective === 'string' ? o.objective : '',
     scope_of_work: typeof o.scope_of_work === 'string' ? o.scope_of_work : '',
@@ -502,8 +529,11 @@ export function surfaceAreaCleaningQuoteContent(input: {
     otherLines: capture.other_lines,
   })
   const jobAddress = (capture.job_address ?? input.siteAddress).trim()
+  const excludeCeiling = capture.exclude_ceiling === true
+  const ceilingM2 = roomsCeilingTotal(capture.rooms ?? []) ?? 0
+  const ceilingExcluded = excludeCeiling && ceilingM2 > 0
   const rooms = (capture.rooms ?? []).flatMap(room => {
-    const measure = roomSurfaceArea(room)
+    const measure = pricedRoomSurface(room, ceilingExcluded)
     if (!measure) return []
     return [{
       name: room.name.trim() || 'Room',
@@ -511,6 +541,10 @@ export function surfaceAreaCleaningQuoteContent(input: {
       area_m2: measure.total,
     }]
   })
+  const exclusions = surfaceAreaClauseLines(standards.exclusions)
+  if (ceilingExcluded && !exclusions.some(line => /ceiling/i.test(line))) {
+    exclusions.push('The ceiling.')
+  }
   return {
     title: surfaceAreaCleaningDocumentTitle(capture.cleaning_kind, capture.custom_title),
     reference: input.reference,
@@ -526,6 +560,8 @@ export function surfaceAreaCleaningQuoteContent(input: {
     mobilisation_fee: figures.mobilisation_fee,
     mobilisation_reason: capture.mobilisation_waived ? capture.mobilisation_reason.trim() : '',
     rooms,
+    ...(ceilingExcluded ? { ceiling_m2: ceilingM2 } : {}),
+    ceiling_note: ceilingExcluded ? ceilingExclusionNote(ceilingM2) : '',
     presentation: capture.presentation.trim(),
     objective: capture.objective.trim(),
     scope_of_work: biohazardScopeWithServices(capture.scope_of_work.trim(), capture)
@@ -545,7 +581,7 @@ export function surfaceAreaCleaningQuoteContent(input: {
     gst: figures.gst,
     total: figures.total,
     inclusions: surfaceAreaClauseLines(biohazardInclusionsWithServices(standards.inclusions, capture)),
-    exclusions: surfaceAreaClauseLines(standards.exclusions),
+    exclusions,
     assumptions: surfaceAreaClauseLines(standards.assumptions),
     terms: standards.payment_terms.trim(),
     engagement_agreement: standards.engagement_agreement.trim(),

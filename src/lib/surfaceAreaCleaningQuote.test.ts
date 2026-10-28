@@ -172,6 +172,48 @@ test('the quote uses the room total and lists each room', () => {
   )
   assert.match(html, /Bedroom 4 × 3 × 2\.4 m/)
   assert.match(html, /57\.6 m²/)
+  assert.equal(content.ceiling_m2, undefined)
+  assert.equal(content.ceiling_note, '')
+  assert.doesNotMatch(html, /Ceiling is excluded/)
+})
+
+test('excluding the ceiling removes it from the priced area and states it on the quote', () => {
+  const content = surfaceAreaCleaningQuoteContent({
+    reference: 'SACQ-CEILING',
+    clientName: 'Acme Pty Ltd',
+    siteAddress: '1 Example Street',
+    capture: {
+      ...emptySurfaceAreaCleaningCapture(),
+      rate_per_m2: 10,
+      labour_days: 1,
+      rate_per_labour_day: 0,
+      exclude_ceiling: true,
+      rooms: [
+        { id: 'a', name: 'Bedroom', length_m: 4, width_m: 3, height_m: 2.4 },
+      ],
+    },
+  })
+  assert.equal(content.ceiling_m2, 12)
+  assert.equal(content.estimated_m2, 45.6)
+  assert.equal(content.area_amount, 456)
+  assert.equal(content.rooms[0]?.area_m2, 45.6)
+  assert.equal(content.ceiling_note, 'Ceiling is excluded. The ceiling is 12 m² and is not included in the square metres on this quote.')
+  assert.ok(content.exclusions.includes('The ceiling.'))
+  const html = buildPrintHTML(
+    'surface_area_cleaning_quote',
+    content as unknown as Record<string, unknown>,
+    [],
+    [],
+    null,
+    'job',
+    'http://localhost',
+    undefined,
+    { screenActionBar: false },
+  )
+  assert.match(html, /Ceiling is excluded/)
+  assert.match(html, /The ceiling is 12 m²/)
+  assert.match(html, /45\.6 m²/)
+  assert.match(html, /<li>The ceiling\.<\/li>/)
 })
 
 test('presentation, objective, and scope print only when written', () => {

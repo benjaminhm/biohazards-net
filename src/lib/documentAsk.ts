@@ -63,6 +63,8 @@ const LABELS: Record<string, string> = {
   other_zones: 'Other zones',
   mobilisation_reason: 'Mobilisation note',
   estimated_m2: 'Estimated area',
+  ceiling_m2: 'Ceiling',
+  ceiling_note: 'Ceiling',
   secondary_m2: 'Secondary zone area',
   estimated_m3: 'Estimated volume',
   estimated_km: 'Estimated distance',
