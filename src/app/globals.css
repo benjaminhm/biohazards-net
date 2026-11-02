@@ -306,8 +306,23 @@ label {
 }
 .doc-rich-editor .doc-rich-editor-prose .ProseMirror ul,
 .doc-rich-editor .doc-rich-editor-prose .ProseMirror ol {
-  margin: 0.35em 0 0.5em 1.1em;
-  padding-left: 0.4em;
+  margin: 0.35em 0 0.65em;
+  padding-left: 1.45em;
+}
+.doc-rich-editor .doc-rich-editor-prose .ProseMirror ul {
+  list-style-type: disc;
+}
+.doc-rich-editor .doc-rich-editor-prose .ProseMirror ol {
+  list-style-type: decimal;
+}
+.doc-rich-editor .doc-rich-editor-prose .ProseMirror li {
+  display: list-item;
+}
+.doc-rich-editor .doc-rich-editor-prose .ProseMirror li > p {
+  margin: 0 0 0.25em;
+}
+.doc-rich-editor .doc-rich-editor-prose .ProseMirror li > p:last-child {
+  margin-bottom: 0;
 }
 
 /* ─────────────────────────────────────────────

@@ -967,37 +967,6 @@ function cssSowPrint(): string {
       }
       .sow-root.bcq-doc .sow-sheet { padding-bottom: 14mm; }
     }
-    .sow-root.letterhead-doc .sow-top {
-      background: #fff;
-      border-bottom: 2px solid var(--sow-navy);
-      align-items: flex-start;
-      padding-bottom: 14px;
-    }
-    .sow-root.letterhead-doc .sow-co-name,
-    .sow-root.letterhead-doc .sow-wordmark-line { color: var(--sow-navy); }
-    .sow-root.letterhead-doc .sow-co-sub,
-    .sow-root.letterhead-doc .sow-wordmark-accent,
-    .sow-root.letterhead-doc .sow-doc-info { color: var(--sow-muted); }
-    .sow-root.letterhead-doc .sow-doc-info strong { color: var(--sow-navy); }
-    .sow-root.letterhead-doc .sow-doc-title,
-    .sow-root.letterhead-doc .sow-meta { display: none; }
-    .sow-root.letterhead-doc .letterhead-contact {
-      margin-top: 6px;
-      font-size: 8.5pt;
-      line-height: 1.45;
-      color: #334155;
-    }
-    .sow-root.letterhead-doc .letter-body {
-      font-size: 11pt;
-      line-height: 1.55;
-      font-weight: 400;
-      color: #1a1a1a;
-      max-width: 78ch;
-    }
-    .sow-root.letterhead-doc .letter-body p { margin: 0 0 0.75em; }
-    .sow-root.letterhead-doc .letter-body p:last-child { margin-bottom: 0; }
-    .sow-root.letterhead-doc .letterhead-photos { margin-top: 18px; }
-    .sow-root.letterhead-doc .letterhead-photos .photo-card { break-inside: avoid; page-break-inside: avoid; }
   `
 }
 
@@ -3104,38 +3073,12 @@ function buildPaymentReminderMid(c: PaymentReminderContent): string {
     <p class="body-text"><strong>Accounts</strong></p>`
 }
 
-function letterheadHeaderHtml(company: CompanyProfile | null, reference: string, dateLabel: string): string {
-  const coName = company?.name?.trim() || DEFAULT_PRINT_ORG_NAME
-  const coTag = company?.tagline?.trim() || ''
-  const logo = company?.logo_url
-    ? `<img class="sow-logo" src="${esc(company.logo_url)}" alt="${esc(coName)}">`
-    : brandWordmarkHtml(coName)
-  const contact = [
-    company?.address?.trim() || '',
-    [company?.phone?.trim(), company?.email?.trim()].filter(Boolean).join('  ·  '),
-    [company?.abn?.trim() ? `ABN ${company.abn.trim()}` : '', company?.licence?.trim() ? `Lic ${company.licence.trim()}` : ''].filter(Boolean).join('  ·  '),
-  ].filter(Boolean)
-  return `<header class="sow-top">
-        <div class="sow-top-left">
-          ${logo}
-          <div class="sow-co-block">
-            ${company?.logo_url ? `<div class="sow-co-name">${esc(coName)}</div>` : ''}
-            ${coTag ? `<div class="sow-co-sub">${esc(coTag)}</div>` : ''}
-            ${contact.length ? `<div class="letterhead-contact">${contact.map(line => esc(line)).join('<br>')}</div>` : ''}
-          </div>
-        </div>
-        <div class="sow-doc-info">
-          <strong>${esc(reference || '—')}</strong>
-          ${esc(dateLabel)}
-        </div>
-      </header>`
-}
-
 function buildCompanyLetterheadMid(c: CompanyLetterheadContent): string {
   const body = richBodyHtmlForPrint(c.body_html)
   const images = (c.images ?? []).filter(image => /^https?:\/\//i.test(image.url || ''))
   const photos = images.length
-    ? `<div class="photos-grid photos-grid-single letterhead-photos">
+    ? `<div class="label" style="margin-top:22px">Attachments</div>
+    <div class="photos-grid photos-grid-single">
         ${images.map(image => {
           const caption = (image.caption || '').trim()
           return `<div class="photo-card"><img src="${esc(image.url)}" alt="${esc(caption || 'Attached image')}">${caption ? `<div class="photo-meta"><div class="photo-cap">${esc(caption)}</div></div>` : ''}</div>`
@@ -3145,7 +3088,7 @@ function buildCompanyLetterheadMid(c: CompanyLetterheadContent): string {
   if (!body && !photos) {
     return `<p class="body-text">This letter is empty.</p>`
   }
-  return `${body ? `<div class="body-text sow-rich letter-body">${body}</div>` : ''}${photos}`
+  return `${body ? `<div class="body-text sow-rich">${body}</div>` : ''}${photos}`
 }
 
 function buildCompanyLetterheadHTML(
@@ -3154,21 +3097,17 @@ function buildCompanyLetterheadHTML(
   client: ClientInfo | undefined,
   screenActionBar: boolean,
 ): string {
-  const dateLabel = c.date ? formatLongDate(c.date) : todayStr()
+  const title = (c.title || '').trim() || 'Company Letterhead'
+  const mid = buildCompanyLetterheadMid(c)
   return wrapBranded(
-    buildCompanyLetterheadMid(c),
-    'Letter',
-    '',
+    mid,
+    title,
+    title,
     c.reference || '—',
     company,
     client,
     defaultBrandedMeta(company, client),
-    {
-      ...wrapBrandedPrintOpts(screenActionBar),
-      rootClass: 'letterhead-doc',
-      headerHtml: letterheadHeaderHtml(company, c.reference || '—', dateLabel),
-      metaHtml: '',
-    },
+    wrapBrandedPrintOpts(screenActionBar),
   )
 }
 

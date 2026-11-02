@@ -160,7 +160,7 @@ export default function RichTextEditor({ value, onChange, minHeight = 140 }: Pro
         borderRadius: 8,
         border: '1px solid #2a2a2a',
         background: '#050505',
-        overflow: 'hidden',
+        overflow: 'visible',
       }}
     >
       <div

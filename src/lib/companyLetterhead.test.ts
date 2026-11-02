@@ -43,10 +43,8 @@ test('a generated letterhead is the letter plus the company header and attached 
     {
       name: 'Brisbane Biohazard Cleaning',
       tagline: 'Forensic cleaning',
-      address: '10 Queen Street, Brisbane',
-      phone: '0400 000 000',
-      email: 'office@example.com',
       abn: '12 345 678 901',
+      licence: '123456',
       logo_url: 'https://cdn.example/logo.png',
     } as CompanyProfile,
     job.id,
@@ -54,10 +52,13 @@ test('a generated letterhead is the letter plus the company header and attached 
     { client_name: 'Ada Client' },
     { screenActionBar: false },
   )
+  assert.match(html, /class="sow-top"/)
+  assert.match(html, /class="sow-doc-title">Company Letterhead/)
+  assert.match(html, /class="sow-meta"/)
   assert.match(html, /Brisbane Biohazard Cleaning/)
-  assert.match(html, /10 Queen Street, Brisbane/)
+  assert.match(html, /ABN 12 345 678 901/)
+  assert.match(html, /Ada Client/)
   assert.match(html, /The works at the property are complete/)
   assert.match(html, /https:\/\/cdn\.example\/room\.jpg/)
   assert.match(html, /After clean/)
-  assert.match(html, /letterhead-doc/)
 })
