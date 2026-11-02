@@ -53,7 +53,8 @@ test('a generated letterhead is the letter plus the company header and attached 
     { screenActionBar: false },
   )
   assert.match(html, /class="sow-top"/)
-  assert.match(html, /class="sow-doc-title">Company Letterhead/)
+  assert.doesNotMatch(html, /Company Letterhead/)
+  assert.doesNotMatch(html, /class="sow-doc-title"/)
   assert.match(html, /class="sow-meta"/)
   assert.match(html, /Brisbane Biohazard Cleaning/)
   assert.match(html, /ABN 12 345 678 901/)

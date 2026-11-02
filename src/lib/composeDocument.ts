@@ -1243,7 +1243,7 @@ function composeCompanyLetterhead(job: Job): ComposeDocumentResult {
   const capture = normalizeCompanyLetterheadCapture(job.assessment_data?.company_letterhead)
   return {
     content: {
-      title: 'Company Letterhead',
+      title: 'Letter',
       reference: refPrefix('company_letterhead', job.id),
       date: new Date().toISOString().slice(0, 10),
       body_html: capture.body_html,

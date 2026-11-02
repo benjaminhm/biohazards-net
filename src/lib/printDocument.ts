@@ -1165,6 +1165,8 @@ interface WrapBrandedPrintOptions {
   footerHtml?: string
   /** Diagonal stamp repeated across the printed pages. */
   watermark?: string
+  /** Omit the large report-style heading (e.g. correspondence letters). */
+  hideDocumentTitle?: boolean
 }
 
 function pdfSaveTitle(reference: string, clientName: string | undefined, fallback: string): string {
@@ -1230,7 +1232,7 @@ function wrapBranded(
         </div>
       </header>`}
       <div class="sow-mid">
-        <div class="sow-doc-title">${esc(documentHeading)}</div>
+        ${printOptions?.hideDocumentTitle ? '' : `<div class="sow-doc-title">${esc(documentHeading)}</div>`}
         ${printOptions?.afterTitleHtml ?? ''}
         ${metaHtml}
         ${midBodyHtml}
@@ -3097,17 +3099,17 @@ function buildCompanyLetterheadHTML(
   client: ClientInfo | undefined,
   screenActionBar: boolean,
 ): string {
-  const title = (c.title || '').trim() || 'Company Letterhead'
+  const pageTitle = (c.title || '').trim() || 'Letter'
   const mid = buildCompanyLetterheadMid(c)
   return wrapBranded(
     mid,
-    title,
-    title,
+    pageTitle,
+    '',
     c.reference || '—',
     company,
     client,
     defaultBrandedMeta(company, client),
-    wrapBrandedPrintOpts(screenActionBar),
+    wrapBrandedPrintOpts(screenActionBar, { hideDocumentTitle: true }),
   )
 }
 
