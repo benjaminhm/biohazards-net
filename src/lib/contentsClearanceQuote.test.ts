@@ -430,7 +430,13 @@ test('the unfilled estate agreement is replaced, and the quote prices are printe
     content as unknown as Record<string, unknown>,
     [],
     [],
-    { name: 'Forensic Cleaning QLD', abn: '21 279 382 150' } as never,
+    {
+      name: 'Forensic Cleaning QLD',
+      abn: '21 279 382 150',
+      phone: '+61405450705',
+      email: 'admin@forensiccleaningqld.com.au',
+      address: 'Mackay, Qld',
+    } as never,
     'job',
     'http://localhost',
     { client_phone: '0400 000 000', client_email: 'estate@example.com' },
@@ -450,7 +456,12 @@ test('the unfilled estate agreement is replaced, and the quote prices are printe
   assert.match(html, /0400 000 000/)
   assert.match(html, /estate@example\.com/)
   assert.match(html, /Signatory: ____________________/)
+  assert.match(html, /Business Details/)
+  assert.match(html, /ABN 21 279 382 150/)
   assert.doesNotMatch(html, /Estimated surface/)
+  assert.doesNotMatch(html, /\+61405450705/)
+  assert.doesNotMatch(html, /Mackay/)
+  assert.doesNotMatch(html, /admin@forensiccleaningqld\.com\.au/)
   assert.doesNotMatch(html, /Estimated travel/)
   assert.doesNotMatch(html, /\$\[amount\]/)
 })

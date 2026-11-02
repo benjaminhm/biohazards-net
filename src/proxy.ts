@@ -3,8 +3,9 @@
  *
  * Runs before a request is completed. Staff routes need a bh_staff session.
  *
- *   app.biohazards.net       — company app. Sign-in is a self-hosted magic link
- *                              (bh_staff cookie). This is the login domain.
+ *   login.biohazards.net     — the one staff sign-in. The email decides admin or technician.
+ *   app.biohazards.net       — same company app. Sign-in is a self-hosted magic link
+ *                              (bh_staff cookie).
  *
  *   platform.biohazards.net  — legacy host; redirects to app.biohazards.net.
  *
@@ -31,11 +32,16 @@ import { accountsHostTradingName } from '@/lib/tradingNames'
 import {
   STAFF_COOKIE,
   STAFF_SESSION_MAX_AGE,
+  browserOrigin,
+  isDevHost,
   isSecureStaffRequest,
+  isStaffAppHost,
   signStaffToken,
   staffSessionIsStale,
   verifyStaffToken,
 } from '@/lib/staffSession'
+import { resolveActiveMembership } from '@/lib/membership'
+import { decideStaffAccess } from '@/lib/staffDesk'
 
 function isPublicPath(pathname: string): boolean {
   if (pathname === '/login' || pathname.startsWith('/login/')) return true
@@ -54,7 +60,7 @@ function isPublicPath(pathname: string): boolean {
   return false
 }
 
-const RESERVED_SUBDOMAINS = new Set(['www', 'app', 'platform', 'admin', 'accounts'])
+const RESERVED_SUBDOMAINS = new Set(['www', 'app', 'login', 'platform', 'admin', 'accounts'])
 
 function isSharedAsset(pathname: string): boolean {
   return (
@@ -73,10 +79,12 @@ export async function proxy(request: NextRequest) {
   const subdomainMatch = host.match(/^([^.]+)\.biohazards\.net$/)
   const slug = subdomainMatch ? subdomainMatch[1] : null
   const hostNoPort = host.split(':')[0].toLowerCase()
-  const isLocalDev =
-    hostNoPort === 'localhost' || hostNoPort === '127.0.0.1' || hostNoPort === '0.0.0.0'
+  const isLocalDev = isDevHost(host)
   const isCustomDomain =
-    !isLocalDev && !host.endsWith('.biohazards.net') && host !== 'biohazards.net'
+    !isLocalDev &&
+    !isStaffAppHost(host) &&
+    !host.endsWith('.biohazards.net') &&
+    host !== 'biohazards.net'
 
   const isPortalPath =
     pathname === '/portal' || pathname.startsWith('/portal/') || pathname.startsWith('/api/portal')
@@ -115,7 +123,7 @@ export async function proxy(request: NextRequest) {
     redirectUrl.host = 'app.biohazards.net'
     redirectUrl.pathname = '/'
     return NextResponse.redirect(redirectUrl)
-  } else if (slug === 'app' || !slug) {
+  } else if (slug === 'app' || slug === 'login' || !slug) {
     requestHeaders.set('x-subdomain', 'app')
   } else if (slug && !RESERVED_SUBDOMAINS.has(slug)) {
     requestHeaders.set('x-org-slug', slug)
@@ -135,9 +143,36 @@ export async function proxy(request: NextRequest) {
     const raw = request.cookies.get(STAFF_COOKIE)?.value
     const session = raw ? await verifyStaffToken(raw) : null
     if (!session) {
-      const loginUrl = new URL('/login', request.url)
-      loginUrl.searchParams.set('redirect_url', request.url)
-      return NextResponse.redirect(loginUrl)
+      return NextResponse.redirect(loginRedirect(request))
+    }
+    let role: string | null = null
+    try {
+      const resolved = await resolveActiveMembership(session.userId)
+      role = resolved.membership?.role ?? null
+    } catch {
+      role = null
+    }
+    const decision = decideStaffAccess(role, pathname)
+    if (decision === 'signed-out') {
+      if (pathname.startsWith('/api/')) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      }
+      const res = NextResponse.redirect(loginRedirect(request))
+      res.cookies.set(STAFF_COOKIE, '', {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        secure: isSecureStaffRequest(request),
+        maxAge: 0,
+        expires: new Date(0),
+      })
+      return res
+    }
+    if (decision === 'forbid') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+    if (decision === 'redirect') {
+      return NextResponse.redirect(new URL('/tech', browserOrigin(request.url, host, request.headers.get('x-forwarded-proto'))))
     }
     if (staffSessionIsStale(session.issuedAt)) {
       try {
@@ -165,6 +200,13 @@ export async function proxy(request: NextRequest) {
     })
   }
   return res
+}
+
+function loginRedirect(request: NextRequest): URL {
+  const origin = browserOrigin(request.url, request.headers.get('host'), request.headers.get('x-forwarded-proto'))
+  const loginUrl = new URL('/login', origin)
+  loginUrl.searchParams.set('redirect_url', `${origin}${request.nextUrl.pathname}${request.nextUrl.search}`)
+  return loginUrl
 }
 
 export const config = {

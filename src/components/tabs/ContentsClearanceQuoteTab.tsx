@@ -35,7 +35,12 @@ import {
   type ContentsClearanceStandards,
 } from '@/lib/contentsClearanceQuote'
 import { documentPlainText } from '@/lib/documentAsk'
-import { sharedEngagementAgreement, withSharedEngagement } from '@/lib/quoteEngagement'
+import {
+  DEFAULT_ENGAGEMENT_AGREEMENT,
+  persistableEngagement,
+  sharedEngagementAgreement,
+  withSharedEngagement,
+} from '@/lib/quoteEngagement'
 import {
   normalizeSurfaceAreaCleaningStandards,
   type SurfaceAreaCleaningStandards,
@@ -139,6 +144,8 @@ export default function ContentsClearanceQuoteTab({ job, photos, onJobUpdate, on
   const [clauseFlags, setClauseFlags] = useState<ClearanceClauseFlag[]>([])
   const [flagsCheckedKey, setFlagsCheckedKey] = useState('')
   const skipStandardsSave = useRef(true)
+  const companyLoadedRef = useRef(false)
+  const loadedEngagementRef = useRef('')
   const surfaceStandardsRef = useRef<SurfaceAreaCleaningStandards | null>(null)
   const checkingFlagsRef = useRef(false)
   const distanceSeq = useRef(0)
@@ -230,11 +237,11 @@ export default function ContentsClearanceQuoteTab({ job, photos, onJobUpdate, on
         skipStandardsSave.current = true
         const clearance = normalizeContentsClearanceStandards(data.company?.contents_clearance_standards)
         const surface = normalizeSurfaceAreaCleaningStandards(data.company?.surface_area_cleaning_standards)
+        const engagement = sharedEngagementAgreement(clearance.engagement_agreement, surface.engagement_agreement)
         surfaceStandardsRef.current = data.company?.surface_area_cleaning_standards == null ? null : surface
-        setStandards(withSharedEngagement(
-          clearance,
-          sharedEngagementAgreement(clearance.engagement_agreement, surface.engagement_agreement),
-        ))
+        loadedEngagementRef.current = engagement
+        companyLoadedRef.current = true
+        setStandards(withSharedEngagement(clearance, engagement))
         setStandardsReady(true)
       })
       .catch(() => {
@@ -244,7 +251,7 @@ export default function ContentsClearanceQuoteTab({ job, photos, onJobUpdate, on
   }, [])
 
   useEffect(() => {
-    if (!standardsReady) return
+    if (!standardsReady || !companyLoadedRef.current) return
     if (skipStandardsSave.current) {
       skipStandardsSave.current = false
       return
@@ -254,19 +261,27 @@ export default function ContentsClearanceQuoteTab({ job, photos, onJobUpdate, on
   }, [standards, standardsReady])
 
   async function persistStandards(next: ContentsClearanceStandards) {
+    if (!companyLoadedRef.current) return
+    const engagement = persistableEngagement(
+      next.engagement_agreement,
+      loadedEngagementRef.current,
+      DEFAULT_ENGAGEMENT_AGREEMENT,
+    )
+    const toSave = { ...next, engagement_agreement: engagement }
     const res = await fetch('/api/company', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents_clearance_standards: next }),
+      body: JSON.stringify({ contents_clearance_standards: toSave }),
     })
     if (!res.ok) {
       const data = (await res.json().catch(() => ({}))) as { error?: string }
       setSaveError(data.error || 'The clauses could not be saved for future jobs.')
       return
     }
+    loadedEngagementRef.current = engagement
     const surface = surfaceStandardsRef.current
     if (!surface) return
-    const synced = { ...surface, engagement_agreement: next.engagement_agreement }
+    const synced = { ...surface, engagement_agreement: engagement }
     const other = await fetch('/api/company', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },

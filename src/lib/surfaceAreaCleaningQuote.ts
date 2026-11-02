@@ -110,6 +110,8 @@ export interface SurfaceAreaCleaningCapture extends HygienistServices {
   cleaning_kind: SurfaceAreaCleaningKind
   /** Printed when the title is Custom. */
   custom_title: string
+  /** Printed after the chosen title, as "Title - addition". Blank stays off. */
+  title_addition: string
   estimated_m2: number | null
   /** Labour days the client is buying. Required before the quote is generated. */
   labour_days: number | null
@@ -207,13 +209,17 @@ function quantityOrZero(value: number | null | undefined): number {
   return Number.isFinite(n) && n > 0 ? n : 0
 }
 
-export function surfaceAreaCleaningDocumentTitle(kind: string | null | undefined, customTitle?: string | null): string {
-  if (kind === 'custom') {
-    const written = (customTitle ?? '').trim()
-    if (written) return written
-  }
-  return SURFACE_AREA_CLIENT_TITLES.find(option => option.id === kind)?.title
-    ?? SURFACE_AREA_CLIENT_TITLES[0].title
+export function surfaceAreaCleaningDocumentTitle(
+  kind: string | null | undefined,
+  customTitle?: string | null,
+  addition?: string | null,
+): string {
+  const base = kind === 'custom' && (customTitle ?? '').trim()
+    ? (customTitle ?? '').trim()
+    : SURFACE_AREA_CLIENT_TITLES.find(option => option.id === kind)?.title
+      ?? SURFACE_AREA_CLIENT_TITLES[0].title
+  const extra = (addition ?? '').trim().replace(/^[-–—]\s*/, '')
+  return extra ? `${base} - ${extra}` : base
 }
 
 export function newSurfaceAreaRoomId(): string {
@@ -243,6 +249,7 @@ export function emptySurfaceAreaCleaningCapture(): SurfaceAreaCleaningCapture {
   return {
     cleaning_kind: 'surface',
     custom_title: '',
+    title_addition: '',
     estimated_m2: null,
     labour_days: null,
     rate_per_m2: null,
@@ -324,7 +331,7 @@ export function defaultSurfaceAreaCleaningStandards(): SurfaceAreaCleaningStanda
     exclusions: SURFACE_AREA_SCHEMA.exclusions.join('\n'),
     assumptions: SURFACE_AREA_SCHEMA.assumptions.join('\n'),
     payment_terms: SURFACE_AREA_SCHEMA.terms,
-    engagement_agreement: '',
+    engagement_agreement: DEFAULT_ENGAGEMENT_AGREEMENT,
   }
 }
 
@@ -363,6 +370,7 @@ export function normalizeSurfaceAreaCleaningCapture(raw: unknown): SurfaceAreaCl
   return {
     cleaning_kind: kind,
     custom_title: typeof o.custom_title === 'string' ? o.custom_title : '',
+    title_addition: typeof o.title_addition === 'string' ? o.title_addition : '',
     estimated_m2: qty(o.estimated_m2),
     labour_days: qty(o.labour_days),
     rate_per_m2: qty(o.rate_per_m2),
@@ -546,7 +554,7 @@ export function surfaceAreaCleaningQuoteContent(input: {
     exclusions.push('The ceiling.')
   }
   return {
-    title: surfaceAreaCleaningDocumentTitle(capture.cleaning_kind, capture.custom_title),
+    title: surfaceAreaCleaningDocumentTitle(capture.cleaning_kind, capture.custom_title, capture.title_addition),
     reference: input.reference,
     client_name: input.clientName.trim(),
     site_address: jobAddress,

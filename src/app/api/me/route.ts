@@ -4,13 +4,14 @@
  * Returns the current staff user's identity and org membership.
  * Called on mount by UserProvider (lib/userContext.tsx).
  *
- * The display name comes from STAFF_DISPLAY_NAME. The user id is the existing
- * org_users.clerk_user_id, so membership lookup is unchanged.
+ * The display name is the linked person's name. The owner account, which has
+ * no person row, keeps STAFF_DISPLAY_NAME. The user id is org_users.clerk_user_id.
  */
 import { auth } from '@/lib/staffAuth'
 import { NextResponse } from 'next/server'
 import { resolveActiveMembership } from '@/lib/membership'
 import { staffDisplayName } from '@/lib/staffLogin'
+import { createServiceClient } from '@/lib/supabase'
 
 export async function GET() {
   const { userId } = await auth()
@@ -18,7 +19,17 @@ export async function GET() {
 
   const resolved = await resolveActiveMembership(userId)
   const orgUser = resolved.membership
-  const name = staffDisplayName()
+  let name = staffDisplayName()
+  if (orgUser?.person_id) {
+    const supabase = createServiceClient()
+    const { data: person } = await supabase
+      .from('people')
+      .select('name')
+      .eq('id', orgUser.person_id)
+      .maybeSingle()
+    const personName = typeof person?.name === 'string' ? person.name.trim() : ''
+    if (personName) name = personName
+  }
 
   const role = (orgUser?.role === 'admin' || orgUser?.role === 'owner')
     ? 'admin'

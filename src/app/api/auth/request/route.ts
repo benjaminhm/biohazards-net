@@ -9,6 +9,17 @@ import { createServiceClient } from '@/lib/supabase'
 import { clientIpFromRequest, userAgentFromRequest } from '@/lib/portalAuth'
 import { sendStaffMagicLinkEmail } from '@/lib/portal/email'
 import { issueStaffLogin, supabaseStaffTokenStore } from '@/lib/staffLogin'
+import { lookupStaffIdentityByEmail } from '@/lib/staffIdentity'
+import { magicLinkOrigin } from '@/lib/staffSession'
+
+/** LAN testing keeps the phone's host. The live app always emails login.biohazards.net. */
+function publicOrigin(req: Request): string {
+  return magicLinkOrigin(
+    req.url,
+    req.headers.get('x-forwarded-host') ?? req.headers.get('host'),
+    req.headers.get('x-forwarded-proto'),
+  )
+}
 
 const GENERIC_OK = {
   ok: true,
@@ -33,7 +44,8 @@ export async function POST(req: Request) {
     supabaseStaffTokenStore(supabase),
     email,
     clientIpFromRequest(req),
-    userAgentFromRequest(req)
+    userAgentFromRequest(req),
+    lookupStaffIdentityByEmail
   )
 
   if (issued.status === 'limited') {
@@ -44,7 +56,7 @@ export async function POST(req: Request) {
   }
 
   if (issued.status === 'issued') {
-    const origin = new URL(req.url).origin
+    const origin = publicOrigin(req)
     try {
       await sendStaffMagicLinkEmail({
         to: issued.email,

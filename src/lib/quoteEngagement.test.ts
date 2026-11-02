@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { fillEngagementAgreement, sharedEngagementAgreement } from '@/lib/quoteEngagement'
+import {
+  DEFAULT_ENGAGEMENT_AGREEMENT,
+  fillEngagementAgreement,
+  persistableEngagement,
+  sharedEngagementAgreement,
+  storedEngagementAgreement,
+} from '@/lib/quoteEngagement'
 
 test('the contents clearance agreement is kept when both quotes have text', () => {
   assert.equal(sharedEngagementAgreement('<p>Clearance terms</p>', '<p>Cleaning terms</p>'), '<p>Clearance terms</p>')
@@ -12,6 +18,18 @@ test('a surface cleaning agreement fills an empty contents clearance agreement',
 
 test('an empty editor does not replace saved text', () => {
   assert.equal(sharedEngagementAgreement('', '<p>Kept</p>'), '<p>Kept</p>')
+})
+
+test('an empty saved agreement is replaced by the default', () => {
+  assert.equal(storedEngagementAgreement('', DEFAULT_ENGAGEMENT_AGREEMENT), DEFAULT_ENGAGEMENT_AGREEMENT)
+  assert.equal(storedEngagementAgreement('<p></p>', DEFAULT_ENGAGEMENT_AGREEMENT), DEFAULT_ENGAGEMENT_AGREEMENT)
+  assert.equal(storedEngagementAgreement('<p>Kept for this company.</p>', DEFAULT_ENGAGEMENT_AGREEMENT), '<p>Kept for this company.</p>')
+})
+
+test('an empty editor is not persisted over the last saved agreement', () => {
+  assert.equal(persistableEngagement('<p></p>', DEFAULT_ENGAGEMENT_AGREEMENT, DEFAULT_ENGAGEMENT_AGREEMENT), DEFAULT_ENGAGEMENT_AGREEMENT)
+  assert.equal(persistableEngagement('', '<p>Kept.</p>', DEFAULT_ENGAGEMENT_AGREEMENT), '<p>Kept.</p>')
+  assert.equal(persistableEngagement('<p>Edited.</p>', DEFAULT_ENGAGEMENT_AGREEMENT, DEFAULT_ENGAGEMENT_AGREEMENT), '<p>Edited.</p>')
 })
 
 test('brackets are filled from the quote, and a missing field is left out', () => {

@@ -7,6 +7,10 @@
  *
  * See docs/document-pipeline-hitl-pandadoc.md — compose is separate from optional AI tools on the editor.
  */
+import {
+  companyLetterheadHasContent,
+  normalizeCompanyLetterheadCapture,
+} from '@/lib/companyLetterhead'
 import type {
   Area,
   ChemicalCatalogueItem,
@@ -160,6 +164,7 @@ function refPrefix(type: DocType, jobId: string): string {
     contents_clearance_quote: 'CCQ',
     surface_area_cleaning_quote: 'SACQ',
     biohazard_cleaning_quote: 'BCQ',
+    company_letterhead: 'CLH',
   }
   const p = map[type] ?? 'DOC'
   return `${p}-${todayRef()}-${tail}`
@@ -1234,6 +1239,20 @@ function composeStatement(job: Job, documents: Document[]): ComposeDocumentResul
   }
 }
 
+function composeCompanyLetterhead(job: Job): ComposeDocumentResult {
+  const capture = normalizeCompanyLetterheadCapture(job.assessment_data?.company_letterhead)
+  return {
+    content: {
+      title: 'Company Letterhead',
+      reference: refPrefix('company_letterhead', job.id),
+      date: new Date().toISOString().slice(0, 10),
+      body_html: capture.body_html,
+      images: capture.images.map(image => ({ url: image.url, caption: image.caption })),
+    },
+    source: companyLetterheadHasContent(capture) ? 'assessment_capture' : 'skeleton',
+  }
+}
+
 export function composeDocumentContent(type: DocType, job: Job, options?: ComposeDocumentOptions): ComposeDocumentResult {
   const equipment = resolveJobEquipment(job.assessment_data, options?.equipmentCatalogue ?? null)
   const chems = resolveJobChemicals(job.assessment_data, options?.chemicalsCatalogue ?? null)
@@ -1286,6 +1305,8 @@ export function composeDocumentContent(type: DocType, job: Job, options?: Compos
       // Company Letter is composed in CompanyLetterTab and persisted through /api/documents;
       // it intentionally doesn't use the deterministic composer pipeline.
       throw new Error('Company Letter is not composed via composeDocumentContent; use the Company Letter tab.')
+    case 'company_letterhead':
+      return composeCompanyLetterhead(job)
   }
 }
 

@@ -5,9 +5,12 @@ import {
   consumeStaffLogin,
   isStaffEmailAllowlisted,
   issueStaffLogin,
+  type StaffIdentityLookup,
   type StaffTokenRow,
   type StaffTokenStore,
 } from '@/lib/staffLogin'
+import { decideStaffAccess, staffHomePath } from '@/lib/staffDesk'
+import { browserOrigin, isSecureStaffRequest, magicLinkOrigin } from '@/lib/staffSession'
 
 function memoryStore(): StaffTokenStore & { rows: StaffTokenRow[] } {
   const rows: StaffTokenRow[] = []
@@ -99,6 +102,83 @@ test('only the allowlisted address is issued, and consuming burns the link', asy
   const second = await consumeStaffLogin(store, issued.token)
   assert.equal(second.ok, false)
   if (!second.ok) assert.equal(second.reason, 'used')
+})
+
+test('a technician email signs in as that person', async () => {
+  process.env.STAFF_LOGIN_EMAIL = 'owner@example.com'
+  process.env.STAFF_USER_ID = 'user_owner'
+  const store = memoryStore()
+  const lookup: StaffIdentityLookup = async email => (
+    email === 'tech@example.com' ? { userId: 'person:tech' } : null
+  )
+
+  const ignored = await issueStaffLogin(store, 'nobody@example.com', '', 'test', lookup)
+  assert.equal(ignored.status, 'ignored')
+
+  const issued = await issueStaffLogin(store, 'Tech@Example.com', '', 'test', lookup)
+  assert.equal(issued.status, 'issued')
+  if (issued.status !== 'issued') return
+
+  const consumed = await consumeStaffLogin(store, issued.token, lookup)
+  assert.equal(consumed.ok, true)
+  if (consumed.ok) {
+    assert.equal(consumed.userId, 'person:tech')
+    assert.equal(consumed.email, 'tech@example.com')
+  }
+})
+
+test('the owner allowlist is not resolved through the technician lookup', async () => {
+  process.env.STAFF_LOGIN_EMAIL = 'owner@example.com'
+  process.env.STAFF_USER_ID = 'user_owner'
+  const store = memoryStore()
+  const lookup: StaffIdentityLookup = async () => {
+    throw new Error('lookup should not run for the owner')
+  }
+
+  const issued = await issueStaffLogin(store, 'owner@example.com', '', 'test', lookup)
+  assert.equal(issued.status, 'issued')
+  if (issued.status !== 'issued') return
+
+  const consumed = await consumeStaffLogin(store, issued.token, lookup)
+  assert.equal(consumed.ok, true)
+  if (consumed.ok) assert.equal(consumed.userId, 'user_owner')
+})
+
+test('a technician stays on the phone screen', () => {
+  assert.equal(decideStaffAccess('member', '/tech'), 'allow')
+  assert.equal(decideStaffAccess('member', '/api/me'), 'allow')
+  assert.equal(decideStaffAccess('member', '/api/tech/jobs'), 'allow')
+  assert.equal(decideStaffAccess('member', '/jobs'), 'redirect')
+  assert.equal(decideStaffAccess('member', '/api/jobs'), 'forbid')
+  assert.equal(decideStaffAccess('admin', '/jobs'), 'allow')
+  assert.equal(decideStaffAccess('manager', '/records'), 'allow')
+  assert.equal(decideStaffAccess(null, '/'), 'signed-out')
+})
+
+test('one login host, and the email role picks the first screen', () => {
+  assert.equal(
+    magicLinkOrigin('https://app.biohazards.net/api/auth/request', 'app.biohazards.net', 'https'),
+    'https://login.biohazards.net',
+  )
+  assert.equal(
+    magicLinkOrigin('https://login.biohazards.net/api/auth/request', 'login.biohazards.net', 'https'),
+    'https://login.biohazards.net',
+  )
+  assert.equal(
+    magicLinkOrigin('http://0.0.0.0:3000/api/auth/request', '192.168.1.4:3000', null),
+    'http://192.168.1.4:3000',
+  )
+  assert.equal(staffHomePath('admin'), '/')
+  assert.equal(staffHomePath('manager'), '/')
+  assert.equal(staffHomePath('member'), '/tech')
+})
+
+test('a phone on the LAN stays on http and keeps a non-secure cookie', () => {
+  assert.equal(browserOrigin('http://0.0.0.0:3000/records', '192.168.1.4:3000', null), 'http://192.168.1.4:3000')
+  const lan = new Request('http://0.0.0.0:3000/', { headers: { host: '192.168.1.4:3000' } })
+  assert.equal(isSecureStaffRequest(lan), false)
+  const prod = new Request('https://app.biohazards.net/', { headers: { host: 'app.biohazards.net' } })
+  assert.equal(isSecureStaffRequest(prod), true)
 })
 
 test('an expired link is rejected and left unburned', async () => {

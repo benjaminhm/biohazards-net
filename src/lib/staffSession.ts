@@ -145,9 +145,81 @@ export function clearStaffCookieHeader(secure: boolean): string {
   return parts.join('; ')
 }
 
-/** http on localhost, https everywhere else — drives the Secure attribute. */
+/** Localhost and private LAN addresses used for phone testing. */
+export function isDevHost(hostHeader: string | null): boolean {
+  const hostNoPort = (hostHeader ?? '').split(',')[0].trim().split(':')[0].toLowerCase()
+  if (
+    hostNoPort === 'localhost' ||
+    hostNoPort === '127.0.0.1' ||
+    hostNoPort === '0.0.0.0' ||
+    hostNoPort === '::1'
+  ) {
+    return true
+  }
+  const parts = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(hostNoPort)
+  if (!parts) return false
+  const a = Number(parts[1])
+  const b = Number(parts[2])
+  if (a === 10 || a === 127) return true
+  if (a === 192 && b === 168) return true
+  if (a === 172 && b >= 16 && b <= 31) return true
+  return false
+}
+
+/**
+ * Origin the browser used. `next dev --hostname 0.0.0.0` puts 0.0.0.0 in
+ * request.url, which a phone cannot open and which would mark the cookie Secure.
+ */
+export function browserOrigin(requestUrl: string, hostHeader: string | null, forwardedProto: string | null): string {
+  const host = (hostHeader ?? '').split(',')[0].trim()
+  let proto = (forwardedProto ?? '').split(',')[0].trim()
+  if (!proto) {
+    try {
+      proto = new URL(requestUrl).protocol.replace(':', '')
+    } catch {
+      proto = 'http'
+    }
+  }
+  if (!host) {
+    try {
+      return new URL(requestUrl).origin
+    } catch {
+      return 'http://localhost:3000'
+    }
+  }
+  return `${proto}://${host}`
+}
+
+/** The one staff sign-in host. The email, not a second login, decides admin or technician. */
+export const STAFF_LOGIN_ORIGIN = 'https://login.biohazards.net'
+
+const STAFF_APP_HOSTS = new Set(['app.biohazards.net', 'login.biohazards.net'])
+
+/** Hosts that serve the staff app. A LAN address is dev, not this set. */
+export function isStaffAppHost(hostHeader: string | null): boolean {
+  const hostNoPort = (hostHeader ?? '').split(',')[0].trim().split(':')[0].toLowerCase()
+  return STAFF_APP_HOSTS.has(hostNoPort)
+}
+
+/**
+ * Where a magic link should open. Phone testing keeps the LAN host.
+ * The live app and the login host both email https://login.biohazards.net.
+ */
+export function magicLinkOrigin(requestUrl: string, hostHeader: string | null, forwardedProto: string | null): string {
+  const origin = browserOrigin(requestUrl, hostHeader, forwardedProto)
+  let hostname = ''
+  try {
+    hostname = new URL(origin).hostname.toLowerCase()
+  } catch {
+    return origin
+  }
+  if (isDevHost(hostname)) return origin
+  if (isStaffAppHost(hostname)) return STAFF_LOGIN_ORIGIN
+  return origin
+}
+
+/** http on localhost and the LAN, https on public hosts — drives the Secure attribute. */
 export function isSecureStaffRequest(req: Request): boolean {
-  const host = (req.headers.get('host') ?? '').split(':')[0].toLowerCase()
-  if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0') return false
-  return true
+  const host = req.headers.get('x-forwarded-host') ?? req.headers.get('host')
+  return !isDevHost(host)
 }

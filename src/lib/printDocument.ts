@@ -46,6 +46,7 @@ import type { CustomPricingRow, SectionTerms, VolumeDisposalFeeMode, VolumePrici
 /** Matches the navy header when `company` is missing (meta grid used to show "—" while header showed this name). */
 const DEFAULT_PRINT_ORG_NAME = 'Brisbane Biohazard Cleaning'
 import { proseHasPrintableContent, richBodyHtmlForPrint } from '@/lib/richTextPrint'
+import type { CompanyLetterheadContent } from '@/lib/companyLetterhead'
 import { presentStatementDocument, statementClientLines, statementPhone, StatementReconciliationError, type StatementPresentation } from '@/lib/statementOfAccounts'
 import type { ContentsClearanceQuoteContent } from '@/lib/contentsClearanceQuote'
 import { fillBiohazardCleaningEngagement, fillContentsClearanceEngagement, fillSurfaceAreaCleaningEngagement } from '@/lib/quoteEngagement'
@@ -966,6 +967,37 @@ function cssSowPrint(): string {
       }
       .sow-root.bcq-doc .sow-sheet { padding-bottom: 14mm; }
     }
+    .sow-root.letterhead-doc .sow-top {
+      background: #fff;
+      border-bottom: 2px solid var(--sow-navy);
+      align-items: flex-start;
+      padding-bottom: 14px;
+    }
+    .sow-root.letterhead-doc .sow-co-name,
+    .sow-root.letterhead-doc .sow-wordmark-line { color: var(--sow-navy); }
+    .sow-root.letterhead-doc .sow-co-sub,
+    .sow-root.letterhead-doc .sow-wordmark-accent,
+    .sow-root.letterhead-doc .sow-doc-info { color: var(--sow-muted); }
+    .sow-root.letterhead-doc .sow-doc-info strong { color: var(--sow-navy); }
+    .sow-root.letterhead-doc .sow-doc-title,
+    .sow-root.letterhead-doc .sow-meta { display: none; }
+    .sow-root.letterhead-doc .letterhead-contact {
+      margin-top: 6px;
+      font-size: 8.5pt;
+      line-height: 1.45;
+      color: #334155;
+    }
+    .sow-root.letterhead-doc .letter-body {
+      font-size: 11pt;
+      line-height: 1.55;
+      font-weight: 400;
+      color: #1a1a1a;
+      max-width: 78ch;
+    }
+    .sow-root.letterhead-doc .letter-body p { margin: 0 0 0.75em; }
+    .sow-root.letterhead-doc .letter-body p:last-child { margin-bottom: 0; }
+    .sow-root.letterhead-doc .letterhead-photos { margin-top: 18px; }
+    .sow-root.letterhead-doc .letterhead-photos .photo-card { break-inside: avoid; page-break-inside: avoid; }
   `
 }
 
@@ -1124,10 +1156,11 @@ function defaultBrandedMeta(company: CompanyProfile | null, client?: ClientInfo)
     .filter(Boolean)
     .join(' · ') || '—'
   const companyName = company?.name?.trim() || DEFAULT_PRINT_ORG_NAME
+  const abn = (company?.abn || '').trim()
+  const licence = (company?.licence || '').trim()
   const companyContact = [
-    (company?.phone || '').trim(),
-    (company?.email || '').trim(),
-    (company?.address || '').trim(),
+    abn ? `ABN ${abn}` : '',
+    licence ? `Licence ${licence}` : '',
   ]
     .filter(Boolean)
     .join(' · ') || '—'
@@ -3071,6 +3104,74 @@ function buildPaymentReminderMid(c: PaymentReminderContent): string {
     <p class="body-text"><strong>Accounts</strong></p>`
 }
 
+function letterheadHeaderHtml(company: CompanyProfile | null, reference: string, dateLabel: string): string {
+  const coName = company?.name?.trim() || DEFAULT_PRINT_ORG_NAME
+  const coTag = company?.tagline?.trim() || ''
+  const logo = company?.logo_url
+    ? `<img class="sow-logo" src="${esc(company.logo_url)}" alt="${esc(coName)}">`
+    : brandWordmarkHtml(coName)
+  const contact = [
+    company?.address?.trim() || '',
+    [company?.phone?.trim(), company?.email?.trim()].filter(Boolean).join('  ·  '),
+    [company?.abn?.trim() ? `ABN ${company.abn.trim()}` : '', company?.licence?.trim() ? `Lic ${company.licence.trim()}` : ''].filter(Boolean).join('  ·  '),
+  ].filter(Boolean)
+  return `<header class="sow-top">
+        <div class="sow-top-left">
+          ${logo}
+          <div class="sow-co-block">
+            ${company?.logo_url ? `<div class="sow-co-name">${esc(coName)}</div>` : ''}
+            ${coTag ? `<div class="sow-co-sub">${esc(coTag)}</div>` : ''}
+            ${contact.length ? `<div class="letterhead-contact">${contact.map(line => esc(line)).join('<br>')}</div>` : ''}
+          </div>
+        </div>
+        <div class="sow-doc-info">
+          <strong>${esc(reference || '—')}</strong>
+          ${esc(dateLabel)}
+        </div>
+      </header>`
+}
+
+function buildCompanyLetterheadMid(c: CompanyLetterheadContent): string {
+  const body = richBodyHtmlForPrint(c.body_html)
+  const images = (c.images ?? []).filter(image => /^https?:\/\//i.test(image.url || ''))
+  const photos = images.length
+    ? `<div class="photos-grid photos-grid-single letterhead-photos">
+        ${images.map(image => {
+          const caption = (image.caption || '').trim()
+          return `<div class="photo-card"><img src="${esc(image.url)}" alt="${esc(caption || 'Attached image')}">${caption ? `<div class="photo-meta"><div class="photo-cap">${esc(caption)}</div></div>` : ''}</div>`
+        }).join('')}
+      </div>`
+    : ''
+  if (!body && !photos) {
+    return `<p class="body-text">This letter is empty.</p>`
+  }
+  return `${body ? `<div class="body-text sow-rich letter-body">${body}</div>` : ''}${photos}`
+}
+
+function buildCompanyLetterheadHTML(
+  c: CompanyLetterheadContent,
+  company: CompanyProfile | null,
+  client: ClientInfo | undefined,
+  screenActionBar: boolean,
+): string {
+  const dateLabel = c.date ? formatLongDate(c.date) : todayStr()
+  return wrapBranded(
+    buildCompanyLetterheadMid(c),
+    'Letter',
+    '',
+    c.reference || '—',
+    company,
+    client,
+    defaultBrandedMeta(company, client),
+    {
+      ...wrapBrandedPrintOpts(screenActionBar),
+      rootClass: 'letterhead-doc',
+      headerHtml: letterheadHeaderHtml(company, c.reference || '—', dateLabel),
+      metaHtml: '',
+    },
+  )
+}
+
 function buildPaymentReminderHTML(c: PaymentReminderContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
   const metaHtml = `
         <div class="sow-meta">
@@ -3771,6 +3872,7 @@ function buildSurfaceAreaCleaningMid(
       <div class="tot-row"><span>GST (10%)</span><span class="amt">${fmtMoney(c.gst)}</span></div>
       <div class="tot-row grand"><span>TOTAL (INC GST)</span><span class="amt">${fmtMoney(c.total)}</span></div>
     </div>
+    ${clearanceAppendixHtml(photos, isSurfaceAreaAppendixPhoto)}
     ${clearanceList('Inclusions', c.inclusions ?? [])}
     ${clearanceList('Exclusions', c.exclusions ?? [])}
     ${clearanceList('Assumptions', c.assumptions ?? [])}
@@ -3783,7 +3885,6 @@ function buildSurfaceAreaCleaningMid(
     }))}
     ${section('Authority', c.authority)}
     ${section('Acceptance', c.acceptance)}
-    ${clearanceAppendixHtml(photos, isSurfaceAreaAppendixPhoto)}
   `
 }
 
@@ -3964,7 +4065,12 @@ function buildBiohazardCleaningHTML(
     organization: client?.client_organization_name,
   })
   const companyName = company?.name?.trim() || DEFAULT_PRINT_ORG_NAME
-  const companyBits = [(company?.phone || '').trim(), (company?.email || '').trim(), tidyBiohazardAddress(company?.address || '')].filter(Boolean)
+  const companyAbn = (company?.abn || '').trim()
+  const companyLicence = (company?.licence || '').trim()
+  const companyBits = [
+    companyAbn ? `ABN ${companyAbn}` : '',
+    companyLicence ? `Licence ${companyLicence}` : '',
+  ].filter(Boolean)
   const jobBits = [(client?.client_phone || '').trim(), (client?.client_email || '').trim(), tidyBiohazardAddress(c.job_address || c.site_address || client?.site_address || '')].filter(Boolean)
   const nowrap = (value: string) => /@|\d/.test(value)
     ? `<div class="bcq-nowrap">${esc(value)}</div>`
@@ -4050,6 +4156,8 @@ export function buildPrintMidHTML(
       return buildSurfaceAreaCleaningMid(c as unknown as SurfaceAreaCleaningQuoteContent, company, client, photos)
     case 'biohazard_cleaning_quote':
       return buildBiohazardCleaningMid(c as unknown as BiohazardCleaningQuoteContent, company, client)
+    case 'company_letterhead':
+      return buildCompanyLetterheadMid(c as unknown as CompanyLetterheadContent)
     default:
       return `<p class="body-text">${esc('Unknown document type')}</p>`
   }
@@ -4153,6 +4261,7 @@ export function buildPrintHTML(
     case 'contents_clearance_quote':   return buildContentsClearanceHTML(c as unknown as ContentsClearanceQuoteContent, photos, company, client, screenActionBar)
     case 'surface_area_cleaning_quote': return buildSurfaceAreaCleaningHTML(c as unknown as SurfaceAreaCleaningQuoteContent, company, client, screenActionBar, photos)
     case 'biohazard_cleaning_quote':    return buildBiohazardCleaningHTML(c as unknown as BiohazardCleaningQuoteContent, company, client, screenActionBar)
+    case 'company_letterhead':          return buildCompanyLetterheadHTML(c as unknown as CompanyLetterheadContent, company, client, screenActionBar)
     case 'iaq_multi': {
       const partsRaw = c.parts
       const bundleTitle =

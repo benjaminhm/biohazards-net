@@ -4,9 +4,8 @@
  * Dashboard / home page — the main job list for admins and members with
  * the view_all_jobs capability.
  *
- * Non-admins without view_all_jobs are redirected to /field (their personal
- * schedule view) immediately on load. This check runs client-side in a useEffect
- * so the redirect is smooth rather than causing a server-side 302 loop.
+ * Technicians (role member) are redirected to /tech. The proxy does the same
+ * before this page loads. Admins and managers stay here.
  *
  * Features:
  *   - Upcoming jobs section (next 7 days with scheduled_at set).
@@ -19,7 +18,7 @@
  * Quick Feedback can be hidden per user (localStorage) or disabled for the whole
  * org by platform admins (`orgs.features.show_quick_feedback === false`).
  * Knowledge Base appears in the tile grid when `orgs.features.training_education` is true (platform org toggle).
- * Job Manager is the first tile (same size as others); at ≥900px with 5+ tiles, grid is 3 columns.
+ * Job Manager is the first tile and Job Records is the second. At ≥900px with 5+ tiles, the grid is 3 columns.
  * When `website_card` is on, a Marketing Manager tile is added to the grid.
  * When `consultation` is on, a Consultation tile is added to the grid.
  * Brain Dump tile appears only for org admins; its list is per-admin-private
@@ -54,17 +53,17 @@ export default function HomePage() {
   const [company, setCompany]   = useState<CompanyProfile | null>(null)
   const [time, setTime]         = useState('')
   const [upcoming, setUpcoming] = useState<Job[]>([])
-  const { caps, isAdmin, isManager, loading: userLoading, previewMode, org: ctxOrg } = useUser()
+  const { caps, isAdmin, isManager, role, loading: userLoading, previewMode, org: ctxOrg } = useUser()
   const [review, setReview] = useState<object | null | 'loading'>('loading')
   const [hideQuickFeedback, setHideQuickFeedback] = useState(false)
   /** ≥900px: use 3 columns when we have 6 tiles (2×3 layout); otherwise 2 columns. */
   const [desktopWide, setDesktopWide] = useState(false)
   const router = useRouter()
 
-  // Non-admins without view_all_jobs go to their field view
+  // Technicians never see the desk. The proxy redirects as well.
   useEffect(() => {
-    if (!userLoading && !isAdmin && !caps.view_all_jobs) router.replace('/field')
-  }, [userLoading, isAdmin, caps.view_all_jobs, router])
+    if (!userLoading && role === 'member') router.replace('/tech')
+  }, [userLoading, role, router])
 
   useEffect(() => {
     try {
@@ -132,6 +131,13 @@ export default function HomePage() {
       label: 'Job Manager',
       sub: 'All active jobs — track, update, dispatch',
       color: 'var(--accent)',
+    },
+    {
+      href: '/records',
+      icon: '✓',
+      label: 'Job Records',
+      sub: 'Field records, templates, and bonuses',
+      color: '#8B5CF6',
     },
     {
       href: '/team',

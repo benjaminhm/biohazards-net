@@ -29,13 +29,19 @@ import {
   roomsCeilingTotal,
   roomsSurfaceTotal,
   surfaceAreaClauseLines,
+  surfaceAreaCleaningDocumentTitle,
   surfaceAreaCleaningFigures,
   surfaceAreaCleaningQuoteContent,
   type SurfaceAreaCleaningCapture,
   type SurfaceAreaCleaningStandards,
 } from '@/lib/surfaceAreaCleaningQuote'
 import { documentPlainText } from '@/lib/documentAsk'
-import { sharedEngagementAgreement, withSharedEngagement } from '@/lib/quoteEngagement'
+import {
+  DEFAULT_ENGAGEMENT_AGREEMENT,
+  persistableEngagement,
+  sharedEngagementAgreement,
+  withSharedEngagement,
+} from '@/lib/quoteEngagement'
 import {
   normalizeContentsClearanceStandards,
   type ContentsClearanceStandards,
@@ -145,6 +151,8 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
   const [standards, setStandards] = useState<SurfaceAreaCleaningStandards>(defaultSurfaceAreaCleaningStandards)
   const [standardsReady, setStandardsReady] = useState(false)
   const skipStandardsSave = useRef(true)
+  const companyLoadedRef = useRef(false)
+  const loadedEngagementRef = useRef('')
   const clearanceStandardsRef = useRef<ContentsClearanceStandards | null>(null)
 
   useEffect(() => {
@@ -153,6 +161,7 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
 
   const isDirty = capture.cleaning_kind !== saved.cleaning_kind
     || capture.custom_title !== saved.custom_title
+    || capture.title_addition !== saved.title_addition
     || capture.estimated_m2 !== saved.estimated_m2
     || capture.labour_days !== saved.labour_days
     || capture.rate_per_m2 !== saved.rate_per_m2
@@ -207,11 +216,11 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
         skipStandardsSave.current = true
         const clearance = normalizeContentsClearanceStandards(data.company?.contents_clearance_standards)
         const surface = normalizeSurfaceAreaCleaningStandards(data.company?.surface_area_cleaning_standards)
-        clearanceStandardsRef.current = clearance
-        setStandards(withSharedEngagement(
-          surface,
-          sharedEngagementAgreement(clearance.engagement_agreement, surface.engagement_agreement),
-        ))
+        const engagement = sharedEngagementAgreement(clearance.engagement_agreement, surface.engagement_agreement)
+        clearanceStandardsRef.current = data.company?.contents_clearance_standards == null ? null : clearance
+        loadedEngagementRef.current = engagement
+        companyLoadedRef.current = true
+        setStandards(withSharedEngagement(surface, engagement))
         setStandardsReady(true)
       })
       .catch(() => {
@@ -221,7 +230,7 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
   }, [])
 
   useEffect(() => {
-    if (!standardsReady) return
+    if (!standardsReady || !companyLoadedRef.current) return
     if (skipStandardsSave.current) {
       skipStandardsSave.current = false
       return
@@ -231,23 +240,35 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
   }, [standards, standardsReady])
 
   async function persistStandards(next: SurfaceAreaCleaningStandards) {
-    const clearance = clearanceStandardsRef.current ?? normalizeContentsClearanceStandards(null)
-    const syncedClearance = { ...clearance, engagement_agreement: next.engagement_agreement }
-    const core = await fetch('/api/company', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents_clearance_standards: syncedClearance }),
-    })
-    if (core.ok) clearanceStandardsRef.current = syncedClearance
+    if (!companyLoadedRef.current) return
+    const engagement = persistableEngagement(
+      next.engagement_agreement,
+      loadedEngagementRef.current,
+      DEFAULT_ENGAGEMENT_AGREEMENT,
+    )
+    const toSave = { ...next, engagement_agreement: engagement }
+    const clearance = clearanceStandardsRef.current
+    let coreOk = true
+    if (clearance) {
+      const syncedClearance = { ...clearance, engagement_agreement: engagement }
+      const core = await fetch('/api/company', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents_clearance_standards: syncedClearance }),
+      })
+      coreOk = core.ok
+      if (core.ok) clearanceStandardsRef.current = syncedClearance
+    }
     const res = await fetch('/api/company', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ surface_area_cleaning_standards: next }),
+      body: JSON.stringify({ surface_area_cleaning_standards: toSave }),
     })
+    if (res.ok) loadedEngagementRef.current = engagement
     if (!res.ok) {
       const data = (await res.json().catch(() => ({}))) as { error?: string }
       setSaveError(data.error || 'The clauses could not be saved for future jobs.')
-    } else if (!core.ok) {
+    } else if (!coreOk) {
       setSaveError('The engagement agreement could not be saved for future jobs.')
     }
   }
@@ -335,6 +356,16 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
             style={{ ...INPUT, marginTop: 8 }}
           />
         )}
+        <label style={{ ...LABEL, marginTop: 10 }}>Add to the title</label>
+        <input
+          value={capture.title_addition}
+          onChange={e => patch({ title_addition: e.target.value })}
+          placeholder="Optional"
+          style={INPUT}
+        />
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
+          {surfaceAreaCleaningDocumentTitle(capture.cleaning_kind, capture.custom_title, capture.title_addition)}
+        </div>
       </div>
       <div style={{ fontSize: 14, marginBottom: 12 }}>
         <div style={LABEL}>Client</div>
@@ -422,7 +453,23 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
         </div>
       </div>
       <div style={{ marginBottom: 12 }}>
-        <div style={LABEL}>Rooms</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+          <div style={{ ...LABEL, marginBottom: 0 }}>Rooms</div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 700, cursor: roomsCeilingTotal(capture.rooms) == null && !capture.exclude_ceiling ? 'default' : 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={capture.exclude_ceiling}
+              disabled={roomsCeilingTotal(capture.rooms) == null && !capture.exclude_ceiling}
+              onChange={e => setRooms(capture.rooms, e.target.checked)}
+            />
+            Remove ceiling surface area
+            <span style={{ fontWeight: 500, color: 'var(--text-muted)' }}>
+              {roomsCeilingTotal(capture.rooms) != null
+                ? `${roomsCeilingTotal(capture.rooms)?.toLocaleString('en-AU', { maximumFractionDigits: 2 })} m²`
+                : 'Add a room to work out the ceiling'}
+            </span>
+          </label>
+        </div>
         <div style={{
           border: '1px solid var(--border)',
           borderRadius: 8,
@@ -520,24 +567,6 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
             </span>
           )}
         </div>
-        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: 10, fontSize: 14, cursor: roomsCeilingTotal(capture.rooms) == null ? 'default' : 'pointer' }}>
-          <input
-            type="checkbox"
-            checked={capture.exclude_ceiling}
-            disabled={roomsCeilingTotal(capture.rooms) == null && !capture.exclude_ceiling}
-            onChange={e => setRooms(capture.rooms, e.target.checked)}
-            style={{ marginTop: 3 }}
-          />
-          <span>
-            Exclude ceiling
-            {roomsCeilingTotal(capture.rooms) != null
-              ? ` (${roomsCeilingTotal(capture.rooms)?.toLocaleString('en-AU', { maximumFractionDigits: 2 })} m²)`
-              : ''}
-            <span style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-              Tick this to leave the ceiling out of the priced square metres. The quote states that the ceiling is excluded.
-            </span>
-          </span>
-        </label>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
         <div>
@@ -800,10 +829,29 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
           <span>{formatAud(figures.total)}</span>
         </div>
       </div>
+      <div style={{ marginTop: 18, display: 'grid', gap: 14 }}>
+        <ClickToEditText label="Inclusions" asList value={standards.inclusions} onChange={inclusions => editStandards({ inclusions })} />
+        <ClickToEditText label="Exclusions" asList value={standards.exclusions} onChange={exclusions => editStandards({ exclusions })} />
+        <ClickToEditText label="Assumptions" asList value={standards.assumptions} onChange={assumptions => editStandards({ assumptions })} />
+        <ClickToEditText label="Payment terms" value={standards.payment_terms} onChange={payment_terms => editStandards({ payment_terms })} />
+        <div>
+          <div style={LABEL}>Engagement agreement</div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
+            Saved for this company. The next contents clearance quote and surface cleaning quote start from this text. Brackets such as [name], [surface], [rate per m2], [labour amount], [deposit], and [total] are filled when the document is printed. A contents-clearance line is left out. The signature lines stay blank for signing.
+          </div>
+          {standardsReady && (
+            <RichTextEditor
+              value={standards.engagement_agreement}
+              onChange={engagement_agreement => editStandards({ engagement_agreement })}
+              minHeight={240}
+            />
+          )}
+        </div>
+      </div>
       <div style={{ marginTop: 18, marginBottom: 4 }}>
         <div style={LABEL}>Photos</div>
         <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5, margin: '0 0 12px' }}>
-          Choose several at once from Gallery. They print together at the end of the document.
+          Choose several at once from Gallery. They print after the totals. The engagement agreement stays last, for signing.
         </p>
         <PhotoUploadPanel
           jobId={job.id}
@@ -837,25 +885,6 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
             ))}
           </div>
         )}
-      </div>
-      <div style={{ marginTop: 18, display: 'grid', gap: 14 }}>
-        <ClickToEditText label="Inclusions" asList value={standards.inclusions} onChange={inclusions => editStandards({ inclusions })} />
-        <ClickToEditText label="Exclusions" asList value={standards.exclusions} onChange={exclusions => editStandards({ exclusions })} />
-        <ClickToEditText label="Assumptions" asList value={standards.assumptions} onChange={assumptions => editStandards({ assumptions })} />
-        <ClickToEditText label="Payment terms" value={standards.payment_terms} onChange={payment_terms => editStandards({ payment_terms })} />
-        <div>
-          <div style={LABEL}>Engagement agreement</div>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
-            Saved for this company. The next contents clearance quote and surface cleaning quote start from this text. Brackets such as [name], [surface], [rate per m2], [labour amount], [deposit], and [total] are filled when the document is printed. A contents-clearance line is left out. The signature lines stay blank for signing.
-          </div>
-          {standardsReady && (
-            <RichTextEditor
-              value={standards.engagement_agreement}
-              onChange={engagement_agreement => editStandards({ engagement_agreement })}
-              minHeight={240}
-            />
-          )}
-        </div>
       </div>
       {saveError && <div style={{ color: 'var(--danger, #f87171)', fontSize: 13, marginTop: 10 }}>{saveError}</div>}
       <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>

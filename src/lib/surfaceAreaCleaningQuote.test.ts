@@ -7,6 +7,7 @@ import type { Photo } from '@/lib/types'
 import {
   defaultSurfaceAreaCleaningStandards,
   emptySurfaceAreaCleaningCapture,
+  normalizeSurfaceAreaCleaningStandards,
   SURFACE_AREA_ROOM_PRESETS,
   roomSurfaceArea,
   roomsSurfaceTotal,
@@ -15,6 +16,11 @@ import {
   surfaceAreaCleaningFigures,
   surfaceAreaCleaningQuoteContent,
 } from '@/lib/surfaceAreaCleaningQuote'
+
+test('an empty company agreement is replaced by the default surface cleaning agreement', () => {
+  assert.equal(normalizeSurfaceAreaCleaningStandards({ engagement_agreement: '' }).engagement_agreement, DEFAULT_ENGAGEMENT_AGREEMENT)
+  assert.equal(normalizeSurfaceAreaCleaningStandards(null).engagement_agreement, DEFAULT_ENGAGEMENT_AGREEMENT)
+})
 
 test('average rooms add and remove rooms by count', () => {
   const bedroom = SURFACE_AREA_ROOM_PRESETS.find(room => room.id === 'bedroom')!
@@ -398,6 +404,32 @@ test('a custom title prints, and an other line is a title, description, and pric
     },
   })
   assert.equal(content.title, 'Forensic clean')
+  assert.equal(
+    surfaceAreaCleaningQuoteContent({
+      reference: 'SACQ-ADD',
+      clientName: 'Acme Pty Ltd',
+      siteAddress: '1 Example Street',
+      capture: {
+        ...emptySurfaceAreaCleaningCapture(),
+        cleaning_kind: 'surface',
+        title_addition: '  kitchen and bathroom  ',
+      },
+    }).title,
+    'Surface Area Cleaning - kitchen and bathroom',
+  )
+  assert.equal(
+    surfaceAreaCleaningQuoteContent({
+      reference: 'SACQ-ADD',
+      clientName: 'Acme Pty Ltd',
+      siteAddress: '1 Example Street',
+      capture: {
+        ...emptySurfaceAreaCleaningCapture(),
+        cleaning_kind: 'squalor',
+        title_addition: '- unit 2',
+      },
+    }).title,
+    'Gross Filth and Squalor - unit 2',
+  )
   assert.deepEqual(content.other_lines, [
     { label: 'Odour treatment', description: 'Ozone in the living room.', amount: 250 },
     { label: 'Skip bin', description: '', amount: 180 },
@@ -467,12 +499,16 @@ test('engagement brackets are filled on the surface cleaning document', () => {
   assert.match(content.engagement_agreement, /\[name\]/)
 })
 
-test('surface cleaning photos print at the end, and another quote photo does not', () => {
+test('surface cleaning photos print before the engagement agreement, and another quote photo does not', () => {
   const content = surfaceAreaCleaningQuoteContent({
     reference: 'SACQ-TEST',
     clientName: 'Acme Pty Ltd',
     siteAddress: '1 Example Street',
     capture: emptySurfaceAreaCleaningCapture(),
+    standards: {
+      ...defaultSurfaceAreaCleaningStandards(),
+      engagement_agreement: DEFAULT_ENGAGEMENT_AGREEMENT,
+    },
   })
   const surfacePhoto: Photo = {
     id: 'sacq-photo',
@@ -504,5 +540,8 @@ test('surface cleaning photos print at the end, and another quote photo does not
   assert.match(html, /living-room\.jpg/)
   assert.match(html, /Living room/)
   assert.match(html, />Photos</)
+  assert.match(html, /Engagement agreement/)
+  assert.ok(html.indexOf('living-room.jpg') < html.indexOf('Engagement agreement'))
+  assert.ok(html.indexOf('Engagement agreement') < html.indexOf('Acceptance'))
   assert.doesNotMatch(html, /clearance-only\.jpg/)
 })

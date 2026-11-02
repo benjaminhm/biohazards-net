@@ -108,6 +108,7 @@ function ref(type: DocType, job: Job): string {
     engagement_agreement: 'ENG', report: 'RPT', certificate_of_decontamination: 'COD',
     waste_disposal_manifest: 'CDR', statement_of_accounts: 'SOA', payment_reminder: 'PRM', house_survey: 'SUR', jsa: 'JSA', nda: 'NDA', risk_assessment: 'RA',
     company_letter: 'LTR',
+    company_letterhead: 'CLH',
     contents_clearance_quote: 'CCQ',
     surface_area_cleaning_quote: 'SACQ',
     biohazard_cleaning_quote: 'BCQ',
@@ -438,6 +439,8 @@ Include 6–10 realistic risks based on the job type, contamination level, and s
       '(Not used — bundle is composed deterministically from job data. Claude build is disabled for this type.)',
     company_letter:
       '(Not used — Company Letter has its own flow in /api/jobs/[id]/suggest-letter-body and is not built via this endpoint.)',
+    company_letterhead:
+      '(Not used — Company Letterhead is written on the job and composed from that letter.)',
     contents_clearance_quote:
       '(Not used — Contents Clearance Quote is composed from the job quantities and the fixed schema.)',
     surface_area_cleaning_quote:

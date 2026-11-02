@@ -1,7 +1,24 @@
+import os from 'os'
 import path from 'path'
 import type { NextConfig } from 'next'
 
+function lanDevOrigins(): string[] {
+  try {
+    const hosts = new Set<string>()
+    for (const list of Object.values(os.networkInterfaces())) {
+      for (const net of list ?? []) {
+        if (net.family === 'IPv4' && !net.internal) hosts.add(net.address)
+      }
+    }
+    return [...hosts]
+  } catch {
+    return []
+  }
+}
+
 const nextConfig: NextConfig = {
+  // Phone on the same Wi-Fi loads the dev server by LAN IP. Without this, Next blocks /_next.
+  allowedDevOrigins: lanDevOrigins(),
   // Pin repo root so Turbopack does not pick a stray lockfile higher in the tree (e.g. ~/package-lock.json).
   turbopack: {
     root: path.join(__dirname),

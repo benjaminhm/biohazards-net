@@ -58,6 +58,7 @@ export type DocType =
   | 'nda'
   | 'risk_assessment'
   | 'company_letter'
+  | 'company_letterhead'
   | 'contents_clearance_quote'
   | 'surface_area_cleaning_quote'
   | 'biohazard_cleaning_quote'
@@ -80,6 +81,7 @@ export const DOC_TYPE_LABELS: Record<DocType, string> = {
   nda:                        'Non-Disclosure Agreement',
   risk_assessment:            'Risk Assessment',
   company_letter:             'Company Letter',
+  company_letterhead:         'Company Letterhead',
   contents_clearance_quote:   'Contents Clearance Quote',
   surface_area_cleaning_quote: 'Surface Area Cleaning Quote',
   biohazard_cleaning_quote:   'Biohazard Cleaning Quote',
@@ -1138,6 +1140,8 @@ export interface AssessmentData {
     cleaning_kind?: 'surface' | 'squalor' | 'estate' | 'custom'
     /** Printed when cleaning_kind is custom. */
     custom_title?: string
+    /** Printed after the chosen title. Blank stays off. */
+    title_addition?: string
     estimated_m2: number | null
     /** Labour days the client is buying. */
     labour_days?: number | null
@@ -1218,6 +1222,14 @@ export interface AssessmentData {
     deposit_date?: string
     /** Required when invoice 1 has been adjusted. Printed on the statement. */
     adjustment_reason?: string
+  }
+  /**
+   * Company Letterhead. Staff write the letter and attach images.
+   * Shape is in lib/companyLetterhead.ts.
+   */
+  company_letterhead?: {
+    body_html?: string
+    images?: { id?: string; url?: string; caption?: string }[]
   }
   /** Payment Overdue reminder. Amounts stay on the statement. */
   payment_overdue?: {

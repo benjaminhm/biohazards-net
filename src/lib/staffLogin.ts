@@ -3,10 +3,11 @@
  *
  * Single-email magic link for the staff app.
  *
- * STAFF_LOGIN_EMAIL lists the addresses that can receive a link, separated by
- * commas. Every other address gets the same generic success so this endpoint
- * cannot be used to discover who can sign in. STAFF_USER_ID is the existing org_users.clerk_user_id
- * the session is bound to, so job rows do not move.
+ * STAFF_LOGIN_EMAIL lists the owner addresses that can receive a link, separated
+ * by commas. Those sessions stay bound to STAFF_USER_ID so existing job rows
+ * do not move. Any other address is resolved by the injected lookup (an active
+ * person with phone sign-in). Unknown addresses get the same generic success
+ * so this endpoint cannot be used to discover who can sign in.
  *
  * Only a SHA-256 hash is stored. The link is single-use: consume burns the row
  * with a conditional update, and a second use is rejected.
@@ -120,20 +121,41 @@ export interface StaffTokenStore {
   burnIfFresh(id: string): Promise<boolean>
 }
 
+/** Session subject for an email that is allowed to sign in. */
+export type StaffIdentityLookup = (email: string) => Promise<{ userId: string } | null>
+
 export type IssueResult =
   | { status: 'issued'; token: string; email: string; ttlMinutes: number }
   | { status: 'ignored' }
   | { status: 'limited' }
 
 /**
- * Issue a link for the allowlisted address. Unknown addresses and a missing
- * STAFF_USER_ID return ignored — callers answer with the same generic success.
+ * The owner allowlist wins, and does not consult the lookup. Otherwise the
+ * lookup must return exactly one user id. Unknown addresses and a missing
+ * owner id return ignored — callers answer with the same generic success.
  */
+async function resolveStaffUserId(email: string, lookup?: StaffIdentityLookup): Promise<string | null> {
+  if (isStaffEmailAllowlisted(email)) {
+    const owner = staffUserId()
+    if (owner) return owner
+  }
+  if (!lookup) return null
+  try {
+    const found = await lookup(email)
+    const id = found?.userId?.trim()
+    return id || null
+  } catch (err) {
+    console.error('[staff-login] identity lookup failed', err)
+    return null
+  }
+}
+
 export async function issueStaffLogin(
   store: StaffTokenStore,
   email: string,
   ip: string,
-  userAgent: string
+  userAgent: string,
+  lookup?: StaffIdentityLookup
 ): Promise<IssueResult> {
   const normalised = normaliseStaffEmail(email)
   const recent = await store.countRecent(
@@ -148,7 +170,8 @@ export async function issueStaffLogin(
     return { status: 'limited' }
   }
 
-  if (!isStaffEmailAllowlisted(normalised) || !staffUserId()) return { status: 'ignored' }
+  const userId = await resolveStaffUserId(normalised, lookup)
+  if (!userId) return { status: 'ignored' }
 
   const token = generateStaffToken()
   const expiresAt = new Date(Date.now() + STAFF_LOGIN_TTL_MINUTES * 60 * 1000).toISOString()
@@ -176,23 +199,23 @@ export type ConsumeResult =
  */
 export async function consumeStaffLogin(
   store: StaffTokenStore,
-  rawToken: string
+  rawToken: string,
+  lookup?: StaffIdentityLookup
 ): Promise<ConsumeResult> {
   const trimmed = (rawToken ?? '').trim()
   if (!/^[0-9a-f]{64}$/.test(trimmed)) return { ok: false, reason: 'invalid' }
 
-  const userId = staffUserId()
-  if (!userId) return { ok: false, reason: 'invalid' }
-
   const hash = hashStaffToken(trimmed)
   const row = await store.findByHash(hash)
   if (!row || !hashesMatch(row.token_hash, hash)) return { ok: false, reason: 'invalid' }
-  if (!isStaffEmailAllowlisted(row.email)) return { ok: false, reason: 'invalid' }
 
   const kind = classifyStaffToken(row)
   if (kind === 'used') return { ok: false, reason: 'used' }
   if (kind === 'expired') return { ok: false, reason: 'expired' }
   if (kind !== 'ok') return { ok: false, reason: 'invalid' }
+
+  const userId = await resolveStaffUserId(row.email, lookup)
+  if (!userId) return { ok: false, reason: 'invalid' }
 
   const burned = await store.burnIfFresh(row.id)
   if (!burned) return { ok: false, reason: 'used' }

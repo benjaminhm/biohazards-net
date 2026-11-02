@@ -62,6 +62,7 @@ import InvoiceTab from '@/components/tabs/InvoiceTab'
 import ProgressNotesTab from '@/components/tabs/ProgressNotesTab'
 import ProgressPhotosTab from '@/components/tabs/ProgressPhotosTab'
 import PostRemediationEvaluationTab from '@/components/tabs/PostRemediationEvaluationTab'
+import CompanyLetterheadTab from '@/components/tabs/CompanyLetterheadTab'
 import StatementOfAccountsTab from '@/components/tabs/StatementOfAccountsTab'
 import PaymentOverdueTab from '@/components/tabs/PaymentOverdueTab'
 import PerExecuteCapturePanel from '@/components/tabs/PerExecuteCapturePanel'
@@ -98,6 +99,7 @@ type HomeSection =
   | 'plan'
   | 'execute'
   | 'verify'
+  | 'company_letterhead'
   | 'statement'
   | 'payment_overdue'
   | 'review'
@@ -116,6 +118,7 @@ const HOME_SECTIONS: { id: HomeSection; label: string }[] = [
   { id: 'plan', label: 'Plan' },
   { id: 'execute', label: 'Contents Disposal Record' },
   { id: 'verify', label: 'Post Remediation Evaluation' },
+  { id: 'company_letterhead', label: 'Company Letterhead' },
   { id: 'statement', label: 'Statement of Accounts' },
   { id: 'payment_overdue', label: 'Payment Overdue' },
   { id: 'review', label: 'Review' },
@@ -151,6 +154,7 @@ const HOME_SECTION_TO_CAP: Record<HomeSection, keyof TeamCapabilities> = {
   plan:              'view_home_plan',
   execute:           'view_home_execute',
   verify:            'view_home_verify',
+  company_letterhead: 'view_home_verify',
   statement:         'view_home_verify',
   payment_overdue:   'view_home_verify',
   review:            'view_home_review',
@@ -1016,6 +1020,8 @@ export default function JobPage() {
       ? 'Survey'
       : activeTab === 'home' && homeSection === 'statement'
       ? DOC_TYPE_LABELS.statement_of_accounts
+      : activeTab === 'home' && homeSection === 'company_letterhead'
+      ? DOC_TYPE_LABELS.company_letterhead
       : activeTab === 'home' && homeSection === 'payment_overdue'
       ? 'Payment Overdue'
       : activeTab === 'home' && homeSection === 'biohazard_cleaning'
@@ -1069,6 +1075,7 @@ export default function JobPage() {
   const showQualityChecks  = activeTab === 'quality_checks_capture'
   const showRecommendations= activeTab === 'recommendations_capture'
   const showCompletionRpt  = activeTab === 'progress_report_generate' || inHome('verify')
+  const showCompanyLetterhead = inHome('company_letterhead')
   const showStatement      = inHome('statement')
   const showPaymentOverdue = inHome('payment_overdue')
   const showClientFeedback = activeTab === 'client_feedback_capture' || (inHome('review') && reviewSection === 'client_feedback')
@@ -1830,6 +1837,9 @@ export default function JobPage() {
         )}
         {showCompletionRpt && (
           <PostRemediationEvaluationTab job={job} photos={photos} documents={documents} onJobUpdate={setJob} onPhotosUpdate={setPhotos} />
+        )}
+        {showCompanyLetterhead && (
+          <CompanyLetterheadTab job={job} onJobUpdate={setJob} />
         )}
         {showSurvey && (
           <HouseSurveyTab job={job} onJobUpdate={setJob} />

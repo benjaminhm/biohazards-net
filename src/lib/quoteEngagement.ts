@@ -91,12 +91,26 @@ For the Contractor: ____________________  Name: ____________________  Date: ____
 
 /**
  * The first saved estate draft used blanks such as $[amount]. That draft is replaced by the bracketed agreement.
- * Any other saved wording is kept.
+ * An empty editor is replaced by the default. Any other saved wording is kept.
  */
 export function storedEngagementAgreement(saved: string, fallback: string): string {
+  if (!proseHasPrintableContent(saved)) return fallback
   const plain = saved.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/\s+/g, ' ')
   if (/CONTENTS REMOVAL \(DECEASED ESTATE\)/i.test(plain) || /\$\[amount\]/.test(plain)) return fallback
   return saved
+}
+
+/**
+ * Company saves must not write an empty editor over the last real agreement.
+ * TipTap can emit `<p></p>` on remount; that is not a user edit.
+ */
+export function persistableEngagement(next: unknown, saved: unknown, fallback: string): string {
+  const text = (value: unknown) => (typeof value === 'string' ? value : '')
+  const incoming = text(next)
+  const previous = text(saved)
+  if (proseHasPrintableContent(incoming)) return incoming
+  if (proseHasPrintableContent(previous)) return previous
+  return fallback
 }
 
 /** Values available when an engagement agreement is printed. Absent fields are left out of the document. */
