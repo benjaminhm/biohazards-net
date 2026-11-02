@@ -1760,14 +1760,18 @@ function wdmPriceTable(t: WasteDisposalManifestContent['totals']): string {
       <td class="r"${strong ? ' style="font-weight:700"' : ''}>${esc(formatAud(before))}</td>
       <td class="r"${strong ? ' style="font-weight:700"' : ''}>${esc(formatAud(amount))}</td>
     </tr>`
+  const bothSkipKinds = (t.skip_waste_ex ?? 0) > 0 && (t.skip_hire_inc ?? 0) > 0
   return `
     <table style="margin-top:12px">
       <thead><tr><th>Item</th><th class="r">Before GST</th><th class="r">Amount</th></tr></thead>
       <tbody>
-        ${skipsInc ? row('Skips', skipsEx, skipsInc) : ''}
+        ${bothSkipKinds
+          ? `${row('Skips (waste)', t.skip_waste_ex ?? 0, t.skip_waste_inc ?? 0)}${row('Skip hire', t.skip_hire_ex ?? 0, t.skip_hire_inc ?? 0)}`
+          : (skipsInc ? row('Skips', skipsEx, skipsInc) : '')}
         ${(t.trailer_fees_ex ?? 0) > 0 || (t.trailer_fees_inc ?? 0) > 0 ? row('Trailers', t.trailer_fees_ex ?? 0, t.trailer_fees_inc ?? 0) : ''}
         ${(t.ute_fees_ex ?? 0) > 0 || (t.ute_fees_inc ?? 0) > 0 ? row('Utes', t.ute_fees_ex ?? 0, t.ute_fees_inc ?? 0) : ''}
-        ${t.trailer_fees_ex == null && t.ute_fees_ex == null && trailersEx ? row('Trailers / utes', trailersEx, trailersInc) : ''}
+        ${(t.other_fees_ex ?? 0) > 0 || (t.other_fees_inc ?? 0) > 0 ? row('Other', t.other_fees_ex ?? 0, t.other_fees_inc ?? 0) : ''}
+        ${t.trailer_fees_ex == null && t.ute_fees_ex == null && t.other_fees_ex == null && trailersEx ? row('Trailers / utes', trailersEx, trailersInc) : ''}
         ${dumpsInc ? row('Dump fees', dumpsEx, dumpsInc) : ''}
         ${prepaidEx ? row('Prepaid', -prepaidEx, -prepaidInc) : ''}
         ${row('Total', totalEx, totalInc, true)}
@@ -1783,6 +1787,7 @@ function moneyOrDash(n: number | null | undefined): string {
 function wdmSummary(c: WasteDisposalManifestContent): string {
   const t = c.totals
   const loads = c.loads ?? []
+  const anyOther = loads.some(load => (load.other_ex ?? 0) > 0 || (load.other_inc ?? 0) > 0)
   const indexTable = loads.length
     ? `
     <table class="wdm-break">
@@ -1793,7 +1798,7 @@ function wdmSummary(c: WasteDisposalManifestContent): string {
           <th rowspan="2">Volume</th>
           <th rowspan="2">Weight</th>
           <th class="g-name g-skip g-start" colspan="2">Skip</th>
-          <th class="g-name g-trailer g-start" colspan="2">Trailer</th>
+          <th class="g-name g-trailer g-start" colspan="2">${anyOther ? 'Trailer / other' : 'Trailer'}</th>
           <th class="g-name g-ute g-start" colspan="2">Ute</th>
           <th class="g-name g-tip g-start" colspan="2">Tip</th>
           <th class="g-name g-total g-start" colspan="2">Load total</th>
@@ -1814,6 +1819,8 @@ function wdmSummary(c: WasteDisposalManifestContent): string {
           const fallback = [load.dump_fee, load.skip_cost].reduce<number>((sum, n) => sum + (n ?? 0), 0)
           const costInc = load.cost_inc ?? load.cost ?? (fallback ? fallback : null)
           const costEx = load.cost_ex ?? (costInc != null ? Math.round(costInc / 1.1 * 100) / 100 : null)
+          const trailerOtherEx = Math.round(((load.trailer_ex ?? 0) + (load.other_ex ?? 0)) * 100) / 100
+          const trailerOtherInc = Math.round(((load.trailer_inc ?? 0) + (load.other_inc ?? 0)) * 100) / 100
           return `
           <tr>
             <td>${load.load_number}</td>
@@ -1822,8 +1829,8 @@ function wdmSummary(c: WasteDisposalManifestContent): string {
             <td>${load.weight_kg != null ? esc(formatKg(load.weight_kg)) : '—'}</td>
             <td class="r g-skip g-start">${moneyOrDash(load.skip_ex)}</td>
             <td class="r g-skip">${moneyOrDash(load.skip_inc)}</td>
-            <td class="r g-trailer g-start">${moneyOrDash(load.trailer_ex)}</td>
-            <td class="r g-trailer">${moneyOrDash(load.trailer_inc)}</td>
+            <td class="r g-trailer g-start">${moneyOrDash(trailerOtherEx)}</td>
+            <td class="r g-trailer">${moneyOrDash(trailerOtherInc)}</td>
             <td class="r g-ute g-start">${moneyOrDash(load.ute_ex)}</td>
             <td class="r g-ute">${moneyOrDash(load.ute_inc)}</td>
             <td class="r g-tip g-start">${moneyOrDash(load.dump_ex)}</td>

@@ -1,7 +1,7 @@
 import type { AssessmentData, DisposalManifestCapture, Document, QuoteGstMode, QuoteSpoke, StatementLedgerLine, StatementOfAccountsContent } from '@/lib/types'
 import { parsePhoneNumberFromString } from 'libphonenumber-js'
 import { houseSurveyWithQuote, quoteSurveyLink, quotedVersusMeasured } from '@/lib/surveyQuoteLink'
-import { computeDisposalTotals, disposalCaptureWithQuote, quoteDisposalLink, disposalPriceLines, formatAud, formatKg, formatM3, loadHasContent, vehicleVolumeM3 } from '@/lib/disposalManifest'
+import { computeDisposalTotals, disposalCaptureWithQuote, quoteDisposalLink, disposalPriceLines, formatAud, formatKg, formatM3, loadHasContent, vehicleBilledM3 } from '@/lib/disposalManifest'
 import { houseSurveyDocument, surveyPrice } from '@/lib/houseSurvey'
 import { getQuoteSpokes } from '@/lib/quoteSpokes'
 import {
@@ -224,17 +224,19 @@ function formatSqm(n: number): string {
   return `${text} m²`
 }
 
-/** Cubic metres from each vehicle's length, width, and height, split the same way as the price. */
-function disposalVolumes(loads: Parameters<typeof computeDisposalTotals>[0]): { skip: string; trailer: string; ute: string } {
+/** Billed cubic metres for each vehicle (or its dimensions when blank), split the same way as the price. */
+function disposalVolumes(loads: Parameters<typeof computeDisposalTotals>[0]): { skip: string; trailer: string; ute: string; other: string } {
   let skip = 0
   let trailer = 0
   let ute = 0
+  let other = 0
   let skipN = 0
   let trailerN = 0
   let uteN = 0
+  let otherN = 0
   for (const load of loads) {
     for (const vehicle of load.vehicles) {
-      const volume = vehicleVolumeM3(vehicle)
+      const volume = vehicleBilledM3(vehicle, load)
       if (volume == null) continue
       if (vehicle.type === 'skip') {
         skip += volume
@@ -242,6 +244,9 @@ function disposalVolumes(loads: Parameters<typeof computeDisposalTotals>[0]): { 
       } else if (vehicle.type === 'ute') {
         ute += volume
         uteN += 1
+      } else if (vehicle.type === 'other') {
+        other += volume
+        otherN += 1
       } else {
         trailer += volume
         trailerN += 1
@@ -252,6 +257,7 @@ function disposalVolumes(loads: Parameters<typeof computeDisposalTotals>[0]): { 
     skip: skipN > 0 ? formatM3(round2(skip)) : '',
     trailer: trailerN > 0 ? formatM3(round2(trailer)) : '',
     ute: uteN > 0 ? formatM3(round2(ute)) : '',
+    other: otherN > 0 ? formatM3(round2(other)) : '',
   }
 }
 
@@ -509,6 +515,9 @@ export function statementReferencePanel(
   }
   if (priced(disposalPrices.utes_ex) || volumes.ute) {
     disposalLines.push({ label: 'Ute', ex: disposalPrices.utes_ex, inc: disposalPrices.utes_inc, quantity: volumes.ute })
+  }
+  if (priced(disposalPrices.others_ex) || volumes.other) {
+    disposalLines.push({ label: 'Other', ex: disposalPrices.others_ex, inc: disposalPrices.others_inc, quantity: volumes.other })
   }
   if (priced(disposalPrices.dump_fees_inc) || weight) {
     disposalLines.push({ label: 'Tip fees', ex: disposalPrices.dump_fees_ex, inc: disposalPrices.dump_fees_inc, quantity: weight })

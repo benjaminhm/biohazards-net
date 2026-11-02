@@ -1931,6 +1931,8 @@ export interface WasteDisposalManifestLoadSnapshot {
   trailer_inc?: number | null
   ute_ex?: number | null
   ute_inc?: number | null
+  other_ex?: number | null
+  other_inc?: number | null
   dump_ex?: number | null
   dump_inc?: number | null
   distance_km: number | null
@@ -2223,6 +2225,12 @@ export interface WasteDisposalManifestContent {
     trailer_fees_inc?: number | null
     ute_fees_ex?: number | null
     ute_fees_inc?: number | null
+    other_fees_ex?: number | null
+    other_fees_inc?: number | null
+    skip_hire_ex?: number | null
+    skip_hire_inc?: number | null
+    skip_waste_ex?: number | null
+    skip_waste_inc?: number | null
   }
 }
 

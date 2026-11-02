@@ -41,6 +41,7 @@ import {
   loadHasSkipVehicle,
   loadOriginLatLng,
   loadSkipOnly,
+  loadVolumeM3,
   looksLikeCoordLabel,
   looksLikeMillimetres,
   dimensionTrioToMetres,
@@ -1429,19 +1430,19 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
       {capture.loads.map((load, index) => {
         const open = desktop || openId === load.id
         const typeBits = load.vehicles.map(v => vehicleTypeLabel(v.type)).filter(Boolean)
-        const vol = load.vehicles.reduce((n, v) => n + (vehicleVolumeM3(v) ?? 0), 0)
-        const volRecorded = load.vehicles.some(v => vehicleVolumeM3(v) != null)
+        const vol = loadVolumeM3(load)
+        const volRecorded = vol != null
         const skipOnly = loadSkipOnly(load)
         const hasSkip = loadHasSkipVehicle(load)
         const skipCostSum = load.vehicles.reduce(
           (n, v) => n + (v.type === 'skip' && v.skip_cost != null ? v.skip_cost : 0),
           0,
         )
-        const skipCostRecorded = load.vehicles.some(v => v.type === 'skip' && v.skip_cost != null)
+        const skipCostRecorded = load.vehicles.some(v => v.type === 'skip' && v.skip_cost != null && v.skip_cost > 0)
         const titleBits = [
           typeBits.length ? typeBits.join(' + ') : null,
           contentsLabel(load) || null,
-          volRecorded ? formatM3(Math.round(vol * 100) / 100) : null,
+          volRecorded ? formatM3(vol) : null,
           load.weight_kg != null ? formatKg(load.weight_kg) : null,
           skipCostRecorded ? formatAud(Math.round(skipCostSum * 100) / 100) : null,
         ].filter(Boolean)
@@ -1658,7 +1659,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                       </div>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
                         <div>
-                          <label style={LABEL}>Sqm</label>
+                          <label style={LABEL}>Billed m³</label>
                           <input
                             type="number"
                             min={0}
@@ -2334,12 +2335,27 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
           <span style={{ textAlign: 'right' }}>Before GST</span>
           <span style={{ textAlign: 'right' }}>Amount</span>
         </div>
-        {prices.skips_inc > 0 && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr', gap: 8, marginBottom: 6 }}>
-            <span style={{ color: 'var(--text-muted)' }}>Skips</span>
-            <span style={{ textAlign: 'right' }}>{formatAud(prices.skips_ex)}</span>
-            <span style={{ textAlign: 'right' }}>{formatAud(prices.skips_inc)}</span>
-          </div>
+        {prices.skip_waste_ex > 0 && prices.skip_hire_inc > 0 ? (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr', gap: 8, marginBottom: 6 }}>
+              <span style={{ color: 'var(--text-muted)' }}>Skips (waste)</span>
+              <span style={{ textAlign: 'right' }}>{formatAud(prices.skip_waste_ex)}</span>
+              <span style={{ textAlign: 'right' }}>{formatAud(prices.skip_waste_inc)}</span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr', gap: 8, marginBottom: 6 }}>
+              <span style={{ color: 'var(--text-muted)' }}>Skip hire</span>
+              <span style={{ textAlign: 'right' }}>{formatAud(prices.skip_hire_ex)}</span>
+              <span style={{ textAlign: 'right' }}>{formatAud(prices.skip_hire_inc)}</span>
+            </div>
+          </>
+        ) : (
+          prices.skips_inc > 0 && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr', gap: 8, marginBottom: 6 }}>
+              <span style={{ color: 'var(--text-muted)' }}>Skips</span>
+              <span style={{ textAlign: 'right' }}>{formatAud(prices.skips_ex)}</span>
+              <span style={{ textAlign: 'right' }}>{formatAud(prices.skips_inc)}</span>
+            </div>
+          )
         )}
         {prices.trailers_ex > 0 && (
           <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr', gap: 8, marginBottom: 6 }}>
@@ -2353,6 +2369,13 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
             <span style={{ color: 'var(--text-muted)' }}>Utes</span>
             <span style={{ textAlign: 'right' }}>{formatAud(prices.utes_ex)}</span>
             <span style={{ textAlign: 'right' }}>{formatAud(prices.utes_inc)}</span>
+          </div>
+        )}
+        {prices.others_ex > 0 && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr', gap: 8, marginBottom: 6 }}>
+            <span style={{ color: 'var(--text-muted)' }}>Other</span>
+            <span style={{ textAlign: 'right' }}>{formatAud(prices.others_ex)}</span>
+            <span style={{ textAlign: 'right' }}>{formatAud(prices.others_inc)}</span>
           </div>
         )}
         {prices.dump_fees_inc > 0 && (
