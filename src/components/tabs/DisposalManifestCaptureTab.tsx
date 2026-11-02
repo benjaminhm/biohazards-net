@@ -783,12 +783,27 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
       ...prev,
       loads: prev.loads.map(l => {
         if (l.id !== loadId) return l
-        const next = withMirrors({
+        let next = withMirrors({
           ...l,
           ...(patch.waste_sqm !== undefined ? { waste_sqm: null } : {}),
           ...(patch.waste_price !== undefined ? { waste_price: null } : {}),
           vehicles: l.vehicles.map(v => (v.id === vehicleId ? { ...v, ...patch } : v)),
         })
+        if (patch.type === 'skip' && loadSkipOnly(next)) {
+          next = {
+            ...next,
+            facility: '',
+            dump_location: '',
+            dump_lat: null,
+            dump_lng: null,
+            dump_location_from_photo: false,
+            dump_location_from_device: false,
+            distance_km: null,
+            distance_out_km: null,
+            distance_return_km: null,
+            distance_from_geo: false,
+          }
+        }
         return patch.type !== undefined ? reconcileSkipPricing(next) : next
       }),
     }))
@@ -1265,7 +1280,23 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
             <label style={LABEL}>Vehicle</label>
             <select
               value={capture.defaults.vehicle_type}
-              onChange={e => commitDefaults({ vehicle_type: e.target.value as DisposalVehicle['type'] })}
+              onChange={e => {
+                const nextType = e.target.value as DisposalVehicle['type']
+                commitDefaults(
+                  nextType === 'skip'
+                    ? {
+                        vehicle_type: nextType,
+                        facility: '',
+                        dump_lat: null,
+                        dump_lng: null,
+                        distance_km: null,
+                        distance_out_km: null,
+                        distance_return_km: null,
+                        distance_from_geo: false,
+                      }
+                    : { vehicle_type: nextType },
+                )
+              }}
               style={{ ...INPUT, cursor: 'pointer' }}
             >
               {DISPOSAL_VEHICLE_TYPES.map(t => (
@@ -1356,73 +1387,77 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
               }}
             />
           </div>
-          <div>
-            <label style={LABEL}>Tip destination</label>
-            <AddressAutocomplete
-              value={capture.defaults.facility}
-              lat={capture.defaults.dump_lat}
-              lng={capture.defaults.dump_lng}
-              placeholder="Tip / facility name or address"
-              style={INPUT}
-              onChange={next => {
-                commitDefaults(defaultsWithStraightKm({
-                  facility: next.address,
-                  dump_lat: next.lat,
-                  dump_lng: next.lng,
-                }))
-              }}
-            />
-          </div>
-          <div>
-            <label style={LABEL}>
-              Kilometres
-              <MetaChip show={capture.defaults.distance_from_geo} label="From map" />
-            </label>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
-              <input
-                type="number"
-                min={0}
-                step="0.1"
-                value={capture.defaults.distance_km ?? ''}
-                onChange={e => commitDefaults({
-                  distance_km: e.target.value === '' ? null : Number(e.target.value),
-                  distance_out_km: null,
-                  distance_return_km: null,
-                  distance_from_geo: false,
-                })}
-                placeholder="Auto from origin and tip"
-                style={{ ...INPUT, flex: 1 }}
-              />
-              <button
-                type="button"
-                aria-label="Recalculate round-trip kilometres from origin and tip"
-                title="Recalculate out and return from origin and tip"
-                disabled={distanceBusyId === '__defaults' || saving}
-                onClick={() => void reloadDefaultsDistance()}
-                style={{
-                  ...MOVE_BTN,
-                  width: 44,
-                  height: 'auto',
-                  minHeight: 38,
-                  cursor: distanceBusyId === '__defaults' || saving ? 'not-allowed' : 'pointer',
-                  opacity: distanceBusyId === '__defaults' || saving ? 0.5 : 1,
-                  fontSize: 18,
-                }}
-              >
-                {distanceBusyId === '__defaults' ? '…' : '↻'}
-              </button>
-            </div>
-            {capture.defaults.distance_from_geo && formatDistanceLegs(capture.defaults.distance_out_km, capture.defaults.distance_return_km) && (
-              <div style={{ color: 'var(--muted)', fontSize: 12, marginTop: 6 }}>
-                {formatDistanceLegs(capture.defaults.distance_out_km, capture.defaults.distance_return_km)}
+          {capture.defaults.vehicle_type !== 'skip' && (
+            <>
+              <div>
+                <label style={LABEL}>Tip destination</label>
+                <AddressAutocomplete
+                  value={capture.defaults.facility}
+                  lat={capture.defaults.dump_lat}
+                  lng={capture.defaults.dump_lng}
+                  placeholder="Tip / facility name or address"
+                  style={INPUT}
+                  onChange={next => {
+                    commitDefaults(defaultsWithStraightKm({
+                      facility: next.address,
+                      dump_lat: next.lat,
+                      dump_lng: next.lng,
+                    }))
+                  }}
+                />
               </div>
-            )}
-            {distanceErrors.__defaults && (
-              <div style={{ color: '#F87171', fontSize: 12, marginTop: 6 }}>
-                {distanceErrors.__defaults}
+              <div>
+                <label style={LABEL}>
+                  Kilometres
+                  <MetaChip show={capture.defaults.distance_from_geo} label="From map" />
+                </label>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.1"
+                    value={capture.defaults.distance_km ?? ''}
+                    onChange={e => commitDefaults({
+                      distance_km: e.target.value === '' ? null : Number(e.target.value),
+                      distance_out_km: null,
+                      distance_return_km: null,
+                      distance_from_geo: false,
+                    })}
+                    placeholder="Auto from origin and tip"
+                    style={{ ...INPUT, flex: 1 }}
+                  />
+                  <button
+                    type="button"
+                    aria-label="Recalculate round-trip kilometres from origin and tip"
+                    title="Recalculate out and return from origin and tip"
+                    disabled={distanceBusyId === '__defaults' || saving}
+                    onClick={() => void reloadDefaultsDistance()}
+                    style={{
+                      ...MOVE_BTN,
+                      width: 44,
+                      height: 'auto',
+                      minHeight: 38,
+                      cursor: distanceBusyId === '__defaults' || saving ? 'not-allowed' : 'pointer',
+                      opacity: distanceBusyId === '__defaults' || saving ? 0.5 : 1,
+                      fontSize: 18,
+                    }}
+                  >
+                    {distanceBusyId === '__defaults' ? '…' : '↻'}
+                  </button>
+                </div>
+                {capture.defaults.distance_from_geo && formatDistanceLegs(capture.defaults.distance_out_km, capture.defaults.distance_return_km) && (
+                  <div style={{ color: 'var(--muted)', fontSize: 12, marginTop: 6 }}>
+                    {formatDistanceLegs(capture.defaults.distance_out_km, capture.defaults.distance_return_km)}
+                  </div>
+                )}
+                {distanceErrors.__defaults && (
+                  <div style={{ color: '#F87171', fontSize: 12, marginTop: 6 }}>
+                    {distanceErrors.__defaults}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -1930,97 +1965,101 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                 </button>
 
                 <div style={{ ...LABEL, marginTop: 22 }}>{skipOnly ? 'Collection' : 'Drop-off'}</div>
-                <div>
-                  <label style={LABEL}>
-                    {skipOnly ? 'Skip company / facility' : 'Tip destination'}
-                    <MetaChip show={load.dump_location_from_photo} fromDevice={load.dump_location_from_device} />
-                  </label>
-                  <AddressAutocomplete
-                    value={load.facility || load.dump_location}
-                    lat={load.dump_lat}
-                    lng={load.dump_lng}
-                    placeholder={skipOnly ? 'Skip company or depot' : 'Tip / facility name or address'}
-                    style={INPUT}
-                    onChange={next => {
-                      const origin = loadOriginLatLng(load, job)
-                      const km = distanceFromSiteKm(origin.lat, origin.lng, next.lat, next.lng)
-                      const allow = canAutofillDistance(load)
-                      patchLoad(load.id, {
-                        facility: next.address,
-                        dump_location: next.address,
-                        dump_lat: next.lat,
-                        dump_lng: next.lng,
-                        dump_location_from_photo: false,
-                        dump_location_from_device: false,
-                        ...(allow && km != null
-                          ? geoRoundTripPatch(km, km)
-                          : allow
-                            ? { distance_from_geo: true }
-                            : {}),
-                      })
-                      if (allow) {
-                        void ensureTripDistance(load.id, {
-                          facility: next.address,
-                          dump_location: next.address,
-                          dump_lat: next.lat,
-                          dump_lng: next.lng,
-                        })
-                      }
-                    }}
-                  />
-                </div>
-                <div style={{ marginTop: 12 }}>
-                  <label style={LABEL}>
-                    Distance (km)
-                    <MetaChip show={load.distance_from_geo} label="From map" />
-                  </label>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.1"
-                      value={load.distance_km ?? ''}
-                      onChange={e =>
-                        patchLoad(load.id, {
-                          distance_km: e.target.value === '' ? null : Number(e.target.value),
-                          distance_out_km: null,
-                          distance_return_km: null,
-                          distance_from_geo: false,
-                        })
-                      }
-                      placeholder="Auto from map"
-                      style={{ ...INPUT, flex: 1 }}
-                    />
-                    <button
-                      type="button"
-                      aria-label="Recalculate round-trip distance from pickup and drop-off"
-                      title="Recalculate out and return from pickup and drop-off"
-                      disabled={distanceBusyId === load.id || saving}
-                      onClick={() => void reloadTripDistance(load.id)}
-                      style={{
-                        ...MOVE_BTN,
-                        width: 44,
-                        height: 'auto',
-                        minHeight: 38,
-                        cursor: distanceBusyId === load.id || saving ? 'not-allowed' : 'pointer',
-                        opacity: distanceBusyId === load.id || saving ? 0.5 : 1,
-                        fontSize: 18,
-                      }}
-                    >
-                      {distanceBusyId === load.id ? '…' : '↻'}
-                    </button>
-                  </div>
-                  {load.distance_from_geo && formatDistanceLegs(load.distance_out_km, load.distance_return_km) && (
-                    <div style={{ color: 'var(--muted)', fontSize: 12, marginTop: 6 }}>
-                      {formatDistanceLegs(load.distance_out_km, load.distance_return_km)}
+                {!skipOnly && (
+                  <>
+                    <div>
+                      <label style={LABEL}>
+                        Tip destination
+                        <MetaChip show={load.dump_location_from_photo} fromDevice={load.dump_location_from_device} />
+                      </label>
+                      <AddressAutocomplete
+                        value={load.facility || load.dump_location}
+                        lat={load.dump_lat}
+                        lng={load.dump_lng}
+                        placeholder="Tip / facility name or address"
+                        style={INPUT}
+                        onChange={next => {
+                          const origin = loadOriginLatLng(load, job)
+                          const km = distanceFromSiteKm(origin.lat, origin.lng, next.lat, next.lng)
+                          const allow = canAutofillDistance(load)
+                          patchLoad(load.id, {
+                            facility: next.address,
+                            dump_location: next.address,
+                            dump_lat: next.lat,
+                            dump_lng: next.lng,
+                            dump_location_from_photo: false,
+                            dump_location_from_device: false,
+                            ...(allow && km != null
+                              ? geoRoundTripPatch(km, km)
+                              : allow
+                                ? { distance_from_geo: true }
+                                : {}),
+                          })
+                          if (allow) {
+                            void ensureTripDistance(load.id, {
+                              facility: next.address,
+                              dump_location: next.address,
+                              dump_lat: next.lat,
+                              dump_lng: next.lng,
+                            })
+                          }
+                        }}
+                      />
                     </div>
-                  )}
-                  {distanceErrors[load.id] && (
-                    <div style={{ color: '#F87171', fontSize: 12, marginTop: 6 }}>
-                      {distanceErrors[load.id]}
+                    <div style={{ marginTop: 12 }}>
+                      <label style={LABEL}>
+                        Distance (km)
+                        <MetaChip show={load.distance_from_geo} label="From map" />
+                      </label>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.1"
+                          value={load.distance_km ?? ''}
+                          onChange={e =>
+                            patchLoad(load.id, {
+                              distance_km: e.target.value === '' ? null : Number(e.target.value),
+                              distance_out_km: null,
+                              distance_return_km: null,
+                              distance_from_geo: false,
+                            })
+                          }
+                          placeholder="Auto from map"
+                          style={{ ...INPUT, flex: 1 }}
+                        />
+                        <button
+                          type="button"
+                          aria-label="Recalculate round-trip distance from pickup and drop-off"
+                          title="Recalculate out and return from pickup and drop-off"
+                          disabled={distanceBusyId === load.id || saving}
+                          onClick={() => void reloadTripDistance(load.id)}
+                          style={{
+                            ...MOVE_BTN,
+                            width: 44,
+                            height: 'auto',
+                            minHeight: 38,
+                            cursor: distanceBusyId === load.id || saving ? 'not-allowed' : 'pointer',
+                            opacity: distanceBusyId === load.id || saving ? 0.5 : 1,
+                            fontSize: 18,
+                          }}
+                        >
+                          {distanceBusyId === load.id ? '…' : '↻'}
+                        </button>
+                      </div>
+                      {load.distance_from_geo && formatDistanceLegs(load.distance_out_km, load.distance_return_km) && (
+                        <div style={{ color: 'var(--muted)', fontSize: 12, marginTop: 6 }}>
+                          {formatDistanceLegs(load.distance_out_km, load.distance_return_km)}
+                        </div>
+                      )}
+                      {distanceErrors[load.id] && (
+                        <div style={{ color: '#F87171', fontSize: 12, marginTop: 6 }}>
+                          {distanceErrors[load.id]}
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
+                  </>
+                )}
                 <div style={{ marginTop: 12 }}>
                   <label style={LABEL}>{skipOnly ? 'Collection photos' : 'Drop-off photos'}</label>
                   {((load.facility_photos ?? []).length > 0) && (

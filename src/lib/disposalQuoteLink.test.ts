@@ -93,3 +93,37 @@ test('skip waste, other vehicles, and billed m3 are included in totals and price
   assert.equal(prices.prepaid_ex, 4500)
   assert.equal(prices.total_ex, 5432.18)
 })
+
+test('selecting skip removes the tip address and distance from defaults and skip-only loads', () => {
+  const ad = {
+    contents_clearance_quote: quote,
+    disposal_manifest_capture: {
+      defaults: {
+        vehicle_type: 'skip',
+        facility: 'Bundaberg Regional Council - Childers Waste Management Facility',
+        dump_lat: -25.23,
+        dump_lng: 152.27,
+        distance_km: 4.2,
+      },
+      loads: [
+        {
+          id: 'l1',
+          vehicles: [{ id: 'v1', type: 'skip', length_m: 5, width_m: 2, height_m: 1 }],
+          facility: 'Bundaberg Regional Council - Childers Waste Management Facility',
+          dump_location: 'Bundaberg Regional Council - Childers Waste Management Facility',
+          dump_lat: -25.23,
+          dump_lng: 152.27,
+          distance_km: 4.2,
+        },
+      ],
+    },
+  } as unknown as AssessmentData
+
+  const capture = disposalCaptureWithQuote(ad)
+  assert.equal(capture.defaults.facility, '')
+  assert.equal(capture.defaults.dump_lat, null)
+  assert.equal(capture.defaults.distance_km, null)
+  assert.equal(capture.loads[0]?.facility, '')
+  assert.equal(capture.loads[0]?.dump_location, '')
+  assert.equal(capture.loads[0]?.distance_km, null)
+})

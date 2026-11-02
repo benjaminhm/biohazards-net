@@ -168,10 +168,11 @@ export function effectiveCostPerM3(capture: Pick<DisposalManifestCapture, 'cost_
   return capture.cost_per_m3 ?? link?.rate_per_m3 ?? null
 }
 
-/** A blank tip takes the quote's tip. Loads still matching the shared tip follow it. */
+/** A blank tip takes the quote's tip (unless the shared vehicle is a skip). Loads still matching the shared tip follow it. */
 export function applyQuoteTipToCapture(capture: DisposalManifestCapture, link: QuoteDisposalLink | null): DisposalManifestCapture {
   if (!link?.tip_address) return capture
   const prev = capture.defaults ?? emptyTripDefaults()
+  if (prev.vehicle_type === 'skip') return capture
   if (prev.facility.trim() || prev.dump_lat != null || prev.dump_lng != null) return capture
   const next: DisposalTripDefaults = {
     ...prev,
@@ -182,7 +183,7 @@ export function applyQuoteTipToCapture(capture: DisposalManifestCapture, link: Q
   return {
     ...capture,
     defaults: next,
-    loads: capture.loads.map(load => applyFollowingDefaults(load, prev, next)),
+    loads: capture.loads.map(load => (loadSkipOnly(load) ? load : applyFollowingDefaults(load, prev, next))),
   }
 }
 
@@ -360,9 +361,11 @@ function withLegacyMirrors(load: DisposalLoad): DisposalLoad {
 function normalizeTripDefaults(raw: unknown): DisposalTripDefaults {
   const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
   const base = emptyTripDefaults()
+  const vehicle_type = vehicleTypeOf(o.vehicle_type) || 'trailer'
+  const isSkip = vehicle_type === 'skip'
   return {
     ...base,
-    vehicle_type: vehicleTypeOf(o.vehicle_type) || 'trailer',
+    vehicle_type,
     size: str(o.size),
     length_m: numOrNull(o.length_m),
     width_m: numOrNull(o.width_m),
@@ -370,13 +373,13 @@ function normalizeTripDefaults(raw: unknown): DisposalTripDefaults {
     location: str(o.location),
     location_lat: numOrNull(o.location_lat),
     location_lng: numOrNull(o.location_lng),
-    facility: str(o.facility) || str(o.dump_location),
-    dump_lat: numOrNull(o.dump_lat),
-    dump_lng: numOrNull(o.dump_lng),
-    distance_km: numOrNull(o.distance_km),
-    distance_out_km: numOrNull(o.distance_out_km),
-    distance_return_km: numOrNull(o.distance_return_km),
-    distance_from_geo: bool(o.distance_from_geo),
+    facility: isSkip ? '' : (str(o.facility) || str(o.dump_location)),
+    dump_lat: isSkip ? null : numOrNull(o.dump_lat),
+    dump_lng: isSkip ? null : numOrNull(o.dump_lng),
+    distance_km: isSkip ? null : numOrNull(o.distance_km),
+    distance_out_km: isSkip ? null : numOrNull(o.distance_out_km),
+    distance_return_km: isSkip ? null : numOrNull(o.distance_return_km),
+    distance_from_geo: isSkip ? false : bool(o.distance_from_geo),
   }
 }
 
@@ -385,6 +388,7 @@ function normalizeLoad(raw: unknown): DisposalLoad {
   const base = emptyDisposalLoad()
   const rawVehicles = Array.isArray(o.vehicles) ? o.vehicles.map(normalizeVehicle) : []
   const vehicles = rawVehicles.length ? rawVehicles : [vehicleFromLegacyLoad(o)]
+  const skipOnly = loadSkipOnly({ vehicles })
   return withLegacyMirrors({
     ...base,
     id: str(o.id) || base.id,
@@ -409,20 +413,20 @@ function normalizeLoad(raw: unknown): DisposalLoad {
     dump_time: str(o.dump_time),
     dump_datetime_from_photo: bool(o.dump_datetime_from_photo),
     dump_datetime_from_device: bool(o.dump_datetime_from_device),
-    dump_location: str(o.dump_location),
-    dump_lat: numOrNull(o.dump_lat),
-    dump_lng: numOrNull(o.dump_lng),
-    dump_location_from_photo: bool(o.dump_location_from_photo),
-    dump_location_from_device: bool(o.dump_location_from_device),
+    dump_location: skipOnly ? '' : str(o.dump_location),
+    dump_lat: skipOnly ? null : numOrNull(o.dump_lat),
+    dump_lng: skipOnly ? null : numOrNull(o.dump_lng),
+    dump_location_from_photo: skipOnly ? false : bool(o.dump_location_from_photo),
+    dump_location_from_device: skipOnly ? false : bool(o.dump_location_from_device),
     weight_kg: numOrNull(o.weight_kg),
     waste_sqm: numOrNull(o.waste_sqm),
     waste_price: numOrNull(o.waste_price),
     dump_fee: numOrNull(o.dump_fee),
-    distance_km: numOrNull(o.distance_km),
-    distance_out_km: numOrNull(o.distance_out_km),
-    distance_return_km: numOrNull(o.distance_return_km),
-    distance_from_geo: bool(o.distance_from_geo),
-    facility: str(o.facility),
+    distance_km: skipOnly ? null : numOrNull(o.distance_km),
+    distance_out_km: skipOnly ? null : numOrNull(o.distance_out_km),
+    distance_return_km: skipOnly ? null : numOrNull(o.distance_return_km),
+    distance_from_geo: skipOnly ? false : bool(o.distance_from_geo),
+    facility: skipOnly ? '' : str(o.facility),
     notes: str(o.notes),
     facility_photos: normalizePhotoList(o.facility_photos),
   })
@@ -670,42 +674,57 @@ export function applyFollowingDefaults(
     }
   }
 
-  const nextTip = next.facility.trim()
-  if (
-    nextTip &&
-    addressFollows(loadTipText(nextLoad), prev.facility) &&
-    (loadTipText(nextLoad) !== nextTip ||
-      nextLoad.dump_lat !== next.dump_lat ||
-      nextLoad.dump_lng !== next.dump_lng)
-  ) {
+  if (loadSkipOnly(nextLoad)) {
     nextLoad = {
       ...nextLoad,
-      facility: next.facility,
-      dump_location: next.facility,
-      dump_lat: next.dump_lat,
-      dump_lng: next.dump_lng,
+      facility: '',
+      dump_location: '',
+      dump_lat: null,
+      dump_lng: null,
       dump_location_from_photo: false,
       dump_location_from_device: false,
+      distance_km: null,
+      distance_out_km: null,
+      distance_return_km: null,
+      distance_from_geo: false,
     }
-  }
+  } else {
+    const nextTip = next.facility.trim()
+    if (
+      addressFollows(loadTipText(nextLoad), prev.facility) &&
+      (loadTipText(nextLoad) !== nextTip ||
+        nextLoad.dump_lat !== next.dump_lat ||
+        nextLoad.dump_lng !== next.dump_lng)
+    ) {
+      nextLoad = {
+        ...nextLoad,
+        facility: next.facility,
+        dump_location: next.facility,
+        dump_lat: next.dump_lat,
+        dump_lng: next.dump_lng,
+        dump_location_from_photo: false,
+        dump_location_from_device: false,
+      }
+    }
 
-  const routeMatches =
-    (!next.location.trim() || nextLoad.location.trim() === next.location.trim()) &&
-    (!nextTip || loadTipText(nextLoad) === nextTip)
-  if (
-    routeMatches &&
-    distanceFollows(nextLoad, prev) &&
-    (nextLoad.distance_km !== next.distance_km ||
-      nextLoad.distance_out_km !== next.distance_out_km ||
-      nextLoad.distance_return_km !== next.distance_return_km ||
-      nextLoad.distance_from_geo !== next.distance_from_geo)
-  ) {
-    nextLoad = {
-      ...nextLoad,
-      distance_km: next.distance_km,
-      distance_out_km: next.distance_out_km,
-      distance_return_km: next.distance_return_km,
-      distance_from_geo: next.distance_from_geo,
+    const routeMatches =
+      (!next.location.trim() || nextLoad.location.trim() === next.location.trim()) &&
+      (!nextTip || loadTipText(nextLoad) === nextTip)
+    if (
+      routeMatches &&
+      distanceFollows(nextLoad, prev) &&
+      (nextLoad.distance_km !== next.distance_km ||
+        nextLoad.distance_out_km !== next.distance_out_km ||
+        nextLoad.distance_return_km !== next.distance_return_km ||
+        nextLoad.distance_from_geo !== next.distance_from_geo)
+    ) {
+      nextLoad = {
+        ...nextLoad,
+        distance_km: next.distance_km,
+        distance_out_km: next.distance_out_km,
+        distance_return_km: next.distance_return_km,
+        distance_from_geo: next.distance_from_geo,
+      }
     }
   }
 
@@ -725,7 +744,8 @@ export function loadFromTripDefaults(load: DisposalLoad, defaults: DisposalTripD
     height_m: defaults.height_m ?? vehicle.height_m,
   }
   const origin = defaults.location.trim()
-  const tip = defaults.facility.trim()
+  const isSkip = nextVehicle.type === 'skip'
+  const tip = isSkip ? '' : defaults.facility.trim()
   return reconcileSkipPricing(withLegacyMirrors({
     ...load,
     vehicles: [nextVehicle, ...load.vehicles.slice(1)],
@@ -733,14 +753,14 @@ export function loadFromTripDefaults(load: DisposalLoad, defaults: DisposalTripD
     location_lat: origin ? defaults.location_lat : load.location_lat,
     location_lng: origin ? defaults.location_lng : load.location_lng,
     location_from_photo: origin ? false : load.location_from_photo,
-    facility: tip || load.facility,
-    dump_location: tip || load.dump_location,
-    dump_lat: tip ? defaults.dump_lat : load.dump_lat,
-    dump_lng: tip ? defaults.dump_lng : load.dump_lng,
-    distance_km: defaults.distance_km ?? load.distance_km,
-    distance_out_km: defaults.distance_out_km ?? load.distance_out_km,
-    distance_return_km: defaults.distance_return_km ?? load.distance_return_km,
-    distance_from_geo: defaults.distance_km != null ? defaults.distance_from_geo : load.distance_from_geo,
+    facility: isSkip ? '' : (tip || load.facility),
+    dump_location: isSkip ? '' : (tip || load.dump_location),
+    dump_lat: isSkip ? null : (tip ? defaults.dump_lat : load.dump_lat),
+    dump_lng: isSkip ? null : (tip ? defaults.dump_lng : load.dump_lng),
+    distance_km: isSkip ? null : (defaults.distance_km ?? load.distance_km),
+    distance_out_km: isSkip ? null : (defaults.distance_out_km ?? load.distance_out_km),
+    distance_return_km: isSkip ? null : (defaults.distance_return_km ?? load.distance_return_km),
+    distance_from_geo: isSkip ? false : (defaults.distance_km != null ? defaults.distance_from_geo : load.distance_from_geo),
   }))
 }
 
