@@ -28,7 +28,7 @@
  */
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
-import { accountsHostTradingName } from '@/lib/tradingNames'
+import { accountsHostTradingName, isPhotoCaptureHost } from '@/lib/tradingNames'
 import {
   STAFF_COOKIE,
   STAFF_SESSION_MAX_AGE,
@@ -56,11 +56,13 @@ function isPublicPath(pathname: string): boolean {
   if (pathname.startsWith('/site')) return true
   if (pathname === '/portal' || pathname.startsWith('/portal/')) return true
   if (pathname.startsWith('/api/portal')) return true
+  if (pathname === '/photo' || pathname.startsWith('/photo/')) return true
+  if (pathname === '/api/photo' || pathname.startsWith('/api/photo/')) return true
   if (isSharedAsset(pathname)) return true
   return false
 }
 
-const RESERVED_SUBDOMAINS = new Set(['www', 'app', 'login', 'platform', 'admin', 'accounts'])
+const RESERVED_SUBDOMAINS = new Set(['www', 'app', 'login', 'platform', 'admin', 'accounts', 'photo'])
 
 function isSharedAsset(pathname: string): boolean {
   return (
@@ -88,6 +90,27 @@ export async function proxy(request: NextRequest) {
 
   const isPortalPath =
     pathname === '/portal' || pathname.startsWith('/portal/') || pathname.startsWith('/api/portal')
+  const isPhotoPath =
+    pathname === '/photo' || pathname.startsWith('/photo/') || pathname === '/api/photo' || pathname.startsWith('/api/photo/')
+
+  if (isPhotoCaptureHost(host)) {
+    requestHeaders.set('x-subdomain', 'photo')
+    if (isSharedAsset(pathname)) {
+      return NextResponse.next({ request: { headers: requestHeaders } })
+    }
+    if (pathname === '/') {
+      const url = request.nextUrl.clone()
+      url.pathname = '/photo'
+      return NextResponse.rewrite(url, { request: { headers: requestHeaders } })
+    }
+    if (!isPhotoPath) {
+      return new NextResponse('Not found', { status: 404 })
+    }
+    return NextResponse.next({ request: { headers: requestHeaders } })
+  }
+  if (isPhotoPath) {
+    requestHeaders.set('x-subdomain', 'photo')
+  }
 
   const portalOnAppOrigin = isLocalDev || process.env.VERCEL_ENV === 'preview'
   const accountsBrand =

@@ -1281,7 +1281,25 @@ export default function JobPage() {
                   : `${JOB_TYPE_LABELS[job.job_type] ?? job.job_type} · ${job.site_address.split(',')[0]}`}
               </div>
             </div>
-            <div data-devid="P2-E2" style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+            <div data-devid="P2-E2" style={{ display: 'flex', gap: 6, flexShrink: 0, alignItems: 'center' }}>
+              {job.job_code && (
+                <span
+                  title="4-digit dispatch / photo code for photo.forensiccleaningqld.com.au"
+                  style={{
+                    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                    fontSize: 12,
+                    fontWeight: 800,
+                    letterSpacing: '0.08em',
+                    padding: '3px 8px',
+                    borderRadius: 6,
+                    background: 'rgba(255, 107, 53, 0.16)',
+                    color: 'var(--accent)',
+                    border: '1px solid rgba(255, 107, 53, 0.35)',
+                  }}
+                >
+                  CODE {job.job_code}
+                </span>
+              )}
               <span className={`badge badge-${job.status}`}>{STATUS_LABELS[job.status]}</span>
               <span className={`badge badge-${job.urgency}`}>{job.urgency}</span>
             </div>

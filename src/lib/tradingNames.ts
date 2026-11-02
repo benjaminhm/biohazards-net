@@ -31,6 +31,11 @@ export interface TradingNameOption {
    * and DNS, otherwise the host resolves to nothing.
    */
   accountsHost?: string
+  /**
+   * Host serving the standalone PIN-authenticated photo capture app
+   * (e.g. photo.forensiccleaningqld.com.au).
+   */
+  photoHost?: string
 }
 
 /** Default reply-to on Authorisation to Proceed when Settings email is empty. */
@@ -49,6 +54,7 @@ export const TRADING_NAME_OPTIONS: TradingNameOption[] = [
     email: 'admin@forensiccleaningqld.com.au',
     useWordmark: true,
     accountsHost: 'accounts.forensiccleaningqld.com.au',
+    photoHost: 'photo.forensiccleaningqld.com.au',
   },
 ]
 
@@ -71,6 +77,17 @@ export function accountsHostTradingName(host: string | null | undefined): Tradin
   if (!normalised) return null
   const match = TRADING_NAME_OPTIONS.find(o => o.accountsHost?.toLowerCase() === normalised)
   return match?.id ?? null
+}
+
+/**
+ * True when the request host is a standalone photo capture host
+ * (e.g. photo.forensiccleaningqld.com.au or photo.biohazards.net).
+ */
+export function isPhotoCaptureHost(host: string | null | undefined): boolean {
+  const normalised = (host ?? '').split(':')[0].trim().toLowerCase()
+  if (!normalised) return false
+  if (normalised === 'photo.biohazards.net' || normalised === 'photo.forensiccleaningqld.com.au') return true
+  return TRADING_NAME_OPTIONS.some(o => o.photoHost?.toLowerCase() === normalised)
 }
 
 /** Absolute base URL of a brand's accounts portal, for links in emails. */

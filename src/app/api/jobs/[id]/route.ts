@@ -58,6 +58,12 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     if (jobRes.error) throw jobRes.error
 
     let job = jobRes.data
+    if (job && !(job as { job_code?: string | null }).job_code) {
+      const { generateUniqueJobCode } = await import('@/lib/jobCode')
+      const generatedCode = await generateUniqueJobCode(supabase, orgId)
+      await supabase.from('jobs').update({ job_code: generatedCode }).eq('id', id).eq('org_id', orgId)
+      job = { ...job, job_code: generatedCode }
+    }
     let inbound_email_address: string | null = null
     if (job) {
       const ensured = await ensureJobInboundEmailToken(id, orgId)

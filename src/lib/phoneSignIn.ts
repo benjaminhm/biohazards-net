@@ -19,9 +19,22 @@ export interface PhoneSignInPerson {
   email: string | null
   phone_sign_in: boolean
   app_role: string | null
+  photo_pin: string | null
+  person_code: string
 }
 
-type PersonRow = { id: string; name: string; email: string | null; status: string | null; org_id: string | null }
+export function personShortCode(personId: string): string {
+  return `U-${personId.replace(/-/g, '').slice(0, 6).toUpperCase()}`
+}
+
+type PersonRow = {
+  id: string
+  name: string
+  email: string | null
+  status: string | null
+  org_id: string | null
+  photo_pin?: string | null
+}
 type AccessRow = { id: string; person_id: string | null; role: string | null; is_active: boolean | null }
 
 export type PhoneSignInResult =
@@ -51,6 +64,8 @@ function toListItem(person: PersonRow, access: AccessRow | undefined): PhoneSign
     email: person.email,
     phone_sign_in: active,
     app_role: active ? (access?.role ?? null) : null,
+    photo_pin: person.photo_pin ?? null,
+    person_code: personShortCode(person.id),
   }
 }
 
@@ -60,7 +75,7 @@ export async function listPhoneSignIn(
 ): Promise<PhoneSignInPerson[]> {
   const { data: people, error } = await supabase
     .from('people')
-    .select('id, name, email, status, org_id')
+    .select('id, name, email, status, org_id, photo_pin')
     .eq('org_id', orgId)
     .eq('status', 'active')
     .order('name')
@@ -90,7 +105,7 @@ export async function setPhoneSignIn(
 ): Promise<PhoneSignInResult> {
   const { data: person, error: personError } = await supabase
     .from('people')
-    .select('id, name, email, status, org_id')
+    .select('id, name, email, status, org_id, photo_pin')
     .eq('id', personId)
     .eq('org_id', orgId)
     .maybeSingle()
@@ -175,7 +190,60 @@ export async function archivePerson(
     .eq('id', personId)
     .eq('org_id', orgId)
   if (error) return { ok: false, error: error.message, status: 500 }
-  return off.ok ? off : { ok: true, person: { id: personId, name: '', email: null, phone_sign_in: false, app_role: null } }
+  return off.ok ? off : { ok: true, person: { id: personId, name: '', email: null, phone_sign_in: false, app_role: null, photo_pin: null, person_code: personShortCode(personId) } }
+}
+
+export async function setPersonPhotoPin(
+  supabase: SupabaseClient,
+  orgId: string,
+  personId: string,
+  rawPin: string | null,
+): Promise<PhoneSignInResult> {
+  const pin = (rawPin ?? '').trim()
+  if (pin !== '' && !/^\d{4}$/.test(pin)) {
+    return { ok: false, error: 'Photo PIN must be exactly 4 digits.', status: 400 }
+  }
+  const { data: person, error: personError } = await supabase
+    .from('people')
+    .select('id, name, email, status, org_id, photo_pin')
+    .eq('id', personId)
+    .eq('org_id', orgId)
+    .maybeSingle()
+  if (personError) return { ok: false, error: personError.message, status: 500 }
+  if (!person) return { ok: false, error: 'That person was not found.', status: 404 }
+
+  if (pin) {
+    const { data: existing } = await supabase
+      .from('people')
+      .select('id, name')
+      .eq('org_id', orgId)
+      .eq('status', 'active')
+      .eq('photo_pin', pin)
+      .neq('id', personId)
+      .maybeSingle()
+    if (existing) {
+      return { ok: false, error: `PIN ${pin} is already used by ${existing.name}.`, status: 400 }
+    }
+  }
+
+  const nextPin = pin || null
+  const { error: updateError } = await supabase
+    .from('people')
+    .update({ photo_pin: nextPin })
+    .eq('id', personId)
+    .eq('org_id', orgId)
+  if (updateError) return { ok: false, error: updateError.message, status: 500 }
+
+  const { data: rows } = await supabase
+    .from('org_users')
+    .select('id, person_id, role, is_active')
+    .eq('org_id', orgId)
+    .eq('person_id', personId)
+  const access = ((rows ?? []) as AccessRow[]).find(r => r.is_active) ?? (rows?.[0] as AccessRow | undefined)
+  return {
+    ok: true,
+    person: toListItem({ ...(person as PersonRow), photo_pin: nextPin }, access),
+  }
 }
 
 export async function createTechnician(

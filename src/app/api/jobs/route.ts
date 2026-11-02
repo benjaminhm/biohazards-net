@@ -15,6 +15,7 @@ import { getOrgId } from '@/lib/org'
 import { normalizeOptionalPhoneField } from '@/lib/phone'
 import { ensureJobInboundEmailToken } from '@/lib/jobInboundEmail'
 import { isTradingNameId } from '@/lib/tradingNames'
+import { generateUniqueJobCode } from '@/lib/jobCode'
 
 export async function GET(req: Request) {
   try {
@@ -161,9 +162,11 @@ export async function POST(req: Request) {
     }
 
     const supabase = createServiceClient()
+    const job_code = await generateUniqueJobCode(supabase, orgId)
     const { data, error } = await supabase
       .from('jobs')
       .insert({
+        job_code,
         client_name,
         client_organization_name: str('client_organization_name'),
         client_contact_role: str('client_contact_role'),

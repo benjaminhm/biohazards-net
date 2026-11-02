@@ -5,9 +5,10 @@ import { ScreenBar } from '@/components/records/ScreenBar'
 
 const LINKS = [
   { href: '/records/jobs', label: 'Jobs', sub: 'Create a job and assign it' },
+  { href: '/records/photos', label: 'Field Photos', sub: 'Standalone PIN camera captures' },
   { href: '/records/templates', label: 'Templates', sub: 'Steps for each job type' },
   { href: '/records/chemicals', label: 'Chemicals', sub: 'Name and dwell time' },
-  { href: '/records/technicians', label: 'Technicians', sub: 'Who can sign in on the phone' },
+  { href: '/records/technicians', label: 'Technicians', sub: 'Phone sign-in & 4-digit Photo PINs' },
   { href: '/records/rates', label: 'Rates', sub: 'Bonus amounts' },
   { href: '/records/exports', label: 'Exports', sub: 'Timesheets and bonus statements' },
 ]

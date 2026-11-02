@@ -1299,6 +1299,8 @@ export type JobTradingName = 'brisbane_biohazard_cleaning' | 'forensic_cleaning_
 
 export interface Job {
   id: string
+  /** 4-digit dispatch / photo capture code (e.g. "4821"), generated when the job is created. */
+  job_code?: string | null
   /** Present when job payload is scoped to an org (API validation). */
   org_id?: string
   status: JobStatus

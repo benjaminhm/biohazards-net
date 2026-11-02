@@ -25,6 +25,23 @@ import { isTradingNameId, tradingNameOption } from '@/lib/tradingNames'
 export async function generateMetadata(): Promise<Metadata> {
   const headersList = await headers()
 
+  if (headersList.get('x-subdomain') === 'photo') {
+    return {
+      title: 'Field Photo Capture — Forensic Cleaning QLD',
+      description: 'Timestamped, geolocated field photo capture',
+      robots: { index: false, follow: false },
+      appleWebApp: {
+        capable: true,
+        statusBarStyle: 'black-translucent',
+        title: 'FCQ Photo',
+      },
+      icons: {
+        icon: '/icon-192.png',
+        apple: '/apple-touch-icon.png',
+      },
+    }
+  }
+
   if (headersList.get('x-subdomain') === 'accounts') {
     const id = headersList.get('x-portal-trading-name')
     const brand = (isTradingNameId(id) ? tradingNameOption(id)?.label : null) ?? 'Accounts'
@@ -61,6 +78,17 @@ export const viewport: Viewport = {
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const headersList = await headers()
+
+  if (headersList.get('x-subdomain') === 'photo') {
+    return (
+      <html lang="en">
+        <body>
+          <ServiceWorkerRegistration />
+          {children}
+        </body>
+      </html>
+    )
+  }
 
   if (headersList.get('x-subdomain') === 'accounts') {
     return (

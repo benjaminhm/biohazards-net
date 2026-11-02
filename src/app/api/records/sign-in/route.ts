@@ -9,7 +9,7 @@ import { NextResponse } from 'next/server'
 import { auth } from '@/lib/staffAuth'
 import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
-import { archivePerson, createTechnician, listPhoneSignIn, setPhoneSignIn } from '@/lib/phoneSignIn'
+import { archivePerson, createTechnician, listPhoneSignIn, setPersonPhotoPin, setPhoneSignIn } from '@/lib/phoneSignIn'
 
 async function requireAdmin(req: Request): Promise<
   | { ok: true; orgId: string; supabase: ReturnType<typeof createServiceClient> }
@@ -68,11 +68,17 @@ export async function PATCH(req: Request) {
   let personId = ''
   let enabled = false
   let archive = false
+  let hasPhotoPin = false
+  let photoPin: string | null = null
   try {
     const body = await req.json()
     personId = typeof body?.person_id === 'string' ? body.person_id : ''
     enabled = body?.enabled === true
     archive = body?.archive === true
+    if (body && typeof body === 'object' && 'photo_pin' in body) {
+      hasPhotoPin = true
+      photoPin = typeof body.photo_pin === 'string' ? body.photo_pin : null
+    }
   } catch {
     return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
   }
@@ -80,7 +86,9 @@ export async function PATCH(req: Request) {
 
   const result = archive
     ? await archivePerson(gate.supabase, gate.orgId, personId)
-    : await setPhoneSignIn(gate.supabase, gate.orgId, personId, enabled)
+    : hasPhotoPin
+      ? await setPersonPhotoPin(gate.supabase, gate.orgId, personId, photoPin)
+      : await setPhoneSignIn(gate.supabase, gate.orgId, personId, enabled)
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status })
   return NextResponse.json({ person: result.person })
 }
