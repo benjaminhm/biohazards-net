@@ -9,6 +9,7 @@ import type {
   DisposalVehicle,
   DisposalVehicleTypeId,
 } from '@/lib/types'
+import { normalizeContentsClearanceCapture } from '@/lib/contentsClearanceQuote'
 
 export const DISPOSAL_CONTENTS_TYPES = [
   { id: 'clinical', label: 'Clinical / biomedical' },
@@ -139,6 +140,57 @@ export function mergedDisposalManifestCapture(ad: AssessmentData | null | undefi
     cost_per_m3: nonNegativeOrNull(rawRecord.cost_per_m3),
     prepaid_m3: nonNegativeOrNull(rawRecord.prepaid_m3),
   }
+}
+
+/** What the Contents Clearance Quote gives the disposal record. */
+export interface QuoteDisposalLink {
+  /** Ex GST rate per cubic metre on the quote. Null when the quote has no rate. */
+  rate_per_m3: number | null
+  /** Cubic metres on the quote. Offered as the prepaid volume, never applied on its own. */
+  quoted_m3: number | null
+  tip_address: string
+  tip_lat: number | null
+  tip_lng: number | null
+}
+
+export function quoteDisposalLink(ad: AssessmentData | null | undefined): QuoteDisposalLink | null {
+  if (!ad?.contents_clearance_quote) return null
+  const quote = normalizeContentsClearanceCapture(ad.contents_clearance_quote)
+  const rate = quote.rate_per_m3 != null && quote.rate_per_m3 > 0 ? quote.rate_per_m3 : null
+  const m3 = quote.estimated_m3 != null && quote.estimated_m3 > 0 ? quote.estimated_m3 : null
+  const tip = quote.tip_address.trim()
+  if (rate == null && m3 == null && !tip) return null
+  return { rate_per_m3: rate, quoted_m3: m3, tip_address: tip, tip_lat: quote.tip_lat, tip_lng: quote.tip_lng }
+}
+
+/** A blank disposal rate follows the quote. A typed rate stays. */
+export function effectiveCostPerM3(capture: Pick<DisposalManifestCapture, 'cost_per_m3'>, link: QuoteDisposalLink | null): number | null {
+  return capture.cost_per_m3 ?? link?.rate_per_m3 ?? null
+}
+
+/** A blank tip takes the quote's tip. Loads still matching the shared tip follow it. */
+export function applyQuoteTipToCapture(capture: DisposalManifestCapture, link: QuoteDisposalLink | null): DisposalManifestCapture {
+  if (!link?.tip_address) return capture
+  const prev = capture.defaults ?? emptyTripDefaults()
+  if (prev.facility.trim() || prev.dump_lat != null || prev.dump_lng != null) return capture
+  const next: DisposalTripDefaults = {
+    ...prev,
+    facility: link.tip_address,
+    dump_lat: link.tip_lat,
+    dump_lng: link.tip_lng,
+  }
+  return {
+    ...capture,
+    defaults: next,
+    loads: capture.loads.map(load => applyFollowingDefaults(load, prev, next)),
+  }
+}
+
+/** Read-only view for documents and the statement: the quote fills a blank rate and tip. */
+export function disposalCaptureWithQuote(ad: AssessmentData | null | undefined): DisposalManifestCapture {
+  const link = quoteDisposalLink(ad)
+  const capture = applyQuoteTipToCapture(mergedDisposalManifestCapture(ad), link)
+  return { ...capture, cost_per_m3: effectiveCostPerM3(capture, link) }
 }
 
 /** Matches formatCoordLabel() — GPS text, not a street address. */

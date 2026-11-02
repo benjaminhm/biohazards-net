@@ -71,13 +71,14 @@ import {
   loadSkipFeeForTotals,
   loadSkipOnly,
   loadVolumeM3,
-  mergedDisposalManifestCapture,
+  disposalCaptureWithQuote,
   photoInCompose,
   vehicleContentsLabel,
   vehicleTypeLabel,
   vehicleVolumeM3,
 } from '@/lib/disposalManifest'
 import { houseSurveyDocument } from '@/lib/houseSurvey'
+import { houseSurveyWithQuote } from '@/lib/surveyQuoteLink'
 import { collectExcludedSurfaces } from '@/lib/areaSurfaces'
 import { effectiveAreaDimensions } from '@/lib/areaSubzones'
 import {
@@ -866,7 +867,7 @@ function composeCod(job: Job): ComposeDocumentResult {
 }
 
 function composeWdm(job: Job): ComposeDocumentResult {
-  const capture = applyJobSiteToCapture(mergedDisposalManifestCapture(job.assessment_data), job)
+  const capture = applyJobSiteToCapture(disposalCaptureWithQuote(job.assessment_data), job)
   const loads = capture.loads.filter(loadHasContent)
   const totals = computeDisposalTotals(loads)
   const waste = disposalWasteCharge(loads, capture.cost_per_m3, capture.prepaid_m3)
@@ -1166,7 +1167,7 @@ function composeBiohazardCleaningQuote(
 
 function composeHouseSurvey(job: Job): ComposeDocumentResult {
   return {
-    content: houseSurveyDocument(job.site_address || '', refPrefix('house_survey', job.id), job.assessment_data?.house_survey) as unknown as Record<string, unknown>,
+    content: houseSurveyDocument(job.site_address || '', refPrefix('house_survey', job.id), houseSurveyWithQuote(job.assessment_data)) as unknown as Record<string, unknown>,
     source: 'assessment_capture',
   }
 }

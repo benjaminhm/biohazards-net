@@ -22,6 +22,9 @@ import {
   applyFollowingDefaults,
   applyJobSiteToCapture,
   applyJobSiteToLoad,
+  applyQuoteTipToCapture,
+  effectiveCostPerM3,
+  quoteDisposalLink,
   computeDisposalTotals,
   disposalPriceLines,
   contentsLabel,
@@ -66,6 +69,18 @@ const INPUT: CSSProperties = {
   border: '1px solid var(--border)',
   background: 'var(--surface-2)',
   color: 'var(--text)',
+}
+
+const QUOTE_LINK_BUTTON: CSSProperties = {
+  marginTop: 6,
+  padding: 0,
+  border: 'none',
+  background: 'none',
+  color: 'var(--accent)',
+  fontSize: 12,
+  fontWeight: 700,
+  cursor: 'pointer',
+  textAlign: 'left',
 }
 
 const LABEL: CSSProperties = {
@@ -315,9 +330,10 @@ function photoLabels(type: DisposalVehicle['type']): { camera: string; skip: str
 
 export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, onPhotosUpdate }: Props) {
   const router = useRouter()
+  const quoteLink = useMemo(() => quoteDisposalLink(job.assessment_data), [job.assessment_data])
   const persisted = useMemo(
-    () => applyJobSiteToCapture(mergedDisposalManifestCapture(job.assessment_data), job),
-    [job.assessment_data, job.updated_at, job.site_address, job.site_lat, job.site_lng],
+    () => applyQuoteTipToCapture(applyJobSiteToCapture(mergedDisposalManifestCapture(job.assessment_data), job), quoteLink),
+    [job.assessment_data, job.updated_at, job.site_address, job.site_lat, job.site_lng, quoteLink],
   )
   const [capture, setCapture] = useState(persisted)
   const [saving, setSaving] = useState(false)
@@ -353,8 +369,8 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
   useRegisterUnsavedChanges('disposal-manifest-capture', isDirty)
 
   useEffect(() => {
-    setCapture(applyJobSiteToCapture(mergedDisposalManifestCapture(job.assessment_data), job))
-  }, [job.id, job.updated_at, job.site_address, job.site_lat, job.site_lng])
+    setCapture(applyQuoteTipToCapture(applyJobSiteToCapture(mergedDisposalManifestCapture(job.assessment_data), job), quoteLink))
+  }, [job.id, job.updated_at, job.site_address, job.site_lat, job.site_lng, quoteLink])
 
   useEffect(() => {
     for (const load of capture.loads) {
@@ -400,9 +416,11 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
   }, [capture.defaults, job.site_lat, job.site_lng, job.site_address])
 
   const totals = useMemo(() => computeDisposalTotals(capture.loads), [capture.loads])
+  const ratePerM3 = effectiveCostPerM3(capture, quoteLink)
+  const rateFromQuote = capture.cost_per_m3 == null && quoteLink?.rate_per_m3 != null
   const prices = useMemo(
-    () => disposalPriceLines(capture.loads, capture.cost_per_m3, capture.prepaid_m3),
-    [capture.loads, capture.cost_per_m3, capture.prepaid_m3],
+    () => disposalPriceLines(capture.loads, ratePerM3, capture.prepaid_m3),
+    [capture.loads, ratePerM3, capture.prepaid_m3],
   )
 
   function touch() {
@@ -1179,7 +1197,10 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
         <div style={{ display: 'grid', gap: 12 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             <div>
-              <label style={LABEL}>Cost per m³ (ex GST) ($)</label>
+              <label style={LABEL}>
+                Cost per m³ (ex GST) ($)
+                <MetaChip show={rateFromQuote} label="From CCQ" />
+              </label>
               <input
                 type="number"
                 min={0}
@@ -1190,9 +1211,21 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                   setCapture(prev => ({ ...prev, cost_per_m3: raw === '' ? null : Number(raw) }))
                   touch()
                 }}
-                placeholder="0.00"
+                placeholder={quoteLink?.rate_per_m3 != null ? quoteLink.rate_per_m3.toFixed(2) : '0.00'}
                 style={INPUT}
               />
+              {quoteLink?.rate_per_m3 != null && capture.cost_per_m3 != null && capture.cost_per_m3 !== quoteLink.rate_per_m3 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCapture(prev => ({ ...prev, cost_per_m3: null }))
+                    touch()
+                  }}
+                  style={QUOTE_LINK_BUTTON}
+                >
+                  Use CCQ rate {formatAud(quoteLink.rate_per_m3)}
+                </button>
+              )}
             </div>
             <div>
               <label style={LABEL}>m³ already prepaid</label>
@@ -1209,10 +1242,23 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                 placeholder="0"
                 style={INPUT}
               />
+              {quoteLink?.quoted_m3 != null && capture.prepaid_m3 !== quoteLink.quoted_m3 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCapture(prev => ({ ...prev, prepaid_m3: quoteLink.quoted_m3 }))
+                    touch()
+                  }}
+                  style={QUOTE_LINK_BUTTON}
+                >
+                  Prepaid the quoted {formatM3(quoteLink.quoted_m3)}
+                </button>
+              )}
             </div>
           </div>
           <p style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.45, margin: 0 }}>
             Each vehicle starts from this rate times its volume, before GST. Skip hire and council dump fees are entered including GST and passed through. Prepaid cubic metres come off the waste line.
+            {quoteLink && ' A blank rate and tip follow the Contents Clearance Quote. Type a rate to override it.'}
           </p>
           <div>
             <label style={LABEL}>Vehicle</label>
@@ -1591,8 +1637,8 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                   const shownSqm = vehicle.waste_sqm ?? (singleVehicle ? load.waste_sqm : null) ?? volM3
                   const shownPrice = vehicle.waste_price
                     ?? (singleVehicle ? load.waste_price : null)
-                    ?? (shownSqm != null && capture.cost_per_m3 != null
-                      ? Math.round(shownSqm * capture.cost_per_m3 * 100) / 100
+                    ?? (shownSqm != null && ratePerM3 != null
+                      ? Math.round(shownSqm * ratePerM3 * 100) / 100
                       : null)
                   const dimsM = dimensionTrioToMetres(vehicle.length_m, vehicle.width_m, vehicle.height_m)
                   const tapeHint = looksLikeMillimetres(vehicle.length_m) || looksLikeMillimetres(vehicle.width_m) || looksLikeMillimetres(vehicle.height_m)

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import type { Document, Job } from '@/lib/types'
 import { mergeAssessmentData } from '@/lib/riskDerivation'
 import { useRegisterUnsavedChanges } from '@/lib/unsavedChangesContext'
-import { formatAud } from '@/lib/disposalManifest'
+import { computeDisposalTotals, formatAud, formatM3, loadHasContent, mergedDisposalManifestCapture } from '@/lib/disposalManifest'
 import {
   normalizeStatementCapture,
   statementFigures,
@@ -249,6 +249,11 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
     [job.assessment_data],
   )
   const surveyAreas = capture.survey_areas ?? surveySeed
+  const disposalM3 = useMemo(() => {
+    const loads = mergedDisposalManifestCapture(job.assessment_data).loads.filter(loadHasContent)
+    const m3 = computeDisposalTotals(loads).volume_m3
+    return m3 > 0 ? Math.round(m3 * 100) / 100 : null
+  }, [job.assessment_data])
 
   function patch(next: Partial<StatementOfAccountsCapture>) {
     setCapture(prev => ({ ...prev, ...next }))
@@ -553,6 +558,15 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
                   placeholder="0"
                   style={INPUT}
                 />
+                {disposalM3 != null && capture.invoice2_m3 !== disposalM3 && (
+                  <button
+                    type="button"
+                    onClick={() => patch({ invoice2_m3: disposalM3 })}
+                    style={{ marginTop: 6, padding: 0, border: 'none', background: 'none', color: 'var(--accent)', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+                  >
+                    Use CDR volume {formatM3(disposalM3)}
+                  </button>
+                )}
               </div>
               {([
                 ['Skips ($)', 'invoice2_skips'],

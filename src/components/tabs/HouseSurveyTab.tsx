@@ -26,6 +26,13 @@ import {
   type HouseSurveyLeg,
   type SurveyPoint,
 } from '@/lib/houseSurvey'
+import {
+  effectiveSurveyRate,
+  quoteSurveyLink,
+  quotedVersusMeasured,
+  surveyAreasFromQuoteRooms,
+  surveyIsBlank,
+} from '@/lib/surveyQuoteLink'
 
 interface Props {
   job: Job
@@ -40,6 +47,21 @@ const INPUT: CSSProperties = {
   border: '1px solid var(--border)',
   background: 'var(--surface-2)',
   color: 'var(--text)',
+}
+
+const LINK_BUTTON: CSSProperties = {
+  background: 'none',
+  border: 'none',
+  color: 'var(--accent)',
+  fontWeight: 700,
+  fontSize: 12,
+  cursor: 'pointer',
+  padding: 0,
+  textAlign: 'left',
+}
+
+function sqm(value: number | null): string {
+  return value == null ? '—' : `${value} m²`
 }
 
 const LABEL: CSSProperties = {
@@ -82,6 +104,12 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
   const dirtyRef = useRef(false)
   jobRef.current = job
   surveyRef.current = survey
+
+  const quoteLink = useMemo(() => quoteSurveyLink(job.assessment_data), [job.assessment_data])
+  const ratePerM2 = effectiveSurveyRate(survey, quoteLink)
+  const rateFromQuote = survey.price_per_m2 == null && quoteLink?.rate_per_m2 != null
+  const compare = useMemo(() => quotedVersusMeasured(survey, quoteLink), [survey, quoteLink])
+  const canStartFromQuote = (quoteLink?.rooms.length ?? 0) > 0 && surveyIsBlank(survey)
 
   const isDirty = !sameSurvey(survey, saved)
   dirtyRef.current = isDirty
@@ -267,6 +295,26 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
         {saveError || (saving ? 'Saving…' : savedFlash ? 'Saved' : '')}
       </span>
       </div>
+      {canStartFromQuote && quoteLink && (
+        <div style={{ marginBottom: 12, padding: '12px 14px', border: '1px solid var(--border)', borderRadius: 12, background: 'var(--surface)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 14, color: 'var(--text-muted)' }}>
+            The Surface Area Cleaning Quote has {quoteLink.rooms.length} room{quoteLink.rooms.length === 1 ? '' : 's'}. Start from them, then correct each wall on site.
+          </span>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => {
+              const areas = surveyAreasFromQuoteRooms(quoteLink)
+              setSurvey(prev => ({ ...prev, areas }))
+              setOpenId(areas[0]?.id ?? null)
+              touch()
+            }}
+            style={{ fontWeight: 700 }}
+          >
+            Start from SACQ rooms
+          </button>
+        </div>
+      )}
       <div style={{ display: 'grid', gap: 10 }}>
         {survey.areas.map((area, areaIndex) => (
           <section
@@ -768,7 +816,7 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
         <div style={{ padding: '12px 14px', display: 'grid', gap: 8 }}>
           <div style={{ fontWeight: 800 }}>Summary</div>
           <div style={{ maxWidth: 280 }}>
-            <label style={LABEL}>Price per m² (ex GST) ($)</label>
+            <label style={LABEL}>Price per m² (ex GST) ($){rateFromQuote ? ' · From SACQ' : ''}</label>
             <input
               type="number"
               min={0}
@@ -779,10 +827,27 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
                 setSurvey(prev => ({ ...prev, price_per_m2: raw === '' ? null : Number(raw) }))
                 setSavedFlash(false)
               }}
-              placeholder="0.00"
+              placeholder={quoteLink?.rate_per_m2 != null ? quoteLink.rate_per_m2.toFixed(2) : '0.00'}
               style={INPUT}
             />
+            {quoteLink?.rate_per_m2 != null && survey.price_per_m2 != null && survey.price_per_m2 !== quoteLink.rate_per_m2 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSurvey(prev => ({ ...prev, price_per_m2: null }))
+                  setSavedFlash(false)
+                }}
+                style={{ ...LINK_BUTTON, marginTop: 6 }}
+              >
+                Use SACQ rate ${quoteLink.rate_per_m2.toFixed(2)}
+              </button>
+            )}
           </div>
+          {quoteLink && (
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: 0 }}>
+              A blank price follows the Surface Area Cleaning Quote. Type a price to override it.
+            </p>
+          )}
         </div>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
           <thead>
@@ -848,12 +913,48 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
               const sqm = values.every(value => value == null)
                 ? null
                 : Math.round(values.reduce<number>((sum, value) => sum + (value ?? 0), 0) * 100) / 100
-              const price = surveyPrice(sqm, survey.price_per_m2)
+              const price = surveyPrice(sqm, ratePerM2)
               if (price.ex == null || price.inc == null) return '—'
               return `$${price.ex.toFixed(2)} / $${price.inc.toFixed(2)}`
             })()}
           </span>
         </div>
+        {compare.quoted_m2 != null && (
+          <div style={{ padding: '12px 14px', borderTop: '1px solid var(--border)', display: 'grid', gap: 6, fontSize: 14 }}>
+            <div style={{ fontWeight: 800 }}>Quoted vs measured</div>
+            {compare.rows.length > 0 && (
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ color: 'var(--text-muted)', textAlign: 'right' }}>
+                    <th style={{ textAlign: 'left', padding: '4px 0', fontWeight: 700 }}>Room</th>
+                    <th style={{ padding: '4px 0', fontWeight: 700 }}>Quoted</th>
+                    <th style={{ padding: '4px 0', fontWeight: 700 }}>Measured</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {compare.rows.map(row => (
+                    <tr key={row.label} style={{ borderTop: '1px solid var(--border)' }}>
+                      <td style={{ padding: '4px 0' }}>{row.label}</td>
+                      <td style={{ padding: '4px 0', textAlign: 'right' }}>{sqm(row.quoted_m2)}</td>
+                      <td style={{ padding: '4px 0', textAlign: 'right' }}>{sqm(row.measured_m2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontWeight: 800 }}>
+              <span>Quoted {sqm(compare.quoted_m2)} · Measured {sqm(compare.measured_m2)}</span>
+              {compare.measured_m2 != null && (
+                <span>
+                  {(() => {
+                    const diff = Math.round((compare.measured_m2 - compare.quoted_m2) * 100) / 100
+                    return diff === 0 ? 'Same as quoted' : `${diff > 0 ? '+' : '−'}${Math.abs(diff)} m²`
+                  })()}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
       </section>
       <button
         type="button"

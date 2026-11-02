@@ -1,6 +1,7 @@
 import type { AssessmentData, DisposalManifestCapture, Document, QuoteGstMode, QuoteSpoke, StatementLedgerLine, StatementOfAccountsContent } from '@/lib/types'
 import { parsePhoneNumberFromString } from 'libphonenumber-js'
-import { computeDisposalTotals, disposalPriceLines, formatAud, formatKg, formatM3, loadHasContent, mergedDisposalManifestCapture, vehicleVolumeM3 } from '@/lib/disposalManifest'
+import { houseSurveyWithQuote, quoteSurveyLink, quotedVersusMeasured } from '@/lib/surveyQuoteLink'
+import { computeDisposalTotals, disposalCaptureWithQuote, quoteDisposalLink, disposalPriceLines, formatAud, formatKg, formatM3, loadHasContent, vehicleVolumeM3 } from '@/lib/disposalManifest'
 import { houseSurveyDocument, surveyPrice } from '@/lib/houseSurvey'
 import { getQuoteSpokes } from '@/lib/quoteSpokes'
 import {
@@ -178,7 +179,7 @@ function surveyAreasOrNull(value: unknown): StatementSurveyArea[] | null {
 
 /** Priced square metres and inc-GST total for each survey area. Printed under Cleaning, not added to the invoice. */
 export function surveyAreaQuantities(assessment: AssessmentData | null | undefined): StatementSurveyArea[] {
-  const survey = houseSurveyDocument('', '', assessment?.house_survey)
+  const survey = houseSurveyDocument('', '', houseSurveyWithQuote(assessment))
   return survey.areas.flatMap(area => {
     if (area.priced == null || !Number.isFinite(area.priced)) return []
     return [{ label: area.title, sqm: area.priced, total: area.price_inc }]
@@ -192,7 +193,7 @@ export function statementSurveyAreas(
 ): StatementSurveyArea[] {
   const seeded = surveyAreaQuantities(assessment)
   if (saved == null) return seeded
-  const rate = houseSurveyDocument('', '', assessment?.house_survey).price_per_m2
+  const rate = houseSurveyDocument('', '', houseSurveyWithQuote(assessment)).price_per_m2
   return saved.map(area => {
     if (area.total != null && Number.isFinite(area.total)) return area
     const match = seeded.find(row => row.label === area.label && row.sqm === area.sqm)
@@ -440,13 +441,30 @@ function blockFromSpoke(spoke: QuoteSpoke, reference: string): StatementReferenc
   }
 }
 
+/** Quoted beside measured. Shown only once there is a quote figure to compare against. */
+function quotedMeasuredFacts(
+  quoted: number | null,
+  measured: number | null,
+  format: (n: number) => string,
+  quoteCode: string,
+  recordCode: string,
+): { label: string; value: string }[] {
+  if (quoted == null) return []
+  const facts = [{ label: `Quoted (${quoteCode})`, value: format(quoted) }]
+  if (measured == null) return facts
+  const diff = round2(measured - quoted)
+  const change = diff === 0 ? 'same as quoted' : `${diff > 0 ? '+' : '−'}${format(Math.abs(diff))}`
+  facts.push({ label: `Measured (${recordCode})`, value: `${format(measured)} (${change})` })
+  return facts
+}
+
 /** Prices from the survey, each quote or estimate, and the contents disposal record. Display only. */
 export function statementReferencePanel(
   assessment: AssessmentData | null | undefined,
   documents: Document[],
   jobId = '',
 ): StatementReferencePanel {
-  const surveyDoc = houseSurveyDocument('', '', assessment?.house_survey)
+  const surveyDoc = houseSurveyDocument('', '', houseSurveyWithQuote(assessment))
   const surveyReference = jobId
     ? surveyDocumentCode(jobId, documents)
     : documentReference(latestOfType(documents, 'house_survey'), '')
@@ -475,7 +493,7 @@ export function statementReferencePanel(
     ? spokes.map(spoke => blockFromSpoke(spoke, referenceForSpoke(quotes, spoke.id, spokes.length === 1)))
     : quotes.map(blockFromQuoteDocument)
 
-  const disposalCapture = mergedDisposalManifestCapture(assessment)
+  const disposalCapture = disposalCaptureWithQuote(assessment)
   const disposalLoads = disposalCapture.loads.filter(loadHasContent)
   const disposalPrices = disposalPriceLines(disposalLoads, disposalCapture.cost_per_m3, disposalCapture.prepaid_m3)
   const volumes = disposalVolumes(disposalLoads)
@@ -512,12 +530,17 @@ export function statementReferencePanel(
     })
   }
 
+  const surveyCompare = quotedVersusMeasured(houseSurveyWithQuote(assessment), quoteSurveyLink(assessment))
+  const surveyFacts = quotedMeasuredFacts(surveyCompare.quoted_m2, surveyCompare.measured_m2, formatSqm, 'SACQ', 'survey')
+  const quotedM3 = quoteDisposalLink(assessment)?.quoted_m3 ?? null
+  const disposalFacts = quotedMeasuredFacts(quotedM3, disposalTotals.volume_m3 > 0 ? disposalTotals.volume_m3 : null, formatM3, 'CCQ', 'CDR')
+
   return {
     survey: {
       heading: 'Survey',
       reference: surveyReference,
       detail: '',
-      facts: [],
+      facts: surveyFacts,
       quantityColumn: true,
       itemHeading: 'Room',
       quantityHeading: 'Area',
@@ -530,7 +553,7 @@ export function statementReferencePanel(
       heading: 'Contents disposal',
       reference: documentReference(latestDisposalDocument(documents), ''),
       detail: '',
-      facts: [],
+      facts: disposalFacts,
       quantityColumn: true,
       gst_mode: 'exclusive',
       lines: disposalLines,

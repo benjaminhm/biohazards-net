@@ -13,7 +13,7 @@ import type {
 } from '@/lib/types'
 import { mergedSowCapture } from '@/lib/sowCapture'
 import { mergedPerExecuteCapture } from '@/lib/perExecuteCapture'
-import { formatWasteDisposalNarrative, mergedDisposalManifestCapture } from '@/lib/disposalManifest'
+import { disposalCaptureWithQuote, formatWasteDisposalNarrative } from '@/lib/disposalManifest'
 
 export interface CompletionReportComposeContext {
   photos: Photo[]
@@ -120,7 +120,7 @@ export function assembleCompletionReportFromSources(
     works_carried_out: notesBlock,
     methodology: methodology ? `Planned methodology (Scope of Work)\n${methodology}` : '',
     products_used: '',
-    waste_disposal: formatWasteDisposalNarrative(mergedDisposalManifestCapture(ad)) || per.waste_manifest_notes.trim(),
+    waste_disposal: formatWasteDisposalNarrative(disposalCaptureWithQuote(ad)) || per.waste_manifest_notes.trim(),
     photo_record: photosBlock,
     outcome: formatOutcomeFromPer(per),
     technician_signoff: '',
