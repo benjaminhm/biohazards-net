@@ -1,3 +1,6 @@
+import type { Area } from '@/lib/types'
+import { getEffectiveSubzones } from '@/lib/areaSubzones'
+
 export type HouseSurveyTurn = 'left' | 'right'
 
 export interface HouseSurveyLeg {
@@ -91,6 +94,69 @@ export function newHouseSurveyLeg(turn: HouseSurveyTurn = 'right'): HouseSurveyL
     turn,
     length_m: null,
   }
+}
+
+/** Four right turns: length, width, length, width. A box room, walked the same way as a survey. */
+export function rectangularSurveyLegs(
+  lengthM: number,
+  widthM: number,
+  existing?: HouseSurveyLeg[],
+): HouseSurveyLeg[] {
+  const lengths = [lengthM, widthM, lengthM, widthM]
+  const reusable = existing?.length === 4 && existing.every(leg => leg.turn === 'right') ? existing : null
+  return lengths.map((length_m, index) => reusable
+    ? { ...reusable[index], turn: 'right' as const, length_m }
+    : { ...newHouseSurveyLeg('right'), length_m })
+}
+
+/** Length and width when the walk is still the four walls of a rectangle. */
+export function rectangleSize(legs: HouseSurveyLeg[]): { length_m: number; width_m: number } | null {
+  if (legs.length !== 4 || legs.some(leg => leg.turn !== 'right')) return null
+  const [a, b, c, d] = legs
+  if (a.length_m == null || b.length_m == null || c.length_m == null || d.length_m == null) return null
+  if (!(a.length_m > 0) || !(b.length_m > 0)) return null
+  if (a.length_m !== c.length_m || b.length_m !== d.length_m) return null
+  return { length_m: a.length_m, width_m: b.length_m }
+}
+
+export interface SurveyRectangle {
+  name: string
+  length_m: number
+  width_m: number
+  height_m: number
+}
+
+/** One survey area per measured box. Title, height, and the four walls. */
+export function surveyAreasFromRectangles(rooms: SurveyRectangle[]): HouseSurveyArea[] {
+  return rooms.map(room => ({
+    ...newHouseSurveyArea(),
+    title: room.name,
+    height_m: room.height_m,
+    legs: rectangularSurveyLegs(room.length_m, room.width_m),
+  }))
+}
+
+function measuredBox(name: string, length: number, width: number, height: number): SurveyRectangle | null {
+  if (!(length > 0) || !(width > 0) || !(height > 0)) return null
+  return { name: name.trim(), length_m: length, width_m: width, height_m: height }
+}
+
+/** Assessment rooms that have length, width, and height. Sub-rooms are separate boxes. */
+export function rectangleRoomsFromAreas(areas: Area[] | null | undefined): SurveyRectangle[] {
+  const rooms: SurveyRectangle[] = []
+  for (const area of areas ?? []) {
+    const zones = getEffectiveSubzones(area)
+    if (zones.length > 0) {
+      for (const zone of zones) {
+        const room = measuredBox(zone.name || area.name, zone.length_m, zone.width_m, zone.height_m)
+        if (room) rooms.push(room)
+      }
+      continue
+    }
+    const room = measuredBox(area.name, Number(area.length_m ?? 0), Number(area.width_m ?? 0), Number(area.height_m ?? 0))
+    if (room) rooms.push(room)
+  }
+  return rooms
 }
 
 function normalizeLeg(raw: unknown): HouseSurveyLeg {

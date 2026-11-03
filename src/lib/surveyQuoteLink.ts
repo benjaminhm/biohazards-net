@@ -8,8 +8,8 @@ import {
   areaSurfaces,
   newHouseSurveyAdjustment,
   newHouseSurveyArea,
-  newHouseSurveyLeg,
   normalizeHouseSurvey,
+  rectangularSurveyLegs,
   pricedSurfaces,
   traceHouseSurvey,
   type HouseSurveyArea,
@@ -80,10 +80,7 @@ export function houseSurveyWithQuote(ad: AssessmentData | null | undefined): Hou
 /** One rectangle per quoted room, walked clockwise. The ceiling is excluded when the quote left it out. */
 export function surveyAreasFromQuoteRooms(link: QuoteSurveyLink): HouseSurveyArea[] {
   return link.rooms.map(room => {
-    const legs = [room.length_m, room.width_m, room.length_m, room.width_m].map(length_m => ({
-      ...newHouseSurveyLeg('right'),
-      length_m,
-    }))
+    const legs = rectangularSurveyLegs(room.length_m, room.width_m)
     const ceiling = roomSurfaceArea(room)?.ceiling ?? null
     const adjustments = link.exclude_ceiling && ceiling != null
       ? [{

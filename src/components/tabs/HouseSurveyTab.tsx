@@ -10,6 +10,10 @@ import {
   newHouseSurveyAdjustment,
   newHouseSurveyLeg,
   normalizeHouseSurvey,
+  rectangleRoomsFromAreas,
+  rectangleSize,
+  rectangularSurveyLegs,
+  surveyAreasFromRectangles,
   surveySketchPath,
   traceHouseSurvey,
   areaSurfaces,
@@ -78,6 +82,142 @@ function sameSurvey(a: HouseSurveyCapture, b: HouseSurveyCapture): boolean {
   return JSON.stringify(a) === JSON.stringify(b)
 }
 
+function RectangleRoomFields({
+  area,
+  onHeight,
+  onCreate,
+}: {
+  area: HouseSurveyArea
+  onHeight: (height: number | null) => void
+  onCreate: (length: number, width: number) => void
+}) {
+  const box = rectangleSize(area.legs)
+  const hasWalk = area.legs.some(leg => leg.length_m != null && leg.length_m > 0)
+  const [open, setOpen] = useState(!hasWalk || box != null)
+  const [length, setLength] = useState('')
+  const [width, setWidth] = useState('')
+  const [dirty, setDirty] = useState(false)
+  const lengthValue = dirty ? length : (box ? String(box.length_m) : length)
+  const widthValue = dirty ? width : (box ? String(box.width_m) : width)
+  const heightValue = area.height_m ?? ''
+  const parsedLength = Number(lengthValue)
+  const parsedWidth = Number(widthValue)
+  const parsedHeight = Number(heightValue)
+  const ready = parsedLength > 0 && parsedWidth > 0 && parsedHeight > 0
+  const unchanged = box != null && box.length_m === parsedLength && box.width_m === parsedWidth
+
+  if (!open) {
+    return (
+      <div style={{ display: 'grid', gap: 8 }}>
+        <div>
+          <label style={LABEL}>Height (m)</label>
+          <input
+            type="number"
+            min={0}
+            step="0.01"
+            value={heightValue}
+            onChange={e => {
+              const raw = e.target.value
+              onHeight(raw === '' ? null : Number(raw))
+            }}
+            placeholder="2.40"
+            style={INPUT}
+          />
+        </div>
+        <button type="button" onClick={() => setOpen(true)} style={LINK_BUTTON}>
+          Use length × width × height
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ display: 'grid', gap: 8, padding: 10, border: '1px solid var(--border)', borderRadius: 8 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+        <span style={{ ...LABEL, marginBottom: 0 }}>Length × width × height</span>
+        {hasWalk && (
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            style={LINK_BUTTON}
+          >
+            {box ? 'Edit walls' : 'Keep the wall walk'}
+          </button>
+        )}
+      </div>
+      <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.45 }}>
+        Builds a four-wall room. Close enough when the room is a box. Change a wall below if a side is different.
+      </p>
+      {hasWalk && !box && (
+        <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)' }}>
+          Creating the room replaces the walls already entered.
+        </p>
+      )}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(90px, 1fr))', gap: 8 }}>
+        <div>
+          <label style={LABEL}>Length (m)</label>
+          <input
+            type="number"
+            min={0}
+            step="0.01"
+            value={lengthValue}
+            onChange={e => {
+              setDirty(true)
+              setLength(e.target.value)
+              if (!dirty) setWidth(widthValue)
+            }}
+            placeholder="0.00"
+            style={INPUT}
+          />
+        </div>
+        <div>
+          <label style={LABEL}>Width (m)</label>
+          <input
+            type="number"
+            min={0}
+            step="0.01"
+            value={widthValue}
+            onChange={e => {
+              setDirty(true)
+              setWidth(e.target.value)
+              if (!dirty) setLength(lengthValue)
+            }}
+            placeholder="0.00"
+            style={INPUT}
+          />
+        </div>
+        <div>
+          <label style={LABEL}>Height (m)</label>
+          <input
+            type="number"
+            min={0}
+            step="0.01"
+            value={heightValue}
+            onChange={e => {
+              const raw = e.target.value
+              onHeight(raw === '' ? null : Number(raw))
+            }}
+            placeholder="2.40"
+            style={INPUT}
+          />
+        </div>
+      </div>
+      <button
+        type="button"
+        className="btn btn-secondary"
+        disabled={!ready || unchanged}
+        onClick={() => {
+          setDirty(false)
+          onCreate(parsedLength, parsedWidth)
+        }}
+        style={{ fontWeight: 700 }}
+      >
+        {hasWalk && !box ? 'Replace with this room' : box ? 'Update room' : 'Create room'}
+      </button>
+    </div>
+  )
+}
+
 export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
   const router = useRouter()
   const saved = useMemo(
@@ -110,6 +250,11 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
   const rateFromQuote = survey.price_per_m2 == null && quoteLink?.rate_per_m2 != null
   const compare = useMemo(() => quotedVersusMeasured(survey, quoteLink), [survey, quoteLink])
   const canStartFromQuote = (quoteLink?.rooms.length ?? 0) > 0 && surveyIsBlank(survey)
+  const assessmentRooms = useMemo(
+    () => rectangleRoomsFromAreas(job.assessment_data?.areas),
+    [job.assessment_data?.areas],
+  )
+  const canStartFromAssessment = assessmentRooms.length > 0 && surveyIsBlank(survey)
 
   const isDirty = !sameSurvey(survey, saved)
   dirtyRef.current = isDirty
@@ -289,7 +434,7 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
       `}</style>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
       <p style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.55, margin: 0 }}>
-        Each area is its own clockwise walk. Title it, describe it, then add walls until that area closes. Start another area for the next part of the house.
+        Each area is its own clockwise walk. Title it, describe it, then add walls until that area closes. For a box-shaped room, enter length × width × height and the survey builds the four walls. Start another area for the next part of the house.
       </p>
       <span style={{ fontSize: 13, color: saveError ? '#F87171' : 'var(--text-muted)', whiteSpace: 'nowrap' }}>
         {saveError || (saving ? 'Saving…' : savedFlash ? 'Saved' : '')}
@@ -312,6 +457,26 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
             style={{ fontWeight: 700 }}
           >
             Start from SACQ rooms
+          </button>
+        </div>
+      )}
+      {canStartFromAssessment && (
+        <div style={{ marginBottom: 12, padding: '12px 14px', border: '1px solid var(--border)', borderRadius: 12, background: 'var(--surface)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 14, color: 'var(--text-muted)' }}>
+            The assessment has {assessmentRooms.length} room{assessmentRooms.length === 1 ? '' : 's'} measured as length × width × height. Create each one here as a four-wall room, then correct a wall if the room is not a box.
+          </span>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => {
+              const areas = surveyAreasFromRectangles(assessmentRooms)
+              setSurvey(prev => ({ ...prev, areas }))
+              setOpenId(areas[0]?.id ?? null)
+              touch()
+            }}
+            style={{ fontWeight: 700 }}
+          >
+            Create rooms from assessment
           </button>
         </div>
       )}
@@ -521,21 +686,11 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
                 style={INPUT}
               />
             </div>
-            <div>
-              <label style={LABEL}>Height (m)</label>
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                value={area.height_m ?? ''}
-                onChange={e => {
-                  const raw = e.target.value
-                  patchArea(area.id, { height_m: raw === '' ? null : Number(raw) })
-                }}
-                placeholder="2.40"
-                style={INPUT}
-              />
-            </div>
+            <RectangleRoomFields
+              area={area}
+              onHeight={height => patchArea(area.id, { height_m: height })}
+              onCreate={(length, width) => patchArea(area.id, { legs: rectangularSurveyLegs(length, width, area.legs) })}
+            />
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
               <span style={{ ...LABEL, marginBottom: 0 }}>Walls</span>
               <button
