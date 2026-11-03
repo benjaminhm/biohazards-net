@@ -497,16 +497,9 @@ export function contentsClearanceFigures(
   }
 }
 
-export function contentsClearanceQuoteContent(input: {
-  reference: string
-  clientName: string
-  siteAddress: string
-  capture: ContentsClearanceCapture
-  standards?: ContentsClearanceStandards | null
-}): ContentsClearanceQuoteContent {
-  const capture = input.capture
-  const standards = normalizeContentsClearanceStandards(input.standards ?? null)
-  const figures = contentsClearanceFigures(capture.estimated_m3, capture.estimated_km, {
+/** Figures for a saved capture, with the rates the quote tab falls back to. */
+export function contentsClearanceCaptureFigures(capture: ContentsClearanceCapture): ContentsClearanceFigures {
+  return contentsClearanceFigures(capture.estimated_m3, capture.estimated_km, {
     ratePerM3: capture.rate_per_m3 ?? CONTENTS_CLEARANCE_SCHEMA.ratePerM3,
     ratePerKm: capture.rate_per_km ?? CONTENTS_CLEARANCE_SCHEMA.ratePerKm,
     ratePerLabourDay: capture.rate_per_labour_day ?? CONTENTS_CLEARANCE_SCHEMA.ratePerLabourDay,
@@ -522,6 +515,18 @@ export function contentsClearanceQuoteContent(input: {
     mobilisationWaived: capture.mobilisation_waived,
     maximumManDays: capture.maximum_man_days,
   })
+}
+
+export function contentsClearanceQuoteContent(input: {
+  reference: string
+  clientName: string
+  siteAddress: string
+  capture: ContentsClearanceCapture
+  standards?: ContentsClearanceStandards | null
+}): ContentsClearanceQuoteContent {
+  const capture = input.capture
+  const standards = normalizeContentsClearanceStandards(input.standards ?? null)
+  const figures = contentsClearanceCaptureFigures(capture)
   const contents = figures.lines.find(line => line.label === 'Contents')
   const distance = figures.lines.find(line => line.label === 'Distance')
   const labour = figures.lines.find(line => line.label === 'Labour')

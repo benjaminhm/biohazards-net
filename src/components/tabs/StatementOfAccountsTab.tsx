@@ -53,17 +53,6 @@ function ReferencePanel({
   quotes: StatementReferenceBlock[]
   disposal: StatementReferenceBlock
 }) {
-  const quoteBlocks = quotes.length > 0
-    ? quotes
-    : [{
-        heading: 'Quote / estimate',
-        reference: '',
-        detail: '',
-        facts: [],
-        gst_mode: 'no_gst' as const,
-        lines: [],
-        empty: 'No quote or estimate yet.',
-      }]
   return (
     <section
       aria-label="Pricing reference"
@@ -84,7 +73,7 @@ function ReferencePanel({
       <div className="soa-ref-grid">
         <ReferenceBlock block={survey} />
         <div style={{ display: 'grid', gap: 12 }}>
-          {quoteBlocks.map((block, index) => (
+          {quotes.map((block, index) => (
             <ReferenceBlock key={`${block.heading}-${block.reference}-${index}`} block={block} />
           ))}
         </div>

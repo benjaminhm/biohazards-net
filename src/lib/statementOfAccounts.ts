@@ -4,6 +4,9 @@ import { houseSurveyWithQuote, quoteSurveyLink, quotedVersusMeasured } from '@/l
 import { computeDisposalTotals, disposalCaptureWithQuote, quoteDisposalLink, disposalPriceLines, formatAud, formatKg, formatM3, loadHasContent, vehicleBilledM3 } from '@/lib/disposalManifest'
 import { houseSurveyDocument, surveyPrice } from '@/lib/houseSurvey'
 import { getQuoteSpokes } from '@/lib/quoteSpokes'
+import { biohazardCleaningFigures, emptyBiohazardCleaningCapture, normalizeBiohazardCleaningCapture } from '@/lib/biohazardCleaningQuote'
+import { emptySurfaceAreaCleaningCapture, normalizeSurfaceAreaCleaningCapture, surfaceAreaCaptureFigures } from '@/lib/surfaceAreaCleaningQuote'
+import { contentsClearanceCaptureFigures, emptyContentsClearanceCapture, normalizeContentsClearanceCapture } from '@/lib/contentsClearanceQuote'
 import {
   areaPricingSectionSubtotal,
   computeQuoteCaptureTotals,
@@ -447,6 +450,61 @@ function blockFromSpoke(spoke: QuoteSpoke, reference: string): StatementReferenc
   }
 }
 
+interface QuoteFigures {
+  lines: { label: string; quantity: number; unit: string; amount: number }[]
+  subtotal: number
+  total: number
+}
+
+/** BCQ, SACQ, and CCQ price ex GST and add GST on. Unpriced lines are left out. */
+function blockFromQuoteFigures(heading: string, reference: string, figures: QuoteFigures, empty: string): StatementReferenceBlock {
+  const lines: StatementReferenceLine[] = figures.lines
+    .filter(line => line.amount > 0.004)
+    .map(line => ({
+      label: line.label,
+      quantity: line.quantity > 0 && line.unit && line.unit !== 'fee' ? `${round2(line.quantity)} ${line.unit}` : '',
+      ...quoteMoney(line.amount, 'exclusive'),
+    }))
+  const priced = figures.total > 0.004
+  if (priced) lines.push({ label: 'Total', ex: figures.subtotal, inc: figures.total, strong: true })
+  return {
+    heading,
+    reference,
+    detail: priced ? gstDetail('exclusive') : '',
+    facts: [],
+    quantityColumn: true,
+    gst_mode: 'exclusive',
+    lines,
+    empty: priced ? null : empty,
+  }
+}
+
+function specialistQuoteBlocks(assessment: AssessmentData | null | undefined, documents: Document[]): StatementReferenceBlock[] {
+  const bcq = normalizeBiohazardCleaningCapture(assessment?.biohazard_cleaning_quote ?? emptyBiohazardCleaningCapture())
+  const sacq = normalizeSurfaceAreaCleaningCapture(assessment?.surface_area_cleaning_quote ?? emptySurfaceAreaCleaningCapture())
+  const ccq = normalizeContentsClearanceCapture(assessment?.contents_clearance_quote ?? emptyContentsClearanceCapture())
+  return [
+    blockFromQuoteFigures(
+      'Biohazard cleaning (BCQ)',
+      documentReference(latestOfType(documents, 'biohazard_cleaning_quote'), ''),
+      biohazardCleaningFigures(bcq),
+      'No BCQ price yet.',
+    ),
+    blockFromQuoteFigures(
+      'Surface area cleaning (SACQ)',
+      documentReference(latestOfType(documents, 'surface_area_cleaning_quote'), ''),
+      surfaceAreaCaptureFigures(sacq),
+      'No SACQ price yet.',
+    ),
+    blockFromQuoteFigures(
+      'Contents clearance (CCQ)',
+      documentReference(latestOfType(documents, 'contents_clearance_quote'), ''),
+      contentsClearanceCaptureFigures(ccq),
+      'No CCQ price yet.',
+    ),
+  ]
+}
+
 /** Quoted beside measured. Shown only once there is a quote figure to compare against. */
 function quotedMeasuredFacts(
   quoted: number | null,
@@ -557,7 +615,7 @@ export function statementReferencePanel(
       lines: surveyLines,
       empty: surveyPriced ? null : 'No survey price yet.',
     },
-    quotes: quoteBlocks,
+    quotes: [...quoteBlocks, ...specialistQuoteBlocks(assessment, documents)],
     disposal: {
       heading: 'Contents disposal',
       reference: documentReference(latestDisposalDocument(documents), ''),

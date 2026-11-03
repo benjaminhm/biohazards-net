@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import type { StatementOfAccountsContent } from '@/lib/types'
+import type { AssessmentData, Document, StatementOfAccountsContent } from '@/lib/types'
+import { biohazardCleaningFigures, emptyBiohazardCleaningCapture } from '@/lib/biohazardCleaningQuote'
 import {
   emptyStatementCapture,
+  statementReferencePanel,
   presentStatementDocument,
   statementClientLines,
   statementFigures,
@@ -250,4 +252,27 @@ test('client name, phone, and pay links stay readable', () => {
   assert.equal(statementPhone('+61404143284'), '+61 404 143 284')
   assert.equal(statementPhone('+61730123456'), '+61 7 3012 3456')
   assert.equal(statementPayHref('https://pay.example.com/a?utm_source=x&keep=1'), 'https://pay.example.com/a?keep=1')
+})
+
+test('the reference panel always shows BCQ, SACQ, and CCQ, empty until priced', () => {
+  const panel = statementReferencePanel(null, [])
+  assert.deepEqual(panel.quotes.map(block => block.heading), [
+    'Biohazard cleaning (BCQ)',
+    'Surface area cleaning (SACQ)',
+    'Contents clearance (CCQ)',
+  ])
+  assert.deepEqual(panel.quotes.map(block => block.empty), ['No BCQ price yet.', 'No SACQ price yet.', 'No CCQ price yet.'])
+  assert.ok(panel.quotes.every(block => block.lines.length === 0))
+})
+
+test('a priced BCQ shows its lines and total, with the saved quote reference', () => {
+  const bcq = { ...emptyBiohazardCleaningCapture(), estimated_m2: 20, rate_per_m2: 50, labour_days: 2, rate_per_labour_day: 600 }
+  const figures = biohazardCleaningFigures(bcq)
+  const doc = { type: 'biohazard_cleaning_quote', created_at: '2026-11-01', content: { reference: 'BCQ-1' } } as unknown as Document
+  const panel = statementReferencePanel({ biohazard_cleaning_quote: bcq } as unknown as AssessmentData, [doc])
+  const block = panel.quotes.find(b => b.heading === 'Biohazard cleaning (BCQ)')!
+  assert.equal(block.reference, 'BCQ-1')
+  assert.equal(block.empty, null)
+  assert.deepEqual(block.lines.find(line => line.label === 'Primary zone'), { label: 'Primary zone', quantity: '20 m²', ex: 1000, inc: 1100 })
+  assert.deepEqual(block.lines.at(-1), { label: 'Total', ex: figures.subtotal, inc: figures.total, strong: true })
 })

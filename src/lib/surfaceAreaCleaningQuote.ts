@@ -517,16 +517,9 @@ export function surfaceAreaCleaningFigures(
   }
 }
 
-export function surfaceAreaCleaningQuoteContent(input: {
-  reference: string
-  clientName: string
-  siteAddress: string
-  capture: SurfaceAreaCleaningCapture
-  standards?: SurfaceAreaCleaningStandards | null
-}): SurfaceAreaCleaningQuoteContent {
-  const capture = input.capture
-  const standards = normalizeSurfaceAreaCleaningStandards(input.standards ?? null)
-  const figures = surfaceAreaCleaningFigures(quotedSquareMetres(capture), {
+/** Figures for a saved capture, with the rates the quote tab falls back to. */
+export function surfaceAreaCaptureFigures(capture: SurfaceAreaCleaningCapture): SurfaceAreaCleaningFigures {
+  return surfaceAreaCleaningFigures(quotedSquareMetres(capture), {
     ratePerM2: capture.rate_per_m2 ?? SURFACE_AREA_SCHEMA.ratePerM2,
     ratePerLabourDay: capture.rate_per_labour_day ?? SURFACE_AREA_SCHEMA.ratePerLabourDay,
   }, {
@@ -536,6 +529,18 @@ export function surfaceAreaCleaningQuoteContent(input: {
     hygienist: capture,
     otherLines: capture.other_lines,
   })
+}
+
+export function surfaceAreaCleaningQuoteContent(input: {
+  reference: string
+  clientName: string
+  siteAddress: string
+  capture: SurfaceAreaCleaningCapture
+  standards?: SurfaceAreaCleaningStandards | null
+}): SurfaceAreaCleaningQuoteContent {
+  const capture = input.capture
+  const standards = normalizeSurfaceAreaCleaningStandards(input.standards ?? null)
+  const figures = surfaceAreaCaptureFigures(capture)
   const jobAddress = (capture.job_address ?? input.siteAddress).trim()
   const excludeCeiling = capture.exclude_ceiling === true
   const ceilingM2 = roomsCeilingTotal(capture.rooms ?? []) ?? 0
