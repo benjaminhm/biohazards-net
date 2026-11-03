@@ -73,7 +73,6 @@ function ReferencePanel({
         borderRadius: 12,
         border: '1px solid var(--border)',
         background: 'var(--surface)',
-        marginBottom: 18,
       }}
     >
       <div style={{ fontWeight: 800, fontSize: 13, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>
@@ -335,9 +334,15 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
           max-height: calc(100vh - 116px - 84px);
           overflow: auto;
           box-shadow: 0 10px 28px rgba(15, 23, 42, 0.12);
+          margin-bottom: 18px;
         }
         @media (min-width: 760px) {
           .soa-ref-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; }
+        }
+        @media (min-width: 1000px) {
+          .soa-layout { display: grid; grid-template-columns: minmax(280px, 360px) minmax(0, 1fr); gap: 18px; align-items: start; }
+          .soa-ref-float { margin-bottom: 0; }
+          .soa-ref-grid { grid-template-columns: minmax(0, 1fr); }
         }
       `}</style>
       <p style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.55, marginBottom: 16 }}>
@@ -348,410 +353,414 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
         <div><strong>Property:</strong> {job.site_address || '—'}</div>
       </div>
 
-      <ReferencePanel
-        survey={reference.survey}
-        quotes={reference.quotes}
-        disposal={reference.disposal}
-      />
-
-      <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 700, marginBottom: 16 }}>
-        <input
-          type="checkbox"
-          checked={capture.charges_gst}
-          onChange={e => patch({ charges_gst: e.target.checked })}
+      <div className="soa-layout">
+        <ReferencePanel
+          survey={reference.survey}
+          quotes={reference.quotes}
+          disposal={reference.disposal}
         />
-        Amounts include GST
-      </label>
 
-      <div
-        style={{
-          padding: '14px 16px',
-          borderRadius: 12,
-          border: '1px solid var(--border)',
-          background: 'var(--surface)',
-          marginBottom: 16,
-        }}
-      >
-        <div style={{ display: 'grid', gap: 12 }}>
-          <div>
-            <label style={LABEL}>Invoice 1 amount ($)</label>
-            <input
-              type="number"
-              min={0}
-              step="0.01"
-              value={capture.invoice1_amount ?? ''}
-              onChange={e => {
-                const raw = e.target.value
-                patch({ invoice1_amount: raw === '' ? null : Number(raw) })
-              }}
-              placeholder="0.00"
-              style={INPUT}
-            />
-            <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Survey area for each room. These print under Cleaning with the area total. They are not added to the invoice.</div>
-              {surveyAreas.map((area, index) => (
-                <div key={index} style={{ display: 'grid', gridTemplateColumns: '1fr 120px 120px auto', gap: 8, alignItems: 'end' }}>
-                  <div>
-                    <label style={LABEL}>Area</label>
-                    <input
-                      type="text"
-                      value={area.label}
-                      onChange={e => {
-                        const next = surveyAreas.map((row, rowIndex) => rowIndex === index ? { ...row, label: e.target.value } : row)
-                        setSurveyAreas(next)
-                      }}
-                      placeholder="Room"
-                      style={INPUT}
-                    />
-                  </div>
-                  <div>
-                    <label style={LABEL}>m²</label>
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      value={area.sqm ?? ''}
-                      onChange={e => {
-                        const raw = e.target.value
-                        const sqm = raw === '' ? null : Number(raw)
-                        const next = surveyAreas.map((row, rowIndex) => (
-                          rowIndex === index
-                            ? statementSurveyAreas([{ ...row, sqm, total: null }], job.assessment_data)[0]
-                            : row
-                        ))
-                        setSurveyAreas(next)
-                      }}
-                      placeholder="0"
-                      style={INPUT}
-                    />
-                  </div>
-                  <div>
-                    <label style={LABEL}>Total</label>
-                    <div style={{ ...INPUT, textAlign: 'right' }}>{area.total == null ? '—' : formatAud(area.total)}</div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setSurveyAreas(surveyAreas.filter((_, rowIndex) => rowIndex !== index))}
-                    style={{ ...INPUT, width: 'auto', padding: '8px 10px', cursor: 'pointer' }}
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))}
-              <button
-                type="button"
-                onClick={() => setSurveyAreas([...surveyAreas, { label: '', sqm: null, total: null }])}
-                style={{ ...INPUT, width: 'auto', justifySelf: 'start', padding: '8px 12px', cursor: 'pointer' }}
-              >
-                Add area
-              </button>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>How this invoice is made up. Leave a line blank to omit it. The amounts must add up to the invoice.</div>
-              {([
-                ['Call out ($)', 'invoice1_callout'],
-                ['Contents ($)', 'invoice1_contents'],
-                ['Cleaning ($)', 'invoice1_cleaning'],
-              ] as const).map(([label, key]) => (
-                <div key={key}>
-                  <label style={LABEL}>{label}</label>
-                  <input
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    value={capture[key] ?? ''}
-                    onChange={e => {
-                      const raw = e.target.value
-                      patch({ [key]: raw === '' ? null : Number(raw) })
-                    }}
-                    placeholder="0.00"
-                    style={INPUT}
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 700 }}>
+        <div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 700, marginBottom: 16 }}>
             <input
               type="checkbox"
-              checked={capture.deposit_taken}
-              onChange={e => patch({ deposit_taken: e.target.checked })}
+              checked={capture.charges_gst}
+              onChange={e => patch({ charges_gst: e.target.checked })}
             />
-            A deposit was paid
+            Amounts include GST
           </label>
-          {capture.deposit_taken && (
-            <div>
-              <label style={LABEL}>Deposit ($)</label>
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                value={capture.deposit_amount ?? ''}
-                onChange={e => {
-                  const raw = e.target.value
-                  patch({ deposit_amount: raw === '' ? null : Number(raw) })
-                }}
-                placeholder="0.00"
-                style={INPUT}
-              />
-              <label style={{ ...LABEL, marginTop: 10 }}>Date received</label>
-              <input
-                type="date"
-                value={capture.deposit_date}
-                onChange={e => patch({ deposit_date: e.target.value })}
-                style={INPUT}
-              />
-            </div>
-          )}
-          <div>
-            <label style={LABEL}>Invoice 1 after adjustment ($)</label>
-            <input
-              type="number"
-              min={0}
-              step="0.01"
-              value={capture.invoice1_adjusted_amount ?? ''}
-              onChange={e => {
-                const raw = e.target.value
-                patch({ invoice1_adjusted_amount: raw === '' ? null : Number(raw) })
-              }}
-              placeholder="Leave blank if invoice 1 has not changed"
-              style={INPUT}
-            />
-            {capture.invoice1_adjusted_amount != null && (
-              <div style={{ marginTop: 10 }}>
-                <label style={LABEL}>Why invoice 1 changed</label>
-                <input
-                  type="text"
-                  value={capture.adjustment_reason}
-                  onChange={e => patch({ adjustment_reason: e.target.value })}
-                  placeholder="Required before the statement can be generated"
-                  style={INPUT}
-                />
-              </div>
-            )}
-          </div>
-          <div>
-            <label style={LABEL}>Invoice 2 amount ($)</label>
-            <input
-              type="number"
-              min={0}
-              step="0.01"
-              value={capture.invoice2_amount ?? ''}
-              onChange={e => {
-                const raw = e.target.value
-                patch({ invoice2_amount: raw === '' ? null : Number(raw) })
-              }}
-              placeholder="Leave blank until the next invoice"
-              style={INPUT}
-            />
-            <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Skips, trailers, utes, and tip receipts, less prepaid, must add up to this invoice. Cubic metres is a quantity.</div>
+
+          <div
+            style={{
+              padding: '14px 16px',
+              borderRadius: 12,
+              border: '1px solid var(--border)',
+              background: 'var(--surface)',
+              marginBottom: 16,
+            }}
+          >
+            <div style={{ display: 'grid', gap: 12 }}>
               <div>
-                <label style={LABEL}>Cubic metres removed</label>
+                <label style={LABEL}>Invoice 1 amount ($)</label>
                 <input
                   type="number"
                   min={0}
                   step="0.01"
-                  value={capture.invoice2_m3 ?? ''}
+                  value={capture.invoice1_amount ?? ''}
                   onChange={e => {
                     const raw = e.target.value
-                    patch({ invoice2_m3: raw === '' ? null : Number(raw) })
+                    patch({ invoice1_amount: raw === '' ? null : Number(raw) })
                   }}
-                  placeholder="0"
+                  placeholder="0.00"
                   style={INPUT}
                 />
-                {disposalM3 != null && capture.invoice2_m3 !== disposalM3 && (
+                <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Survey area for each room. These print under Cleaning with the area total. They are not added to the invoice.</div>
+                  {surveyAreas.map((area, index) => (
+                    <div key={index} style={{ display: 'grid', gridTemplateColumns: '1fr 120px 120px auto', gap: 8, alignItems: 'end' }}>
+                      <div>
+                        <label style={LABEL}>Area</label>
+                        <input
+                          type="text"
+                          value={area.label}
+                          onChange={e => {
+                            const next = surveyAreas.map((row, rowIndex) => rowIndex === index ? { ...row, label: e.target.value } : row)
+                            setSurveyAreas(next)
+                          }}
+                          placeholder="Room"
+                          style={INPUT}
+                        />
+                      </div>
+                      <div>
+                        <label style={LABEL}>m²</label>
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={area.sqm ?? ''}
+                          onChange={e => {
+                            const raw = e.target.value
+                            const sqm = raw === '' ? null : Number(raw)
+                            const next = surveyAreas.map((row, rowIndex) => (
+                              rowIndex === index
+                                ? statementSurveyAreas([{ ...row, sqm, total: null }], job.assessment_data)[0]
+                                : row
+                            ))
+                            setSurveyAreas(next)
+                          }}
+                          placeholder="0"
+                          style={INPUT}
+                        />
+                      </div>
+                      <div>
+                        <label style={LABEL}>Total</label>
+                        <div style={{ ...INPUT, textAlign: 'right' }}>{area.total == null ? '—' : formatAud(area.total)}</div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSurveyAreas(surveyAreas.filter((_, rowIndex) => rowIndex !== index))}
+                        style={{ ...INPUT, width: 'auto', padding: '8px 10px', cursor: 'pointer' }}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
                   <button
                     type="button"
-                    onClick={() => patch({ invoice2_m3: disposalM3 })}
-                    style={{ marginTop: 6, padding: 0, border: 'none', background: 'none', color: 'var(--accent)', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+                    onClick={() => setSurveyAreas([...surveyAreas, { label: '', sqm: null, total: null }])}
+                    style={{ ...INPUT, width: 'auto', justifySelf: 'start', padding: '8px 12px', cursor: 'pointer' }}
                   >
-                    Use CDR volume {formatM3(disposalM3)}
+                    Add area
                   </button>
-                )}
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>How this invoice is made up. Leave a line blank to omit it. The amounts must add up to the invoice.</div>
+                  {([
+                    ['Call out ($)', 'invoice1_callout'],
+                    ['Contents ($)', 'invoice1_contents'],
+                    ['Cleaning ($)', 'invoice1_cleaning'],
+                  ] as const).map(([label, key]) => (
+                    <div key={key}>
+                      <label style={LABEL}>{label}</label>
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={capture[key] ?? ''}
+                        onChange={e => {
+                          const raw = e.target.value
+                          patch({ [key]: raw === '' ? null : Number(raw) })
+                        }}
+                        placeholder="0.00"
+                        style={INPUT}
+                      />
+                    </div>
+                  ))}
+                </div>
               </div>
-              {([
-                ['Skips ($)', 'invoice2_skips'],
-                ['Trailers ($)', 'invoice2_trailers'],
-                ['Utes ($)', 'invoice2_utes'],
-                ['Tip receipts ($)', 'invoice2_tip_receipts'],
-                ['Prepaid ($)', 'invoice2_prepaid'],
-              ] as const).map(([label, key]) => (
-                <div key={key}>
-                  <label style={LABEL}>{label}</label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 700 }}>
+                <input
+                  type="checkbox"
+                  checked={capture.deposit_taken}
+                  onChange={e => patch({ deposit_taken: e.target.checked })}
+                />
+                A deposit was paid
+              </label>
+              {capture.deposit_taken && (
+                <div>
+                  <label style={LABEL}>Deposit ($)</label>
                   <input
                     type="number"
                     min={0}
                     step="0.01"
-                    value={capture[key] ?? ''}
+                    value={capture.deposit_amount ?? ''}
                     onChange={e => {
                       const raw = e.target.value
-                      patch({ [key]: raw === '' ? null : Number(raw) })
+                      patch({ deposit_amount: raw === '' ? null : Number(raw) })
                     }}
                     placeholder="0.00"
                     style={INPUT}
                   />
+                  <label style={{ ...LABEL, marginTop: 10 }}>Date received</label>
+                  <input
+                    type="date"
+                    value={capture.deposit_date}
+                    onChange={e => patch({ deposit_date: e.target.value })}
+                    style={INPUT}
+                  />
                 </div>
-              ))}
+              )}
+              <div>
+                <label style={LABEL}>Invoice 1 after adjustment ($)</label>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={capture.invoice1_adjusted_amount ?? ''}
+                  onChange={e => {
+                    const raw = e.target.value
+                    patch({ invoice1_adjusted_amount: raw === '' ? null : Number(raw) })
+                  }}
+                  placeholder="Leave blank if invoice 1 has not changed"
+                  style={INPUT}
+                />
+                {capture.invoice1_adjusted_amount != null && (
+                  <div style={{ marginTop: 10 }}>
+                    <label style={LABEL}>Why invoice 1 changed</label>
+                    <input
+                      type="text"
+                      value={capture.adjustment_reason}
+                      onChange={e => patch({ adjustment_reason: e.target.value })}
+                      placeholder="Required before the statement can be generated"
+                      style={INPUT}
+                    />
+                  </div>
+                )}
+              </div>
+              <div>
+                <label style={LABEL}>Invoice 2 amount ($)</label>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={capture.invoice2_amount ?? ''}
+                  onChange={e => {
+                    const raw = e.target.value
+                    patch({ invoice2_amount: raw === '' ? null : Number(raw) })
+                  }}
+                  placeholder="Leave blank until the next invoice"
+                  style={INPUT}
+                />
+                <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Skips, trailers, utes, and tip receipts, less prepaid, must add up to this invoice. Cubic metres is a quantity.</div>
+                  <div>
+                    <label style={LABEL}>Cubic metres removed</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={capture.invoice2_m3 ?? ''}
+                      onChange={e => {
+                        const raw = e.target.value
+                        patch({ invoice2_m3: raw === '' ? null : Number(raw) })
+                      }}
+                      placeholder="0"
+                      style={INPUT}
+                    />
+                    {disposalM3 != null && capture.invoice2_m3 !== disposalM3 && (
+                      <button
+                        type="button"
+                        onClick={() => patch({ invoice2_m3: disposalM3 })}
+                        style={{ marginTop: 6, padding: 0, border: 'none', background: 'none', color: 'var(--accent)', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+                      >
+                        Use CDR volume {formatM3(disposalM3)}
+                      </button>
+                    )}
+                  </div>
+                  {([
+                    ['Skips ($)', 'invoice2_skips'],
+                    ['Trailers ($)', 'invoice2_trailers'],
+                    ['Utes ($)', 'invoice2_utes'],
+                    ['Tip receipts ($)', 'invoice2_tip_receipts'],
+                    ['Prepaid ($)', 'invoice2_prepaid'],
+                  ] as const).map(([label, key]) => (
+                    <div key={key}>
+                      <label style={LABEL}>{label}</label>
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={capture[key] ?? ''}
+                        onChange={e => {
+                          const raw = e.target.value
+                          patch({ [key]: raw === '' ? null : Number(raw) })
+                        }}
+                        placeholder="0.00"
+                        style={INPUT}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label style={LABEL}>Adjustment on the last invoice ($)</label>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+                  Changes the balance due on the last invoice. A negative amount reduces it. The reason is printed on that line.
+                </div>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={capture.manual_adjustment ?? ''}
+                  onChange={e => {
+                    const raw = e.target.value
+                    patch({ manual_adjustment: raw === '' ? null : Number(raw) })
+                  }}
+                  placeholder="0.00"
+                  style={INPUT}
+                />
+                <div style={{ marginTop: 10 }}>
+                  <label style={LABEL}>Reason</label>
+                  <input
+                    type="text"
+                    value={capture.manual_adjustment_reason}
+                    onChange={e => patch({ manual_adjustment_reason: e.target.value })}
+                    placeholder="Required when an adjustment is entered"
+                    style={INPUT}
+                  />
+                </div>
+              </div>
             </div>
           </div>
-          <div>
-            <label style={LABEL}>Adjustment on the last invoice ($)</label>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
-              Changes the balance due on the last invoice. A negative amount reduces it. The reason is printed on that line.
+
+          <div
+            style={{
+              padding: '14px 16px',
+              borderRadius: 12,
+              border: '1px solid var(--border)',
+              background: 'var(--surface)',
+              marginBottom: 16,
+            }}
+          >
+            <div style={{ fontWeight: 800, fontSize: 13, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 12 }}>
+              Invoices
             </div>
-            <input
-              type="number"
-              step="0.01"
-              value={capture.manual_adjustment ?? ''}
-              onChange={e => {
-                const raw = e.target.value
-                patch({ manual_adjustment: raw === '' ? null : Number(raw) })
+            <div style={{ display: 'grid', gap: 12 }}>
+              <div>
+                <label style={LABEL}>Original invoice number</label>
+                <input
+                  type="text"
+                  value={capture.original_invoice_number}
+                  onChange={e => patch({ original_invoice_number: e.target.value })}
+                  placeholder="INV-1001"
+                  style={INPUT}
+                />
+              </div>
+              <div>
+                <label style={LABEL}>Original invoice link</label>
+                <input
+                  type="url"
+                  value={capture.original_invoice_url}
+                  onChange={e => patch({ original_invoice_url: e.target.value })}
+                  placeholder="https://"
+                  style={INPUT}
+                />
+              </div>
+              <div>
+                <label style={LABEL}>New invoice number</label>
+                <input
+                  type="text"
+                  value={capture.new_invoice_number}
+                  onChange={e => patch({ new_invoice_number: e.target.value })}
+                  placeholder="INV-1002"
+                  style={INPUT}
+                />
+              </div>
+              <div>
+                <label style={LABEL}>New invoice link</label>
+                <input
+                  type="url"
+                  value={capture.new_invoice_url}
+                  onChange={e => patch({ new_invoice_url: e.target.value })}
+                  placeholder="https://"
+                  style={INPUT}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div
+            style={{
+              padding: '14px 16px',
+              borderRadius: 12,
+              border: '1px solid rgba(148,163,184,0.45)',
+              background: 'linear-gradient(165deg, rgba(100,116,139,0.22) 0%, var(--surface) 58%)',
+              marginBottom: 18,
+              fontSize: 14,
+            }}
+          >
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: chargesGst ? '1.4fr 1fr 1fr' : '1.4fr 1fr',
+                gap: 8,
+                marginBottom: 10,
+                fontSize: 11,
+                fontWeight: 700,
+                letterSpacing: '0.06em',
+                textTransform: 'uppercase',
+                color: '#E2E8F0',
               }}
-              placeholder="0.00"
-              style={INPUT}
-            />
-            <div style={{ marginTop: 10 }}>
-              <label style={LABEL}>Reason</label>
-              <input
-                type="text"
-                value={capture.manual_adjustment_reason}
-                onChange={e => patch({ manual_adjustment_reason: e.target.value })}
-                placeholder="Required when an adjustment is entered"
-                style={INPUT}
-              />
+            >
+              <span>Item</span>
+              {chargesGst && <span style={{ textAlign: 'right' }}>Before GST</span>}
+              <span style={{ textAlign: 'right' }}>Amount</span>
             </div>
+            {figures.lines.map((item, index) => (
+              <Fragment key={index}>{line(item.label, item.ex, item.inc, item.strong === true)}</Fragment>
+            ))}
+            {figures.owing_inc < 0 && (
+              <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 8 }}>This balance is a credit.</div>
+            )}
           </div>
-        </div>
-      </div>
-
-      <div
-        style={{
-          padding: '14px 16px',
-          borderRadius: 12,
-          border: '1px solid var(--border)',
-          background: 'var(--surface)',
-          marginBottom: 16,
-        }}
-      >
-        <div style={{ fontWeight: 800, fontSize: 13, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 12 }}>
-          Invoices
-        </div>
-        <div style={{ display: 'grid', gap: 12 }}>
-          <div>
-            <label style={LABEL}>Original invoice number</label>
-            <input
-              type="text"
-              value={capture.original_invoice_number}
-              onChange={e => patch({ original_invoice_number: e.target.value })}
-              placeholder="INV-1001"
-              style={INPUT}
-            />
-          </div>
-          <div>
-            <label style={LABEL}>Original invoice link</label>
-            <input
-              type="url"
-              value={capture.original_invoice_url}
-              onChange={e => patch({ original_invoice_url: e.target.value })}
-              placeholder="https://"
-              style={INPUT}
-            />
-          </div>
-          <div>
-            <label style={LABEL}>New invoice number</label>
-            <input
-              type="text"
-              value={capture.new_invoice_number}
-              onChange={e => patch({ new_invoice_number: e.target.value })}
-              placeholder="INV-1002"
-              style={INPUT}
-            />
-          </div>
-          <div>
-            <label style={LABEL}>New invoice link</label>
-            <input
-              type="url"
-              value={capture.new_invoice_url}
-              onChange={e => patch({ new_invoice_url: e.target.value })}
-              placeholder="https://"
-              style={INPUT}
-            />
-          </div>
-        </div>
-      </div>
-
-      <div
-        style={{
-          padding: '14px 16px',
-          borderRadius: 12,
-          border: '1px solid rgba(148,163,184,0.45)',
-          background: 'linear-gradient(165deg, rgba(100,116,139,0.22) 0%, var(--surface) 58%)',
-          marginBottom: 18,
-          fontSize: 14,
-        }}
-      >
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: chargesGst ? '1.4fr 1fr 1fr' : '1.4fr 1fr',
-            gap: 8,
-            marginBottom: 10,
-            fontSize: 11,
-            fontWeight: 700,
-            letterSpacing: '0.06em',
-            textTransform: 'uppercase',
-            color: '#E2E8F0',
-          }}
-        >
-          <span>Item</span>
-          {chargesGst && <span style={{ textAlign: 'right' }}>Before GST</span>}
-          <span style={{ textAlign: 'right' }}>Amount</span>
-        </div>
-        {figures.lines.map((item, index) => (
-          <Fragment key={index}>{line(item.label, item.ex, item.inc, item.strong === true)}</Fragment>
-        ))}
-        {figures.owing_inc < 0 && (
-          <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 8 }}>This balance is a credit.</div>
-        )}
-      </div>
-      <div
-        style={{
-          padding: '14px 16px',
-          borderRadius: 12,
-          border: '1px solid var(--border)',
-          background: 'var(--surface)',
-          marginBottom: 18,
-          fontSize: 14,
-        }}
-      >
-        <div style={{ fontWeight: 800, fontSize: 13, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 12 }}>
-          Make a payment
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.4fr', gap: 8, marginBottom: 8, fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>
-          <span>Invoice</span>
-          <span style={{ textAlign: 'right' }}>Pay</span>
-          <span>Link</span>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.4fr', gap: 8, marginBottom: 10, alignItems: 'start' }}>
-          <span>Invoice 1{capture.original_invoice_number.trim() ? ` ${capture.original_invoice_number.trim()}` : ''}</span>
-          <span style={{ textAlign: 'right' }}>{formatAud(figures.original_owing_inc)}</span>
-          <span>{payLink(capture.original_invoice_url)}</span>
-        </div>
-        {figures.has_invoice2 && (
-          <>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 0.8fr 0.8fr 1.4fr', gap: 8, marginBottom: 8, fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>
+          <div
+            style={{
+              padding: '14px 16px',
+              borderRadius: 12,
+              border: '1px solid var(--border)',
+              background: 'var(--surface)',
+              marginBottom: 18,
+              fontSize: 14,
+            }}
+          >
+            <div style={{ fontWeight: 800, fontSize: 13, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 12 }}>
+              Make a payment
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.4fr', gap: 8, marginBottom: 8, fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>
               <span>Invoice</span>
-              <span style={{ textAlign: 'right' }}>Before GST</span>
-              <span style={{ textAlign: 'right' }}>After GST</span>
+              <span style={{ textAlign: 'right' }}>Pay</span>
               <span>Link</span>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 0.8fr 0.8fr 1.4fr', gap: 8, alignItems: 'start' }}>
-              <span>Invoice 2{capture.new_invoice_number.trim() ? ` ${capture.new_invoice_number.trim()}` : ''}</span>
-              <span style={{ textAlign: 'right' }}>{formatAud(figures.invoice2_owing_ex)}</span>
-              <span style={{ textAlign: 'right' }}>{formatAud(figures.invoice2_owing_inc)}</span>
-              <span>{payLink(capture.new_invoice_url)}</span>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.4fr', gap: 8, marginBottom: 10, alignItems: 'start' }}>
+              <span>Invoice 1{capture.original_invoice_number.trim() ? ` ${capture.original_invoice_number.trim()}` : ''}</span>
+              <span style={{ textAlign: 'right' }}>{formatAud(figures.original_owing_inc)}</span>
+              <span>{payLink(capture.original_invoice_url)}</span>
             </div>
-          </>
-        )}
+            {figures.has_invoice2 && (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 0.8fr 0.8fr 1.4fr', gap: 8, marginBottom: 8, fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>
+                  <span>Invoice</span>
+                  <span style={{ textAlign: 'right' }}>Before GST</span>
+                  <span style={{ textAlign: 'right' }}>After GST</span>
+                  <span>Link</span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 0.8fr 0.8fr 1.4fr', gap: 8, alignItems: 'start' }}>
+                  <span>Invoice 2{capture.new_invoice_number.trim() ? ` ${capture.new_invoice_number.trim()}` : ''}</span>
+                  <span style={{ textAlign: 'right' }}>{formatAud(figures.invoice2_owing_ex)}</span>
+                  <span style={{ textAlign: 'right' }}>{formatAud(figures.invoice2_owing_inc)}</span>
+                  <span>{payLink(capture.new_invoice_url)}</span>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       </div>
 
       <div
