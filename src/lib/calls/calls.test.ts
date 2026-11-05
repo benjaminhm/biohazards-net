@@ -4,6 +4,7 @@ import { parseVoipPayload } from '@/lib/calls/payload'
 import { tidyTranscript } from '@/lib/calls/clean'
 import { RECORD_CALL_TOOL, extractionIssues, normalizeExtraction, stripMoney } from '@/lib/calls/extraction'
 import { contactPatch, expandRooms, quoteDrafts } from '@/lib/calls/fileAgent'
+import { callerFromEmail, pickRecording } from '@/lib/calls/recordingEmail'
 import { formatToTwilioE164 } from '@/lib/phone'
 import type { AssessmentData } from '@/lib/types'
 
@@ -79,6 +80,23 @@ test('transcript segments become speaker lines; a non-web recording reference is
   })
   assert.equal(call.recording_url, '')
   assert.equal(call.transcript, 'agent: Hello\ncustomer: Hi, my dad passed away')
+})
+
+test('an emailed recording is the largest audio attachment', () => {
+  const picked = pickRecording([
+    { id: 'logo', filename: 'logo.png', content_type: 'image/png', size: 90_000 },
+    { id: 'short', filename: 'ring.wav', content_type: 'application/octet-stream', size: 20_000 },
+    { id: 'call', filename: 'recording.mp3', content_type: 'audio/mpeg', size: 800_000 },
+  ])
+  assert.equal(picked?.id, 'call')
+  assert.equal(pickRecording([{ id: 'pdf', filename: 'invoice.pdf', content_type: 'application/pdf' }]), null)
+})
+
+test('the caller is read from a recording email only when it is unambiguous', { skip: phoneSkip }, () => {
+  assert.equal(callerFromEmail('Call recording', 'Caller ID: 61412345678\nDialled: 0731234567'), '+61412345678')
+  assert.equal(callerFromEmail('Recording from 0412 345 678', ''), '+61412345678')
+  assert.equal(callerFromEmail('Recording', 'Call between 0412345678 and 0731234567'), '')
+  assert.equal(callerFromEmail('Recording', 'no number here'), '')
 })
 
 test('tidy pass numbers speakers and drops repeated lines', () => {

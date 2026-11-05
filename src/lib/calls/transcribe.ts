@@ -8,7 +8,9 @@
  *   OPENAI_TRANSCRIBE_MODEL    optional, default whisper-1
  *   VOIP_RECORDING_AUTH        optional Authorization header value for the
  *                              recording download (e.g. "Bearer …" or "Basic …")
+ *   RESEND_API_KEY             for recordings that arrived by email (resend://…)
  */
+import { RESEND_REF_PREFIX, resolveResendRecording } from '@/lib/calls/recordingEmail'
 
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024
 
@@ -31,18 +33,29 @@ export async function transcribeRecording(recordingUrl: string): Promise<{ text:
   const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey) throw new Error('OPENAI_API_KEY is not set')
 
+  let url = recordingUrl
+  let name = recordingUrl
+  let knownType = ''
   const headers: Record<string, string> = {}
-  if (process.env.VOIP_RECORDING_AUTH) headers.Authorization = process.env.VOIP_RECORDING_AUTH
-  const audioRes = await fetch(recordingUrl, { headers })
+  if (recordingUrl.startsWith(RESEND_REF_PREFIX)) {
+    const att = await resolveResendRecording(recordingUrl)
+    url = att.url
+    name = att.filename || att.url
+    knownType = att.contentType
+  } else if (process.env.VOIP_RECORDING_AUTH) {
+    headers.Authorization = process.env.VOIP_RECORDING_AUTH
+  }
+  const audioRes = await fetch(url, { headers })
   if (!audioRes.ok) throw new Error(`Recording download failed (${audioRes.status})`)
   const audio = await audioRes.arrayBuffer()
   if (audio.byteLength === 0) throw new Error('Recording is empty')
   if (audio.byteLength > MAX_AUDIO_BYTES) throw new Error('Recording is over 25 MB, too large to transcribe in one pass')
 
-  const contentType = audioRes.headers.get('content-type') ?? 'audio/mpeg'
+  const served = audioRes.headers.get('content-type') ?? ''
+  const contentType = served.startsWith('audio/') || !knownType ? served || 'audio/mpeg' : knownType
   const model = process.env.OPENAI_TRANSCRIBE_MODEL || 'whisper-1'
   const form = new FormData()
-  form.append('file', new Blob([audio], { type: contentType }), `call.${extensionFor(contentType, recordingUrl)}`)
+  form.append('file', new Blob([audio], { type: contentType }), `call.${extensionFor(contentType, name)}`)
   form.append('model', model)
   form.append('language', 'en')
   form.append('prompt', VOCABULARY)

@@ -7,14 +7,21 @@
  *     Webhook has no body text — we GET https://api.resend.com/emails/receiving/:id with RESEND_API_KEY.
  *   - Manual JSON test: { recipient, sender, subject, text }
  *
+ * Resend mail to the calls address (calls@…) is a VoIPline call recording: it
+ * becomes an inbound call and runs the call pipeline (lib/calls/recordingEmail).
+ *
  * Configure webhook URL in provider, e.g.:
  *   https://app.biohazards.net/api/webhooks/inbound-email?key=YOUR_INBOUND_WEBHOOK_SECRET
  *
  * Env: INBOUND_WEBHOOK_SECRET — required unless INBOUND_WEBHOOK_DEV=1 (local only).
  *      RESEND_API_KEY — required for Resend inbound content fetch.
  */
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
+import { callsInboxLocalPart, storeRecordingEmail } from '@/lib/calls/recordingEmail'
+import { processCall } from '@/lib/calls/pipeline'
+
+export const maxDuration = 300
 
 function verifySecret(req: Request): boolean {
   const secret = process.env.INBOUND_WEBHOOK_SECRET ?? ''
@@ -106,6 +113,7 @@ async function handleResendEmailReceived(data: {
     subject?: string | null
     text?: string | null
     html?: string | null
+    created_at?: string | null
   }
 
   const recipient = (data.to?.[0] ?? email.to?.[0] ?? '').trim()
@@ -114,6 +122,27 @@ async function handleResendEmailReceived(data: {
   let text = (email.text ?? '').trim()
   if (!text && email.html) {
     text = email.html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+  }
+
+  const callsInbox = callsInboxLocalPart()
+  const toCalls = [...(data.to ?? []), ...(email.to ?? [])].find(addr => extractLocalPart(addr) === callsInbox)
+  if (toCalls) {
+    try {
+      const callId = await storeRecordingEmail(createServiceClient(), {
+        emailId,
+        from: sender,
+        to: toCalls,
+        subject,
+        body: text,
+        receivedAt: email.created_at ?? null,
+      })
+      if (!callId) return NextResponse.json({ ok: true, source: 'resend', duplicate: true })
+      after(() => processCall(callId))
+      return NextResponse.json({ ok: true, source: 'resend', call_id: callId }, { status: 202 })
+    } catch (e) {
+      console.error('[inbound-email] call recording', e)
+      return NextResponse.json({ error: e instanceof Error ? e.message : 'Call recording failed' }, { status: 500 })
+    }
   }
 
   const result = await insertJobEmail({
