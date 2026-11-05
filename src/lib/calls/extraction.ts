@@ -109,28 +109,16 @@ export const RECORD_CALL_TOOL: Anthropic.Tool = {
         description: 'One to three neutral, factual sentences describing the job. No graphic detail. No labels or categories.',
       },
       urgency: { type: 'string', enum: URGENCIES },
-      contact: {
-        type: 'object',
-        properties: {
-          name: { type: 'string' },
-          organisation: { type: 'string', description: 'Company/agency if calling on behalf of one.' },
-          role: { type: 'string', description: 'e.g. property manager, executor, police officer.' },
-          relationship: { type: 'string', description: 'Relationship to the property or deceased, e.g. son, landlord.' },
-          phone: { type: 'string', description: 'Callback number if given, as said.' },
-          email: { type: 'string' },
-        },
-        required: ['name', 'organisation', 'role', 'relationship', 'phone', 'email'],
-      },
-      site: {
-        type: 'object',
-        properties: {
-          address: { type: 'string', description: 'Full site address as given, including unit number and suburb.' },
-          contact_name: { type: 'string', description: 'On-site contact if different from the caller.' },
-          contact_phone: { type: 'string' },
-          access_notes: { type: 'string', description: 'Keys, parking, stairs, lift, pets, discretion.' },
-        },
-        required: ['address', 'contact_name', 'contact_phone', 'access_notes'],
-      },
+      contact_name: { type: 'string', description: 'The caller\'s name as they gave it, e.g. "My name is Mick Testy" → "Mick Testy".' },
+      contact_organisation: { type: 'string', description: 'Company/agency if calling on behalf of one.' },
+      contact_role: { type: 'string', description: 'e.g. property manager, executor, police officer.' },
+      contact_relationship: { type: 'string', description: 'Relationship to the property or deceased, e.g. son, landlord.' },
+      contact_phone: { type: 'string', description: 'Callback number the caller said, as said.' },
+      contact_email: { type: 'string' },
+      site_address: { type: 'string', description: 'Full site address as given, including unit number and suburb.' },
+      site_contact_name: { type: 'string', description: 'On-site contact if different from the caller.' },
+      site_contact_phone: { type: 'string' },
+      site_access_notes: { type: 'string', description: 'Keys, parking, stairs, lift, pets, discretion.' },
       biohazard: {
         type: 'object',
         description: 'Biohazard Cleaning Quote: bodily fluids, decomposition, trauma, crime scene, sewage, mould.',
@@ -175,7 +163,9 @@ export const RECORD_CALL_TOOL: Anthropic.Tool = {
       unclear: { type: 'array', items: { type: 'string' }, description: 'Anything you could not be sure of. Do not guess.' },
     },
     required: [
-      'is_job_enquiry', 'summary', 'job_description', 'urgency', 'contact', 'site',
+      'is_job_enquiry', 'summary', 'job_description', 'urgency',
+      'contact_name', 'contact_organisation', 'contact_role', 'contact_relationship', 'contact_phone', 'contact_email',
+      'site_address', 'site_contact_name', 'site_contact_phone', 'site_access_notes',
       'biohazard', 'contents_clearance', 'surface_area', 'money_mentioned', 'unclear',
     ],
   },
@@ -191,6 +181,7 @@ One call can need one, two or all three. Mark needed=true only when the call sup
 
 RULES:
 - Record only what was said. Never invent names, numbers, sizes, addresses or emails. Empty string or null when not said.
+- Every name, phone number, email and address the caller gives goes in the contact_ and site_ fields. If your summary mentions it, the field must have it.
 - Never record prices, rates or fees anywhere except money_mentioned. Staff price every quote.
 - Rooms: list the rooms mentioned with a count. Use a preset when it fits; give dimensions only when the caller stated them.
 - job_description is neutral and factual: what happened, where, what the client wants. Not a category.
@@ -231,8 +222,29 @@ function oneOf<T extends string>(v: unknown, options: readonly T[], fallback: T)
   return options.includes(v as T) ? (v as T) : fallback
 }
 
+/** An object, or an object the model sent as a JSON string. */
 function obj(v: unknown): Record<string, unknown> {
+  if (typeof v === 'string' && v.trim().startsWith('{')) {
+    try {
+      return obj(JSON.parse(v))
+    } catch {
+      return {}
+    }
+  }
   return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {}
+}
+
+/**
+ * A quote block from the tool output (`biohazard: { needed, … }`) or from an
+ * already-normalised extraction (`quotes.biohazard: { … }` or null).
+ */
+function quoteBlock(r: Record<string, unknown>, toolKey: string): Record<string, unknown> | null {
+  if (toolKey in r) {
+    const o = obj(r[toolKey])
+    return o.needed === true ? o : null
+  }
+  const stored = obj(r.quotes)[toolKey]
+  return stored ? obj(stored) : null
 }
 
 const MONEY = /(\$\s?\d[\d,]*(\.\d+)?\s?(k|K)?|\b\d[\d,]*(\.\d+)?\s?(dollars|bucks)\b)/
@@ -282,9 +294,12 @@ export function normalizeExtraction(raw: unknown): CallExtraction {
     return out.text
   }
 
-  const bio = obj(r.biohazard)
-  const ccq = obj(r.contents_clearance)
-  const sacq = obj(r.surface_area)
+  // Tool output is flat (contact_name); a stored extraction is nested (contact.name).
+  const field = (nested: Record<string, unknown>, key: string, flat: string) => s(nested[key]) || s(r[flat])
+  const bio = quoteBlock(r, 'biohazard') ?? {}
+  const ccq = quoteBlock(r, 'contents_clearance') ?? {}
+  const sacq = quoteBlock(r, 'surface_area') ?? {}
+  const has = (q: Record<string, unknown>) => Object.keys(q).length > 0
 
   const extraction: CallExtraction = {
     is_job_enquiry: r.is_job_enquiry !== false,
@@ -293,22 +308,22 @@ export function normalizeExtraction(raw: unknown): CallExtraction {
     job_description: clean(r.job_description),
     urgency: oneOf(r.urgency, URGENCIES, 'standard'),
     contact: {
-      name: s(contact.name),
-      organisation: s(contact.organisation),
-      role: s(contact.role),
-      relationship: s(contact.relationship),
-      phone: s(contact.phone),
-      email: s(contact.email).toLowerCase(),
+      name: field(contact, 'name', 'contact_name'),
+      organisation: field(contact, 'organisation', 'contact_organisation'),
+      role: field(contact, 'role', 'contact_role'),
+      relationship: field(contact, 'relationship', 'contact_relationship'),
+      phone: field(contact, 'phone', 'contact_phone'),
+      email: field(contact, 'email', 'contact_email').toLowerCase(),
     },
     site: {
-      address: s(site.address),
-      contact_name: s(site.contact_name),
-      contact_phone: s(site.contact_phone),
-      access_notes: clean(site.access_notes),
+      address: field(site, 'address', 'site_address'),
+      contact_name: field(site, 'contact_name', 'site_contact_name'),
+      contact_phone: field(site, 'contact_phone', 'site_contact_phone'),
+      access_notes: clean(field(site, 'access_notes', 'site_access_notes')),
     },
     quotes: {
       biohazard:
-        bio.needed === true
+        has(bio)
           ? {
               reason: s(bio.reason),
               evidence: s(bio.evidence),
@@ -323,7 +338,7 @@ export function normalizeExtraction(raw: unknown): CallExtraction {
             }
           : null,
       contents_clearance:
-        ccq.needed === true
+        has(ccq)
           ? {
               reason: s(ccq.reason),
               evidence: s(ccq.evidence),
@@ -333,7 +348,7 @@ export function normalizeExtraction(raw: unknown): CallExtraction {
             }
           : null,
       surface_area:
-        sacq.needed === true
+        has(sacq)
           ? {
               reason: s(sacq.reason),
               evidence: s(sacq.evidence),

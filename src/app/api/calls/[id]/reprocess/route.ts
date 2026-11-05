@@ -2,7 +2,8 @@
  * POST /api/calls/[id]/reprocess  { from?: 'transcribe' | 'clean' | 'extract' | 'file' }
  *
  * Re-run the call pipeline from a stage, keeping the earlier stages' output.
- * A call already filed into a job is never filed a second time.
+ * A call already filed is re-filed into the same job: empty fields and missing
+ * quotes are filled, nothing on file is overwritten, no second job is created.
  */
 import { NextResponse, after } from 'next/server'
 import { guardFullAccessStaff } from '@/lib/fullAccessStaff'

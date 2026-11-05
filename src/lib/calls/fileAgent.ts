@@ -65,7 +65,19 @@ export function heardContactFields(e: CallExtraction, callerNumber: string): Rec
   }
 }
 
-/** Fill empty job fields only. A field staff already filled is never overwritten. */
+/** The name the call agent gives a job when the caller's name was not heard. */
+export function placeholderName(callerNumber: string): string {
+  return callerNumber ? `Caller ${callerNumber}` : 'Unknown caller'
+}
+
+function isPlaceholderName(name: string): boolean {
+  return name === 'Unknown caller' || /^Caller \+?\d+$/.test(name)
+}
+
+/**
+ * Fill empty job fields only. A field staff already filled is never overwritten;
+ * the call agent's own placeholder name counts as empty.
+ */
 export function contactPatch(
   job: Partial<Record<ContactField, string | null>>,
   e: CallExtraction,
@@ -78,11 +90,12 @@ export function contactPatch(
   for (const field of CONTACT_FIELDS) {
     const value = heard[field]
     if (!value) continue
-    const existing = (job[field] ?? '').trim()
+    const onFile = (job[field] ?? '').trim()
+    const existing = field === 'client_name' && isPlaceholderName(onFile) ? '' : onFile
     if (existing === value) continue
     if (!existing) {
       patch[field] = value
-      before[field] = existing
+      before[field] = onFile
     } else {
       conflicts.push({ field, existing, heard: value })
     }

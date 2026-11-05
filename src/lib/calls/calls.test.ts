@@ -4,7 +4,7 @@ import { parseVoipPayload } from '@/lib/calls/payload'
 import { tidyTranscript } from '@/lib/calls/clean'
 import { RECORD_CALL_TOOL, extractionIssues, normalizeExtraction, stripMoney } from '@/lib/calls/extraction'
 import { contactPatch, expandRooms, quoteDrafts } from '@/lib/calls/fileAgent'
-import { callerFromEmail, pickRecording } from '@/lib/calls/recordingEmail'
+import { audioAttachments, callerFromEmail, orderedRecordingRefs, uniqueCallId } from '@/lib/calls/recordingEmail'
 import { formatToTwilioE164 } from '@/lib/phone'
 import type { AssessmentData } from '@/lib/types'
 
@@ -82,14 +82,59 @@ test('transcript segments become speaker lines; a non-web recording reference is
   assert.equal(call.transcript, 'agent: Hello\ncustomer: Hi, my dad passed away')
 })
 
-test('an emailed recording is the largest audio attachment', () => {
-  const picked = pickRecording([
-    { id: 'logo', filename: 'logo.png', content_type: 'image/png', size: 90_000 },
-    { id: 'short', filename: 'ring.wav', content_type: 'application/octet-stream', size: 20_000 },
-    { id: 'call', filename: 'recording.mp3', content_type: 'audio/mpeg', size: 800_000 },
+test('emailed recording parts are kept in part order, and only audio counts', () => {
+  const audio = audioAttachments([
+    { id: 'logo', filename: 'logo.png', content_type: 'image/png' },
+    { id: 'p2', filename: '120536___call_recording___au-mpbx5-asterisk03-1793910305.256-part002.mp3', content_type: 'application/octet-stream' },
+    { id: 'p1', filename: '120536___call_recording___au-mpbx5-asterisk03-1793910305.256-part001.mp3', content_type: 'audio/mpeg' },
   ])
-  assert.equal(picked?.id, 'call')
-  assert.equal(pickRecording([{ id: 'pdf', filename: 'invoice.pdf', content_type: 'application/pdf' }]), null)
+  assert.deepEqual(audio.map(a => a.id), ['p1', 'p2'])
+  assert.deepEqual(audioAttachments([{ id: 'pdf', filename: 'invoice.pdf', content_type: 'application/pdf' }]), [])
+  const parts = [
+    { ref: 'resend://e2/b', filename: 'x-part002.mp3', part: 2, email_id: 'e2' },
+    { ref: 'resend://e1/a', filename: 'x-part001.mp3', part: 1, email_id: 'e1' },
+  ]
+  assert.deepEqual(orderedRecordingRefs(parts, ''), ['resend://e1/a', 'resend://e2/b'])
+  assert.deepEqual(orderedRecordingRefs([], 'https://rec.example/a.mp3'), ['https://rec.example/a.mp3'])
+})
+
+test('VoIPline\'s unique call id ties the parts of one call together', () => {
+  const body = 'Inbound Call Recording You have a new inbound call recording, received from 0433586544 and answered by 61404903903 on Friday. Unique call ID: 5031793910305256'
+  assert.equal(uniqueCallId(body), '5031793910305256')
+  assert.equal(uniqueCallId('no id here'), '')
+})
+
+test('contact and site details survive flat fields, JSON-string objects, and a second normalisation', () => {
+  const flat = normalizeExtraction({
+    ...headAgentOutput({ contact: undefined, site: undefined }),
+    contact_name: 'Mick Testy', contact_phone: '0412 345 678', contact_role: 'executor',
+    site_address: '4/12 King Street, Annerley', site_access_notes: 'Key with neighbour',
+  })
+  assert.equal(flat.contact.name, 'Mick Testy')
+  assert.equal(flat.contact.phone, '0412 345 678')
+  assert.equal(flat.site.address, '4/12 King Street, Annerley')
+  assert.equal(flat.site.access_notes, 'Key with neighbour')
+
+  const stringified = normalizeExtraction(headAgentOutput({
+    contact: JSON.stringify({ name: 'Mark Lee', phone: '0412 345 678' }),
+    site: JSON.stringify({ address: '4/12 King St, Annerley QLD 4103' }),
+  }))
+  assert.equal(stringified.contact.name, 'Mark Lee')
+  assert.equal(stringified.site.address, '4/12 King St, Annerley QLD 4103')
+
+  const again = normalizeExtraction(flat)
+  assert.deepEqual(again, flat)
+  assert.ok(again.quotes.biohazard && again.quotes.contents_clearance && again.quotes.surface_area)
+})
+
+test('the call agent\'s placeholder name is replaced when the name is heard later', () => {
+  const e = normalizeExtraction(headAgentOutput())
+  const { patch, conflicts } = contactPatch({ client_name: 'Caller +61433586544' }, e, '+61433586544')
+  assert.equal(patch.client_name, 'Mark Lee')
+  assert.equal(conflicts.some(c => c.field === 'client_name'), false)
+  const kept = contactPatch({ client_name: 'Mary Lee' }, e, '+61433586544')
+  assert.equal(kept.patch.client_name, undefined)
+  assert.equal(kept.conflicts[0]?.field, 'client_name')
 })
 
 test('the caller is read from a recording email only when it is unambiguous', { skip: phoneSkip }, () => {

@@ -19,7 +19,7 @@
 import { NextResponse, after } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import { callsInboxLocalPart, storeRecordingEmail } from '@/lib/calls/recordingEmail'
-import { processCall } from '@/lib/calls/pipeline'
+import { processCallWhenSettled } from '@/lib/calls/pipeline'
 
 export const maxDuration = 300
 
@@ -128,7 +128,7 @@ async function handleResendEmailReceived(data: {
   const toCalls = [...(data.to ?? []), ...(email.to ?? [])].find(addr => extractLocalPart(addr) === callsInbox)
   if (toCalls) {
     try {
-      const callId = await storeRecordingEmail(createServiceClient(), {
+      const stored = await storeRecordingEmail(createServiceClient(), {
         emailId,
         from: sender,
         to: toCalls,
@@ -136,9 +136,9 @@ async function handleResendEmailReceived(data: {
         body: text,
         receivedAt: email.created_at ?? null,
       })
-      if (!callId) return NextResponse.json({ ok: true, source: 'resend', duplicate: true })
-      after(() => processCall(callId))
-      return NextResponse.json({ ok: true, source: 'resend', call_id: callId }, { status: 202 })
+      if (!stored) return NextResponse.json({ ok: true, source: 'resend', duplicate: true })
+      after(() => processCallWhenSettled(stored.callId, stored.partCount))
+      return NextResponse.json({ ok: true, source: 'resend', call_id: stored.callId }, { status: 202 })
     } catch (e) {
       console.error('[inbound-email] call recording', e)
       return NextResponse.json({ error: e instanceof Error ? e.message : 'Call recording failed' }, { status: 500 })

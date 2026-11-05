@@ -6,6 +6,9 @@
  * address (INBOUND_CALLS_LOCAL@INBOUND_EMAIL_DOMAIN, default calls@…) and
  * /api/webhooks/inbound-email hands it here.
  *
+ * Long calls arrive as several emails (…-part001.mp3, …-part002.mp3) sharing
+ * one "Unique call ID"; they become one call with its parts in order.
+ *
  * Resend's attachment download links expire after an hour, so the call row
  * stores a resend:// reference and transcription asks Resend for a fresh link
  * each time it runs.
@@ -30,13 +33,38 @@ export interface EmailAttachment {
 
 const AUDIO_EXT = /\.(mp3|wav|m4a|ogg|oga|webm|mp4|mpeg|mpga|flac|aac)$/i
 
-/** The largest audio attachment, by content type or file extension. */
-export function pickRecording<T extends EmailAttachment>(attachments: T[]): T | null {
-  const audio = attachments.filter(
-    a => (a.content_type ?? '').toLowerCase().startsWith('audio/') || AUDIO_EXT.test(a.filename ?? ''),
-  )
-  if (audio.length === 0) return null
-  return audio.reduce((best, a) => ((a.size ?? 0) > (best.size ?? 0) ? a : best))
+/** VoIPline names parts "…-part001.mp3"; a file without a part number is part 1. */
+export function partNumber(filename: string): number {
+  const m = /part[\s_-]?(\d+)/i.exec(filename)
+  return m ? Number(m[1]) : 1
+}
+
+/** The audio attachments, in part order. */
+export function audioAttachments<T extends EmailAttachment>(attachments: T[]): T[] {
+  return attachments
+    .filter(a => (a.content_type ?? '').toLowerCase().startsWith('audio/') || AUDIO_EXT.test(a.filename ?? ''))
+    .sort((a, b) => partNumber(a.filename ?? '') - partNumber(b.filename ?? '') || (a.filename ?? '').localeCompare(b.filename ?? ''))
+}
+
+/** VoIPline's "Unique call ID: 5031793910305256", shared by every part of one call. */
+export function uniqueCallId(body: string): string {
+  return /unique\s+call\s+id\s*[:#-]?\s*([\w.-]+)/i.exec(body)?.[1] ?? ''
+}
+
+export interface RecordingPart {
+  ref: string
+  filename: string
+  part: number
+  email_id: string
+}
+
+/** Refs to transcribe, in part order then arrival order. */
+export function orderedRecordingRefs(parts: RecordingPart[], fallbackUrl: string): string[] {
+  if (!parts.length) return fallbackUrl ? [fallbackUrl] : []
+  return parts
+    .map((p, i) => ({ p, i }))
+    .sort((a, b) => a.p.part - b.p.part || a.i - b.i)
+    .map(({ p }) => p.ref)
 }
 
 const AU_NUMBER = /(?:\+?61[\s-]?|0)[2-478](?:[\s-]?\d){8}\b/g
@@ -93,9 +121,10 @@ async function listAttachments(emailId: string, apiKey: string): Promise<EmailAt
 }
 
 /**
- * Store an emailed recording as an inbound call. Returns the new call id, or
- * null when this email was already stored. An email with no audio is still
- * stored so it shows as failed on the Calls page.
+ * Store an emailed recording as an inbound call. Emails that share VoIPline's
+ * Unique call ID are parts of one call and add their audio to it. Returns the
+ * call id and its part count, or null when this email was already stored. An
+ * email with no audio is still stored so it shows as failed on the Calls page.
  */
 export async function storeRecordingEmail(supabase: ReturnType<typeof createServiceClient>, email: {
   emailId: string
@@ -104,14 +133,20 @@ export async function storeRecordingEmail(supabase: ReturnType<typeof createServ
   subject: string
   body: string
   receivedAt: string | null
-}): Promise<string | null> {
+}): Promise<{ callId: string; partCount: number } | null> {
   const apiKey = process.env.RESEND_API_KEY
   if (!apiKey) throw new Error('RESEND_API_KEY is not set')
   const orgId = process.env.VOIP_DEFAULT_ORG_ID ?? ''
   if (!orgId) throw new Error('VOIP_DEFAULT_ORG_ID is not set')
 
   const attachments = await listAttachments(email.emailId, apiKey)
-  const recording = pickRecording(attachments)
+  const parts: RecordingPart[] = audioAttachments(attachments).map(a => ({
+    ref: resendRecordingRef(email.emailId, a.id),
+    filename: a.filename ?? '',
+    part: partNumber(a.filename ?? ''),
+    email_id: email.emailId,
+  }))
+  const callKey = uniqueCallId(email.body)
 
   const { data, error } = await supabase
     .from('inbound_calls')
@@ -119,13 +154,14 @@ export async function storeRecordingEmail(supabase: ReturnType<typeof createServ
       {
         org_id: orgId,
         provider: 'voipline_email',
-        provider_call_id: email.emailId,
+        provider_call_id: callKey || email.emailId,
         caller_number: callerFromEmail(email.subject, email.body),
         started_at: email.receivedAt,
-        recording_url: recording ? resendRecordingRef(email.emailId, recording.id) : '',
+        recording_url: parts[0]?.ref ?? '',
         // Keys are prefixed so the payload reader never takes the email body for a transcript.
         payload_raw: {
           source: 'email',
+          unique_call_id: callKey,
           email_id: email.emailId,
           email_from: email.from,
           email_to: email.to,
@@ -138,5 +174,27 @@ export async function storeRecordingEmail(supabase: ReturnType<typeof createServ
     )
     .select('id')
   if (error) throw new Error(error.message)
-  return (data?.[0]?.id as string | undefined) ?? null
+
+  let callId = data?.[0]?.id as string | undefined
+  const created = Boolean(callId)
+  if (!callId) {
+    const { data: existing } = await supabase
+      .from('inbound_calls')
+      .select('id, recording_parts')
+      .eq('provider', 'voipline_email')
+      .eq('provider_call_id', callKey || email.emailId)
+      .maybeSingle()
+    if (!existing) throw new Error('Call row missing after upsert')
+    const known = new Set(((existing.recording_parts ?? []) as RecordingPart[]).map(p => p.ref))
+    if (parts.every(p => known.has(p.ref))) return null
+    callId = existing.id as string
+  }
+  if (!parts.length) return created ? { callId, partCount: 0 } : null
+
+  const { data: count, error: appendErr } = await supabase.rpc('append_call_recording_parts', {
+    p_call_id: callId,
+    p_parts: parts,
+  })
+  if (appendErr) throw new Error(appendErr.message)
+  return { callId, partCount: Number(count ?? parts.length) }
 }

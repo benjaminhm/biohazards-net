@@ -24,7 +24,8 @@ import { parseVoipPayload } from './payload'
 import { transcribeRecording } from './transcribe'
 import { cleanTranscript } from './clean'
 import { extractionIssues, normalizeExtraction, runHeadAgent, type CallExtraction } from './extraction'
-import { CONTACT_FIELDS, callNoteBody, contactPatch, quoteDrafts, type ContactField } from './fileAgent'
+import { CONTACT_FIELDS, callNoteBody, contactPatch, placeholderName, quoteDrafts, type ContactField } from './fileAgent'
+import { orderedRecordingRefs, type RecordingPart } from './recordingEmail'
 
 export const CALL_STAGES = ['transcribe', 'clean', 'extract', 'file'] as const
 export type CallStage = (typeof CALL_STAGES)[number]
@@ -37,6 +38,7 @@ interface CallRow {
   caller_number: string
   started_at: string | null
   recording_url: string
+  recording_parts: RecordingPart[] | null
   payload_raw: Record<string, unknown>
   transcript_raw: string | null
   transcript_clean: string | null
@@ -66,8 +68,12 @@ export async function processCall(callId: string, from: CallStage = 'transcribe'
       if (provided) {
         raw = provided
         source = 'provider'
-      } else if (call.recording_url) {
-        raw = (await transcribeRecording(call.recording_url)).text
+      } else if (call.recording_url || call.recording_parts?.length) {
+        const texts: string[] = []
+        for (const ref of orderedRecordingRefs(call.recording_parts ?? [], call.recording_url)) {
+          texts.push((await transcribeRecording(ref)).text)
+        }
+        raw = texts.join('\n')
         source = 'openai'
       } else {
         throw new Error('The webhook had no recording link and no transcript')
@@ -93,20 +99,30 @@ export async function processCall(callId: string, from: CallStage = 'transcribe'
     if (at('extract') || !extraction) {
       const r = await runHeadAgent(clean, call.caller_number, apiKey)
       extraction = normalizeExtraction(r.raw)
-      await update({ extraction, extraction_model: r.model, status: 'extracted' })
+      await update({ extraction, extraction_raw: r.raw, extraction_model: r.model, status: 'extracted' })
     }
 
     stage = 'file'
-    if (call.job_id && call.filed) {
-      await update({ status: 'filed' })
-      return
-    }
     await fileCall(supabase, call, extraction, unclear)
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Pipeline failed'
     console.error('[inbound_call]', callId, stage, message)
     await update({ status: 'failed', error: message, error_stage: stage })
   }
+}
+
+/**
+ * Run the pipeline once a call's recording parts stop arriving. Each emailed
+ * part schedules this; only the run that saw the latest part goes ahead.
+ */
+export async function processCallWhenSettled(callId: string, partCount: number): Promise<void> {
+  const waitMs = Number(process.env.CALL_PARTS_WAIT_MS ?? 45_000)
+  await new Promise(resolve => setTimeout(resolve, waitMs))
+  const supabase = createServiceClient()
+  const { data } = await supabase.from('inbound_calls').select('recording_parts').eq('id', callId).maybeSingle()
+  if (!data) return
+  if (((data.recording_parts ?? []) as unknown[]).length > partCount) return
+  await processCall(callId, 'transcribe')
 }
 
 async function findOpenJobByPhone(supabase: Supabase, orgId: string, phones: string[]) {
@@ -138,14 +154,20 @@ async function fileCall(supabase: Supabase, call: CallRow, e: CallExtraction, cl
   }
 
   // ── Head agent: create or attach ────────────────────────────────────────────
+  // A call that already has a job is re-filed into that job, never a new one.
   const heardPhone = formatToTwilioE164(e.contact.phone) ?? ''
   const phones = [...new Set([call.caller_number, heardPhone].filter(Boolean))]
-  const matched = await findOpenJobByPhone(supabase, call.org_id, phones)
+  const refiling = Boolean(call.job_id)
+  const matched = refiling ? null : await findOpenJobByPhone(supabase, call.org_id, phones)
 
   let jobId: string
   let jobCode: string | null
-  let decision: 'created' | 'attached'
-  if (matched) {
+  let decision: 'created' | 'attached' | 'refiled'
+  if (call.job_id) {
+    jobId = call.job_id
+    jobCode = ((call.filed as { job_code?: string } | null)?.job_code) ?? null
+    decision = 'refiled'
+  } else if (matched) {
     jobId = matched.id
     jobCode = matched.job_code
     decision = 'attached'
@@ -159,7 +181,7 @@ async function fileCall(supabase: Supabase, call: CallRow, e: CallExtraction, cl
     jobCode = await generateUniqueJobCode(supabase, call.org_id)
     const row = {
       job_code: jobCode,
-      client_name: e.contact.name || (call.caller_number ? `Caller ${call.caller_number}` : 'Unknown caller'),
+      client_name: e.contact.name || placeholderName(call.caller_number),
       client_phone: heardPhone || call.caller_number,
       site_address: e.site.address,
       job_type: 'other',
@@ -233,26 +255,32 @@ async function fileCall(supabase: Supabase, call: CallRow, e: CallExtraction, cl
   }
   for (const s of skipped) issues.push(`${s.key.replace(/_/g, ' ')}: ${s.reason}`)
 
-  const body = callNoteBody(e, call)
-  const { data: note, error: noteErr } = await supabase
-    .from('progress_notes')
-    .insert({
-      org_id: call.org_id,
-      job_id: jobId,
-      room: '',
-      body,
-      created_by_user_id: 'agent:call',
-      updated_by_user_id: 'agent:call',
-      created_by_first_name: 'Call agent',
-      updated_by_first_name: 'Call agent',
+  // One call note per call; a re-file keeps the first.
+  const previousNoteId = (call.filed as { note_id?: string } | null)?.note_id ?? null
+  let noteId = previousNoteId
+  if (!previousNoteId) {
+    const body = callNoteBody(e, call)
+    const { data: note, error: noteErr } = await supabase
+      .from('progress_notes')
+      .insert({
+        org_id: call.org_id,
+        job_id: jobId,
+        room: '',
+        body,
+        created_by_user_id: 'agent:call',
+        updated_by_user_id: 'agent:call',
+        created_by_first_name: 'Call agent',
+        updated_by_first_name: 'Call agent',
+      })
+      .select('id')
+      .single()
+    if (noteErr) throw noteErr
+    noteId = note.id as string
+    await logAgentAction(supabase, {
+      org_id: call.org_id, job_id: jobId, agent: 'file_agent', trigger, action: 'add_progress_note',
+      target_table: 'progress_notes', target_id: noteId, after: { body },
     })
-    .select('id')
-    .single()
-  if (noteErr) throw noteErr
-  await logAgentAction(supabase, {
-    org_id: call.org_id, job_id: jobId, agent: 'file_agent', trigger, action: 'add_progress_note',
-    target_table: 'progress_notes', target_id: note.id as string, after: { body },
-  })
+  }
 
   await setCall({
     validation: { issues, decision, matched_job_id: matched?.id ?? null },
@@ -263,7 +291,8 @@ async function fileCall(supabase: Supabase, call: CallRow, e: CallExtraction, cl
       drafts: drafts.map(d => d.key),
       skipped,
       conflicts,
-      note_id: note.id,
+      note_id: noteId,
+      ...(refiling ? { refiled_at: new Date().toISOString() } : {}),
     },
     status: issues.length ? 'needs_review' : 'filed',
   })
