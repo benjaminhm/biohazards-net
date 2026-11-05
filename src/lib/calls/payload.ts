@@ -1,11 +1,12 @@
 /*
  * lib/calls/payload.ts
  *
- * Read a VoIP provider webhook into one shape. Field names differ between
- * providers (and Voiceline's are not pinned down yet), so this accepts the
- * common variants and looks one level into `data` / `call` / `recording`.
- * The raw payload is always stored as well, so nothing is lost if a field
- * is missed here.
+ * Read a VoIP provider webhook into one shape. VoIPline (voipline.net.au)
+ * sends unique_call_id, user_number (caller), dest_number (our number) and
+ * call_start_at; its recording event adds a link to the recording, whose
+ * field name is not documented, so any recording-looking URL is accepted.
+ * Other providers' common names are accepted too, one level into
+ * `data` / `call` / `recording`. The raw payload is always stored as well.
  */
 import { normalizeTwilioNumber } from '@/lib/phone'
 
@@ -20,14 +21,25 @@ export interface VoipCall {
 }
 
 const KEYS = {
-  id: ['call_id', 'callId', 'call_uuid', 'callUuid', 'uuid', 'CallSid', 'call_sid', 'id'],
-  caller: ['caller_number', 'callerNumber', 'caller_id', 'callerId', 'caller', 'from', 'From', 'cli', 'ani', 'source'],
-  called: ['called_number', 'calledNumber', 'to', 'To', 'did', 'dnis', 'destination', 'called'],
-  started: ['started_at', 'startedAt', 'start_time', 'startTime', 'timestamp', 'call_start', 'date', 'created_at'],
-  duration: ['duration_s', 'duration', 'call_duration', 'Duration', 'RecordingDuration', 'billsec', 'length'],
-  recording: ['recording_url', 'recordingUrl', 'RecordingUrl', 'recording', 'audio_url', 'audioUrl', 'file_url', 'fileUrl', 'media_url', 'url'],
+  id: ['unique_call_id', 'call_id', 'callId', 'call_uuid', 'callUuid', 'uuid', 'CallSid', 'call_sid', 'id'],
+  caller: ['user_number', 'caller_number', 'callerNumber', 'caller_id', 'callerId', 'caller', 'from', 'From', 'cli', 'ani', 'source'],
+  called: ['dest_number', 'called_number', 'calledNumber', 'to', 'To', 'did', 'dnis', 'destination', 'called'],
+  started: ['call_start_at', 'started_at', 'startedAt', 'start_time', 'startTime', 'timestamp', 'call_start', 'date', 'created_at'],
+  duration: ['duration_s', 'duration', 'call_duration', 'talk_time', 'Duration', 'RecordingDuration', 'billsec', 'length'],
+  recording: [
+    'recording_url', 'recordingUrl', 'RecordingUrl', 'record_url', 'recording_link', 'recording',
+    'download_url', 'audio_url', 'audioUrl', 'file_url', 'fileUrl', 'media_url', 'link', 'url',
+  ],
   transcript: ['transcript', 'transcription', 'transcript_text', 'TranscriptionText', 'text'],
 } as const
+
+/** Last resort: any URL in the payload that looks like a recording. */
+function findRecordingUrl(obj: Record<string, unknown>): string {
+  for (const v of Object.values(obj)) {
+    if (typeof v === 'string' && /^https?:\/\//i.test(v) && /record|\.(mp3|wav|m4a|ogg)(\?|$)/i.test(v)) return v.trim()
+  }
+  return ''
+}
 
 const NESTED = ['data', 'call', 'payload', 'recording', 'event']
 
@@ -55,7 +67,8 @@ function text(v: unknown): string {
 }
 
 function phone(v: unknown): string {
-  const t = text(v)
+  const raw = text(v).replace(/[\s()-]/g, '')
+  const t = /^61\d{9}$/.test(raw) ? `+${raw}` : raw
   return t ? normalizeTwilioNumber(t) ?? t : ''
 }
 
@@ -103,7 +116,7 @@ export function parseVoipPayload(raw: Record<string, unknown>): VoipCall {
     called_number: phone(pick(f, KEYS.called)),
     started_at: when(pick(f, KEYS.started)),
     duration_s: seconds(pick(f, KEYS.duration)),
-    recording_url: /^https?:\/\//i.test(text(recording)) ? text(recording) : '',
+    recording_url: /^https?:\/\//i.test(text(recording)) ? text(recording) : findRecordingUrl(f),
     transcript: transcriptText(pick(f, KEYS.transcript)),
   }
 }

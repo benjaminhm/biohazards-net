@@ -52,6 +52,23 @@ test('webhook fields are read from common names, nested data, and unix times', {
   assert.equal(call.recording_url, 'https://rec.example/abc.mp3')
 })
 
+test('a VoIPline recording event is read by its field names', () => {
+  const call = parseVoipPayload({
+    type: 'inbound_call_recording',
+    unique_call_id: '1762310000.4821',
+    user_name: 'MARK LEE',
+    user_number: '61412345678',
+    dest_number: '61731234567',
+    call_start_at: '2026-11-05T09:12:00+10:00',
+    recording: { listen: 'https://pbx.example/recordings/1762310000.4821.mp3?sig=abc' },
+  })
+  assert.equal(call.provider_call_id, '1762310000.4821')
+  assert.equal(call.caller_number, '+61412345678')
+  assert.equal(call.called_number, '+61731234567')
+  assert.equal(call.started_at, '2026-11-04T23:12:00.000Z')
+  assert.equal(call.recording_url, 'https://pbx.example/recordings/1762310000.4821.mp3?sig=abc')
+})
+
 test('transcript segments become speaker lines; a non-web recording reference is ignored', () => {
   const call = parseVoipPayload({
     CallSid: 'CA1',

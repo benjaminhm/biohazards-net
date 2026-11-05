@@ -1,12 +1,13 @@
 /*
  * POST /api/webhooks/voip
  *
- * Receives a call from the VoIP provider (Voiceline) when the recording or
- * transcript is ready. Stores the raw payload, replies at once, then runs the
- * call pipeline (transcribe → clean → head agent → file agent) after the
- * response. Retries with the same call id are ignored.
+ * Receives a call from the VoIP provider (VoIPline "Inbound call recording"
+ * webhook) when the recording is ready. Stores the raw payload, replies at
+ * once, then runs the call pipeline (transcribe → clean → head agent → file
+ * agent) after the response. Retries with the same call id are ignored.
  *
- * Auth: VOIP_WEBHOOK_SECRET as `Authorization: Bearer <secret>` or `?key=<secret>`.
+ * Auth: VOIP_WEBHOOK_SECRET as VoIPline's `X-Pbx-Token` header (its "Secret
+ *       Token" field), `Authorization: Bearer <secret>`, or `?key=<secret>`.
  * Org:  the dialled number in voip_numbers, else VOIP_DEFAULT_ORG_ID.
  *
  * Internal only — nothing here contacts the caller.
@@ -28,6 +29,8 @@ function sameSecret(given: string, secret: string): boolean {
 function authorised(req: Request): boolean {
   const secret = process.env.VOIP_WEBHOOK_SECRET ?? ''
   if (!secret) return false
+  const pbxToken = req.headers.get('x-pbx-token') ?? ''
+  if (pbxToken && sameSecret(pbxToken, secret)) return true
   const header = req.headers.get('authorization') ?? ''
   if (header.startsWith('Bearer ') && sameSecret(header.slice(7), secret)) return true
   const key = new URL(req.url).searchParams.get('key') ?? ''
@@ -60,7 +63,7 @@ export async function POST(req: Request) {
     .upsert(
       {
         org_id: orgId,
-        provider: 'voiceline',
+        provider: 'voipline',
         provider_call_id: providerCallId,
         caller_number: call.caller_number,
         called_number: call.called_number,

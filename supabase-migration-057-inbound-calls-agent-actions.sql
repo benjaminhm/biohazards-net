@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS voip_numbers (
 CREATE TABLE IF NOT EXISTS inbound_calls (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
-  provider TEXT NOT NULL DEFAULT 'voiceline',
+  provider TEXT NOT NULL DEFAULT 'voipline',
   provider_call_id TEXT NOT NULL,
   caller_number TEXT NOT NULL DEFAULT '',
   called_number TEXT NOT NULL DEFAULT '',
