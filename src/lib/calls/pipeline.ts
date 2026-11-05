@@ -19,6 +19,7 @@ import { generateUniqueJobCode } from '@/lib/jobCode'
 import { ensureJobInboundEmailToken } from '@/lib/jobInboundEmail'
 import { formatToTwilioE164 } from '@/lib/phone'
 import { logAgentAction } from '@/lib/agentActions'
+import { postMessage } from '@/lib/agent/drafts'
 import type { AssessmentData } from '@/lib/types'
 import { parseVoipPayload } from './payload'
 import { transcribeRecording } from './transcribe'
@@ -302,4 +303,32 @@ async function fileCall(supabase: Supabase, call: CallRow, e: CallExtraction, cl
     },
     status: issues.length ? 'needs_review' : 'filed',
   })
+
+  try {
+    await postMessage(supabase, {
+      org_id: call.org_id, thread_id: null, job_id: jobId, speaker: 'file_agent', author: 'Call agent',
+      content: { text: filedFeedText(call, e, decision, Object.keys(patch), drafts.map(d => d.key), issues) },
+    })
+  } catch (err) {
+    console.error('[pipeline] job feed post failed', err)
+  }
+}
+
+function filedFeedText(
+  call: Pick<CallRow, 'provider' | 'caller_number'>,
+  e: CallExtraction,
+  decision: 'created' | 'attached' | 'refiled',
+  fields: string[],
+  drafts: string[],
+  issues: string[],
+): string {
+  const what = call.provider === 'netlify_form' ? 'Website enquiry' : `Call${call.caller_number ? ` from ${call.caller_number}` : ''}`
+  const how = decision === 'created' ? 'New job created.' : decision === 'attached' ? 'Attached to this open job by phone number.' : 'Re-filed into this job.'
+  return [
+    `${what} filed. ${how}`,
+    e.summary,
+    fields.length ? `Filled: ${fields.map(f => f.replace(/_/g, ' ')).join(', ')}.` : '',
+    drafts.length ? `Drafted (prices blank): ${drafts.map(d => d.replace(/_/g, ' ')).join(', ')}.` : '',
+    issues.length ? `Check: ${issues.join(' ')}` : '',
+  ].filter(Boolean).join('\n')
 }

@@ -14,6 +14,7 @@ import {
   fetchQuoteLineItemsMergeContext,
   mergeQuoteLineItemsIntoDocContent,
 } from '@/lib/quoteLineItemsForDocuments'
+import { isAcceptableQuoteType } from '@/lib/acceptableQuotes'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { DocType } from '@/lib/types'
 
@@ -168,7 +169,7 @@ export async function renderDocumentHtml(options: RenderDocumentOptions): Promis
   const job = jobRes.data
 
   let quoteAccepted: { email: string; accepted_at: string } | null = null
-  if (showQuoteAccept && doc.type === 'quote') {
+  if (showQuoteAccept && isAcceptableQuoteType(doc.type)) {
     const { data: acceptance } = await supabase
       .from('quote_acceptances')
       .select('contact_email, accepted_at')
@@ -200,7 +201,7 @@ export async function renderDocumentHtml(options: RenderDocumentOptions): Promis
       printUrl: viewerUrl,
       photoToggleSupported,
       photosOn,
-      quoteAcceptDocumentId: showQuoteAccept && doc.type === 'quote' ? doc.id : undefined,
+      quoteAcceptDocumentId: showQuoteAccept && isAcceptableQuoteType(doc.type) ? doc.id : undefined,
       quoteAccepted,
     },
   )

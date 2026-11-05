@@ -13,9 +13,11 @@
  *   4. the quote has not already been accepted (unique index on document_id)
  *
  * On success: write the immutable quote_acceptances row, move the job to
- * 'accepted', and alert staff.
+ * 'accepted', alert staff, then create or update the job's draft Xero invoice.
  */
-import { NextResponse } from 'next/server'
+import { after, NextResponse } from 'next/server'
+import { isAcceptableQuoteType } from '@/lib/acceptableQuotes'
+import { syncJobInvoice } from '@/lib/xero/sync'
 import { loadPortalDocument, requirePortalContext } from '@/lib/portalScope'
 import { areTermsCurrent } from '@/lib/portal/terms'
 import { sendPortalQuoteAcceptedEmail } from '@/lib/portal/email'
@@ -60,7 +62,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ documen
 
   const { doc, job } = found
 
-  if (doc.type !== 'quote') {
+  if (!isAcceptableQuoteType(doc.type)) {
     return NextResponse.json({ error: 'This document is not a quote' }, { status: 400 })
   }
 
@@ -121,6 +123,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ documen
       .eq('id', doc.job_id as string)
       .eq('org_id', orgId)
   }
+
+  after(() => syncJobInvoice(supabase, doc.job_id as string, 'portal_quote_accepted'))
 
   try {
     await sendPortalQuoteAcceptedEmail({

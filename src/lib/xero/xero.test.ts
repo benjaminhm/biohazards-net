@@ -1,0 +1,95 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { decryptToken, encryptToken } from './crypto'
+import {
+  DEFAULT_XERO_SETTINGS,
+  brisbaneDate,
+  buildInvoiceLines,
+  contactFromJob,
+  draftInvoiceBody,
+  linesHash,
+  quoteAmount,
+  xeroSettings,
+} from './invoice'
+import { xeroErrorMessage } from './client'
+import { isAcceptableQuoteType } from '../acceptableQuotes'
+
+const KEY = 'a'.repeat(64)
+
+test('tokens round-trip and tampering is rejected', () => {
+  const enc = encryptToken('secret-token', KEY)
+  assert.notEqual(enc, encryptToken('secret-token', KEY))
+  assert.equal(decryptToken(enc, KEY), 'secret-token')
+  const parts = enc.split(':')
+  parts[3] = Buffer.from('tampered').toString('base64')
+  assert.throws(() => decryptToken(parts.join(':'), KEY))
+  assert.throws(() => encryptToken('x', 'short'))
+})
+
+test('quote amounts are ex GST', () => {
+  assert.deepEqual(quoteAmount({ subtotal: 1000, gst: 100, total: 1100 }), { exGst: 1000, gst: true })
+  assert.deepEqual(quoteAmount({ total: 1100, gst: 100 }), { exGst: 1000, gst: true })
+  assert.deepEqual(quoteAmount({ subtotal: '500', gst: 0, total: 500 }), { exGst: 500, gst: false })
+  assert.equal(quoteAmount({ title: 'x' }), null)
+})
+
+test('one line per accepted quote, unpriced ones reported', () => {
+  const { lines, unpriced } = buildInvoiceLines([
+    { document_id: 'a', type: 'biohazard_cleaning_quote', content: { title: 'Unattended death', reference: 'BCQ-1', subtotal: 2000, gst: 200, total: 2200 } },
+    { document_id: 'b', type: 'contents_clearance_quote', content: { title: 'Contents Clearance', reference: 'CCQ-1', subtotal: 800, gst: 0, total: 800 } },
+    { document_id: 'c', type: 'surface_area_cleaning_quote', content: { reference: 'SACQ-1' } },
+  ], DEFAULT_XERO_SETTINGS)
+  assert.equal(lines.length, 2)
+  assert.deepEqual(unpriced, ['c'])
+  assert.deepEqual(lines[0], {
+    Description: 'Biohazard cleaning: Unattended death (quote BCQ-1)',
+    Quantity: 1,
+    UnitAmount: 2000,
+    AccountCode: '200',
+    TaxType: 'OUTPUT',
+  })
+  assert.equal(lines[1].Description, 'Contents clearance (quote CCQ-1)')
+  assert.equal(lines[1].TaxType, 'EXEMPTOUTPUT')
+})
+
+test('lines hash changes only when lines change', () => {
+  const q = [{ document_id: 'a', type: 'quote', content: { subtotal: 100, gst: 10 } }]
+  const a = linesHash(buildInvoiceLines(q, DEFAULT_XERO_SETTINGS).lines)
+  assert.equal(a, linesHash(buildInvoiceLines(q, DEFAULT_XERO_SETTINGS).lines))
+  q[0].content.subtotal = 120
+  assert.notEqual(a, linesHash(buildInvoiceLines(q, DEFAULT_XERO_SETTINGS).lines))
+})
+
+test('settings fall back to defaults', () => {
+  assert.deepEqual(xeroSettings(null), DEFAULT_XERO_SETTINGS)
+  assert.deepEqual(xeroSettings({ account_code: '210', due_days: '0' }), { ...DEFAULT_XERO_SETTINGS, account_code: '210', due_days: 0 })
+})
+
+test('draft invoice body uses Brisbane dates and job code reference', () => {
+  const now = new Date('2026-11-05T15:30:00Z')
+  assert.equal(brisbaneDate(now), '2026-11-06')
+  const body = draftInvoiceBody({ contactId: 'c1', reference: 'BBC-0042', lines: [], settings: DEFAULT_XERO_SETTINGS, now })
+  assert.equal(body.Type, 'ACCREC')
+  assert.equal(body.Status, 'DRAFT')
+  assert.equal(body.Reference, 'BBC-0042')
+  assert.equal(body.DueDate, '2026-11-13')
+  assert.equal(body.LineAmountTypes, 'Exclusive')
+})
+
+test('contact prefers organisation, skips caller placeholders', () => {
+  assert.equal(contactFromJob({ client_organization_name: 'Acme Realty', client_name: 'Jo' }).name, 'Acme Realty')
+  assert.equal(contactFromJob({ client_name: 'Caller +61400111222', client_email: 'a@b.com' }).name, 'a@b.com')
+  assert.equal(contactFromJob({ client_name: 'Unknown caller', job_code: 'J1' }).name, 'Job J1')
+})
+
+test('Xero validation errors are surfaced', () => {
+  assert.equal(xeroErrorMessage({ Elements: [{ ValidationErrors: [{ Message: 'Account code is not valid' }] }] }), 'Account code is not valid')
+  assert.equal(xeroErrorMessage({ Detail: 'TokenExpired' }), 'TokenExpired')
+})
+
+test('BCQ, CCQ and SACQ are acceptable quotes', () => {
+  for (const t of ['quote', 'biohazard_cleaning_quote', 'contents_clearance_quote', 'surface_area_cleaning_quote']) {
+    assert.ok(isAcceptableQuoteType(t))
+  }
+  assert.ok(!isAcceptableQuoteType('report'))
+})

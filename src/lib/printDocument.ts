@@ -3801,7 +3801,7 @@ function buildContentsClearanceHTML(
   client: ClientInfo | undefined,
   screenActionBar: boolean,
 ): string {
-  const mid = buildContentsClearanceMid(c, photos, company, client)
+  const mid = buildContentsClearanceMid(c, photos, company, client) + quoteAcceptPanel(client)
   const title = clearancePrintTitle(c.title)
   return wrapBranded(mid, title, title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
@@ -3896,7 +3896,7 @@ function buildSurfaceAreaCleaningHTML(
   screenActionBar: boolean,
   photos: Photo[] = [],
 ): string {
-  const mid = buildSurfaceAreaCleaningMid(c, company, client, photos)
+  const mid = buildSurfaceAreaCleaningMid(c, company, client, photos) + quoteAcceptPanel(client)
   const title = clearancePrintTitle(c.title) || 'Surface Area Cleaning'
   return wrapBranded(mid, title, title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
@@ -4094,7 +4094,7 @@ function buildBiohazardCleaningHTML(
   const footerHtml = `<footer class="sow-foot">
         <span>${esc(companyName)} — Confidential · ${esc(c.reference)} · Page <span class="bcq-page"></span></span>
       </footer>`
-  return wrapBranded(mid, title, title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar, {
+  return wrapBranded(mid + quoteAcceptPanel(client), title, title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar, {
     rootClass: 'bcq-doc',
     metaHtml,
     footerHtml,

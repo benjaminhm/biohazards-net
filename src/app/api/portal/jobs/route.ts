@@ -10,6 +10,7 @@
  */
 import { NextResponse } from 'next/server'
 import { requirePortalContext } from '@/lib/portalScope'
+import { isAcceptableQuoteType } from '@/lib/acceptableQuotes'
 import { DOC_TYPE_LABELS } from '@/lib/types'
 import type { DocType } from '@/lib/types'
 
@@ -83,7 +84,7 @@ export async function GET(req: Request) {
       created_at: job.created_at,
       scheduled_at: job.scheduled_at,
       documents: docs,
-      quotes: docs.filter(d => d.type === 'quote'),
+      quotes: docs.filter(d => isAcceptableQuoteType(d.type)),
       completion_documents: docs.filter(d => COMPLETION_TYPES.includes(d.type as DocType)),
     }
   })

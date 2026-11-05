@@ -9,7 +9,7 @@ import type { createServiceClient } from '@/lib/supabase'
 export interface AgentActionRow {
   org_id: string
   job_id?: string | null
-  agent: 'head_agent' | 'file_agent' | 'job_assistant'
+  agent: 'head_agent' | 'file_agent' | 'job_assistant' | 'xero_sync'
   trigger: string
   action: string
   target_table?: string

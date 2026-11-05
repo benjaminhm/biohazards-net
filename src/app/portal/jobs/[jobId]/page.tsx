@@ -26,6 +26,7 @@ import {
   money,
   shortDate,
 } from '@/components/portal/portalUi'
+import { isAcceptableQuoteType } from '@/lib/acceptableQuotes'
 
 interface PortalDocument {
   id: string
@@ -101,8 +102,8 @@ export default function PortalJobPage() {
   if (error || !data) return <Notice tone="error">{error || 'Job not found.'}</Notice>
 
   const { job, documents } = data
-  const quotes = documents.filter(d => d.type === 'quote')
-  const others = documents.filter(d => d.type !== 'quote')
+  const quotes = documents.filter(d => isAcceptableQuoteType(d.type))
+  const others = documents.filter(d => !isAcceptableQuoteType(d.type))
 
   return (
     <div style={{ maxWidth: 700 }}>

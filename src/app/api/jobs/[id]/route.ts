@@ -15,6 +15,9 @@ import { getOrgId } from '@/lib/org'
 import { normalizeOptionalPhoneField } from '@/lib/phone'
 import { ensureJobInboundEmailToken } from '@/lib/jobInboundEmail'
 import { isTradingNameId } from '@/lib/tradingNames'
+import { getStaffFirstName } from '@/lib/clerkDisplayName'
+import { recordHumanEdits } from '@/lib/agent/drafts'
+import { isDraftableField } from '@/lib/agent/workspaceText'
 
 type ServiceClient = ReturnType<typeof createServiceClient>
 
@@ -145,6 +148,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         }
       }
     }
+    const watched = Object.keys(body).filter(isDraftableField)
+    const { data: beforeRow } = watched.length
+      ? await supabase.from('jobs').select(watched.join(', ')).eq('id', id).eq('org_id', orgId).maybeSingle()
+      : { data: null }
     const { data, error } = await supabase
       .from('jobs')
       .update({ ...body, updated_at: new Date().toISOString() })
@@ -154,6 +161,16 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       .single()
 
     if (error) throw error
+    if (beforeRow && data) {
+      try {
+        await recordHumanEdits(supabase, {
+          orgId, jobId: id, userId, firstName: await getStaffFirstName(userId),
+          before: beforeRow as unknown as Record<string, unknown>, after: data as Record<string, unknown>,
+        })
+      } catch (err) {
+        console.error('[jobs PATCH] agent log line failed', err)
+      }
+    }
     return NextResponse.json({ job: data })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Unknown error'

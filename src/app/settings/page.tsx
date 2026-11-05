@@ -31,6 +31,7 @@ import { getPublicWebsiteLaunchChecks, isPublicWebsiteLaunchReady } from '@/lib/
 import AddressAutocomplete from '@/components/AddressAutocomplete'
 import EquipmentCatalogueSection from '@/components/settings/EquipmentCatalogueSection'
 import ChemicalsCatalogueSection from '@/components/settings/ChemicalsCatalogueSection'
+import XeroSection from '@/components/settings/XeroSection'
 
 const RULE_TABS: { id: string; label: string }[] = [
   { id: 'general', label: 'General' },
@@ -410,6 +411,8 @@ export default function SettingsPage() {
         <div className="card" style={{ marginBottom: 24 }}>
           <ChemicalsCatalogueSection />
         </div>
+
+        <XeroSection />
 
         {/* ── Website ── */}
         <div className="card" style={{ marginBottom: 24 }}>

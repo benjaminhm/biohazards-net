@@ -40,12 +40,15 @@ export async function POST(req: Request) {
 export async function GET(req: Request) {
   const g = await guardFullAccessStaff(req)
   if (!g.ok) return g.response
-  const { data, error } = await g.supabase
+  const jobId = new URL(req.url).searchParams.get('job_id')
+  let query = g.supabase
     .from('inbound_calls')
     .select('id, caller_number, called_number, started_at, duration_s, status, error, error_stage, job_id, validation, extraction, created_at, jobs(job_code, client_name)')
     .eq('org_id', g.orgId)
     .order('created_at', { ascending: false })
     .limit(100)
+  if (jobId && /^[0-9a-f-]{36}$/i.test(jobId)) query = query.eq('job_id', jobId)
+  const { data, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ calls: data ?? [] })
 }

@@ -7,15 +7,12 @@
  * Documents are HTML-renderable via /api/print/[id] — the content JSON blob
  * is passed to buildPrintHTML() in lib/printDocument.ts.
  *
- * GET: if orgId is available it is used for scoping; it may be absent on
- * public print routes so we allow the query without the org filter in that case.
- * POST: org_id is set if resolved; documents can exist without org_id for
- * backwards-compatibility with older records.
+ * Staff with the full job file only, and the job must be in their org. The
+ * public print link and the client portal read documents directly.
  */
 import { NextResponse } from 'next/server'
-import { auth } from '@/lib/staffAuth'
-import { createServiceClient } from '@/lib/supabase'
-import { getOrgId } from '@/lib/org'
+import { guardFullAccessStaff } from '@/lib/fullAccessStaff'
+import { jobInOrg } from '@/lib/documentAccess'
 
 export async function GET(req: Request) {
   try {
@@ -23,21 +20,17 @@ export async function GET(req: Request) {
     const jobId = searchParams.get('jobId')
     if (!jobId) return NextResponse.json({ error: 'Missing jobId' }, { status: 400 })
 
-    const { userId } = await auth()
-    const { orgId } = await getOrgId(req, userId ?? null)
+    const g = await guardFullAccessStaff(req)
+    if (!g.ok) return g.response
+    if (!(await jobInOrg(g.supabase, jobId, g.orgId))) {
+      return NextResponse.json({ error: 'Job not found' }, { status: 404 })
+    }
 
-    const supabase = createServiceClient()
-    let query = supabase
+    const { data, error } = await g.supabase
       .from('documents')
       .select('*')
       .eq('job_id', jobId)
       .order('created_at', { ascending: false })
-
-    if (orgId) {
-      query = query.eq('org_id', orgId)
-    }
-
-    const { data, error } = await query
     if (error) throw error
     return NextResponse.json({ documents: data })
   } catch (err: unknown) {
@@ -48,18 +41,20 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    const { userId } = await auth()
-    const { orgId } = await getOrgId(req, userId ?? null)
+    const g = await guardFullAccessStaff(req)
+    if (!g.ok) return g.response
 
     const { job_id, type, content, file_url } = await req.json()
     if (!job_id || !type || !content) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
     }
+    if (!(await jobInOrg(g.supabase, job_id, g.orgId))) {
+      return NextResponse.json({ error: 'Job not found' }, { status: 404 })
+    }
 
-    const supabase = createServiceClient()
-    const { data, error } = await supabase
+    const { data, error } = await g.supabase
       .from('documents')
-      .insert({ job_id, type, content, file_url: file_url ?? null, org_id: orgId ?? undefined })
+      .insert({ job_id, type, content, file_url: file_url ?? null, org_id: g.orgId })
       .select()
       .single()
 

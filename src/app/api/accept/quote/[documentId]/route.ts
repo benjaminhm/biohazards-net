@@ -3,11 +3,14 @@
  *
  * Public acceptance of one saved quote/estimate. The client opens the print
  * link, enters their email, and confirms. They receive a confirmation email.
- * Staff receive an email and a text.
+ * Staff receive an email and a text. Afterwards the job's draft Xero invoice
+ * is created or updated with every accepted quote on the job.
  */
-import { NextResponse } from 'next/server'
+import { after, NextResponse } from 'next/server'
 import twilio from 'twilio'
 import { createServiceClient } from '@/lib/supabase'
+import { isAcceptableQuoteType } from '@/lib/acceptableQuotes'
+import { syncJobInvoice } from '@/lib/xero/sync'
 import { sendQuoteAcceptedClientEmail, sendQuoteAcceptedEmail } from '@/lib/email'
 import { formatToTwilioE164 } from '@/lib/phone'
 import { isTradingNameId, tradingNameOption } from '@/lib/tradingNames'
@@ -49,7 +52,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ documen
     .eq('id', documentId)
     .maybeSingle()
 
-  if (!doc || doc.type !== 'quote') {
+  if (!doc || !isAcceptableQuoteType(doc.type)) {
     return NextResponse.json({ error: 'Quote not found' }, { status: 404 })
   }
 
@@ -123,6 +126,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ documen
       })
       .eq('id', job.id)
   }
+
+  after(() => syncJobInvoice(supabase, job.id as string, 'quote_accepted'))
 
   const trading = isTradingNameId(job.trading_name) ? job.trading_name : null
   const brandLabel = (trading && tradingNameOption(trading)?.label) || 'Brisbane Biohazard Cleaning'

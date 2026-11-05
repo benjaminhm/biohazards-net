@@ -72,6 +72,8 @@ import PreStartBriefingTab from '@/components/tabs/PreStartBriefingTab'
 import JobDocsDashboardTab, { type DocDashboardTarget } from '@/components/tabs/JobDocsDashboardTab'
 import TradingNameModal from '@/components/TradingNameModal'
 import AgentDrawer from '@/components/agent/AgentDrawer'
+import AgentDraftsBanner from '@/components/workspace/AgentDraftsBanner'
+import ViewToggle from '@/components/workspace/ViewToggle'
 import { isTradingNameId, type TradingNameId } from '@/lib/tradingNames'
 import { useUser } from '@/lib/userContext'
 import {
@@ -1319,6 +1321,7 @@ export default function JobPage() {
               )}
             </div>
             <div data-devid="P2-E2" style={{ display: 'flex', gap: 6, flexShrink: 0, alignItems: 'center' }}>
+              <ViewToggle current="classic" jobId={id} />
               {job.job_code && (
                 <span
                   title="4-digit dispatch / photo code for photo.forensiccleaningqld.com.au"
@@ -1369,6 +1372,8 @@ export default function JobPage() {
           </div>
         </div>
       </div>
+
+      <AgentDraftsBanner jobId={id} onApplied={refreshJobQuietly} />
 
       {/* Tab content */}
       <div data-devid="P2-E4" className="container" style={{ paddingTop: 24 }}>

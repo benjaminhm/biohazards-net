@@ -16,6 +16,7 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import { renderDocumentHtml } from '@/lib/documentRender'
+import { isAcceptableQuoteType } from '@/lib/acceptableQuotes'
 
 export async function GET(req: Request, { params }: { params: Promise<{ docId: string }> }) {
   const { docId } = await params
@@ -39,7 +40,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ docId: s
     imagesParam,
     viewerUrl: `${appUrl}/api/print/${docId}`,
     includeClientContact: true,
-    showQuoteAccept: doc.type === 'quote',
+    showQuoteAccept: isAcceptableQuoteType(doc.type),
   })
 
   return new NextResponse(html, {

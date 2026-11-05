@@ -1,23 +1,33 @@
 /*
  * app/api/documents/[id]/route.ts
  *
- * GET    /api/documents/[id] — fetch a single document by ID (no auth required —
- *   used by the print route and GenerateModal to reload saved state)
- * PATCH  /api/documents/[id] — update document content (only the content field)
+ * GET    /api/documents/[id] — fetch a single document by ID
+ * PATCH  /api/documents/[id] — update document content (only the content field).
+ *   Saving an accepted quote re-syncs the job's Xero invoice (only changes it
+ *   while it is still a draft in Xero).
  * DELETE /api/documents/[id] — hard delete the document record
  *
- * These routes have no auth guard because documents are accessed via the
- * print route (/api/print/[docId]) which is intentionally public. In future,
- * add token-based or signed-URL access for document security.
+ * Staff with the full job file (admin, owner, manager, team lead), and only for
+ * documents in their org. The public print link (/api/print/[docId]) and the
+ * client portal read documents directly, not through this route.
  */
-import { NextResponse } from 'next/server'
-import { createServiceClient } from '@/lib/supabase'
+import { after, NextResponse } from 'next/server'
+import { isAcceptableQuoteType } from '@/lib/acceptableQuotes'
+import { syncJobInvoice } from '@/lib/xero/sync'
+import { getStaffFirstName } from '@/lib/clerkDisplayName'
+import { recordDocumentSave } from '@/lib/agent/drafts'
+import { guardFullAccessStaff } from '@/lib/fullAccessStaff'
+import { documentInOrg } from '@/lib/documentAccess'
 
-export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+const NOT_FOUND = () => NextResponse.json({ error: 'Document not found' }, { status: 404 })
+
+export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params
-    const supabase = createServiceClient()
-    const { data, error } = await supabase.from('documents').select('*').eq('id', id).single()
+    const g = await guardFullAccessStaff(req)
+    if (!g.ok) return g.response
+    if (!(await documentInOrg(g.supabase, id, g.orgId))) return NOT_FOUND()
+    const { data, error } = await g.supabase.from('documents').select('*').eq('id', id).single()
     if (error) throw error
     return NextResponse.json({ document: data })
   } catch (err: unknown) {
@@ -29,8 +39,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params
+    const g = await guardFullAccessStaff(req)
+    if (!g.ok) return g.response
+    if (!(await documentInOrg(g.supabase, id, g.orgId))) return NOT_FOUND()
+    const { supabase, userId } = g
     const body = await req.json()
-    const supabase = createServiceClient()
     const { data, error } = await supabase
       .from('documents')
       .update({ content: body.content })
@@ -38,6 +51,26 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       .select()
       .single()
     if (error) throw error
+    if (data?.job_id && isAcceptableQuoteType(data.type)) {
+      const { count } = await supabase
+        .from('quote_acceptances')
+        .select('id', { count: 'exact', head: true })
+        .eq('document_id', id)
+      if (count) after(() => syncJobInvoice(supabase, data.job_id as string, 'quote_edited'))
+    }
+    if (data?.job_id) {
+      after(async () => {
+        try {
+          await recordDocumentSave(supabase, {
+            userId,
+            firstName: await getStaffFirstName(userId),
+            doc: { id, job_id: data.job_id as string, type: data.type as string, content: data.content },
+          })
+        } catch (err) {
+          console.error('[documents PATCH] agent log line failed', err)
+        }
+      })
+    }
     return NextResponse.json({ document: data })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Unknown error'
@@ -45,11 +78,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
 }
 
-export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params
-    const supabase = createServiceClient()
-    const { error } = await supabase.from('documents').delete().eq('id', id)
+    const g = await guardFullAccessStaff(req)
+    if (!g.ok) return g.response
+    if (!(await documentInOrg(g.supabase, id, g.orgId))) return NOT_FOUND()
+    const { error } = await g.supabase.from('documents').delete().eq('id', id)
     if (error) throw error
     return NextResponse.json({ success: true })
   } catch (err: unknown) {

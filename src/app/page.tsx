@@ -35,6 +35,8 @@ import { useRouter } from 'next/navigation'
 import { useUser } from '@/lib/userContext'
 import type { CompanyProfile, Job } from '@/lib/types'
 import OrgAdminHealthCard from '@/components/OrgAdminHealthCard'
+import ViewToggle from '@/components/workspace/ViewToggle'
+import { isWideScreen, readViewMode } from '@/lib/viewMode'
 
 const LS_HIDE_FEEDBACK = 'bh_dash_quick_feedback_hidden'
 function fmtBooking(iso: string) {
@@ -64,6 +66,10 @@ export default function HomePage() {
   useEffect(() => {
     if (!userLoading && role === 'member') router.replace('/tech')
   }, [userLoading, role, router])
+
+  useEffect(() => {
+    if (!userLoading && (isAdmin || isManager) && readViewMode() === 'agent' && isWideScreen()) router.replace('/workspace')
+  }, [userLoading, isAdmin, isManager, router])
 
   useEffect(() => {
     try {
@@ -235,6 +241,7 @@ export default function HomePage() {
             </h1>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingTop: 4 }}>
+            <ViewToggle current="classic" />
             <span className="num" style={{ fontSize: 20, fontWeight: 300, color: 'var(--text-muted)', letterSpacing: '-0.02em' }}>
               {time}
             </span>
