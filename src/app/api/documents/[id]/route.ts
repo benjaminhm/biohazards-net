@@ -15,7 +15,7 @@ import { after, NextResponse } from 'next/server'
 import { isAcceptableQuoteType } from '@/lib/acceptableQuotes'
 import { syncJobInvoice } from '@/lib/xero/sync'
 import { getStaffFirstName } from '@/lib/clerkDisplayName'
-import { recordDocumentSave } from '@/lib/agent/drafts'
+import { recordDocumentSave, staleAfterStaffSave } from '@/lib/agent/drafts'
 import { guardFullAccessStaff } from '@/lib/fullAccessStaff'
 import { documentInOrg } from '@/lib/documentAccess'
 
@@ -61,10 +61,14 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (data?.job_id) {
       after(async () => {
         try {
+          const firstName = await getStaffFirstName(userId)
           await recordDocumentSave(supabase, {
             userId,
-            firstName: await getStaffFirstName(userId),
+            firstName,
             doc: { id, job_id: data.job_id as string, type: data.type as string, content: data.content },
+          })
+          await staleAfterStaffSave(supabase, {
+            orgId: g.orgId, jobId: data.job_id as string, userId, firstName, doc: { id, content: data.content },
           })
         } catch (err) {
           console.error('[documents PATCH] agent log line failed', err)

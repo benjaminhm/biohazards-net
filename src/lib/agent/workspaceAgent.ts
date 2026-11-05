@@ -21,7 +21,9 @@ import {
   JOB_STATUSES,
   QUOTE_DOC_KEYS,
   QUOTE_DOC_LABELS,
+  captureLabel,
   describeFieldDraft,
+  upsertPatchDraft,
   emptyQuoteCapture,
   listPendingDrafts,
   postMessage,
@@ -32,18 +34,30 @@ import {
 import {
   DRAFTABLE_FIELDS,
   isDraftableField,
+  normalizeFieldValue,
   parseJobMention,
   rebuildHistory,
   type ChatRow,
 } from './workspaceText'
+import { buildStatementDraft, surveyAndDisposalSummary } from './statementDraft'
+import {
+  CAPTURE_KEYS,
+  PHOTO_FIELDS,
+  TARGET,
+  buildPatchDraft,
+  isCaptureKey,
+  photoPatch,
+  sameJson,
+} from './patchDraft'
+import type { AssessmentData } from '@/lib/types'
 
 type Supabase = ReturnType<typeof createServiceClient>
 type Input = Record<string, unknown>
 
 const MAX_STEPS = 10
 const HISTORY_ROWS = 40
-const URGENCIES = ['standard', 'urgent', 'emergency']
-const JOB_FIELDS = `id, job_code, status, job_type, ${Object.keys(DRAFTABLE_FIELDS).join(', ')}, assessment_data`
+const JOB_FIELDS = `id, job_code, status, ${Object.keys(DRAFTABLE_FIELDS).join(', ')}, assessment_data`
+const READ_CAP = 60_000
 
 export interface WsContext extends AgentContext {
   jobId: string | null
@@ -148,7 +162,10 @@ const draftFieldChanges: WsTool = {
           type: 'object',
           properties: {
             field: { type: 'string', enum: Object.keys(DRAFTABLE_FIELDS) },
-            value: { type: 'string', description: 'New value. scheduled_at as ISO date-time; urgency standard|urgent|emergency.' },
+            value: {
+              description:
+                'New value. Text for most fields; scheduled_at as ISO date-time; urgency standard|urgent|emergency; job_type one of crime_scene, hoarding, mold, sewage, trauma, unattended_death, flood, other; site_lat/site_lng numbers; client_phones a list of {label, number}.',
+            },
           },
           required: ['field', 'value'],
         },
@@ -166,16 +183,16 @@ const draftFieldChanges: WsTool = {
     const out: { field: string; draft_id?: string; skipped?: string }[] = []
     for (const c of changes) {
       const field = str(c.field)
-      let value: string | null = typeof c.value === 'string' ? c.value.trim() : String(c.value ?? '')
       if (!isDraftableField(field)) { out.push({ field, skipped: 'not a field you can change' }); continue }
-      if (field === 'urgency' && !URGENCIES.includes(value)) { out.push({ field, skipped: 'urgency must be standard, urgent or emergency' }); continue }
-      if (field === 'scheduled_at') {
-        if (!value) value = null
-        else if (Number.isNaN(Date.parse(value))) { out.push({ field, skipped: 'not a date-time' }); continue }
-        else value = new Date(value).toISOString()
+      let value: unknown
+      try {
+        value = normalizeFieldValue(field, c.value)
+      } catch (err) {
+        out.push({ field, skipped: err instanceof Error ? err.message : 'invalid value' })
+        continue
       }
       const before = row[field] ?? null
-      if ((before ?? '') === (value ?? '')) { out.push({ field, skipped: 'already that value' }); continue }
+      if (sameJson(before ?? '', value ?? '')) { out.push({ field, skipped: 'already that value' }); continue }
       const id = await upsertDraft(ctx.supabase, {
         orgId: ctx.orgId, jobId, kind: 'field', target_path: field, before, proposed: value,
         summary: describeFieldDraft(field, before, value), createdBy: 'file_agent',
@@ -267,14 +284,264 @@ const draftDocument: WsTool = {
   },
 }
 
+async function jobAssessment(ctx: WsContext, jobId: string): Promise<AssessmentData | null> {
+  const { data: job } = await ctx.supabase.from('jobs').select('assessment_data').eq('id', jobId).eq('org_id', ctx.orgId).maybeSingle()
+  if (!job) throw new ToolError('Job not found')
+  return (job.assessment_data ?? null) as AssessmentData | null
+}
+
+const getSurveyAndDisposal: WsTool = {
+  name: 'get_survey_and_disposal',
+  description:
+    'Read the House Survey rooms (priced m² and price at the survey rate), the Contents Disposal Record (CDR) loads, volume and weight, and the Statement of Accounts as it stands.',
+  input_schema: { type: 'object', properties: {} },
+  async run(ctx) {
+    return surveyAndDisposalSummary(await jobAssessment(ctx, activeJob(ctx)))
+  },
+}
+
+const draftStatement: WsTool = {
+  name: 'draft_statement',
+  description:
+    'Draft the Statement of Accounts quantities from the House Survey and the CDR: survey rooms with m² (and their survey-rate prices) and the CDR cubic metres for invoice 2. Quantities only; staff type every invoice amount, the deposit, adjustments, invoice numbers and payment links. Replaces your earlier statement draft.',
+  input_schema: { type: 'object', properties: {} },
+  async run(ctx) {
+    const jobId = activeJob(ctx)
+    const r = buildStatementDraft(await jobAssessment(ctx, jobId))
+    if (!r.ok) return { skipped: r.reason }
+    const id = await upsertPatchDraft(ctx.supabase, {
+      orgId: ctx.orgId, jobId, target_path: TARGET.capture('statement_of_accounts'), label: captureLabel('statement_of_accounts'),
+      draft: { before: r.before, proposed: r.proposed as Record<string, unknown> }, summary: r.summary, createdBy: 'file_agent',
+    })
+    ctx.draftIds.push(id)
+    return { draft_id: id, drafted: r.proposed, note: 'Pending staff approval. Dollar amounts stay with staff unless they ask.' }
+  },
+}
+
+function capped(value: unknown): unknown {
+  const s = JSON.stringify(value ?? null)
+  return s.length <= READ_CAP ? value : { truncated: true, first_part: s.slice(0, READ_CAP) }
+}
+
+const getCapture: WsTool = {
+  name: 'get_capture',
+  description:
+    'Read one capture on the open job in full (assessment_data.<key>): e.g. house_survey, disposal_manifest_capture (CDR), statement_of_accounts, biohazard_cleaning_quote, contents_clearance_quote, surface_area_cleaning_quote, sow_capture, pre_remediation_preflight, areas, completion_report_capture. Without key, lists which captures exist.',
+  input_schema: {
+    type: 'object',
+    properties: { key: { type: 'string', enum: [...CAPTURE_KEYS] } },
+  },
+  async run(ctx, input) {
+    const ad = ((await jobAssessment(ctx, activeJob(ctx))) ?? {}) as Record<string, unknown>
+    const key = str(input.key)
+    if (!key) {
+      return { captures: CAPTURE_KEYS.filter(k => ad[k] != null).map(k => ({ key: k, size: JSON.stringify(ad[k]).length })) }
+    }
+    if (!isCaptureKey(key)) throw new ToolError('Unknown capture key')
+    return { key, exists: ad[key] != null, content: capped(ad[key] ?? null) }
+  },
+}
+
+const getDocument: WsTool = {
+  name: 'get_document',
+  description: 'Read one saved document on the open job in full, including prices. Get ids from list_job_documents.',
+  input_schema: { type: 'object', properties: { document_id: { type: 'string' } }, required: ['document_id'] },
+  async run(ctx, input) {
+    const { data } = await ctx.supabase
+      .from('documents')
+      .select('id, type, content, created_at, released_to_portal_at')
+      .eq('id', str(input.document_id))
+      .eq('job_id', activeJob(ctx))
+      .maybeSingle()
+    if (!data) throw new ToolError('Document not found on this job')
+    return { ...data, content: capped(data.content) }
+  },
+}
+
+const getJobCalls: WsTool = {
+  name: 'get_job_calls',
+  description: 'Read the phone calls and website enquiries filed into the open job: cleaned transcript or enquiry text, and what was extracted.',
+  input_schema: { type: 'object', properties: {} },
+  async run(ctx) {
+    const { data } = await ctx.supabase
+      .from('inbound_calls')
+      .select('id, created_at, provider, caller_number, status, transcript_clean, transcript_raw, extraction')
+      .eq('job_id', activeJob(ctx))
+      .eq('org_id', ctx.orgId)
+      .order('created_at', { ascending: false })
+      .limit(10)
+    return {
+      calls: (data ?? []).map(c => ({
+        id: c.id, at: c.created_at, kind: c.provider === 'netlify_form' ? 'website enquiry' : 'phone call',
+        from: c.caller_number, status: c.status,
+        transcript: String(c.transcript_clean ?? c.transcript_raw ?? '').slice(0, 20_000),
+        extraction: c.extraction,
+      })),
+    }
+  },
+}
+
+const getProgressNotes: WsTool = {
+  name: 'get_progress_notes',
+  description: 'Read every progress note on the open job in full, oldest first.',
+  input_schema: { type: 'object', properties: {} },
+  async run(ctx) {
+    const { data } = await ctx.supabase
+      .from('progress_notes')
+      .select('id, room, body, created_by_first_name, created_at')
+      .eq('job_id', activeJob(ctx))
+      .is('deleted_at', null)
+      .order('created_at', { ascending: true })
+      .limit(200)
+    return { notes: data ?? [] }
+  },
+}
+
+const getXeroInvoice: WsTool = {
+  name: 'get_xero_invoice',
+  description: "Read the open job's Xero invoice status (read only): invoice number, Xero status, total, last sync and any error. You cannot sync or change Xero.",
+  input_schema: { type: 'object', properties: {} },
+  async run(ctx) {
+    const { data } = await ctx.supabase
+      .from('xero_job_invoices')
+      .select('xero_invoice_number, xero_status, total, document_ids, last_synced_at, last_error')
+      .eq('job_id', activeJob(ctx))
+      .eq('org_id', ctx.orgId)
+      .maybeSingle()
+    return data ?? { invoice: null, note: 'No Xero invoice for this job yet.' }
+  },
+}
+
+function patchInput(input: Input): unknown {
+  const p = input.patch
+  if (typeof p === 'string') {
+    try {
+      return JSON.parse(p)
+    } catch {
+      throw new ToolError('patch must be a JSON object')
+    }
+  }
+  return p
+}
+
+const draftCapturePatch: WsTool = {
+  name: 'draft_capture_patch',
+  description:
+    'Draft a change to any capture on the open job (assessment_data.<key>). patch is merged in: nested objects are walked, while arrays, text and numbers replace the value at that path. Read the capture with get_capture first. Ids cannot be changed. Becomes one pending change per capture; a later patch to the same capture adds to it.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      key: { type: 'string', enum: [...CAPTURE_KEYS] },
+      patch: { type: 'object', description: 'Fields to set, e.g. {"invoice1_amount": 1650} or {"objective": "..."}.' },
+    },
+    required: ['key', 'patch'],
+  },
+  async run(ctx, input) {
+    const jobId = activeJob(ctx)
+    const key = str(input.key)
+    if (!isCaptureKey(key)) throw new ToolError('Unknown capture key')
+    const ad = ((await jobAssessment(ctx, jobId)) ?? {}) as Record<string, unknown>
+    const draft = buildPatchDraft(ad[key] ?? null, patchInput(input))
+    if (!Object.keys(draft.proposed).length) return { skipped: 'already those values' }
+    const id = await upsertPatchDraft(ctx.supabase, {
+      orgId: ctx.orgId, jobId, target_path: TARGET.capture(key), label: captureLabel(key), draft, createdBy: 'file_agent',
+    })
+    ctx.draftIds.push(id)
+    return { draft_id: id, paths: Object.keys(draft.proposed), note: 'Pending staff approval.' }
+  },
+}
+
+const draftDocumentPatch: WsTool = {
+  name: 'draft_document_patch',
+  description:
+    "Draft a change to a saved document's content on the open job (same merge rules as draft_capture_patch). Read it with get_document first. Staff approve it; it does not release or send the document.",
+  input_schema: {
+    type: 'object',
+    properties: {
+      document_id: { type: 'string' },
+      patch: { type: 'object' },
+    },
+    required: ['document_id', 'patch'],
+  },
+  async run(ctx, input) {
+    const jobId = activeJob(ctx)
+    const { data: doc } = await ctx.supabase
+      .from('documents')
+      .select('id, type, content')
+      .eq('id', str(input.document_id))
+      .eq('job_id', jobId)
+      .maybeSingle()
+    if (!doc) throw new ToolError('Document not found on this job')
+    const draft = buildPatchDraft(doc.content ?? null, patchInput(input))
+    if (!Object.keys(draft.proposed).length) return { skipped: 'already those values' }
+    const c = (doc.content ?? {}) as Record<string, unknown>
+    const label = str(c.reference) || str(c.title) || String(doc.type).replace(/_/g, ' ')
+    const id = await upsertPatchDraft(ctx.supabase, {
+      orgId: ctx.orgId, jobId, target_path: TARGET.doc(doc.id as string), label: `Document ${label}`, draft, createdBy: 'file_agent',
+    })
+    ctx.draftIds.push(id)
+    return { draft_id: id, paths: Object.keys(draft.proposed), note: 'Pending staff approval.' }
+  },
+}
+
+const draftPhotoChanges: WsTool = {
+  name: 'draft_photo_changes',
+  description: `Draft changes to photos on the open job: ${PHOTO_FIELDS.join(', ')}. Get photo ids from list_job_photos. One pending change per photo.`,
+  input_schema: {
+    type: 'object',
+    properties: {
+      photo_ids: { type: 'array', items: { type: 'string' } },
+      patch: { type: 'object', description: 'e.g. {"area_ref": "Kitchen", "category": "before", "include_in_composed_reports": false}' },
+    },
+    required: ['photo_ids', 'patch'],
+  },
+  async run(ctx, input) {
+    const jobId = activeJob(ctx)
+    const ids = Array.isArray(input.photo_ids) ? input.photo_ids.map(str).filter(Boolean) : []
+    if (!ids.length) throw new ToolError('No photo ids given')
+    if (ids.length > 100) throw new ToolError('At most 100 photos at once')
+    const patch = photoPatch(patchInput(input))
+    const photoCols: string = `id, ${PHOTO_FIELDS.join(', ')}`
+    const { data: photos } = await ctx.supabase
+      .from('photos')
+      .select(photoCols)
+      .eq('job_id', jobId)
+      .in('id', ids)
+    const rows = (photos ?? []) as unknown as Record<string, unknown>[]
+    const out: { photo_id: string; draft_id?: string; skipped?: string }[] = []
+    for (const p of rows) {
+      const draft = buildPatchDraft(p, patch)
+      if (!Object.keys(draft.proposed).length) { out.push({ photo_id: p.id as string, skipped: 'already those values' }); continue }
+      const label = `Photo${p.caption ? ` "${String(p.caption).slice(0, 30)}"` : ''}${p.area_ref ? ` (${p.area_ref})` : ''}`
+      const id = await upsertPatchDraft(ctx.supabase, {
+        orgId: ctx.orgId, jobId, target_path: TARGET.photo(p.id as string), label, draft, createdBy: 'file_agent',
+      })
+      ctx.draftIds.push(id)
+      out.push({ photo_id: p.id as string, draft_id: id })
+    }
+    const missing = ids.filter(id => !rows.some(p => p.id === id))
+    return { drafted: out, not_on_this_job: missing, note: 'Pending staff approval.' }
+  },
+}
+
 const FILE_TOOLS: WsTool[] = [
   getJobFile,
+  getCapture,
+  getSurveyAndDisposal,
   reuse('list_job_documents'),
+  getDocument,
+  getJobCalls,
+  getProgressNotes,
   reuse('list_job_photos'),
+  getXeroInvoice,
   draftFieldChanges,
   draftNote,
   draftStatus,
   draftDocument,
+  draftStatement,
+  draftCapturePatch,
+  draftDocumentPatch,
+  draftPhotoChanges,
 ]
 
 // ── Head agent tools ──────────────────────────────────────────────────────────
@@ -422,12 +689,20 @@ ${COMMON_RULES}`
 function filePrompt(firstName: string, snapshot: unknown, jobCode: string | null) {
   return `You are the file agent for job ${jobCode ? `#${jobCode}` : ''} in the Agent workspace of an Australian biohazard remediation company. You work on this one job only, with ${firstName || 'a staff member'}. Today is ${today()}.
 
+WHAT YOU CAN DO ON THIS JOB:
+- Read everything: job details (in the file below and get_job_file), every capture in full with get_capture (House Survey, Contents Disposal Record (CDR), Statement of Accounts, BCQ/CCQ/SACQ quotes, scope of work, PRE checklist, assessment areas, completion report and the rest), saved documents in full including prices (list_job_documents, get_document), call and website enquiry transcripts and extractions (get_job_calls), every progress note (get_progress_notes), photos (list_job_photos) and the job's Xero invoice status (get_xero_invoice, read only).
+- Write anything on this job as a draft: job fields (draft_field_changes), status (draft_status), progress notes (draft_note), any capture (draft_capture_patch), a saved document's content (draft_document_patch), photo caption, area, category, phase and report inclusion (draft_photo_changes), a new BCQ/CCQ/SACQ (draft_document), and the statement quantities from the survey and CDR (draft_statement).
+- Every write is a draft that staff approve on screen; nothing changes until they do. Call the draft tools directly; do not ask "shall I?" first. You cannot delete anything.
+
+WHAT YOU NEVER DO (you have no tools for it): send email or SMS, release documents to the client portal, share links, trigger or change Xero, or anything else that reaches a client. If asked, say staff do that themselves from the job file.
+
 RULES:
-- Every change you make is a draft. draft_field_changes, draft_note, draft_status and draft_document record proposals that staff approve on screen. Call them directly; do not ask "shall I?" first.
+- Read before you patch: get_capture or get_document first, so your patch fits the existing shape. Patch only the fields you mean to change.
 - After drafting, say in one or two sentences what you drafted. The change card shows the detail. Say plainly when a draft would overwrite something already on file.
-- Only draft what the staff member asked for or what clearly follows from what they told you. Never invent names, numbers, emails or addresses. If something is unclear (two addresses, which room), ask.
+- Only draft what the staff member asked for or what clearly follows from what they told you. Never invent names, numbers, emails, addresses or prices. If something is unclear (two addresses, which room), ask.
+- Prices and dollar amounts: only draft them when the staff member gives or explicitly asks for them. draft_document starts quotes with prices blank.
+- Statement of Accounts from the survey and CDR: read get_survey_and_disposal, then draft_statement (survey rooms with m² and survey-rate prices, CDR m³). Draft invoice amounts, deposit, adjustments, invoice numbers or payment links with draft_capture_patch on statement_of_accounts only when asked. Staff generate the statement.
 - If a [Log] line shows a staff edit that makes one of your pending drafts or a document out of date, mention it briefly and offer to update it.
-- Quotes: draft_document starts a BCQ, CCQ or SACQ with wording only; prices are always left for staff.
 - The job description is neutral and factual.
 ${COMMON_RULES}
 

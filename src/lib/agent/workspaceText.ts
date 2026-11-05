@@ -19,25 +19,70 @@ export interface ChatRow {
   created_at: string
 }
 
-/** Job columns the file agent may draft changes to, with plain labels. */
+/**
+ * Job columns the file agent may draft changes to, with plain labels. Every
+ * editable column except identity and tenancy (id, org_id, job_code,
+ * inbound_email_token, created_at, updated_at, archived_*, client_account_id,
+ * trading_name). status has its own draft; assessment_data is drafted per
+ * capture with draft_capture_patch.
+ */
 export const DRAFTABLE_FIELDS = {
   client_name: 'client name',
   client_organization_name: 'client organisation',
   client_contact_role: 'client role',
   client_contact_relationship: 'client relationship',
   client_phone: 'client phone',
+  client_phones: 'other client phones',
   client_email: 'client email',
   site_address: 'site address',
+  site_place_id: 'site place id',
+  site_lat: 'site latitude',
+  site_lng: 'site longitude',
   site_contact_name: 'site contact name',
   site_contact_phone: 'site contact phone',
   access_notes: 'access notes',
   job_description: 'job description',
+  job_type: 'job type',
+  insurance_claim_ref: 'insurance claim ref',
   notes: 'office notes',
   urgency: 'urgency',
   scheduled_at: 'scheduled time',
+  schedule_note: 'schedule note',
 } as const
 
 export type DraftableField = keyof typeof DRAFTABLE_FIELDS
+
+export const JOB_TYPES = ['crime_scene', 'hoarding', 'mold', 'sewage', 'trauma', 'unattended_death', 'flood', 'other'] as const
+export const URGENCIES = ['standard', 'urgent', 'emergency'] as const
+
+/** Checks and converts a drafted job field value. Throws with a plain reason. */
+export function normalizeFieldValue(field: DraftableField, raw: unknown): unknown {
+  if (field === 'site_lat' || field === 'site_lng') {
+    if (raw == null || raw === '') return null
+    const n = typeof raw === 'number' ? raw : Number(raw)
+    if (!Number.isFinite(n)) throw new Error('must be a number')
+    return n
+  }
+  if (field === 'client_phones') {
+    const list = typeof raw === 'string' ? JSON.parse(raw || '[]') : raw
+    if (!Array.isArray(list)) throw new Error('must be a list of {label, number}')
+    return list.map(p => {
+      const o = (p ?? {}) as Record<string, unknown>
+      const number = String(o.number ?? '').trim()
+      if (!number) throw new Error('each phone needs a number')
+      return { label: String(o.label ?? 'Other').trim() || 'Other', number }
+    })
+  }
+  const value = raw == null ? '' : String(raw).trim()
+  if (field === 'urgency' && !(URGENCIES as readonly string[]).includes(value)) throw new Error('urgency must be standard, urgent or emergency')
+  if (field === 'job_type' && !(JOB_TYPES as readonly string[]).includes(value)) throw new Error(`job type must be one of ${JOB_TYPES.join(', ')}`)
+  if (field === 'scheduled_at') {
+    if (!value) return null
+    if (Number.isNaN(Date.parse(value))) throw new Error('not a date-time')
+    return new Date(value).toISOString()
+  }
+  return value
+}
 
 export function isDraftableField(f: unknown): f is DraftableField {
   return typeof f === 'string' && Object.prototype.hasOwnProperty.call(DRAFTABLE_FIELDS, f)

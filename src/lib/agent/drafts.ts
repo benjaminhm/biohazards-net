@@ -14,7 +14,19 @@ import { emptyBiohazardCleaningCapture } from '@/lib/biohazardCleaningQuote'
 import { emptyContentsClearanceCapture } from '@/lib/contentsClearanceQuote'
 import { emptySurfaceAreaCleaningCapture } from '@/lib/surfaceAreaCleaningQuote'
 import type { JobStatus } from '@/lib/types'
-import { fieldLabel, isDraftableField, isEmptyValue, showValue, type Speaker } from './workspaceText'
+import { DRAFTABLE_FIELDS, fieldLabel, isDraftableField, isEmptyValue, showValue, type Speaker } from './workspaceText'
+import { emptyStatementCapture } from '@/lib/statementOfAccounts'
+import {
+  PatchError,
+  applyPatch,
+  describePatch,
+  isCaptureKey,
+  mergePatchDrafts,
+  parseTarget,
+  patchIsCurrent,
+  photoPatch,
+  type PatchDraft,
+} from './patchDraft'
 
 type Supabase = ReturnType<typeof createServiceClient>
 
@@ -136,6 +148,137 @@ async function markStale(supabase: Supabase, id: string) {
   await supabase.from('agent_drafts').update({ status: 'stale' }).eq('id', id).eq('status', 'pending')
 }
 
+const CAPTURE_LABELS: Partial<Record<string, string>> = {
+  house_survey: 'House Survey',
+  disposal_manifest_capture: 'Contents Disposal Record',
+  statement_of_accounts: 'Statement of Accounts',
+  sow_capture: 'Scope of Work',
+  pre_remediation_preflight: 'Pre-remediation checklist',
+  completion_report_capture: 'Completion report',
+  ...QUOTE_DOC_LABELS,
+}
+
+export function captureLabel(key: string): string {
+  const s = CAPTURE_LABELS[key] ?? key.replace(/_/g, ' ')
+  return s.charAt(0).toUpperCase() + s.slice(1)
+}
+
+/** Starting shape for a capture the agent patches before staff have opened it. */
+const CAPTURE_BASE: Partial<Record<string, () => Record<string, unknown>>> = {
+  statement_of_accounts: () => ({ ...emptyStatementCapture() }),
+  biohazard_cleaning_quote: () => ({ ...emptyBiohazardCleaningCapture() }),
+  contents_clearance_quote: () => ({ ...emptyContentsClearanceCapture() }),
+  surface_area_cleaning_quote: () => ({ ...emptySurfaceAreaCleaningCapture() }),
+}
+
+/**
+ * Patch drafts (captures, documents, photos). A later patch to the same
+ * target adds to the pending draft instead of replacing it.
+ */
+export async function upsertPatchDraft(
+  supabase: Supabase,
+  d: { orgId: string; jobId: string; target_path: string; label: string; draft: PatchDraft; summary?: string; createdBy: string },
+): Promise<string> {
+  const { data: existing } = await supabase
+    .from('agent_drafts')
+    .select('id, before, proposed')
+    .eq('org_id', d.orgId)
+    .eq('job_id', d.jobId)
+    .eq('kind', 'document')
+    .eq('target_path', d.target_path)
+    .eq('status', 'pending')
+    .maybeSingle()
+  if (existing) {
+    const merged = mergePatchDrafts(
+      { before: (existing.before ?? {}) as Record<string, unknown>, proposed: (existing.proposed ?? {}) as Record<string, unknown> },
+      d.draft,
+    )
+    const { error } = await supabase
+      .from('agent_drafts')
+      .update({ before: merged.before, proposed: merged.proposed, summary: describePatch(d.label, merged) })
+      .eq('id', existing.id)
+    if (error) throw error
+    return existing.id as string
+  }
+  return upsertDraft(supabase, {
+    orgId: d.orgId, jobId: d.jobId, kind: 'document', target_path: d.target_path, before: d.draft.before, proposed: d.draft.proposed,
+    summary: d.summary ?? describePatch(d.label, d.draft), createdBy: d.createdBy,
+  })
+}
+
+async function applyPatchDraft(supabase: Supabase, who: Approver, draft: DraftRow, jobRow: Record<string, unknown>) {
+  const target = parseTarget(draft.target_path)
+  if (!target) throw new DraftError('Unknown change')
+  const before = (draft.before ?? {}) as Record<string, unknown>
+  const proposed = (draft.proposed ?? {}) as Record<string, unknown>
+  const stale = async (what: string) => {
+    await markStale(supabase, draft.id)
+    throw new DraftError(`${what} changed since the agent drafted this. Ask it again if you still want it.`)
+  }
+  const note = `Approved by ${who.firstName || who.userId}`
+  const now = new Date().toISOString()
+
+  if (target.type === 'capture') {
+    const key = target.ref
+    if (!isCaptureKey(key)) throw new DraftError('Unknown capture')
+    const ad = (jobRow.assessment_data ?? {}) as Record<string, unknown>
+    if (!patchIsCurrent(ad[key] ?? null, before)) await stale(captureLabel(key))
+    const next = applyPatch(ad[key] ?? null, proposed, CAPTURE_BASE[key])
+    const { error } = await supabase
+      .from('jobs')
+      .update({ assessment_data: { ...ad, [key]: next }, updated_at: now })
+      .eq('id', draft.job_id)
+      .eq('org_id', who.orgId)
+    if (error) throw error
+    await logAgentAction(supabase, {
+      org_id: who.orgId, job_id: draft.job_id, agent: 'file_agent', trigger: 'workspace_chat', action: 'patch_capture',
+      target_table: 'jobs', target_id: draft.job_id, target_path: `assessment_data.${key}`, before, after: proposed, note,
+    })
+    return
+  }
+
+  if (target.type === 'doc') {
+    const { data: doc } = await supabase
+      .from('documents')
+      .select('id, content')
+      .eq('id', target.ref)
+      .eq('job_id', draft.job_id)
+      .maybeSingle()
+    if (!doc) throw new DraftError('Document not found on this job')
+    if (!patchIsCurrent(doc.content ?? null, before)) await stale('The document')
+    const next = applyPatch(doc.content ?? null, proposed)
+    const { error } = await supabase.from('documents').update({ content: next }).eq('id', doc.id).eq('job_id', draft.job_id)
+    if (error) throw error
+    await logAgentAction(supabase, {
+      org_id: who.orgId, job_id: draft.job_id, agent: 'file_agent', trigger: 'workspace_chat', action: 'patch_document',
+      target_table: 'documents', target_id: doc.id as string, before, after: proposed, note,
+    })
+    return
+  }
+
+  let cols: Record<string, unknown>
+  try {
+    cols = photoPatch(proposed)
+  } catch (err) {
+    throw new DraftError(err instanceof PatchError ? err.message : 'Invalid photo change')
+  }
+  const photoCols: string = `id, ${Object.keys(cols).join(', ')}`
+  const { data: photo } = await supabase
+    .from('photos')
+    .select(photoCols)
+    .eq('id', target.ref)
+    .eq('job_id', draft.job_id)
+    .maybeSingle()
+  if (!photo) throw new DraftError('Photo not found on this job')
+  if (!patchIsCurrent(photo, before)) await stale('The photo')
+  const { error } = await supabase.from('photos').update(cols).eq('id', target.ref).eq('job_id', draft.job_id)
+  if (error) throw error
+  await logAgentAction(supabase, {
+    org_id: who.orgId, job_id: draft.job_id, agent: 'file_agent', trigger: 'workspace_chat', action: 'patch_photo',
+    target_table: 'photos', target_id: target.ref, before, after: cols, note,
+  })
+}
+
 export interface Approver {
   orgId: string
   userId: string
@@ -163,12 +306,12 @@ export async function approveDraft(
   try {
     const { data: job } = await supabase
       .from('jobs')
-      .select('id, status, assessment_data, client_name, client_organization_name, client_contact_role, client_contact_relationship, client_phone, client_email, site_address, site_contact_name, site_contact_phone, access_notes, job_description, notes, urgency, scheduled_at')
+      .select(`id, status, assessment_data, ${Object.keys(DRAFTABLE_FIELDS).join(', ')}`)
       .eq('id', draft.job_id)
       .eq('org_id', who.orgId)
       .maybeSingle()
     if (!job) throw new DraftError('Job not found')
-    const jobRow = job as Record<string, unknown>
+    const jobRow = job as unknown as Record<string, unknown>
 
     if (draft.kind === 'field') {
       const field = draft.target_path
@@ -232,6 +375,8 @@ export async function approveDraft(
         org_id: who.orgId, job_id: draft.job_id, agent: 'file_agent', trigger, action: 'add_progress_note',
         target_table: 'progress_notes', target_id: note.id as string, after: { body }, note: `Approved by ${who.firstName || who.userId}`,
       })
+    } else if (draft.kind === 'document' && parseTarget(draft.target_path)) {
+      await applyPatchDraft(supabase, who, draft, jobRow)
     } else if (draft.kind === 'document') {
       const key = draft.target_path as QuoteDocKey
       if (!QUOTE_DOC_KEYS.includes(key)) throw new DraftError('Unknown document type')
@@ -367,6 +512,42 @@ export async function recordHumanEdits(
       content: { text: `Out of date after ${name}'s edit, not applied: ${stale.map(s => s.summary).join('; ')}` },
     })
   }
+}
+
+/**
+ * After a staff save of the job's captures or of a document: pending patch
+ * drafts whose paths no longer hold their "before" values become stale.
+ */
+export async function staleAfterStaffSave(
+  supabase: Supabase,
+  e: { orgId: string; jobId: string; userId: string; firstName: string; assessmentData?: unknown; doc?: { id: string; content: unknown } },
+): Promise<void> {
+  const { data } = await supabase
+    .from('agent_drafts')
+    .select('id, target_path, before, summary')
+    .eq('org_id', e.orgId)
+    .eq('job_id', e.jobId)
+    .eq('kind', 'document')
+    .eq('status', 'pending')
+  const stale: { id: string; summary: string }[] = []
+  for (const d of data ?? []) {
+    const t = parseTarget(d.target_path as string)
+    const before = (d.before ?? {}) as Record<string, unknown>
+    let current: unknown
+    if (t?.type === 'capture' && e.assessmentData !== undefined) {
+      current = ((e.assessmentData ?? {}) as Record<string, unknown>)[t.ref] ?? null
+    } else if (t?.type === 'doc' && e.doc && e.doc.id === t.ref) {
+      current = e.doc.content ?? null
+    } else continue
+    if (!patchIsCurrent(current, before)) stale.push({ id: d.id as string, summary: d.summary as string })
+  }
+  if (!stale.length) return
+  await supabase.from('agent_drafts').update({ status: 'stale' }).in('id', stale.map(s => s.id)).eq('status', 'pending')
+  const name = e.firstName || 'Staff'
+  await postMessage(supabase, {
+    org_id: e.orgId, thread_id: e.userId, job_id: e.jobId, speaker: 'system', author: name,
+    content: { text: `Out of date after ${name}'s edit, not applied: ${stale.map(s => s.summary).join('; ')}` },
+  })
 }
 
 const DOC_SAVE_QUIET_MS = 10 * 60_000

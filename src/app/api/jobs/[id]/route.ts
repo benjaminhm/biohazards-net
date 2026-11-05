@@ -16,7 +16,7 @@ import { normalizeOptionalPhoneField } from '@/lib/phone'
 import { ensureJobInboundEmailToken } from '@/lib/jobInboundEmail'
 import { isTradingNameId } from '@/lib/tradingNames'
 import { getStaffFirstName } from '@/lib/clerkDisplayName'
-import { recordHumanEdits } from '@/lib/agent/drafts'
+import { recordHumanEdits, staleAfterStaffSave } from '@/lib/agent/drafts'
 import { isDraftableField } from '@/lib/agent/workspaceText'
 
 type ServiceClient = ReturnType<typeof createServiceClient>
@@ -161,12 +161,20 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       .single()
 
     if (error) throw error
-    if (beforeRow && data) {
+    if (data && (beforeRow || 'assessment_data' in body)) {
       try {
-        await recordHumanEdits(supabase, {
-          orgId, jobId: id, userId, firstName: await getStaffFirstName(userId),
-          before: beforeRow as unknown as Record<string, unknown>, after: data as Record<string, unknown>,
-        })
+        const firstName = await getStaffFirstName(userId)
+        if (beforeRow) {
+          await recordHumanEdits(supabase, {
+            orgId, jobId: id, userId, firstName,
+            before: beforeRow as unknown as Record<string, unknown>, after: data as Record<string, unknown>,
+          })
+        }
+        if ('assessment_data' in body) {
+          await staleAfterStaffSave(supabase, {
+            orgId, jobId: id, userId, firstName, assessmentData: (data as { assessment_data?: unknown }).assessment_data ?? null,
+          })
+        }
       } catch (err) {
         console.error('[jobs PATCH] agent log line failed', err)
       }

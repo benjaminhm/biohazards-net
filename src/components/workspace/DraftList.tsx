@@ -9,6 +9,7 @@
  */
 import { useState } from 'react'
 import { isOverwrite } from '@/lib/agent/workspaceText'
+import { parseTarget, patchLines } from '@/lib/agent/patchDraft'
 
 export interface DraftView {
   id: string
@@ -105,9 +106,21 @@ export default function DraftList({
           >
             {d.summary}
             {d.status === 'pending' && d.kind === 'field' && isOverwrite(d.before) && (
-              <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, color: '#FBBF24' }}>⚠ changes what&apos;s on file</span>
+              <span style={warnStyle}>⚠ changes what&apos;s on file</span>
             )}
             {d.status !== 'pending' && <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--text-muted)' }}>{STATUS_TEXT[d.status]}</span>}
+            {d.kind === 'document' && parseTarget(d.target_path) && (
+              <div style={{ marginTop: 4, display: 'grid', gap: 2 }}>
+                {patchLines(d.before, d.proposed).map(l => (
+                  <div key={l.path} style={{ fontSize: 12, color: 'var(--text-muted)', overflowWrap: 'anywhere' }}>
+                    <span style={{ color: 'var(--text)', fontWeight: 600 }}>{l.path}</span>
+                    {': '}
+                    {l.overwrite ? `${l.before} → ${l.after}` : l.after}
+                    {d.status === 'pending' && l.overwrite && <span style={warnStyle}>⚠ overwrites</span>}
+                  </div>
+                ))}
+              </div>
+            )}
           </button>
           {d.status === 'pending' && (
             <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
@@ -123,6 +136,7 @@ export default function DraftList({
 }
 
 const smallBtn = { padding: '3px 10px', fontSize: 12 } as const
+const warnStyle = { marginLeft: 6, fontSize: 11, fontWeight: 700, color: '#FBBF24' } as const
 
 function iconBtn(color: string) {
   return {
