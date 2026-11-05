@@ -50,6 +50,7 @@ function DocViewerInner() {
   const docId   = searchParams.get('docId')
   const quoteId = searchParams.get('quoteId')
   const preId   = searchParams.get('preId')
+  const preV2Id = searchParams.get('preV2Id')
 
   const [job,              setJob]             = useState<Job | null>(null)
   const [photos,           setPhotos]          = useState<Photo[]>([])
@@ -212,7 +213,7 @@ function DocViewerInner() {
       const spCompose = searchParams.get('compose')
       const spGen = searchParams.get('generate')
       const wantCompose = spCompose === '1' || spGen === '1'
-      const composeKey = `${jobId}:${docType}:${spCompose ?? ''}:${spGen ?? ''}:${quoteId ?? ''}:${preId ?? ''}`
+      const composeKey = `${jobId}:${docType}:${spCompose ?? ''}:${spGen ?? ''}:${quoteId ?? ''}:${preId ?? ''}:${preV2Id ?? ''}`
       if (wantCompose && j && lastComposeKeyRef.current !== composeKey) {
         lastComposeKeyRef.current = composeKey
         let composeOpts: ComposeDocumentOptions | undefined
@@ -235,12 +236,27 @@ function DocViewerInner() {
               }
             }
           }
+          // Multi-part PRE: Part B prints the CCQ's quoted m³ beside the actual volume.
+          let prePartQuoteContents: { b?: Record<string, unknown> } | undefined
+          if (preV2Id) {
+            const preV2 = (j.assessment_data?.pre_multi_part ?? []).find(p => p.id === preV2Id)
+            const ccqId = preV2?.parts.b?.enabled ? preV2.parts.b.source_quote_document_id : undefined
+            if (ccqId) {
+              try {
+                const srcDoc = await fetch(`/api/documents/${ccqId}`).then(r => r.json())
+                prePartQuoteContents = { b: (srcDoc?.document?.content ?? srcDoc?.content) as Record<string, unknown> | undefined }
+              } catch {
+                prePartQuoteContents = undefined
+              }
+            }
+          }
           composeOpts = {
             report: {
               photos: ph as Photo[],
               progressNotes: (pnRes.notes ?? []) as ProgressNote[],
               progressRoomNotes: (prnRes.notes ?? []) as ProgressRoomNote[],
               ...(preId ? { preId, sourceQuoteContent } : {}),
+              ...(preV2Id ? { preV2Id, prePartQuoteContents } : {}),
             },
           }
         }
@@ -325,7 +341,7 @@ function DocViewerInner() {
       }
     }
     load()
-  }, [jobId, docId, docType, quoteId, preId, router, searchParams])
+  }, [jobId, docId, docType, quoteId, preId, preV2Id, router, searchParams])
 
   useEffect(() => {
     if (!job || !hasContent) {

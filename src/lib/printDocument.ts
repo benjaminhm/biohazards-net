@@ -28,6 +28,7 @@ import type {
   WorkStep, RiskRow, WasteItem, OutcomeQuoteRow,
   PathophysiologyRow,
   PostRemediationEvaluationContent, PreScopeLineResolved,
+  PreWorksRow, PreProductRow, PreWasteBlock,
 } from './types'
 import { DOC_TYPE_LABELS } from './types'
 import type { HouseSurveyDocumentContent, SurveySketch } from './houseSurvey'
@@ -2747,66 +2748,68 @@ function preCompletionPhotoAppendix(photos: Photo[], orderedIds?: string[]): str
     <div class="photos-grid" style="margin-top:8px">${cards}</div>`
 }
 
+const preNavyHeading = (n: string, title: string) =>
+  `<div class="label" style="margin-top:22px;color:#0a1f44">${esc(n)} · ${esc(title)}</div>`
+
+function preBullets(items?: string[]): string {
+  return (items ?? []).filter(Boolean).length
+    ? `<ul style="margin:6px 0 0;padding-left:18px">${(items ?? [])
+        .filter(Boolean)
+        .map(i => `<li class="body-text" style="margin:0 0 4px">${esc(i)}</li>`)
+        .join('')}</ul>`
+    : ''
+}
+
+/** Two-column label/value table used by the completion-report sections. */
+function preTwoColTable(rows: [string, string][], labelWidth: string): string {
+  if (!rows.length) return ''
+  return `<table style="width:100%;border-collapse:collapse;margin-top:8px;font-size:9.5pt">
+        ${rows
+          .map(
+            ([k, v]) => `<tr>
+              <td style="vertical-align:top;padding:6px 10px 6px 0;width:${labelWidth};font-weight:700;border-bottom:1px solid #eee">${esc(k)}</td>
+              <td style="vertical-align:top;padding:6px 0;border-bottom:1px solid #eee">${esc(v)}</td>
+            </tr>`,
+          )
+          .join('')}
+      </table>`
+}
+
+function preWorksTable(rows?: PreWorksRow[]): string {
+  return preTwoColTable(
+    (rows ?? []).filter(r => r.stage_name || r.description).map(r => [r.stage_name, r.description]),
+    '28%',
+  )
+}
+
+function preProductsTable(rows?: PreProductRow[]): string {
+  return preTwoColTable(
+    (rows ?? []).filter(r => r.item_name || r.usage_note).map(r => [r.item_name, r.usage_note]),
+    '40%',
+  )
+}
+
+function preWasteTable(w?: PreWasteBlock, extra: [string, string][] = []): string {
+  const rows: [string, string][] = [
+    ...extra,
+    ...([['Waste type', w?.waste_type], ['Volume', w?.volume], ['Containment', w?.containment], ['Disposal', w?.disposal]] as const)
+      .filter(([, v]) => (v ?? '').trim())
+      .map(([k, v]) => [k, v ?? ''] as [string, string]),
+  ]
+  return preTwoColTable(rows, '28%')
+}
+
 /** v2 completion report: standardised 9-section client-facing layout. */
 function buildCompletionReportMid(c: PostRemediationEvaluationContent, photos: Photo[]): string {
-  const navyHeading = (n: string, title: string) =>
-    `<div class="label" style="margin-top:22px;color:#0a1f44">${esc(n)} · ${esc(title)}</div>`
-
+  const navyHeading = preNavyHeading
   const sourceLine = c.source_quote_reference || c.source_quote_label
     ? `<div class="body-text" style="font-size:9pt;color:#555;margin:-6px 0 6px">Linked quote: ${esc([c.source_quote_label, c.source_quote_reference].filter(Boolean).join(' · '))}</div>`
     : ''
   const attendance = c.attendance ? `<div class="body-text" style="font-size:9pt;color:#555;margin:0 0 8px">Attendance: ${esc(c.attendance)}</div>` : ''
-
-  const bullets = (items?: string[]) =>
-    (items ?? []).filter(Boolean).length
-      ? `<ul style="margin:6px 0 0;padding-left:18px">${(items ?? [])
-          .filter(Boolean)
-          .map(i => `<li class="body-text" style="margin:0 0 4px">${esc(i)}</li>`)
-          .join('')}</ul>`
-      : ''
-
-  const worksTable = (c.works_rows ?? []).filter(r => r.stage_name || r.description).length
-    ? `<table style="width:100%;border-collapse:collapse;margin-top:8px;font-size:9.5pt">
-        ${(c.works_rows ?? [])
-          .filter(r => r.stage_name || r.description)
-          .map(
-            r => `<tr>
-              <td style="vertical-align:top;padding:6px 10px 6px 0;width:28%;font-weight:700;border-bottom:1px solid #eee">${esc(r.stage_name)}</td>
-              <td style="vertical-align:top;padding:6px 0;border-bottom:1px solid #eee">${esc(r.description)}</td>
-            </tr>`,
-          )
-          .join('')}
-      </table>`
-    : ''
-
-  const productsTable = (c.products_rows ?? []).filter(r => r.item_name || r.usage_note).length
-    ? `<table style="width:100%;border-collapse:collapse;margin-top:8px;font-size:9.5pt">
-        ${(c.products_rows ?? [])
-          .filter(r => r.item_name || r.usage_note)
-          .map(
-            r => `<tr>
-              <td style="vertical-align:top;padding:6px 10px 6px 0;width:40%;font-weight:700;border-bottom:1px solid #eee">${esc(r.item_name)}</td>
-              <td style="vertical-align:top;padding:6px 0;border-bottom:1px solid #eee">${esc(r.usage_note)}</td>
-            </tr>`,
-          )
-          .join('')}
-      </table>`
-    : ''
-
-  const w = c.waste
-  const wasteTable = w && (w.waste_type || w.volume || w.containment || w.disposal)
-    ? `<table style="width:100%;border-collapse:collapse;margin-top:8px;font-size:9.5pt">
-        ${([['Waste type', w.waste_type], ['Volume', w.volume], ['Containment', w.containment], ['Disposal', w.disposal]] as const)
-          .filter(([, v]) => (v ?? '').trim())
-          .map(
-            ([k, v]) => `<tr>
-              <td style="vertical-align:top;padding:6px 10px 6px 0;width:28%;font-weight:700;border-bottom:1px solid #eee">${esc(k)}</td>
-              <td style="vertical-align:top;padding:6px 0;border-bottom:1px solid #eee">${esc(v ?? '')}</td>
-            </tr>`,
-          )
-          .join('')}
-      </table>`
-    : ''
+  const bullets = preBullets
+  const worksTable = preWorksTable(c.works_rows)
+  const productsTable = preProductsTable(c.products_rows)
+  const wasteTable = preWasteTable(c.waste)
 
   return `
     ${sourceLine}
@@ -2826,8 +2829,58 @@ function buildCompletionReportMid(c: PostRemediationEvaluationContent, photos: P
   `
 }
 
+/** Multi-part completion report: whole-job sections around Part A/B/C (fixed letters). */
+function buildPartsReportMid(c: PostRemediationEvaluationContent, photos: Photo[]): string {
+  const parts = c.parts ?? []
+  const quoteLines = parts
+    .filter(p => p.source_quote_label || p.source_quote_reference)
+    .map(p => `Part ${esc(p.letter)}: ${esc([p.source_quote_label, p.source_quote_reference].filter(Boolean).join(' · '))}`)
+  const header = [
+    quoteLines.length ? `<div class="body-text" style="font-size:9pt;color:#555;margin:-6px 0 6px">Linked quotes — ${quoteLines.join(' &nbsp;|&nbsp; ')}</div>` : '',
+    c.attendance ? `<div class="body-text" style="font-size:9pt;color:#555;margin:0 0 8px">Attendance: ${esc(c.attendance)}</div>` : '',
+  ].join('')
+
+  const partHtml = parts
+    .map(p => {
+      const L = p.letter
+      const volumeRows: [string, string][] = []
+      if (p.quoted_volume_m3) volumeRows.push(['Quoted volume', `${p.quoted_volume_m3} m³`])
+      if (p.actual_volume_m3) volumeRows.push(['Actual volume removed', p.actual_volume_m3])
+      const works = preWorksTable(p.works_rows)
+      const products = preProductsTable(p.products_rows)
+      const waste = preWasteTable(p.waste, volumeRows)
+      return `
+        <div style="margin-top:28px;padding-top:10px;border-top:2px solid #0a1f44">
+          <div style="font-size:13pt;font-weight:800;color:#0a1f44">Part ${esc(L)} · ${esc(p.title)}</div>
+          ${p.source_quote_label || p.source_quote_reference ? `<div class="body-text" style="font-size:9pt;color:#555;margin:2px 0 0">Reporting against: ${esc([p.source_quote_label, p.source_quote_reference].filter(Boolean).join(' · '))}</div>` : ''}
+        </div>
+        ${works ? `${preNavyHeading(`${L}1`, 'Works Undertaken')}${works}` : ''}
+        ${p.methodology ? `${preNavyHeading(`${L}2`, 'Methodology')}${preProseBlock(p.methodology)}` : ''}
+        ${products ? `${preNavyHeading(`${L}3`, 'Products & Equipment Used')}${products}` : ''}
+        ${waste ? `${preNavyHeading(`${L}4`, 'Waste Management & Disposal')}${waste}` : ''}
+        ${p.outcome_verification ? `${preNavyHeading(`${L}5`, 'Outcome & Verification')}${preProseBlock(p.outcome_verification)}` : ''}
+      `
+    })
+    .join('')
+
+  const hasRecs = (c.recommendations ?? []).filter(Boolean).length > 0
+  return `
+    ${header}
+    ${c.executive_summary ? `${preNavyHeading('01', 'Executive Summary')}${preProseBlock(c.executive_summary)}` : ''}
+    ${(c.site_conditions ?? []).filter(Boolean).length ? `${preNavyHeading('02', 'Site Conditions on Attendance')}<div class="body-text" style="margin:6px 0 0">On arrival, the following was observed before any work began:</div>${preBullets(c.site_conditions)}` : ''}
+    ${partHtml}
+    <div style="margin-top:28px;border-top:2px solid #0a1f44"></div>
+    ${hasRecs ? `${preNavyHeading('03', 'Recommendations')}<div class="body-text" style="margin:6px 0 0">The following was noted on site and is outside the cleaning scope. It is flagged here for the client to action:</div>${preBullets(c.recommendations)}` : ''}
+    ${c.compliance ? `${preNavyHeading('04', 'Compliance')}${preProseBlock(c.compliance)}` : ''}
+    ${c.limitations ? `${preNavyHeading('—', 'Limitations & Scope Notice')}${preProseBlock(c.limitations)}` : ''}
+    ${c.technician_signoff ? `<div class="label" style="margin-top:22px;color:#0a1f44">Sign-off</div><div class="body-text">${esc(c.technician_signoff)}</div>` : ''}
+    ${c.include_photos !== false ? preCompletionPhotoAppendix(photos, c.report_image_ids) : ''}
+  `
+}
+
 function buildPreMid(c: PostRemediationEvaluationContent, photos: Photo[]): string {
   if (c.report_format === 'completion_v2') return buildCompletionReportMid(c, photos)
+  if (c.report_format === 'parts_v1') return buildPartsReportMid(c, photos)
 
   const byId = new Map((c.include_photos === false ? [] : photos).map(p => [p.id, p]))
 

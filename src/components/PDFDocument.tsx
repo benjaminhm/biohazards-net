@@ -1167,6 +1167,113 @@ function CompletionReportPDF({
   )
 }
 
+/** Multi-part completion report — whole-job sections around Part A/B/C (fixed letters). */
+function PartsReportPDF({
+  content,
+  photos,
+  company,
+}: {
+  content: PostRemediationEvaluationContent
+  photos: PhotoWithData[]
+  company: CompanyProfile | null
+}) {
+  const c = content
+  const today = new Date().toLocaleDateString('en-AU', { day: '2-digit', month: 'long', year: 'numeric' })
+  const parts = c.parts ?? []
+  const conditions = (c.site_conditions ?? []).filter(Boolean)
+  const recs = (c.recommendations ?? []).filter(Boolean)
+  const quoteLine = parts
+    .filter(p => p.source_quote_label || p.source_quote_reference)
+    .map(p => `Part ${p.letter}: ${[p.source_quote_label, p.source_quote_reference].filter(Boolean).join(' · ')}`)
+    .join('   |   ')
+  const appendixPhotos = (c.include_photos === false ? [] : photos).filter(
+    p => p.capture_phase === 'progress' || (p.capture_phase !== 'assessment' && (p.category === 'during' || p.category === 'after')),
+  )
+
+  const row = { flexDirection: 'row' as const, borderBottomWidth: 1, borderBottomColor: BORDER, paddingVertical: 4 }
+  const table = (rows: [string, string][], labelWidth: string) =>
+    rows.map(([k, v], i) => (
+      <View key={i} style={row}>
+        <Text style={[styles.body, { width: labelWidth, paddingRight: 8, fontFamily: 'Helvetica-Bold' }]}>{k}</Text>
+        <Text style={[styles.body, { flex: 1 }]}>{v}</Text>
+      </View>
+    ))
+
+  return (
+    <Page size="A4" style={styles.page}>
+      <Header reference={c.reference} date={today} company={company} />
+      <Text style={styles.docTitle}>{c.title}</Text>
+      {quoteLine ? <Text style={[styles.body, { color: MUTED, marginTop: -12 }]}>Linked quotes — {quoteLine}</Text> : null}
+      {c.attendance ? <Text style={[styles.body, { color: MUTED, marginBottom: 12 }]}>Attendance: {c.attendance}</Text> : null}
+
+      {c.executive_summary ? (
+        <View style={styles.section}><PreNavyHeading>01 · Executive Summary</PreNavyHeading><PreProse text={c.executive_summary} /></View>
+      ) : null}
+
+      {conditions.length ? (
+        <View style={styles.section}>
+          <PreNavyHeading>02 · Site Conditions on Attendance</PreNavyHeading>
+          <Text style={styles.body}>On arrival, the following was observed before any work began:</Text>
+          {conditions.map((s, i) => <Text key={i} style={[styles.body, { marginTop: 2 }]}>•  {s}</Text>)}
+        </View>
+      ) : null}
+
+      {parts.map(p => {
+        const L = p.letter
+        const works = (p.works_rows ?? []).map(r => [r.stage_name, r.description] as [string, string])
+        const products = (p.products_rows ?? []).map(r => [r.item_name, r.usage_note] as [string, string])
+        const w = p.waste
+        const waste: [string, string][] = [
+          ...(p.quoted_volume_m3 ? [['Quoted volume', `${p.quoted_volume_m3} m³`] as [string, string]] : []),
+          ...(p.actual_volume_m3 ? [['Actual volume removed', p.actual_volume_m3] as [string, string]] : []),
+          ...(w
+            ? ([['Waste type', w.waste_type], ['Volume', w.volume], ['Containment', w.containment], ['Disposal', w.disposal]] as const)
+                .filter(([, v]) => (v ?? '').trim())
+                .map(([k, v]) => [k, v ?? ''] as [string, string])
+            : []),
+        ]
+        const source = [p.source_quote_label, p.source_quote_reference].filter(Boolean).join(' · ')
+        return (
+          <View key={p.key} style={{ marginTop: 14, paddingTop: 6, borderTopWidth: 2, borderTopColor: PRE_NAVY }}>
+            <Text style={{ fontSize: 13, fontFamily: 'Helvetica-Bold', color: PRE_NAVY }}>Part {L} · {p.title}</Text>
+            {source ? <Text style={[styles.body, { color: MUTED }]}>Reporting against: {source}</Text> : null}
+            {works.length ? <View style={styles.section}><PreNavyHeading>{`${L}1 · Works Undertaken`}</PreNavyHeading>{table(works, '30%')}</View> : null}
+            {p.methodology ? <View style={styles.section}><PreNavyHeading>{`${L}2 · Methodology`}</PreNavyHeading><PreProse text={p.methodology} /></View> : null}
+            {products.length ? <View style={styles.section}><PreNavyHeading>{`${L}3 · Products & Equipment Used`}</PreNavyHeading>{table(products, '40%')}</View> : null}
+            {waste.length ? <View style={styles.section}><PreNavyHeading>{`${L}4 · Waste Management & Disposal`}</PreNavyHeading>{table(waste, '30%')}</View> : null}
+            {p.outcome_verification ? <View style={styles.section}><PreNavyHeading>{`${L}5 · Outcome & Verification`}</PreNavyHeading><PreProse text={p.outcome_verification} /></View> : null}
+          </View>
+        )
+      })}
+
+      {recs.length ? (
+        <View style={styles.section}>
+          <PreNavyHeading>03 · Recommendations</PreNavyHeading>
+          <Text style={styles.body}>The following was noted on site and is outside the cleaning scope. It is flagged here for the client to action:</Text>
+          {recs.map((s, i) => <Text key={i} style={[styles.body, { marginTop: 2 }]}>•  {s}</Text>)}
+        </View>
+      ) : null}
+
+      {c.compliance ? (
+        <View style={styles.section}><PreNavyHeading>04 · Compliance</PreNavyHeading><PreProse text={c.compliance} /></View>
+      ) : null}
+
+      {c.limitations ? (
+        <View style={styles.section}><PreNavyHeading>Limitations & Scope Notice</PreNavyHeading><PreProse text={c.limitations} /></View>
+      ) : null}
+
+      {appendixPhotos.length ? <PhotoSection photos={appendixPhotos} label="Photo Documentation" showAppMetadata={false} /> : null}
+
+      {c.technician_signoff ? (
+        <View style={styles.section}><PreNavyHeading>Sign-off</PreNavyHeading><Text style={styles.body}>{c.technician_signoff}</Text></View>
+      ) : null}
+
+      <Footer company={company} />
+      {c.unsigned_copy ? <UnsignedCopyWatermark /> : null}
+    </Page>
+  )
+}
+
 /** Post Remediation Evaluation — non-financial completion evaluation against a quote. */
 function PrePDF({
   content,
@@ -1179,6 +1286,9 @@ function PrePDF({
 }) {
   if (content.report_format === 'completion_v2') {
     return <CompletionReportPDF content={content} photos={photos} company={company} />
+  }
+  if (content.report_format === 'parts_v1') {
+    return <PartsReportPDF content={content} photos={photos} company={company} />
   }
 
   const today = new Date().toLocaleDateString('en-AU', { day: '2-digit', month: 'long', year: 'numeric' })

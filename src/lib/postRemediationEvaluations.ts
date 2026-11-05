@@ -13,8 +13,13 @@
 import type {
   AssessmentData,
   DocType,
+  Document,
   Photo,
   PostRemediationEvaluation,
+  PostRemediationEvaluationV2,
+  PrePart,
+  PrePartKey,
+  PrePartResolved,
   PreScopeLine,
   QuoteContent,
 } from '@/lib/types'
@@ -72,6 +77,7 @@ export function quoteScopeSummary(content: Record<string, unknown> | null | unde
     other_zones: text(content.other_zones),
     estimated_m3: num(content.estimated_m3),
     estimated_tonnes: num(content.estimated_tonnes),
+    tip_address: text(content.tip_address),
     inclusions: list(content.inclusions),
     exclusions: list(content.exclusions),
     assumptions: list(content.assumptions),
@@ -317,5 +323,147 @@ export function upsertPre(
   if (idx === -1) return [...existing, stamped]
   const next = existing.slice()
   next[idx] = { ...stamped, source_quote_document_id: existing[idx].source_quote_document_id }
+  return next
+}
+
+// ── Multi-part PRE (v2) ──────────────────────────────────────────────────────
+
+export const PRE_PART_KEYS: readonly PrePartKey[] = ['a', 'b', 'c']
+
+/** Fixed part letters and the quote type each part reports against. */
+export const PRE_PART_DEFS: Record<PrePartKey, { letter: string; title: string; docType: DocType; quoteLabel: string }> = {
+  a: { letter: 'A', title: 'Biohazard Cleaning', docType: 'biohazard_cleaning_quote', quoteLabel: 'BCQ' },
+  b: { letter: 'B', title: 'Contents Clearance', docType: 'contents_clearance_quote', quoteLabel: 'CCQ' },
+  c: { letter: 'C', title: 'Surface Area Cleaning', docType: 'surface_area_cleaning_quote', quoteLabel: 'SACQ' },
+}
+
+/** Label / reference / date of a saved quote document for pickers and headers. */
+export function quoteDocMeta(doc: Pick<Document, 'content' | 'created_at'>): { label: string; reference: string; date: string } {
+  const c = (doc.content ?? {}) as Record<string, unknown>
+  const label = String(c.quote_label || c.title || 'Quote')
+  const reference = String(c.reference || '')
+  const date = new Date(doc.created_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })
+  return { label, reference, date }
+}
+
+export function genPreV2Id(): string {
+  return `prev2_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+}
+
+export function getPreV2s(ad: AssessmentData | null | undefined): PostRemediationEvaluationV2[] {
+  if (!ad || !Array.isArray(ad.pre_multi_part)) return []
+  return ad.pre_multi_part
+}
+
+/** Link a part to a saved quote document (or clear the link with null). */
+export function linkPartToQuote(part: PrePart, doc: Pick<Document, 'id' | 'content' | 'created_at'> | null): PrePart {
+  if (!doc) {
+    return { ...part, source_quote_document_id: undefined, source_quote_label: undefined, source_quote_reference: undefined }
+  }
+  const meta = quoteDocMeta(doc)
+  return { ...part, source_quote_document_id: doc.id, source_quote_label: meta.label, source_quote_reference: meta.reference }
+}
+
+/**
+ * Fresh multi-part PRE. A part is switched on and linked when the job has
+ * exactly one saved quote of that part's type; otherwise it starts off.
+ */
+export function makeBlankPreV2(documents: Pick<Document, 'id' | 'type' | 'content' | 'created_at'>[]): PostRemediationEvaluationV2 {
+  const now = new Date().toISOString()
+  const parts = {} as Record<PrePartKey, PrePart>
+  for (const key of PRE_PART_KEYS) {
+    const matches = documents.filter(d => d.type === PRE_PART_DEFS[key].docType)
+    const blank: PrePart = { enabled: matches.length > 0, works_rows: [], products_rows: [], waste: {} }
+    parts[key] = matches.length === 1 ? linkPartToQuote(blank, matches[0]) : blank
+  }
+  return {
+    id: genPreV2Id(),
+    attendance: '',
+    executive_summary: '',
+    site_conditions: [],
+    parts,
+    recommendations: [],
+    compliance: '',
+    limitations: '',
+    technician_signoff: '',
+    created_at: now,
+    updated_at: now,
+  }
+}
+
+const hasProse = (s?: string) => !!(s && s.replace(/<[^>]+>/g, '').trim())
+
+/** True when a part has anything printable. */
+export function prePartHasContent(part: PrePart): boolean {
+  const w = part.waste
+  return (
+    hasProse(part.methodology) ||
+    hasProse(part.outcome_verification) ||
+    hasProse(part.actual_volume_m3) ||
+    (part.works_rows ?? []).some(r => r.stage_name.trim() || r.description.trim()) ||
+    (part.products_rows ?? []).some(r => r.item_name.trim() || r.usage_note.trim()) ||
+    !!(w && (w.waste_type || w.volume || w.containment || w.disposal))
+  )
+}
+
+/** True when a multi-part PRE has anything printable. */
+export function preV2HasContent(pre: PostRemediationEvaluationV2): boolean {
+  return (
+    hasProse(pre.executive_summary) ||
+    hasProse(pre.compliance) ||
+    hasProse(pre.limitations) ||
+    hasProse(pre.attendance) ||
+    (pre.site_conditions ?? []).some(s => s.trim()) ||
+    (pre.recommendations ?? []).some(s => s.trim()) ||
+    PRE_PART_KEYS.some(k => pre.parts[k]?.enabled && prePartHasContent(pre.parts[k]))
+  )
+}
+
+/**
+ * Enabled parts with printable content, in A/B/C order, frozen for printing.
+ * Letters are fixed, never re-lettered. `quoteContents` holds each part's
+ * linked quote content (only Part B's estimated m³ is read).
+ */
+export function resolvePreV2Parts(
+  pre: PostRemediationEvaluationV2,
+  quoteContents?: Partial<Record<PrePartKey, Record<string, unknown> | undefined>>,
+): PrePartResolved[] {
+  const clean = (s?: string) => (s ?? '').trim() || undefined
+  const out: PrePartResolved[] = []
+  for (const key of PRE_PART_KEYS) {
+    const part = pre.parts[key]
+    if (!part?.enabled || !prePartHasContent(part)) continue
+    const def = PRE_PART_DEFS[key]
+    const w = part.waste
+    const quotedM3 = key === 'b' ? Number(quoteContents?.b?.estimated_m3) || 0 : 0
+    out.push({
+      key,
+      letter: def.letter,
+      title: def.title,
+      source_quote_label: part.source_quote_document_id ? part.source_quote_label : undefined,
+      source_quote_reference: part.source_quote_document_id ? part.source_quote_reference : undefined,
+      quoted_volume_m3: quotedM3 > 0 ? quotedM3 : undefined,
+      actual_volume_m3: key === 'b' ? clean(part.actual_volume_m3) : undefined,
+      works_rows: (part.works_rows ?? []).filter(r => r.stage_name.trim() || r.description.trim()),
+      methodology: clean(part.methodology),
+      products_rows: (part.products_rows ?? []).filter(r => r.item_name.trim() || r.usage_note.trim()),
+      waste: w && (w.waste_type || w.volume || w.containment || w.disposal) ? w : undefined,
+      outcome_verification: clean(part.outcome_verification),
+    })
+  }
+  return out
+}
+
+/** Insert or replace a multi-part PRE by id, returning a new array. */
+export function upsertPreV2(
+  ad: AssessmentData | null | undefined,
+  pre: PostRemediationEvaluationV2,
+): PostRemediationEvaluationV2[] {
+  const existing = getPreV2s(ad)
+  const stamped: PostRemediationEvaluationV2 = { ...pre, updated_at: new Date().toISOString() }
+  const idx = existing.findIndex(p => p.id === pre.id)
+  if (idx === -1) return [...existing, stamped]
+  const next = existing.slice()
+  next[idx] = stamped
   return next
 }

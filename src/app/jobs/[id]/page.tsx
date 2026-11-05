@@ -61,7 +61,7 @@ import MessagesTab from '@/components/tabs/MessagesTab'
 import InvoiceTab from '@/components/tabs/InvoiceTab'
 import ProgressNotesTab from '@/components/tabs/ProgressNotesTab'
 import ProgressPhotosTab from '@/components/tabs/ProgressPhotosTab'
-import PostRemediationEvaluationTab from '@/components/tabs/PostRemediationEvaluationTab'
+import PostRemediationEvaluationSection from '@/components/tabs/PostRemediationEvaluationSection'
 import CompanyLetterheadTab from '@/components/tabs/CompanyLetterheadTab'
 import StatementOfAccountsTab from '@/components/tabs/StatementOfAccountsTab'
 import PaymentOverdueTab from '@/components/tabs/PaymentOverdueTab'
@@ -1879,7 +1879,7 @@ export default function JobPage() {
           <PerExecuteCapturePanel job={job} onJobUpdate={setJob} emphasis="recommendations" />
         )}
         {showCompletionRpt && (
-          <PostRemediationEvaluationTab job={job} photos={photos} documents={documents} onJobUpdate={setJob} onPhotosUpdate={setPhotos} />
+          <PostRemediationEvaluationSection job={job} photos={photos} documents={documents} onJobUpdate={setJob} onPhotosUpdate={setPhotos} />
         )}
         {showCompanyLetterhead && (
           <CompanyLetterheadTab job={job} onJobUpdate={setJob} />

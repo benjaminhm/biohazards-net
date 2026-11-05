@@ -34,10 +34,12 @@ import type {
   RiskAssessmentContent,
   PostRemediationEvaluation,
   PostRemediationEvaluationContent,
+  PostRemediationEvaluationV2,
+  PrePartKey,
   PreScopeLineResolved,
   PreAreaNoteResolved,
 } from '@/lib/types'
-import { preHasV2Content, resolveQuotedLineContext } from '@/lib/postRemediationEvaluations'
+import { preHasV2Content, resolvePreV2Parts, resolveQuotedLineContext } from '@/lib/postRemediationEvaluations'
 import { richBodyHtmlForPrint, proseHasPrintableContent } from '@/lib/richTextPrint'
 import { contentsClearanceQuoteContent, normalizeContentsClearanceCapture, type ContentsClearanceStandards } from '@/lib/contentsClearanceQuote'
 import { normalizeSurfaceAreaCleaningCapture, surfaceAreaCleaningQuoteContent, type SurfaceAreaCleaningStandards } from '@/lib/surfaceAreaCleaningQuote'
@@ -125,6 +127,10 @@ export interface ComposeDocumentOptions {
     /** Content of the PRE's source quote document, used to bake quoted-line
      *  context into the composed PRE. */
     sourceQuoteContent?: Partial<QuoteContent>
+    /** When set, compose this multi-part PRE (assessment_data.pre_multi_part). */
+    preV2Id?: string
+    /** Linked quote content per multi-part PRE part (Part B's quoted m³). */
+    prePartQuoteContents?: Partial<Record<PrePartKey, Record<string, unknown> | undefined>>
   }
   /** Org equipment catalogue so we can resolve used_equipment_catalogue_ids → named rows. */
   equipmentCatalogue?: EquipmentCatalogueItem[] | null
@@ -851,6 +857,38 @@ function composePre(
   return { content: { ...c }, source: 'assessment_capture' }
 }
 
+/** Compose a multi-part PRE (Part A BCQ / B CCQ / C SACQ). NON-FINANCIAL. */
+export function composePreV2(
+  job: Job,
+  pre: PostRemediationEvaluationV2,
+  quoteContents?: Partial<Record<PrePartKey, Record<string, unknown> | undefined>>,
+): ComposeDocumentResult {
+  const cleanStr = (s?: string) => (s ?? '').trim() || undefined
+  const cleanList = (xs?: string[]) => (xs ?? []).map(x => x.trim()).filter(Boolean)
+  const signoff = cleanStr(pre.technician_signoff)
+  const c: PostRemediationEvaluationContent = {
+    title: 'Completion Report',
+    reference: refPrefix('report', job.id),
+    source_quote_document_id: '',
+    report_format: 'parts_v1',
+    attendance: cleanStr(pre.attendance),
+    service_type: cleanStr(job.job_type),
+    executive_summary: cleanStr(pre.executive_summary),
+    site_conditions: cleanList(pre.site_conditions),
+    parts: resolvePreV2Parts(pre, quoteContents),
+    recommendations: cleanList(pre.recommendations),
+    compliance: cleanStr(pre.compliance),
+    limitations: cleanStr(pre.limitations),
+    scope_lines: [],
+    technician_signoff: signoff,
+    completed_by: signoff,
+    unsigned_copy: pre.unsigned_copy === true,
+    include_photos: true,
+    report_image_ids: pre.report_image_ids?.length ? pre.report_image_ids : undefined,
+  }
+  return { content: { ...c }, source: 'assessment_capture' }
+}
+
 function composeCod(job: Job): ComposeDocumentResult {
   const c: CertificateOfDecontaminationContent = {
     title: 'Certificate of Decontamination',
@@ -1282,6 +1320,11 @@ export function composeDocumentContent(type: DocType, job: Job, options?: Compos
     case 'engagement_agreement':
       return composeEngagement(job)
     case 'report': {
+      const preV2Id = options?.report?.preV2Id
+      if (preV2Id) {
+        const preV2 = (job.assessment_data?.pre_multi_part ?? []).find(p => p.id === preV2Id)
+        if (preV2) return composePreV2(job, preV2, options?.report?.prePartQuoteContents)
+      }
       const preId = options?.report?.preId
       if (preId) {
         const pre = (job.assessment_data?.post_remediation_evaluations ?? []).find(p => p.id === preId)

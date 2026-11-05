@@ -1076,6 +1076,9 @@ export interface AssessmentData {
   /** Post Remediation Evaluations — each anchored 1:1 to a saved quote document.
    *  Hub-and-spoke mirror of outcome_quotes[]. See PostRemediationEvaluation. */
   post_remediation_evaluations?: PostRemediationEvaluation[]
+  /** Multi-part PREs (Part A BCQ / Part B CCQ / Part C SACQ). Kept apart from
+   *  post_remediation_evaluations so single-quote PRE logic never sees them. */
+  pre_multi_part?: PostRemediationEvaluationV2[]
   /** Home → Survey: named areas, each a clockwise walk of its inside walls. */
   house_survey?: {
     areas: {
@@ -2111,6 +2114,64 @@ export interface PostRemediationEvaluation {
   last_suggested_at?: string
 }
 
+/** Multi-part PRE part key. Letters are fixed: a = BCQ, b = CCQ, c = SACQ. */
+export type PrePartKey = 'a' | 'b' | 'c'
+
+/** One part of a multi-part PRE, reporting against one quote type. */
+export interface PrePart {
+  enabled: boolean
+  /** Saved quote document of this part's type. Absent = part has no linked quote. */
+  source_quote_document_id?: string
+  source_quote_label?: string
+  source_quote_reference?: string
+  /** Technician note for this part; steers Regenerate, not printed. */
+  generation_brief?: string
+  works_rows?: PreWorksRow[]
+  methodology?: string
+  products_rows?: PreProductRow[]
+  waste?: PreWasteBlock
+  /** Part B: actual volume removed, printed beside the quoted m³. Not a price. */
+  actual_volume_m3?: string
+  outcome_verification?: string
+}
+
+/** Multi-part PRE: shared whole-job sections plus Part A/B/C. Saved as DocType `report`. */
+export interface PostRemediationEvaluationV2 {
+  id: string
+  /** Whole-job technician note; steers Regenerate, not printed. */
+  generation_brief?: string
+  attendance?: string
+  executive_summary?: string
+  site_conditions?: string[]
+  parts: Record<PrePartKey, PrePart>
+  recommendations?: string[]
+  compliance?: string
+  limitations?: string
+  technician_signoff?: string
+  unsigned_copy?: boolean
+  report_image_ids?: string[]
+  created_at: string
+  updated_at: string
+}
+
+/** A multi-part PRE part frozen for printing. */
+export interface PrePartResolved {
+  key: PrePartKey
+  /** 'A' | 'B' | 'C' — fixed, never re-lettered. */
+  letter: string
+  title: string
+  source_quote_label?: string
+  source_quote_reference?: string
+  /** Part B: quoted volume snapshot from the linked CCQ. */
+  quoted_volume_m3?: number
+  actual_volume_m3?: string
+  works_rows?: PreWorksRow[]
+  methodology?: string
+  products_rows?: PreProductRow[]
+  waste?: PreWasteBlock
+  outcome_verification?: string
+}
+
 /** Frozen doc content for a PRE (composed at generate time). Scope lines carry a
  *  baked-in snapshot of their quoted text context so the rendered doc never
  *  depends on the source quote staying alive. Photos are referenced by id and
@@ -2124,8 +2185,11 @@ export interface PostRemediationEvaluationContent {
   source_quote_label?: string
   source_quote_reference?: string
   /** When 'completion_v2', renderers use the 9-section completion-report layout
-   *  below; otherwise they fall back to the legacy scope-line layout. */
-  report_format?: 'completion_v2'
+   *  below; 'parts_v1' is the multi-part layout (shared sections + `parts`);
+   *  otherwise they fall back to the legacy scope-line layout. */
+  report_format?: 'completion_v2' | 'parts_v1'
+  /** Multi-part PRE parts, in A/B/C order. Only enabled parts with content. */
+  parts?: PrePartResolved[]
   // ── v2 completion-report sections ──
   attendance?: string
   service_type?: string

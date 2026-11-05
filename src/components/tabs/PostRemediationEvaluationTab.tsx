@@ -44,7 +44,7 @@ interface Props {
   onPhotosUpdate: (photos: Photo[]) => void
 }
 
-const card: CSSProperties = {
+export const card: CSSProperties = {
   border: '1px solid var(--border)',
   borderRadius: 12,
   background: 'var(--surface)',
@@ -52,7 +52,7 @@ const card: CSSProperties = {
   marginBottom: 14,
 }
 
-const sectionHeading: CSSProperties = {
+export const sectionHeading: CSSProperties = {
   fontSize: 12,
   fontWeight: 700,
   letterSpacing: '0.08em',
@@ -61,7 +61,7 @@ const sectionHeading: CSSProperties = {
   margin: '28px 0 12px',
 }
 
-const fieldLabel: CSSProperties = {
+export const fieldLabel: CSSProperties = {
   display: 'block',
   fontSize: 12,
   fontWeight: 600,
@@ -69,7 +69,7 @@ const fieldLabel: CSSProperties = {
   marginBottom: 6,
 }
 
-const textInput: CSSProperties = {
+export const textInput: CSSProperties = {
   width: '100%',
   padding: '10px 12px',
   borderRadius: 8,
@@ -81,7 +81,7 @@ const textInput: CSSProperties = {
 }
 
 /** True when rich/plain text has any visible content after stripping tags. */
-function hasProseText(raw: string | undefined | null): boolean {
+export function hasProseText(raw: string | undefined | null): boolean {
   return String(raw ?? '')
     .replace(/<[^>]+>/g, '')
     .replace(/&nbsp;/g, ' ')
@@ -108,7 +108,7 @@ function quoteDocLabel(doc: Document): { label: string; reference: string; date:
 }
 
 /** Small repeatable list of bullet text inputs (site conditions, recommendations). */
-function BulletEditor({
+export function BulletEditor({
   items,
   onChange,
   placeholder,
@@ -195,7 +195,7 @@ function formatTakenAt(iso: string): string {
   return t.toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })
 }
 
-function ReportImages({
+export function ReportImages({
   jobId,
   photos,
   orderedIds,
