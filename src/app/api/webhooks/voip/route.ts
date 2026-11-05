@@ -4,7 +4,8 @@
  * Receives a call from the VoIP provider (VoIPline "Inbound call recording"
  * webhook) when the recording is ready. Stores the raw payload, replies at
  * once, then runs the call pipeline (transcribe → clean → head agent → file
- * agent) after the response. Retries with the same call id are ignored.
+ * agent) after the response. Retries with the same call id are ignored, unless
+ * the earlier event had no recording and this one does.
  *
  * Auth: VOIP_WEBHOOK_SECRET as VoIPline's `X-Pbx-Token` header (its "Secret
  *       Token" field), `Authorization: Bearer <secret>`, or `?key=<secret>`.
@@ -75,9 +76,33 @@ export async function POST(req: Request) {
     .select('id')
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  const callId = inserted?.[0]?.id as string | undefined
-  if (!callId) return NextResponse.json({ ok: true, duplicate: true })
+  let callId = inserted?.[0]?.id as string | undefined
+  if (!callId) {
+    // VoIPline sends one event per trigger with the same unique_call_id; only a
+    // later event carrying the recording can start an earlier record's pipeline.
+    if (!call.recording_url && !call.transcript) return NextResponse.json({ ok: true, duplicate: true })
+    const { data: upgraded } = await supabase
+      .from('inbound_calls')
+      .update({
+        recording_url: call.recording_url,
+        duration_s: call.duration_s,
+        payload_raw: payload,
+        status: 'received',
+        error: null,
+        error_stage: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('provider', 'voipline')
+      .eq('provider_call_id', providerCallId)
+      .eq('recording_url', '')
+      .is('transcript_raw', null)
+      .is('filed', null)
+      .select('id')
+    callId = upgraded?.[0]?.id as string | undefined
+    if (!callId) return NextResponse.json({ ok: true, duplicate: true })
+  }
 
-  after(() => processCall(callId))
+  const id = callId
+  after(() => processCall(id))
   return NextResponse.json({ ok: true, call_id: callId }, { status: 202 })
 }
