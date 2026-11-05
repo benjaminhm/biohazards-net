@@ -2,9 +2,10 @@
  * lib/calls/payload.ts
  *
  * Read a VoIP provider webhook into one shape. VoIPline (voipline.net.au)
- * sends unique_call_id, user_number (caller), dest_number (our number) and
- * call_start_at; its recording event adds a link to the recording, whose
- * field name is not documented, so any recording-looking URL is accepted.
+ * sends unique_call_id, caller_id (caller CLI), dest_number (our number) and
+ * call_start_at. Its user_number is the extension that rang, never the caller.
+ * The recording link's field name is not documented, so any recording-looking
+ * URL is accepted.
  * Other providers' common names are accepted too, one level into
  * `data` / `call` / `recording`. The raw payload is always stored as well.
  */
@@ -22,7 +23,7 @@ export interface VoipCall {
 
 const KEYS = {
   id: ['unique_call_id', 'call_id', 'callId', 'call_uuid', 'callUuid', 'uuid', 'CallSid', 'call_sid', 'id'],
-  caller: ['user_number', 'caller_number', 'callerNumber', 'caller_id', 'callerId', 'caller', 'from', 'From', 'cli', 'ani', 'source'],
+  caller: ['caller_id', 'caller_number', 'callerNumber', 'callerId', 'caller', 'from', 'From', 'cli', 'ani', 'source'],
   called: ['dest_number', 'called_number', 'calledNumber', 'to', 'To', 'did', 'dnis', 'destination', 'called'],
   started: ['call_start_at', 'started_at', 'startedAt', 'start_time', 'startTime', 'timestamp', 'call_start', 'date', 'created_at'],
   duration: ['duration_s', 'duration', 'call_duration', 'talk_time', 'Duration', 'RecordingDuration', 'billsec', 'length'],
