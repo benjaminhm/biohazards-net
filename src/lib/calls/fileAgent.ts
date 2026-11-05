@@ -190,20 +190,26 @@ export function quoteDrafts(
 }
 
 /** Internal progress note for the job. */
-export function callNoteBody(e: CallExtraction, call: { caller_number: string; started_at: string | null }): string {
+export function callNoteBody(
+  e: CallExtraction,
+  call: { caller_number: string; started_at: string | null; provider?: string },
+): string {
   const when = call.started_at
     ? new Date(call.started_at).toLocaleString('en-AU', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Australia/Brisbane' })
     : 'unknown time'
+  const written = call.provider === 'netlify_form'
+  const channel = written ? 'Website enquiry' : 'Phone call'
+  const source = written ? 'the enquiry' : 'the call'
   const quotes = [
     e.quotes.biohazard && 'Biohazard Cleaning',
     e.quotes.contents_clearance && 'Contents Clearance',
     e.quotes.surface_area && 'Surface Area Cleaning',
   ].filter(Boolean)
   return [
-    `Phone call ${when}${call.caller_number ? ` from ${call.caller_number}` : ''} (filed by the call agent).`,
+    `${channel} ${when}${call.caller_number ? ` from ${call.caller_number}` : ''} (filed by the call agent).`,
     e.summary,
-    quotes.length ? `Quotes drafted from the call: ${quotes.join(', ')}. Prices to be added by staff.` : '',
-    e.money_mentioned ? `Money mentioned on the call: ${e.money_mentioned}` : '',
+    quotes.length ? `Quotes drafted from ${source}: ${quotes.join(', ')}. Prices to be added by staff.` : '',
+    e.money_mentioned ? `Money mentioned in ${source}: ${e.money_mentioned}` : '',
   ]
     .filter(Boolean)
     .join('\n\n')

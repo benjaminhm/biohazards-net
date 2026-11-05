@@ -35,12 +35,14 @@ type Supabase = ReturnType<typeof createServiceClient>
 interface CallRow {
   id: string
   org_id: string
+  provider: string
   caller_number: string
   started_at: string | null
   recording_url: string
   recording_parts: RecordingPart[] | null
   payload_raw: Record<string, unknown>
   transcript_raw: string | null
+  transcript_source: string | null
   transcript_clean: string | null
   clean_unclear: string[] | null
   extraction: unknown
@@ -60,9 +62,11 @@ export async function processCall(callId: string, from: CallStage = 'transcribe'
     supabase.from('inbound_calls').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', callId)
 
   let stage: CallStage = 'transcribe'
+  // Written enquiries arrive as text: there is no audio to transcribe or speech to clean.
+  const written = call.transcript_source === 'form' && Boolean(call.transcript_raw)
   try {
     let raw = call.transcript_raw
-    if (at('transcribe') || !raw) {
+    if (!written && (at('transcribe') || !raw)) {
       const provided = parseVoipPayload(call.payload_raw).transcript
       let source: 'provider' | 'openai'
       if (provided) {
@@ -80,19 +84,21 @@ export async function processCall(callId: string, from: CallStage = 'transcribe'
       }
       await update({ transcript_raw: raw, transcript_source: source, status: 'transcribed', error: null, error_stage: null })
     }
+    if (!raw) throw new Error('No transcript')
 
     const apiKey = getAnthropicApiKey()
     if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set')
 
     stage = 'clean'
-    let clean = call.transcript_clean
+    let clean = call.transcript_clean ?? (written ? raw : null)
     let unclear = call.clean_unclear ?? []
-    if (at('clean') || !clean) {
+    if (!written && (at('clean') || !clean)) {
       const c = await cleanTranscript(raw, apiKey)
       clean = c.transcript
       unclear = c.unclear
       await update({ transcript_clean: clean, clean_changes: c.changes, clean_unclear: c.unclear, status: 'cleaned' })
     }
+    if (!clean) throw new Error('No cleaned transcript')
 
     stage = 'extract'
     let extraction = call.extraction ? normalizeExtraction(call.extraction) : null

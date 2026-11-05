@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
+import { createHash, createHmac } from 'node:crypto'
 import test from 'node:test'
+import { enquiryPhone, enquiryText, verifyNetlifySignature } from '@/lib/calls/websiteEnquiry'
 import { parseVoipPayload } from '@/lib/calls/payload'
 import { tidyTranscript } from '@/lib/calls/clean'
 import { RECORD_CALL_TOOL, extractionIssues, normalizeExtraction, stripMoney } from '@/lib/calls/extraction'
@@ -96,6 +98,47 @@ test('emailed recording parts are kept in part order, and only audio counts', ()
   ]
   assert.deepEqual(orderedRecordingRefs(parts, ''), ['resend://e1/a', 'resend://e2/b'])
   assert.deepEqual(orderedRecordingRefs([], 'https://rec.example/a.mp3'), ['https://rec.example/a.mp3'])
+})
+
+function netlifySignature(body: string, secret: string, claims?: Record<string, unknown>): string {
+  const b64 = (v: string | Buffer) => Buffer.from(v).toString('base64url')
+  const header = b64(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
+  const payload = b64(JSON.stringify(claims ?? { iss: 'netlify', sha256: createHash('sha256').update(body).digest('hex') }))
+  return `${header}.${payload}.${b64(createHmac('sha256', secret).update(`${header}.${payload}`).digest())}`
+}
+
+test('a Netlify webhook is accepted only with the right secret over the exact body', () => {
+  const body = JSON.stringify({ id: 'sub1', data: { name: 'Mick' } })
+  const sig = netlifySignature(body, 's3cret')
+  assert.equal(verifyNetlifySignature(body, sig, 's3cret'), true)
+  assert.equal(verifyNetlifySignature(body, sig, 'other'), false)
+  assert.equal(verifyNetlifySignature(body.replace('Mick', 'Mark'), sig, 's3cret'), false)
+  assert.equal(verifyNetlifySignature(body, netlifySignature(body, 's3cret', { iss: 'someone', sha256: 'x' }), 's3cret'), false)
+  assert.equal(verifyNetlifySignature(body, '', 's3cret'), false)
+  assert.equal(verifyNetlifySignature(body, sig, ''), false)
+})
+
+test('a website enquiry becomes labelled text without browser noise', () => {
+  const s = {
+    form_name: 'contact',
+    data: { name: 'Mick Testy', ip: '1.2.3.4', user_agent: 'Safari', referrer: 'https://x', message: 'Hoarder unit to clear' },
+    ordered_human_fields: [
+      { title: 'Name', name: 'name', value: 'Mick Testy' },
+      { title: 'Phone', name: 'phone', value: '0412 345 678' },
+      { title: 'Message', name: 'message', value: 'Hoarder unit to clear at 4/12 King St Annerley' },
+      { title: 'Empty', name: 'empty', value: '' },
+    ],
+  }
+  assert.equal(
+    enquiryText(s),
+    'Website enquiry form "contact". The client wrote:\nName: Mick Testy\nPhone: 0412 345 678\nMessage: Hoarder unit to clear at 4/12 King St Annerley',
+  )
+  assert.equal(enquiryText({ data: { name: 'A', ip: '1.2.3.4' } }), 'Website enquiry form. The client wrote:\nname: A')
+})
+
+test('the website enquiry phone is found by its field name', { skip: phoneSkip }, () => {
+  assert.equal(enquiryPhone({ ordered_human_fields: [{ title: 'Mobile number', name: 'mobile', value: '0412 345 678' }] }), '+61412345678')
+  assert.equal(enquiryPhone({ data: { name: 'A' } }), '')
 })
 
 test('VoIPline\'s unique call id ties the parts of one call together', () => {
