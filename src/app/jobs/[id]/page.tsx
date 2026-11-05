@@ -1312,6 +1312,11 @@ export default function JobPage() {
                   ? `${job.client_name} — ${JOB_TYPE_LABELS[job.job_type] ?? job.job_type}`
                   : `${JOB_TYPE_LABELS[job.job_type] ?? job.job_type} · ${job.site_address.split(',')[0]}`}
               </div>
+              {job.job_description && (
+                <div title={job.job_description} style={{ fontSize: 13, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {job.job_description}
+                </div>
+              )}
             </div>
             <div data-devid="P2-E2" style={{ display: 'flex', gap: 6, flexShrink: 0, alignItems: 'center' }}>
               {job.job_code && (

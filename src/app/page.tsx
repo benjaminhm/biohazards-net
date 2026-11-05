@@ -182,6 +182,15 @@ export default function HomePage() {
       : []),
     ...(isAdmin || isManager
       ? [{
+          href: '/calls',
+          icon: '📞',
+          label: 'Calls',
+          sub: 'Inbound calls and what the agents filed',
+          color: '#F97316',
+        }]
+      : []),
+    ...(isAdmin || isManager
+      ? [{
           href: '/accounts',
           icon: '🏢',
           label: 'Trade Accounts',

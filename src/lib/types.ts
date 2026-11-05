@@ -1079,6 +1079,8 @@ export interface AssessmentData {
   /** Multi-part PREs (Part A BCQ / Part B CCQ / Part C SACQ). Kept apart from
    *  post_remediation_evaluations so single-quote PRE logic never sees them. */
   pre_multi_part?: PostRemediationEvaluationV2[]
+  /** Quotes the job needs, with the reason. Set by the call agent from inbound calls. */
+  quotes_required?: QuoteRequired[]
   /** Home → Survey: named areas, each a clockwise walk of its inside walls. */
   house_survey?: {
     areas: {
@@ -1339,6 +1341,8 @@ export interface Job {
   site_contact_phone?: string
   /** Free-text parking / keys / pets / discretion notes captured at Initial Contact. */
   access_notes?: string
+  /** Neutral one-to-three sentence description of the job. Written by the call agent, editable by staff. */
+  job_description?: string
   notes: string
   assessment_data: AssessmentData | null
   scheduled_at: string | null
@@ -1373,6 +1377,16 @@ export interface Photo {
   location_lat?: number | null
   location_lng?: number | null
   location_label?: string | null
+}
+
+export interface QuoteRequired {
+  type: 'biohazard_cleaning_quote' | 'contents_clearance_quote' | 'surface_area_cleaning_quote'
+  reason: string
+  /** Words from the call that support it. */
+  evidence: string
+  source: 'call'
+  call_id: string
+  added_at: string
 }
 
 /** Job-scoped progress notes (DB table `progress_notes`). */

@@ -24,6 +24,7 @@
  *   - All [slug].biohazards.net requests (public websites)
  *   - /login, /accept/:id
  *   - /api/auth/*, /api/print, /api/sms/inbound, /api/public/*
+ *   - /api/webhooks/inbound-email, /api/webhooks/voip (shared-secret checked in the route)
  *   - /portal/*, /api/portal/*
  */
 import { NextResponse } from 'next/server'
@@ -52,6 +53,7 @@ function isPublicPath(pathname: string): boolean {
   if (pathname.startsWith('/api/print/')) return true
   if (pathname.startsWith('/api/sms/inbound')) return true
   if (pathname.startsWith('/api/webhooks/inbound-email')) return true
+  if (pathname === '/api/webhooks/voip') return true
   if (pathname.startsWith('/api/public/')) return true
   if (pathname.startsWith('/site')) return true
   if (pathname === '/portal' || pathname.startsWith('/portal/')) return true
