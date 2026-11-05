@@ -42,9 +42,7 @@ export async function POST(req: Request) {
 
   const payload = await readWebhookBody(req)
   const call = parseVoipPayload(payload)
-  if (!call.recording_url && !call.transcript) {
-    return NextResponse.json({ ok: true, ignored: 'No recording or transcript in this event' })
-  }
+  if (Object.keys(payload).length === 0) return NextResponse.json({ error: 'Empty payload' }, { status: 400 })
 
   const supabase = createServiceClient()
   let orgId = process.env.VOIP_DEFAULT_ORG_ID ?? ''
