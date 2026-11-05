@@ -71,6 +71,7 @@ import CompanyLetterTab from '@/components/tabs/CompanyLetterTab'
 import PreStartBriefingTab from '@/components/tabs/PreStartBriefingTab'
 import JobDocsDashboardTab, { type DocDashboardTarget } from '@/components/tabs/JobDocsDashboardTab'
 import TradingNameModal from '@/components/TradingNameModal'
+import AgentDrawer from '@/components/agent/AgentDrawer'
 import { isTradingNameId, type TradingNameId } from '@/lib/tradingNames'
 import { useUser } from '@/lib/userContext'
 import {
@@ -973,6 +974,15 @@ export default function JobPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  async function refreshJobQuietly() {
+    const res = await fetch(`/api/jobs/${id}`)
+    if (!res.ok) return
+    const data = await res.json()
+    if (!data.job) return
+    setJob(prev => ({ ...data.job, inbound_email_address: data.inbound_email_address ?? prev?.inbound_email_address ?? null }))
+    setPhotos(data.photos ?? [])
   }
 
   if (loading) {
@@ -1998,6 +2008,8 @@ export default function JobPage() {
           onCancel={() => setTradingNamePickerOpen(false)}
         />
       )}
+
+      <AgentDrawer jobId={id} onChanged={refreshJobQuietly} />
     </div>
         )}
       </UnsavedNavigationGuard>
