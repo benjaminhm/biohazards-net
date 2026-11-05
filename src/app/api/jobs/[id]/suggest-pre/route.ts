@@ -17,12 +17,12 @@ import { getOrgId } from '@/lib/org'
 import { getAnthropicApiKey } from '@/lib/loadAnthropicEnvFallback'
 import { mergedSowCapture } from '@/lib/sowCapture'
 import { fetchPhotosForEvidenceSuggest, inferCapturePhaseFromCategory } from '@/lib/photoCapturePhase'
-import { resolveQuotedLineContext } from '@/lib/postRemediationEvaluations'
+import { quoteScopeSummary, resolveQuotedLineContext } from '@/lib/postRemediationEvaluations'
 import type { AssessmentData, JobType, Photo, PostRemediationEvaluation, QuoteContent } from '@/lib/types'
 
 const SYSTEM = `You draft a Biohazard Remediation Completion Report for an Australian remediation company. The report is client-facing.
 
-You receive JOB_CONTEXT: a TECHNICIAN_BRIEF (the attending technician's first-hand account), the quoted/agreed scope, Scope of Work, progress notes, room notes, and progress photo metadata.
+You receive JOB_CONTEXT: a TECHNICIAN_BRIEF (the attending technician's first-hand account), the quoted/agreed scope (quoted_scope: the linked quote's non-financial scope — rooms, objective, scope of work, inclusions, exclusions; quoted_scope_lines: itemised lines when present), Scope of Work, progress notes, room notes, and progress photo metadata.
 
 VOICE & STYLE:
 - First-person, plain tradesperson language ("we", "I"). Past tense. Factual, defensible, no embellishment.
@@ -30,6 +30,7 @@ VOICE & STYLE:
 
 RULES:
 - TECHNICIAN_BRIEF is authoritative ground truth for what actually happened. Reflect confirmations, complexities, variations, and recommendations from it.
+- When has_linked_quote is false, there is no quote: never mention a quote or quoted scope. Take the scope from TECHNICIAN_BRIEF and the Scope of Work instead.
 - Ground every statement in the provided data. Do NOT invent incidents, clearance/lab results, quantities, dates, products, or commitments not supported by the JSON.
 - NEVER include money, prices, totals, or variance figures — this report is non-financial.
 - Use photo metadata only as internal context; never output raw metadata (category labels, capture_phase, timestamps, file IDs).
@@ -172,6 +173,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         .maybeSingle()
       sourceContent = (docRow?.content ?? undefined) as Partial<QuoteContent> | undefined
     }
+    const quotedScope = quoteScopeSummary(sourceContent as Record<string, unknown> | undefined)
 
     const quotedLines = pre.scope_lines
       .filter(l => l.kind === 'from_quote')
@@ -230,6 +232,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         client_organization_name: (job.client_organization_name ?? '').trim() || null,
         notes: job.notes,
       },
+      has_linked_quote: !!pre.source_quote_document_id,
+      quoted_scope: quotedScope,
       quoted_scope_lines: quotedLines,
       areas: areaNames,
       sow_planned: {
@@ -257,6 +261,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       sow.objective.trim() ||
       sow.scope_work.trim() ||
       quotedLines.length > 0 ||
+      quotedScope !== null ||
       (job.notes ?? '').trim().length > 0
 
     if (!hasSignal) {

@@ -12,11 +12,73 @@
  */
 import type {
   AssessmentData,
+  DocType,
   Photo,
   PostRemediationEvaluation,
   PreScopeLine,
   QuoteContent,
 } from '@/lib/types'
+
+/** Saved document types a PRE can report against. */
+export const PRE_SOURCE_DOC_TYPES: readonly DocType[] = [
+  'quote',
+  'biohazard_cleaning_quote',
+  'surface_area_cleaning_quote',
+  'contents_clearance_quote',
+]
+
+export function isPreSourceDocType(type: string): boolean {
+  return (PRE_SOURCE_DOC_TYPES as readonly string[]).includes(type)
+}
+
+/**
+ * Non-financial scope summary of any saved quote document (Quote/Estimate, BCQ,
+ * SACQ, CCQ) for drafting a PRE. Picks only scope fields by name, so prices,
+ * rates, totals, and terms never reach the draft.
+ */
+export function quoteScopeSummary(content: Record<string, unknown> | null | undefined): Record<string, unknown> | null {
+  if (!content) return null
+  const text = (v: unknown) => (typeof v === 'string' && v.replace(/<[^>]+>/g, ' ').trim()) || undefined
+  const list = (v: unknown) => {
+    if (typeof v === 'string') return text(v) ? [text(v) as string] : undefined
+    if (!Array.isArray(v)) return undefined
+    const out = v.map(text).filter((s): s is string => !!s)
+    return out.length ? out : undefined
+  }
+  const num = (v: unknown) => (typeof v === 'number' && v > 0 ? v : undefined)
+  const rooms = (v: unknown) => {
+    if (!Array.isArray(v)) return undefined
+    const out = v.flatMap(r => {
+      if (!r || typeof r !== 'object') return []
+      const row = r as Record<string, unknown>
+      const name = text(row.name)
+      return name ? [{ name, area_m2: num(row.area_m2) }] : []
+    })
+    return out.length ? out : undefined
+  }
+  const summary: Record<string, unknown> = {
+    title: text(content.title),
+    biohazard_type: text(content.biohazard_type),
+    area_affected: text(content.area_affected),
+    description: text(content.description),
+    objective: text(content.objective),
+    scope_of_work: list(content.scope_of_work),
+    rooms: rooms(content.rooms),
+    estimated_m2: num(content.estimated_m2),
+    secondary_zone: content.has_secondary === true ? text(content.secondary_zone) : undefined,
+    secondary_contamination: content.has_secondary === true ? text(content.secondary_contamination) : undefined,
+    secondary_objective: content.has_secondary === true ? text(content.secondary_objective) : undefined,
+    secondary_rooms: content.has_secondary === true ? rooms(content.secondary_rooms) : undefined,
+    other_zones: text(content.other_zones),
+    estimated_m3: num(content.estimated_m3),
+    estimated_tonnes: num(content.estimated_tonnes),
+    inclusions: list(content.inclusions),
+    exclusions: list(content.exclusions),
+    assumptions: list(content.assumptions),
+  }
+  for (const k of Object.keys(summary)) if (summary[k] === undefined) delete summary[k]
+  return Object.keys(summary).length ? summary : null
+}
 
 /** Stable client-generated id for a new PRE. */
 export function genPreId(): string {
@@ -36,6 +98,11 @@ export function getPreBySourceQuoteId(
 ): PostRemediationEvaluation | undefined {
   if (!sourceQuoteDocumentId) return undefined
   return getPres(ad).find(p => p.source_quote_document_id === sourceQuoteDocumentId)
+}
+
+/** The job's standalone PRE (no linked quote), if any. */
+export function getStandalonePre(ad: AssessmentData | null | undefined): PostRemediationEvaluation | undefined {
+  return getPres(ad).find(p => !p.source_quote_document_id)
 }
 
 /**

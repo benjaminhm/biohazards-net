@@ -23,7 +23,10 @@ import type {
 import { mergeAssessmentData } from '@/lib/riskDerivation'
 import {
   getPreBySourceQuoteId,
+  getPres,
+  getStandalonePre,
   insertPhotosByTimeTaken,
+  isPreSourceDocType,
   makeBlankPre,
   orderReportAppendixPhotos,
   seedScopeLinesFromQuoteContent,
@@ -590,7 +593,7 @@ export default function PostRemediationEvaluationTab({ job, photos, documents, o
   const quoteDocs = useMemo(
     () =>
       documents
-        .filter(d => d.type === 'quote')
+        .filter(d => isPreSourceDocType(d.type))
         .slice()
         .sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at)),
     [documents],
@@ -661,6 +664,21 @@ export default function PostRemediationEvaluationTab({ job, photos, documents, o
     setPre(seeded)
     setSourceDocId(docId)
     setPersistedSnapshot('') // unsaved
+    setSavedFlash(false)
+    setSaveError(null)
+  }
+
+  function beginStandalonePre() {
+    const existing = getStandalonePre(job.assessment_data)
+    if (existing) {
+      setPre(existing)
+      setSourceDocId('')
+      setPersistedSnapshot(JSON.stringify(existing))
+      return
+    }
+    setPre(makeBlankPre({ source_quote_document_id: '' }))
+    setSourceDocId('')
+    setPersistedSnapshot('')
     setSavedFlash(false)
     setSaveError(null)
   }
@@ -790,7 +808,7 @@ export default function PostRemediationEvaluationTab({ job, photos, documents, o
       if (!res.ok) throw new Error(data.error || 'Save failed')
       if (data.job) {
         onJobUpdate(data.job)
-        const saved = getPreBySourceQuoteId(data.job.assessment_data, pre.source_quote_document_id)
+        const saved = getPres(data.job.assessment_data).find(p => p.id === pre.id)
         if (saved) {
           setPre(saved)
           setPersistedSnapshot(JSON.stringify(saved))
@@ -847,16 +865,15 @@ export default function PostRemediationEvaluationTab({ job, photos, documents, o
       <div style={{ maxWidth: 720, paddingBottom: 32 }}>
         <h2 style={{ fontSize: 18, fontWeight: 700, margin: '0 0 6px' }}>Post Remediation Evaluation</h2>
         <p style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.55, marginBottom: 20 }}>
-          A PRE is built against one issued Quote/Estimate — the agreed scope is the source of truth, and the PRE records
-          what was actually done. Choose the quote this evaluation reports against.
+          A PRE is usually built against one saved quote — the agreed scope is the source of truth, and the PRE
+          records what was actually done. Choose the quote this evaluation reports against, or build one without a quote.
         </p>
 
         <div style={sectionHeading}>Reporting against</div>
         {quoteDocs.length === 0 ? (
           <div style={card}>
             <p style={{ fontSize: 14, color: 'var(--text-muted)', margin: 0 }}>
-              No saved Quote/Estimate documents on this job yet. Generate and save a quote first, then return here to build
-              its PRE.
+              No saved quotes on this job yet (Quote/Estimate, Biohazard Cleaning, Surface Area Cleaning, or Contents Clearance).
             </p>
           </div>
         ) : (
@@ -901,6 +918,30 @@ export default function PostRemediationEvaluationTab({ job, photos, documents, o
             })}
           </div>
         )}
+        <button
+          type="button"
+          onClick={beginStandalonePre}
+          style={{
+            ...card,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+            width: '100%',
+            textAlign: 'left',
+            cursor: 'pointer',
+          }}
+        >
+          <span>
+            <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>No quote</span>
+            <span style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>
+              Draft from your technician note, Scope of Work, progress notes, and photos
+            </span>
+          </span>
+          <span style={{ fontSize: 11, flexShrink: 0, color: getStandalonePre(job.assessment_data) ? 'var(--text-muted)' : 'var(--accent)', fontWeight: 600 }}>
+            {getStandalonePre(job.assessment_data) ? 'has PRE — open' : 'Build PRE →'}
+          </span>
+        </button>
       </div>
     )
   }
@@ -940,9 +981,15 @@ export default function PostRemediationEvaluationTab({ job, photos, documents, o
             {pre.source_quote_label ? ` — ${pre.source_quote_label}` : ''}
           </h2>
           <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-            Reporting against:{' '}
-            {pre.source_quote_reference || headerMeta?.reference || pre.source_quote_document_id}
-            {headerMeta ? ` · ${headerMeta.date}` : ''}
+            {pre.source_quote_document_id ? (
+              <>
+                Reporting against:{' '}
+                {pre.source_quote_reference || headerMeta?.reference || pre.source_quote_document_id}
+                {headerMeta ? ` · ${headerMeta.date}` : ''}
+              </>
+            ) : (
+              'No linked quote'
+            )}
           </div>
         </div>
         <button

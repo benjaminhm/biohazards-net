@@ -2056,7 +2056,8 @@ export interface PreWasteBlock {
 export interface PostRemediationEvaluation {
   /** Stable client-generated id; React key and the doc anchor. */
   id: string
-  /** Strict 1:1 to a saved quote document; immutable after first save. */
+  /** Strict 1:1 to a saved quote document; immutable after first save. Empty
+   *  string = standalone PRE with no linked quote (at most one per job). */
   source_quote_document_id: string
   /** Snapshot of the source label/ref so the PRE keeps a stable header even if
    *  the quote spoke is later renamed or deleted. */

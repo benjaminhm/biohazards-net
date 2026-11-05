@@ -1,7 +1,8 @@
 /*
  * Home → Company Letterhead.
  *
- * Staff write the letter in the editor and attach images. Generate document
+ * Staff write the letter in the editor (or draft it from a brief via
+ * suggest-letterhead-body, then edit) and attach images. Generate document
  * saves the letter, then opens the print preview with the company letterhead.
  */
 'use client'
@@ -81,6 +82,8 @@ export default function CompanyLetterheadTab({ job, onJobUpdate }: Props) {
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
+  const [prompt, setPrompt] = useState('')
+  const [drafting, setDrafting] = useState(false)
 
   useEffect(() => {
     setCapture(normalizeCompanyLetterheadCapture(job.assessment_data?.company_letterhead))
@@ -173,6 +176,28 @@ export default function CompanyLetterheadTab({ job, onJobUpdate }: Props) {
     await save(next)
   }
 
+  async function draft() {
+    if (!prompt.trim() || drafting) return
+    const hasBody = proseHasPrintableContent(capture.body_html)
+    if (hasBody && !window.confirm('Replace the letter with a new draft? Your current text is sent with the brief so it can be revised.')) return
+    setDrafting(true)
+    setError('')
+    try {
+      const res = await fetch(`/api/jobs/${job.id}/suggest-letterhead-body`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, existing_html: hasBody ? capture.body_html : undefined }),
+      })
+      const data = (await res.json()) as { body_html?: string; error?: string }
+      if (!res.ok || !data.body_html) throw new Error(data.error || 'Could not draft the letter')
+      patch({ body_html: data.body_html })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not draft the letter')
+    } finally {
+      setDrafting(false)
+    }
+  }
+
   async function generate() {
     if (!companyLetterheadHasContent(capture)) {
       setError('Write the letter, or attach an image, before generating the document.')
@@ -188,6 +213,61 @@ export default function CompanyLetterheadTab({ job, onJobUpdate }: Props) {
       <p style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.55, margin: '0 0 16px' }}>
         Write the letter in the box. Your company letterhead is added when the document is generated. Attach images to include them on the letter.
       </p>
+
+      <div
+        style={{
+          border: '1px solid var(--border)',
+          background: 'var(--surface)',
+          borderRadius: 12,
+          padding: 14,
+          display: 'grid',
+          gap: 10,
+          marginBottom: 20,
+        }}
+      >
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>
+          Draft with AI
+        </div>
+        <textarea
+          value={prompt}
+          onChange={e => setPrompt(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault()
+              void draft()
+            }
+          }}
+          placeholder="e.g. Short report for the property manager confirming the bathroom was cleaned and deodorised, with a recommendation to replace the vanity."
+          rows={3}
+          style={{
+            width: '100%',
+            padding: '10px 12px',
+            borderRadius: 8,
+            border: '1px solid var(--border)',
+            background: 'var(--surface-2)',
+            color: 'var(--text)',
+            fontSize: 14,
+            lineHeight: 1.5,
+            resize: 'vertical',
+            fontFamily: 'inherit',
+            boxSizing: 'border-box',
+          }}
+        />
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled={!prompt.trim() || drafting || saving}
+            onClick={() => void draft()}
+            style={{ fontWeight: 700 }}
+          >
+            {drafting ? 'Drafting…' : proseHasPrintableContent(capture.body_html) ? 'Redraft' : 'Draft'}
+          </button>
+          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+            Uses the job details, Scope of Work, and progress notes. Check the draft before you generate.
+          </span>
+        </div>
+      </div>
 
       <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 8 }}>
         Letter
@@ -301,7 +381,7 @@ export default function CompanyLetterheadTab({ job, onJobUpdate }: Props) {
           <button
             type="button"
             className="btn btn-primary"
-            disabled={saving || uploading}
+            disabled={saving || uploading || drafting}
             onClick={() => void generate()}
             style={{ width: '100%', padding: 12, fontWeight: 700 }}
           >
