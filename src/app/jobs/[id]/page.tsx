@@ -69,6 +69,7 @@ import PerExecuteCapturePanel from '@/components/tabs/PerExecuteCapturePanel'
 import DisposalManifestCaptureTab from '@/components/tabs/DisposalManifestCaptureTab'
 import CompanyLetterTab from '@/components/tabs/CompanyLetterTab'
 import PreStartBriefingTab from '@/components/tabs/PreStartBriefingTab'
+import JobDocsDashboardTab, { type DocDashboardTarget } from '@/components/tabs/JobDocsDashboardTab'
 import TradingNameModal from '@/components/TradingNameModal'
 import { isTradingNameId, type TradingNameId } from '@/lib/tradingNames'
 import { useUser } from '@/lib/userContext'
@@ -78,7 +79,7 @@ import {
   useUnsavedChanges,
 } from '@/lib/unsavedChangesContext'
 
-type Tab = 'home' | 'docs' | 'details' | 'timeline' | 'assessment' | 'case_studies' | 'scope_capture' | 'quote_capture' | 'pre_remediation_checklist_capture' | 'progress_capture' | 'progress_notes_capture' | 'quality_checks_capture' | 'recommendations_capture' | 'progress_report_generate' | 'client_feedback_capture' | 'team_feedback_capture' | 'engagement_agreement_capture' | 'nda_capture' | 'authority_to_proceed_capture' | 'swms_capture' | 'jsa_capture' | 'risk_assessment_capture' | 'waste_disposal_manifest_capture' | 'iaq_multi_capture' | 'quote' | 'photos' | 'messages' | 'invoice' | 'company_letter' | 'prestart_briefing'
+type Tab = 'dashboard' | 'home' | 'docs' | 'details' | 'timeline' | 'assessment' | 'case_studies' | 'scope_capture' | 'quote_capture' | 'pre_remediation_checklist_capture' | 'progress_capture' | 'progress_notes_capture' | 'quality_checks_capture' | 'recommendations_capture' | 'progress_report_generate' | 'client_feedback_capture' | 'team_feedback_capture' | 'engagement_agreement_capture' | 'nda_capture' | 'authority_to_proceed_capture' | 'swms_capture' | 'jsa_capture' | 'risk_assessment_capture' | 'waste_disposal_manifest_capture' | 'iaq_multi_capture' | 'quote' | 'photos' | 'messages' | 'invoice' | 'company_letter' | 'prestart_briefing'
 
 /**
  * Home sub-tabs — sequential remediation workflow phases rendered as an empty-room strip
@@ -554,6 +555,8 @@ function UnsavedNavigationGuard({
 
 function pageTitleForTab(tab: Tab, job: Job): string {
   switch (tab) {
+    case 'dashboard':
+      return 'Dashboard'
     case 'home':
       return 'Home'
     case 'docs':
@@ -1002,6 +1005,7 @@ export default function JobPage() {
   const visibleHomeSections = HOME_SECTIONS.filter(s => caps[HOME_SECTION_TO_CAP[s.id]] === true)
 
   const allTabs: { id: Tab; label: string; show: boolean }[] = [
+    { id: 'dashboard',      label: 'Dashboard',      show: true },
     { id: 'home',           label: 'Home',           show: visibleHomeSections.length > 0 },
     { id: 'details',        label: 'Client Details', show: true },
     { id: 'timeline',       label: 'Timeline',       show: true },
@@ -1087,6 +1091,24 @@ export default function JobPage() {
     padding: 14,
     background: 'var(--surface)',
     marginBottom: 12,
+  }
+
+  function goToDocTarget(target: DocDashboardTarget) {
+    if (target.kind === 'compose') {
+      router.push(`/jobs/${id}/docs/${target.type}?compose=1`)
+      return
+    }
+    if (target.kind === 'tab') {
+      setActiveTab(target.tab as Tab)
+    } else {
+      const section = target.section as HomeSection
+      if (section === 'legal' && target.sub) setLegalSection(target.sub as LegalSection)
+      if (section === 'safety_compliance' && target.sub) setSafetySection(target.sub as SafetySection)
+      if (section === 'onsite_assessment' && target.sub === 'document') setAssessmentSection('document')
+      setHomeSection(section)
+      setActiveTab('home')
+    }
+    window.scrollTo({ top: 0 })
   }
 
   function nowStamp() {
@@ -1494,6 +1516,9 @@ export default function JobPage() {
             onChange={setReviewSection}
             ariaLabel="Review sub-sections"
           />
+        )}
+        {activeTab === 'dashboard' && (
+          <JobDocsDashboardTab job={job} documents={documents} onGo={goToDocTarget} />
         )}
         {showDetails && (
           <ClientDetailsTab
