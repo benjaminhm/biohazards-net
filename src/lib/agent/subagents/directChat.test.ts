@@ -43,7 +43,8 @@ test('routing: an active document agent needs an open job; otherwise the file or
 })
 
 test('routing: a direct document agent gets only its own tools, never the file agent writes', () => {
-  const fileOnly = FILE_TOOLS.map(t => t.name).filter(n => !n.startsWith('read_'))
+  const fileOnly = FILE_TOOLS.map(t => t.name).filter(n => /^(draft_|delegate_|staff_only)/.test(n))
+  assert.ok(fileOnly.includes('draft_field_changes') && fileOnly.includes('delegate_to_document_agent'))
   for (const type of DOC_AGENT_TYPES) {
     const names = directTools(DOC_AGENTS[type]).map(t => t.name)
     for (const n of ['read_capture', 'read_document', 'draft_patch', 'validate_patch', 'draft_document_patch', 'draft_generate', 'refer_to_other_agent']) {

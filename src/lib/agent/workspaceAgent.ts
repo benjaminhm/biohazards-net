@@ -55,9 +55,10 @@ import {
   jobSnapshotFor,
   loadSnapshotRaw,
   seesFinancials,
+  storedSnapshot,
   touchedCapturesSince,
+  type StoredSnapshot,
   type JobSnapshot,
-  type SnapshotHashes,
 } from './jobSnapshot'
 import { DOC_AGENTS } from './subagents/registry'
 import { docAgentOverview, type JobAgentsOverview, type OverviewInput } from './subagents/overview'
@@ -115,26 +116,6 @@ function activeJob(ctx: WsContext): string {
 }
 
 // ── Job snapshot and changes ──────────────────────────────────────────────────
-
-interface StoredSnapshot { at: string; hashes: SnapshotHashes }
-
-/** The latest snapshot hashes the file agent stored for this staff member on this job, at or before a time. */
-async function storedSnapshot(supabase: Supabase, orgId: string, userId: string, jobId: string, atOrBefore?: string): Promise<StoredSnapshot | null> {
-  const { data } = await supabase
-    .from('agent_messages')
-    .select('content, created_at')
-    .eq('org_id', orgId)
-    .eq('job_id', jobId)
-    .eq('thread_id', userId)
-    .eq('speaker', 'file_agent')
-    .order('created_at', { ascending: false })
-    .limit(40)
-  for (const row of data ?? []) {
-    const snap = (row.content as { snapshot?: StoredSnapshot } | null)?.snapshot
-    if (snap?.at && snap.hashes && (!atOrBefore || snap.at <= atOrBefore)) return snap
-  }
-  return null
-}
 
 const getJobSnapshot: WsTool = {
   name: 'get_job_snapshot',
@@ -414,7 +395,7 @@ const delegateToDocumentAgent: WsTool = {
     const jobId = activeJob(ctx)
     const report = await runDocAgent(
       ctx.anthropic,
-      { supabase: ctx.supabase, orgId: ctx.orgId, userId: ctx.userId, jobId, staffFirstName: ctx.staffFirstName },
+      { supabase: ctx.supabase, orgId: ctx.orgId, userId: ctx.userId, jobId, staffFirstName: ctx.staffFirstName, role: ctx.role },
       type,
       str(input.instruction),
       str(input.context_notes),
@@ -981,7 +962,7 @@ async function runDocAgentTurn(anthropic: Anthropic, ctx: WsContext, jobId: stri
     {
       supabase, orgId, userId, jobId, staffFirstName: ctx.staffFirstName,
       staffLine: staffLine(ctx.staffFirstName, ctx.role), jobCode: (jobRes.data.job_code as string | null) ?? null,
-      roleRule: roleRules(ctx.role), redact: !seesFinancials(ctx.role), today: today(),
+      roleRule: roleRules(ctx.role), redact: !seesFinancials(ctx.role), today: today(), role: ctx.role,
     },
     type,
     messages,

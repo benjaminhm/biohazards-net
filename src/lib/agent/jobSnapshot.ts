@@ -396,3 +396,23 @@ export async function touchedCapturesSince(supabase: Supabase, orgId: string, jo
     .limit(200)
   return (data ?? []).map(a => String(a.target_path).slice('assessment_data.'.length).split('.')[0])
 }
+
+export interface StoredSnapshot { at: string; hashes: SnapshotHashes }
+
+/** The latest snapshot hashes the file agent stored for this staff member on this job, at or before a time. */
+export async function storedSnapshot(supabase: Supabase, orgId: string, userId: string, jobId: string, atOrBefore?: string): Promise<StoredSnapshot | null> {
+  const { data } = await supabase
+    .from('agent_messages')
+    .select('content, created_at')
+    .eq('org_id', orgId)
+    .eq('job_id', jobId)
+    .eq('thread_id', userId)
+    .eq('speaker', 'file_agent')
+    .order('created_at', { ascending: false })
+    .limit(40)
+  for (const row of data ?? []) {
+    const snap = (row.content as { snapshot?: StoredSnapshot } | null)?.snapshot
+    if (snap?.at && snap.hashes && (!atOrBefore || snap.at <= atOrBefore)) return snap
+  }
+  return null
+}

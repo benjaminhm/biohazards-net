@@ -26,7 +26,8 @@ export function isDocAgentType(v: unknown): v is DocAgentType {
 }
 
 /** Job data outside the captures and documents a sub-agent may read. */
-export type ExtraRead = 'calls' | 'progress_notes' | 'photos' | 'xero' | 'acceptances'
+export const EXTRA_READS = ['calls', 'progress_notes', 'photos', 'xero', 'acceptances'] as const
+export type ExtraRead = (typeof EXTRA_READS)[number]
 
 /** What generating needs loaded besides the job itself. */
 export type GenerateNeed = 'documents' | 'company' | 'report_media'
@@ -57,7 +58,14 @@ export interface DocAgentDef {
   captureKey: CaptureKey
   /** The only saved document type it may patch or generate. */
   documentType: DocType
-  /** Other captures it reads as inputs (its own is always readable). */
+  /**
+   * 'full': reads the whole job file (snapshot, changes, health, any capture,
+   * any document, calls, notes, photos, Xero, acceptances), read only.
+   * 'scoped' (default): only readCaptures, readDocumentTypes and extraReads.
+   * Writes stay limited to captureKey and documentType either way.
+   */
+  reads?: 'full' | 'scoped'
+  /** Other captures it reads as inputs (its own is always readable). With reads 'full', the ones shown up front each turn. */
   readCaptures: CaptureKey[]
   /** Other saved document types it may read. */
   readDocumentTypes: DocType[]

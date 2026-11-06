@@ -11,7 +11,8 @@ import { houseSurveyAgent } from './defs/houseSurvey'
 import { statementOfAccountsAgent } from './defs/statementOfAccounts'
 import { surfaceAreaCleaningQuoteAgent } from './defs/surfaceAreaCleaningQuote'
 import { wasteDisposalManifestAgent } from './defs/wasteDisposalManifest'
-import { DOC_AGENT_TYPES, type DocAgentDef, type DocAgentType } from './types'
+import { CAPTURE_KEYS } from '../patchDraft'
+import { DOC_AGENT_TYPES, EXTRA_READS, type DocAgentDef, type DocAgentType, type ExtraRead } from './types'
 
 export const DOC_AGENTS: Record<DocAgentType, DocAgentDef> = {
   statement_of_accounts: statementOfAccountsAgent,
@@ -27,14 +28,29 @@ export function docAgent(type: DocAgentType): DocAgentDef {
   return DOC_AGENTS[type]
 }
 
-/** Captures the sub-agent may read: its own and its inputs. */
-export function readableCaptures(def: DocAgentDef): string[] {
-  return [def.captureKey, ...def.readCaptures]
+/** True when the agent reads the whole job file (still drafting only its own document). */
+export function readsFullJob(def: DocAgentDef): boolean {
+  return def.reads === 'full'
 }
 
-/** Saved document types the sub-agent may read: its own and its inputs. */
-export function readableDocumentTypes(def: DocAgentDef): string[] {
-  return [def.documentType, ...def.readDocumentTypes]
+/** Captures the sub-agent may read: every capture with full reads, else its own and its inputs. */
+export function readableCaptures(def: DocAgentDef): string[] {
+  return readsFullJob(def) ? [...CAPTURE_KEYS] : [def.captureKey, ...def.readCaptures]
+}
+
+/** Saved document types the sub-agent may read; null means any type (full reads). */
+export function readableDocumentTypes(def: DocAgentDef): string[] | null {
+  return readsFullJob(def) ? null : [def.documentType, ...def.readDocumentTypes]
+}
+
+export function canReadDocument(def: DocAgentDef, documentType: string): boolean {
+  const types = readableDocumentTypes(def)
+  return types === null || types.includes(documentType)
+}
+
+/** Calls, notes, photos, Xero and acceptances it may read: all of them with full reads. */
+export function extraReadsFor(def: DocAgentDef): ExtraRead[] {
+  return readsFullJob(def) ? [...EXTRA_READS] : def.extraReads
 }
 
 /** The only capture key a sub-agent may draft. Enforced by the draft tools. */

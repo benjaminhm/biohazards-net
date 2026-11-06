@@ -9,12 +9,17 @@ import {
   docAgentId,
   generateTarget,
   parseGenerateTarget,
+  canReadDocument,
   readableCaptures,
   readableDocumentTypes,
+  readsFullJob,
+  extraReadsFor,
 } from './registry'
 import { DOC_AGENT_TYPES, type GenerateInputs } from './types'
 import { DOC_AGENT_LABEL, draftedByLabel } from './labels'
-import { buildReport, subAgentTools } from './runner'
+import { buildReport, directTools, preparePatches, subAgentTools, type SubCtx } from './runner'
+import { CAPTURE_KEYS } from '../patchDraft'
+import { ToolError } from '../loop'
 import { jobHealth } from '../jobHealth'
 import { staffOnlyBlock } from '../permissions'
 
@@ -35,8 +40,8 @@ test('registry: one agent per document type, each with its own capture key and d
     const def = DOC_AGENTS[t]
     assert.equal(def.type, t)
     assert.equal(def.label, DOC_AGENT_LABEL[t].agent)
-    assert.equal(readableCaptures(def)[0], def.captureKey)
-    assert.equal(readableDocumentTypes(def)[0], def.documentType)
+    assert.ok(readableCaptures(def).includes(def.captureKey))
+    assert.ok(canReadDocument(def, def.documentType))
   }
 })
 
@@ -79,7 +84,7 @@ test('sub-agent tools: own writes, generate and report; extra reads only when de
   for (const def of Object.values(DOC_AGENTS)) {
     const names = subAgentTools(def).map(t => t.name)
     for (const n of ['read_capture', 'read_document', 'draft_patch', 'validate_patch', 'draft_document_patch', 'draft_generate', 'report']) assert.ok(names.includes(n))
-    assert.equal(names.includes('read_calls'), def.extraReads.includes('calls'))
+    assert.equal(names.includes('read_calls'), extraReadsFor(def).includes('calls'))
     assert.equal(names.includes('delegate_to_document_agent'), false)
     const patch = subAgentTools(def).find(t => t.name === 'draft_patch')!
     const changes = (patch.input_schema.properties as Record<string, { items?: { properties?: Record<string, { enum?: string[] }> } }>).changes
@@ -144,4 +149,62 @@ test('permission refusals are structured', () => {
   assert.deepEqual(Object.keys(b).sort(), ['blocked_action', 'handled_by', 'message', 'required_permission'])
   assert.equal(b.blocked_action, 'send_email')
   assert.match(staffOnlyBlock('fax_client').message, /not available to agents/)
+})
+
+const FULL_READS = ['get_job_snapshot', 'get_job_changes_since', 'get_job_health', 'list_job_documents', 'read_capture', 'read_document', 'read_calls', 'read_progress_notes', 'read_photos', 'read_xero_invoice', 'read_acceptances']
+
+test('statement agent reads the whole job file in delegated and direct modes', () => {
+  const def = DOC_AGENTS.statement_of_accounts
+  assert.equal(readsFullJob(def), true)
+  assert.deepEqual([...readableCaptures(def)].sort(), [...CAPTURE_KEYS].sort())
+  assert.equal(readableDocumentTypes(def), null)
+  for (const t of ['quote', 'report', 'swms', 'completion_report', 'authority_to_proceed']) assert.ok(canReadDocument(def, t), t)
+  for (const tools of [subAgentTools(def), directTools(def)]) {
+    const names = tools.map(t => t.name)
+    for (const n of FULL_READS) assert.ok(names.includes(n), `statement agent has ${n}`)
+    const readCapture = tools.find(t => t.name === 'read_capture')
+    const keys = (readCapture?.input_schema.properties as { key: { enum: string[] } }).key.enum
+    assert.ok(keys.includes('sow_capture') && keys.includes('completion_report_capture'))
+  }
+})
+
+test('statement agent still drafts only its own capture and document', async () => {
+  const def = DOC_AGENTS.statement_of_accounts
+  assert.throws(() => preparePatches(def, {}, [{ key: 'house_survey', patch: { price_per_m2: 20 } }]), (err: unknown) => {
+    assert.ok(err instanceof ToolError)
+    const body = JSON.parse(err.message)
+    assert.equal(body.blocked_action, 'draft_patch:house_survey')
+    assert.equal(body.handled_by, 'Survey agent')
+    return true
+  })
+  assert.throws(() => preparePatches(def, {}, [{ key: 'sow_capture', patch: { a: 1 } }]), ToolError)
+  for (const other of Object.values(DOC_AGENTS)) {
+    if (other === def) continue
+    assert.equal(canDraftCapture(def, other.captureKey), false)
+    assert.equal(canDraftDocument(def, other.documentType), false)
+  }
+  const draftTool = subAgentTools(def).find(t => t.name === 'draft_patch')
+  const keyEnum = ((draftTool?.input_schema.properties as { changes: { items: { properties: { key: { enum: string[] } } } } }).changes.items.properties.key.enum)
+  assert.deepEqual(keyEnum, ['statement_of_accounts'])
+  const docPatch = subAgentTools(def).find(t => t.name === 'draft_document_patch')
+  const ctx = {
+    def, orgId: 'o', jobId: 'j', drafts: [], reported: null,
+    supabase: { from: () => ({ select: () => ({ eq: () => ({ eq: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { id: 'd1', type: 'house_survey', content: {} } }) }) }) }) }) }) },
+  } as unknown as SubCtx
+  await assert.rejects(docPatch!.run(ctx, { document_id: 'd1', patch: { title: 'x' } }), (err: unknown) => {
+    assert.ok(err instanceof ToolError)
+    assert.equal(JSON.parse(err.message).blocked_action, 'draft_document_patch:house_survey')
+    return true
+  })
+})
+
+test('the other six document agents keep their scoped reads', () => {
+  for (const def of Object.values(DOC_AGENTS)) {
+    if (def.type === 'statement_of_accounts') continue
+    assert.equal(readsFullJob(def), false, def.type)
+    assert.deepEqual(readableCaptures(def), [def.captureKey, ...def.readCaptures])
+    assert.deepEqual(readableDocumentTypes(def), [def.documentType, ...def.readDocumentTypes])
+    const names = subAgentTools(def).map(t => t.name)
+    for (const n of ['get_job_snapshot', 'get_job_changes_since', 'get_job_health', 'list_job_documents']) assert.ok(!names.includes(n), `${def.type} must not have ${n}`)
+  }
 })

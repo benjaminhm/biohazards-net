@@ -12,12 +12,12 @@ import type { createServiceClient } from '@/lib/supabase'
 import type { AssessmentData } from '@/lib/types'
 import { runLoop, str, ToolError, type AgentTool, type Input } from '../loop'
 import { blocked } from '../permissions'
-import { redactFinancials } from '../jobSnapshot'
+import { changesSince, jobSnapshotFor, loadSnapshotRaw, redactFinancials, seesFinancials, storedSnapshot, touchedCapturesSince } from '../jobSnapshot'
 import { buildPatchDraft, mergePatchDrafts, PatchError, TARGET, type PatchDraft } from '../patchDraft'
 import { checkPatch } from '../patchCheck'
 import { captureLabel, listPendingDrafts, upsertDraft, upsertPatchDraft } from '../drafts'
 import { capped, readAcceptances, readCalls, readDocument, readDocumentList, readPhotos, readProgressNotes, readXeroInvoice } from '../jobReads'
-import { canDraftCapture, canDraftDocument, DOC_AGENTS, docAgent, docAgentId, generateTarget, readableCaptures, readableDocumentTypes } from './registry'
+import { canDraftCapture, canDraftDocument, canReadDocument, DOC_AGENTS, docAgent, docAgentId, extraReadsFor, generateTarget, readableCaptures, readableDocumentTypes, readsFullJob } from './registry'
 import { checkGenerate } from './generate'
 import { DOC_AGENT_TYPES, type DocAgentDef, type DocAgentReport, type DocAgentType, type ExtraRead, type SubAgentApi } from './types'
 
@@ -34,6 +34,8 @@ export interface SubCtx {
   userId: string
   jobId: string
   def: DocAgentDef
+  /** org_users.role of the staff member; team leads get dollar figures redacted on full-file reads. */
+  role?: string | null
   drafts: { id: string; summary: string }[]
   reported: { summary: string; needs_from_staff: string[]; warnings: string[] } | null
   /** Direct chat: where the agent sent staff for something outside its document. */
@@ -127,36 +129,87 @@ async function recordPatch(ctx: SubCtx, draft: PatchDraft, summary?: string) {
   return { draft_id: id, paths: Object.keys(draft.proposed) }
 }
 
+/** Full-file readers keep the team lead rule: no dollar figures. */
+function shown(ctx: SubCtx, value: unknown): unknown {
+  return readsFullJob(ctx.def) && !seesFinancials(ctx.role ?? null) ? redactFinancials(value) : value
+}
+
+/** Whole-job reads for agents with reads 'full'. Bounded like the file agent's; nothing here writes job data. */
+export const FULL_READ_TOOLS: AgentTool<SubCtx>[] = [
+  {
+    name: 'get_job_snapshot',
+    description: 'The whole job file in one call (read only): job fields, every capture, every saved document, photo metadata, progress notes, calls and enquiries, Xero status, pending drafts, open flags, conflicts, health and server_time. Long values are cut with a [truncated] marker; read_capture or read_document for one in full.',
+    input_schema: { type: 'object', properties: {} },
+    async run(ctx) {
+      const r = await jobSnapshotFor(ctx.supabase, ctx.orgId, ctx.jobId, ctx.role ?? null)
+      if (!r) throw new ToolError('Job not found')
+      return r.snapshot
+    },
+  },
+  {
+    name: 'get_job_changes_since',
+    description: 'Only what changed on this job after a time (ISO, e.g. the server_time of a snapshot): job fields, captures, documents, notes, photos, calls, drafts and flags. Read only.',
+    input_schema: { type: 'object', properties: { since: { type: 'string', description: 'ISO date-time' } }, required: ['since'] },
+    async run(ctx, input) {
+      const since = str(input.since)
+      if (!since || Number.isNaN(Date.parse(since))) throw new ToolError('since must be an ISO date-time')
+      const [raw, previous, touched] = await Promise.all([
+        loadSnapshotRaw(ctx.supabase, ctx.orgId, ctx.jobId),
+        storedSnapshot(ctx.supabase, ctx.orgId, ctx.userId, ctx.jobId, since),
+        touchedCapturesSince(ctx.supabase, ctx.orgId, ctx.jobId, since),
+      ])
+      if (!raw) throw new ToolError('Job not found')
+      return changesSince({ since: previous?.at ?? since, raw, previous: previous?.hashes ?? null, touchedCaptures: touched, role: ctx.role ?? null })
+    },
+  },
+  {
+    name: 'get_job_health',
+    description: 'What on this job is missing, incomplete, expected for its status, blocking the next status or in conflict, with the document agent that can fix each. Read only.',
+    input_schema: { type: 'object', properties: {} },
+    async run(ctx) {
+      const r = await jobSnapshotFor(ctx.supabase, ctx.orgId, ctx.jobId, ctx.role ?? null)
+      if (!r) throw new ToolError('Job not found')
+      return { status: r.snapshot.job.status, issues: r.snapshot.health, conflicts: r.snapshot.conflicts, open_flags: r.snapshot.flags }
+    },
+  },
+  {
+    name: 'list_job_documents',
+    description: 'Every saved document on this job: id, type, title, reference and date. Read one with read_document.',
+    input_schema: { type: 'object', properties: {} },
+    run: async ctx => ({ documents: shown(ctx, await readDocumentList(ctx.supabase, ctx.orgId, ctx.jobId)) }),
+  },
+]
+
 const READ_TOOLS: Record<ExtraRead, AgentTool<SubCtx>> = {
   calls: {
     name: 'read_calls',
     description: 'Phone calls and website enquiries on this job: transcript and what was extracted.',
     input_schema: { type: 'object', properties: {} },
-    run: async ctx => ({ calls: await readCalls(ctx.supabase, ctx.orgId, ctx.jobId) }),
+    run: async ctx => ({ calls: shown(ctx, await readCalls(ctx.supabase, ctx.orgId, ctx.jobId)) }),
   },
   progress_notes: {
     name: 'read_progress_notes',
     description: 'Every progress note on this job, oldest first.',
     input_schema: { type: 'object', properties: {} },
-    run: async ctx => ({ notes: await readProgressNotes(ctx.supabase, ctx.jobId) }),
+    run: async ctx => ({ notes: shown(ctx, await readProgressNotes(ctx.supabase, ctx.jobId)) }),
   },
   photos: {
     name: 'read_photos',
     description: 'Photo metadata on this job: caption, area, category, phase, report inclusion.',
     input_schema: { type: 'object', properties: {} },
-    run: async ctx => ({ photos: await readPhotos(ctx.supabase, ctx.jobId) }),
+    run: async ctx => ({ photos: shown(ctx, await readPhotos(ctx.supabase, ctx.jobId)) }),
   },
   xero: {
     name: 'read_xero_invoice',
     description: "This job's Xero invoice status, read only.",
     input_schema: { type: 'object', properties: {} },
-    run: async ctx => (await readXeroInvoice(ctx.supabase, ctx.orgId, ctx.jobId)) ?? { invoice: null },
+    run: async ctx => shown(ctx, (await readXeroInvoice(ctx.supabase, ctx.orgId, ctx.jobId)) ?? { invoice: null }),
   },
   acceptances: {
     name: 'read_acceptances',
     description: 'Quote acceptances on this job: which saved quote, when, and the total accepted.',
     input_schema: { type: 'object', properties: {} },
-    run: async ctx => ({ acceptances: await readAcceptances(ctx.supabase, ctx.jobId) }),
+    run: async ctx => ({ acceptances: shown(ctx, await readAcceptances(ctx.supabase, ctx.jobId)) }),
   },
 }
 
@@ -172,20 +225,20 @@ function baseTools(def: DocAgentDef): AgentTool<SubCtx>[] {
           blocked({ blocked_action: `read_capture:${key}`, required_permission: `read:${key}`, handled_by: 'file agent', message: `The ${def.label} does not read ${key}; ask the file agent.` })
         }
         const ad = ((await assessment(ctx)) ?? {}) as Record<string, unknown>
-        return { key, exists: ad[key] != null, content: capped(ad[key] ?? null) }
+        return { key, exists: ad[key] != null, content: shown(ctx, capped(ad[key] ?? null)) }
       },
     },
     {
       name: 'read_document',
-      description: `Read a saved document in full. Allowed types: ${readableDocumentTypes(def).join(', ')}.`,
+      description: `Read a saved document in full (read only). Allowed types: ${readableDocumentTypes(def)?.join(', ') ?? 'any document on this job'}.`,
       input_schema: { type: 'object', properties: { document_id: { type: 'string' } }, required: ['document_id'] },
       async run(ctx, input) {
         const doc = await readDocument(ctx.supabase, ctx.orgId, ctx.jobId, str(input.document_id))
         if (!doc) throw new ToolError('Document not found on this job')
-        if (!readableDocumentTypes(def).includes(doc.type as string)) {
+        if (!canReadDocument(def, doc.type as string)) {
           blocked({ blocked_action: `read_document:${doc.type}`, required_permission: `read:${doc.type}`, handled_by: 'file agent', message: `The ${def.label} does not read ${doc.type} documents.` })
         }
-        return { ...doc, content: capped(doc.content) }
+        return shown(ctx, { ...doc, content: capped(doc.content) })
       },
     },
     {
@@ -312,12 +365,20 @@ function baseTools(def: DocAgentDef): AgentTool<SubCtx>[] {
       },
     },
   ]
-  return [...tools, ...def.extraReads.map(r => READ_TOOLS[r])]
+  return [...tools, ...(readsFullJob(def) ? FULL_READ_TOOLS : []), ...extraReadsFor(def).map(r => READ_TOOLS[r])]
 }
 
 export function subAgentTools(def: DocAgentDef, api?: SubAgentApi): AgentTool<SubCtx>[] {
   const extra = api && def.extraTools ? (def.extraTools(api) as AgentTool<SubCtx>[]) : []
   return [...baseTools(def), ...extra]
+}
+
+/** What the agent may read, for its prompt. Reading never permits editing. */
+export function readScopeLine(def: DocAgentDef): string {
+  if (readsFullJob(def)) {
+    return `- Read the whole job file, read only: get_job_snapshot, get_job_changes_since, get_job_health, list_job_documents, read_capture (any capture), read_document (any saved document), read_calls, read_progress_notes, read_photos, read_xero_invoice, read_acceptances. Pull in what you need. Reading another document never lets you edit it: you draft only ${def.captureKey} and saved ${def.documentType} documents; anything else is refused with a permission error naming who handles it.`
+  }
+  return `- Read your own capture and these inputs only: captures ${def.readCaptures.join(', ') || '(none)'}; saved documents ${(readableDocumentTypes(def) ?? []).join(', ')}${def.extraReads.length ? `; ${def.extraReads.join(', ')}` : ''}.`
 }
 
 export function subAgentPrompt(def: DocAgentDef, staffFirstName: string): string {
@@ -327,7 +388,7 @@ YOUR DOCUMENT
 ${def.shape}
 
 YOU CAN
-- Read your own capture and these inputs only: captures ${def.readCaptures.join(', ') || '(none)'}; saved documents ${readableDocumentTypes(def).join(', ')}${def.extraReads.length ? `; ${def.extraReads.join(', ')}` : ''}.
+${readScopeLine(def)}
 - Draft changes to ${def.captureKey} only (draft_patch, several changes in one call), patch saved ${def.documentType} documents (draft_document_patch), and queue generating it (draft_generate). validate_patch checks changes without drafting. Every write is a card staff approve; nothing changes until then.
 
 YOU NEVER: send email or SMS, share links, release to the client portal, send payment reminders, touch Xero, delete anything, or change any other document.
@@ -367,17 +428,17 @@ function ownApi(ctx: SubCtx): SubAgentApi {
 
 export async function runDocAgent(
   anthropic: Anthropic,
-  base: { supabase: Supabase; orgId: string; userId: string; jobId: string; staffFirstName: string },
+  base: { supabase: Supabase; orgId: string; userId: string; jobId: string; staffFirstName: string; role?: string | null },
   type: DocAgentType,
   instruction: string,
   notes: string,
 ): Promise<DocAgentReport> {
   const def = docAgent(type)
-  const ctx: SubCtx = { ...base, def, drafts: [], reported: null }
+  const ctx: SubCtx = { ...base, role: base.role ?? null, def, drafts: [], reported: null }
   const errors: string[] = []
   const [ad, docs, pending] = await Promise.all([
     assessment(ctx),
-    readDocumentList(base.supabase, base.orgId, base.jobId, readableDocumentTypes(def)),
+    readDocumentList(base.supabase, base.orgId, base.jobId, readableDocumentTypes(def) ?? undefined),
     listPendingDrafts(base.supabase, base.orgId, base.jobId),
   ])
   const mine = pending
@@ -486,7 +547,7 @@ ${def.shape}
 
 YOU CAN
 - Answer questions about the ${def.docLabel} from the current state below, read_capture and read_document.
-- Read your own capture and these inputs only: captures ${def.readCaptures.join(', ') || '(none)'}; saved documents ${readableDocumentTypes(def).join(', ')}${def.extraReads.length ? `; ${def.extraReads.join(', ')}` : ''}.
+${readScopeLine(def)}
 - Draft changes to ${def.captureKey} only (draft_patch), patch saved ${def.documentType} documents (draft_document_patch), check changes first (validate_patch) and queue generating it (draft_generate). Every write is a card staff approve on screen; nothing changes until then. Call the draft tools directly; do not ask "shall I?" first.
 
 YOU NEVER: send email or SMS, share links, release to the client portal, send payment reminders, touch Xero, delete anything, or change any other document or the job itself.
@@ -510,15 +571,15 @@ export interface DirectResult { text: string; draftIds: string[]; referral: Refe
 /** One staff turn with a document agent, given its history as Messages API turns. Saves nothing itself. */
 export async function runDocAgentDirect(
   anthropic: Anthropic,
-  base: { supabase: Supabase; orgId: string; userId: string; jobId: string; staffFirstName: string; staffLine: string; jobCode: string | null; roleRule: string; redact: boolean; today: string },
+  base: { supabase: Supabase; orgId: string; userId: string; jobId: string; staffFirstName: string; staffLine: string; jobCode: string | null; roleRule: string; redact: boolean; today: string; role?: string | null },
   type: DocAgentType,
   messages: Anthropic.MessageParam[],
 ): Promise<DirectResult> {
   const def = docAgent(type)
-  const ctx: SubCtx = { supabase: base.supabase, orgId: base.orgId, userId: base.userId, jobId: base.jobId, def, drafts: [], reported: null, referral: null }
+  const ctx: SubCtx = { supabase: base.supabase, orgId: base.orgId, userId: base.userId, jobId: base.jobId, role: base.role ?? null, def, drafts: [], reported: null, referral: null }
   const [ad, docs, pending] = await Promise.all([
     assessment(ctx),
-    readDocumentList(base.supabase, base.orgId, base.jobId, readableDocumentTypes(def)),
+    readDocumentList(base.supabase, base.orgId, base.jobId, readableDocumentTypes(def) ?? undefined),
     listPendingDrafts(base.supabase, base.orgId, base.jobId),
   ])
   const mine = pending

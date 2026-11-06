@@ -9,6 +9,7 @@ export const statementOfAccountsAgent: DocAgentDef = {
   docLabel: DOC_AGENT_LABEL.statement_of_accounts.doc,
   captureKey: 'statement_of_accounts',
   documentType: 'statement_of_accounts',
+  reads: 'full',
   readCaptures: ['house_survey', 'disposal_manifest_capture', 'biohazard_cleaning_quote', 'contents_clearance_quote', 'surface_area_cleaning_quote'],
   readDocumentTypes: ['biohazard_cleaning_quote', 'contents_clearance_quote', 'surface_area_cleaning_quote', 'quote', 'house_survey', 'waste_disposal_manifest'],
   extraReads: ['acceptances', 'xero'],
