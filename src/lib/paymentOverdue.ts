@@ -8,11 +8,7 @@
  */
 import type { Job, PaymentReminderContent, StatementLedgerLine } from '@/lib/types'
 import { formatAud } from '@/lib/disposalManifest'
-import {
-  normalizeStatementCapture,
-  statementFigures,
-  type StatementOfAccountsCapture,
-} from '@/lib/statementOfAccounts'
+import { statementReminderLines, statementV2Figures, type StatementV2Figures } from '@/lib/statementOfAccounts'
 
 export type PayerSource = 'account' | 'organisation' | 'person'
 
@@ -206,28 +202,10 @@ function invoiceLabel(which: string, number: string): string {
   return trimmed ? `${which} (${trimmed})` : which
 }
 
-/** Invoices the statement still shows a balance on. Paid invoices are omitted. */
-export function overdueInvoiceOptions(statement: StatementOfAccountsCapture): OverdueInvoiceOption[] {
-  const figures = statementFigures(statement)
-  const options: OverdueInvoiceOption[] = []
-  if (statement.invoice1_amount != null) {
-    const remaining = figures.has_invoice2 ? figures.original_owing_inc : figures.owing_inc
-    if (remaining > 0.004) {
-      options.push({
-        key: 'invoice1',
-        label: invoiceLabel('Invoice 1', statement.original_invoice_number),
-        remainingInc: remaining,
-      })
-    }
-  }
-  if (figures.has_invoice2 && figures.invoice2_owing_inc > 0.004) {
-    options.push({
-      key: 'invoice2',
-      label: invoiceLabel('Invoice 2', statement.new_invoice_number),
-      remainingInc: figures.invoice2_owing_inc,
-    })
-  }
-  return options
+/** The job's one invoice, while the statement still shows a balance owing. */
+export function overdueInvoiceOptions(statement: StatementV2Figures): OverdueInvoiceOption[] {
+  if (statement.balance <= 0.004) return []
+  return [{ key: 'invoice1', label: invoiceLabel('Invoice', statement.invoice_number), remainingInc: statement.balance }]
 }
 
 function money(amount: number, chargesGst: boolean): string {
@@ -268,29 +246,26 @@ function reminderParagraphs(draft: Omit<PaymentReminderDraft, 'paragraphs'>): st
 export function paymentReminderResult(
   siteAddress: string,
   capture: PaymentOverdueCapture,
-  statement: StatementOfAccountsCapture,
+  statement: StatementV2Figures,
   today = todayIso(),
 ): PaymentReminderResult {
-  const figures = statementFigures(statement)
   const options = overdueInvoiceOptions(statement)
   const byKey = new Map(options.map(option => [option.key, option]))
   const letterDate = capture.letter_date || today
   const issues: string[] = []
   const selected: Array<'invoice1' | 'invoice2'> = []
   if (capture.invoice1_late) selected.push('invoice1')
-  if (capture.invoice2_late) selected.push('invoice2')
   if (selected.length === 0) {
     issues.push(options.length === 0
       ? 'The statement has no invoice balance to mark late.'
-      : 'Mark which invoice is late.')
+      : 'Mark the invoice as late.')
   }
 
   const lateInvoices: LateInvoiceLine[] = []
   for (const key of selected) {
     const option = byKey.get(key)
-    const which = key === 'invoice1' ? 'Invoice 1' : 'Invoice 2'
     if (!option) {
-      issues.push(`${which} has no balance on the statement.`)
+      issues.push('The invoice has no balance on the statement.')
       continue
     }
     const submitted = key === 'invoice1' ? capture.invoice1_submitted : capture.invoice2_submitted
@@ -344,8 +319,8 @@ export function paymentReminderResult(
     payerAddress: capture.payer_address.trim(),
     payerAbn: capture.payer_abn.trim(),
     guarantor,
-    statementLines: figures.lines,
-    chargesGst: figures.gst_mode !== 'no_gst',
+    statementLines: statementReminderLines(statement),
+    chargesGst: statement.charges_gst,
     lateInvoices,
     lateTotalInc,
     payBy,
@@ -357,8 +332,7 @@ export function paymentReminderResult(
 
 export function buildPaymentReminderContent(job: Job, reference: string): PaymentReminderContent {
   const capture = normalizePaymentOverdueCapture(job.assessment_data?.payment_overdue)
-  const statement = normalizeStatementCapture(job.assessment_data?.statement_of_accounts)
-  const result = paymentReminderResult(job.site_address || '', capture, statement)
+  const result = paymentReminderResult(job.site_address || '', capture, statementV2Figures(job.assessment_data))
   if (!result.ok) {
     return {
       title: 'Payment Reminder',

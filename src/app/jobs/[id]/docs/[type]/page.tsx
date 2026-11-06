@@ -19,7 +19,7 @@ import { composeDocumentContent, buildComposedPreviewHtml, type ComposeDocumentO
 import { documentPlainText } from '@/lib/documentAsk'
 import DocumentAskPanel from '@/components/DocumentAskPanel'
 import { useJobEmbedBridge } from '@/lib/jobEmbed'
-import { presentStatementDocument, StatementReconciliationError } from '@/lib/statementOfAccounts'
+import { isStatementV2Content, presentStatementDocument, presentStatementV2, StatementReconciliationError } from '@/lib/statementOfAccounts'
 import { mergeQuoteLineItemsIntoDocContent } from '@/lib/quoteLineItemsForDocuments'
 import { applyTradingBrand } from '@/lib/tradingNames'
 import { normalizeContentsClearanceStandards } from '@/lib/contentsClearanceQuote'
@@ -354,7 +354,8 @@ function DocViewerInner() {
     const origin = typeof window !== 'undefined' ? window.location.origin : ''
     try {
       if (docType === 'statement_of_accounts') {
-        presentStatementDocument(content as StatementOfAccountsContent)
+        if (isStatementV2Content(content)) presentStatementV2(content)
+        else presentStatementDocument(content as StatementOfAccountsContent)
       }
       setComposedPreviewHtml(
         buildComposedPreviewHtml(

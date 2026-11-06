@@ -38,6 +38,9 @@ import {
 import { fixedCharges, recordSummary } from '@/lib/fixedCharges'
 import RecordSummaryTable from '@/components/RecordSummaryTable'
 import DefaultedNumberInput from '@/components/DefaultedNumberInput'
+import BiohazardCleaningRecordSection from '@/components/BiohazardCleaningRecordSection'
+import { normalizeBiohazardCleaningCapture } from '@/lib/biohazardCleaningQuote'
+import { normalizeBiohazardCleaningRecord, type BiohazardCleaningRecordCapture } from '@/lib/biohazardCleaningRecord'
 
 interface Props {
   job: Job
@@ -79,6 +82,10 @@ const LABEL: CSSProperties = {
   textTransform: 'uppercase',
   color: 'var(--text-muted)',
   marginBottom: 6,
+}
+
+function sameRecord(a: BiohazardCleaningRecordCapture, b: BiohazardCleaningRecordCapture): boolean {
+  return JSON.stringify(a) === JSON.stringify(b)
 }
 
 function sameSurvey(a: HouseSurveyCapture, b: HouseSurveyCapture): boolean {
@@ -228,6 +235,15 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
     [job.assessment_data?.house_survey],
   )
   const [survey, setSurvey] = useState<HouseSurveyCapture>(saved)
+  const savedRecord = useMemo(
+    () => normalizeBiohazardCleaningRecord(job.assessment_data?.biohazard_cleaning_record),
+    [job.assessment_data?.biohazard_cleaning_record],
+  )
+  const [record, setRecord] = useState<BiohazardCleaningRecordCapture>(savedRecord)
+  const bcq = useMemo(
+    () => job.assessment_data?.biohazard_cleaning_quote == null ? null : normalizeBiohazardCleaningCapture(job.assessment_data.biohazard_cleaning_quote),
+    [job.assessment_data?.biohazard_cleaning_quote],
+  )
   const [openId, setOpenId] = useState<string | null>(saved.areas[0]?.id ?? null)
   const [unlockedAreas, setUnlockedAreas] = useState<Record<string, boolean>>({})
   const [selectedLegId, setSelectedLegId] = useState<string | null>(null)
@@ -243,10 +259,13 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
   const [saveError, setSaveError] = useState('')
   const jobRef = useRef(job)
   const surveyRef = useRef(survey)
+  const recordRef = useRef(record)
   const saveSeq = useRef(0)
   const dirtyRef = useRef(false)
+  const recordDirtyRef = useRef(false)
   jobRef.current = job
   surveyRef.current = survey
+  recordRef.current = record
 
   const quoteLink = useMemo(() => quoteSurveyLink(job.assessment_data), [job.assessment_data])
   const ratePerM2 = effectiveSurveyRate(survey, quoteLink)
@@ -257,14 +276,21 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
   )
   const canStartFromAssessment = assessmentRooms.length > 0 && surveyIsBlank(survey)
 
-  const isDirty = !sameSurvey(survey, saved)
-  dirtyRef.current = isDirty
-  useRegisterUnsavedChanges('house-survey', isDirty)
+  const surveyDirty = !sameSurvey(survey, saved)
+  const recordDirty = !sameRecord(record, savedRecord)
+  dirtyRef.current = surveyDirty
+  recordDirtyRef.current = recordDirty
+  useRegisterUnsavedChanges('house-survey', surveyDirty || recordDirty)
 
   useEffect(() => {
     if (dirtyRef.current) return
     setSurvey(normalizeHouseSurvey(job.assessment_data?.house_survey))
   }, [job.id, job.assessment_data?.house_survey])
+
+  useEffect(() => {
+    if (recordDirtyRef.current) return
+    setRecord(normalizeBiohazardCleaningRecord(job.assessment_data?.biohazard_cleaning_record))
+  }, [job.id, job.assessment_data?.biohazard_cleaning_record])
 
   useEffect(() => {
     const header = document.querySelector('[data-devid="P2-E1"]')
@@ -297,12 +323,12 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
   }, [survey.areas, openId])
 
   useEffect(() => {
-    if (sameSurvey(survey, saved)) return
+    if (sameSurvey(survey, saved) && sameRecord(record, savedRecord)) return
     const handle = window.setTimeout(() => {
-      void save(survey)
+      void save()
     }, 500)
     return () => window.clearTimeout(handle)
-  }, [survey, saved])
+  }, [survey, saved, record, savedRecord])
 
   const plans = useMemo(
     () => survey.areas.map(area => {
@@ -404,23 +430,34 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
     touch()
   }
 
-  async function save(next: HouseSurveyCapture): Promise<boolean> {
+  /** Saves the survey and the biohazard record together, so neither autosave overwrites the other. */
+  async function save(): Promise<boolean> {
     const seq = ++saveSeq.current
+    const next = surveyRef.current
+    const nextRecord = recordRef.current
     setSaving(true)
     setSaveError('')
     try {
       const current = jobRef.current
       const merged = mergeAssessmentData(current.assessment_data)
+      const keepSurvey = current.assessment_data?.house_survey != null || dirtyRef.current
+      const keepRecord = current.assessment_data?.biohazard_cleaning_record != null || recordDirtyRef.current
       const res = await fetch(`/api/jobs/${current.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assessment_data: { ...merged, house_survey: next } }),
+        body: JSON.stringify({
+          assessment_data: {
+            ...merged,
+            ...(keepSurvey ? { house_survey: next } : {}),
+            ...(keepRecord ? { biohazard_cleaning_record: nextRecord } : {}),
+          },
+        }),
       })
       const data = (await res.json()) as { job?: Job; error?: string }
       if (!res.ok || !data.job) throw new Error(data.error || `Save failed (${res.status})`)
       if (seq !== saveSeq.current) return false
       onJobUpdate(data.job)
-      if (sameSurvey(surveyRef.current, next)) setSavedFlash(true)
+      if (sameSurvey(surveyRef.current, next) && sameRecord(recordRef.current, nextRecord)) setSavedFlash(true)
       return true
     } catch (e) {
       if (seq === saveSeq.current) setSaveError(e instanceof Error ? e.message : 'Save failed')
@@ -1058,6 +1095,19 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
           />
         </div>
       </section>
+      {bcq && (
+        <BiohazardCleaningRecordSection
+          quote={bcq}
+          record={record}
+          ad={job.assessment_data}
+          onChange={next => {
+            setRecord(next)
+            setSavedFlash(false)
+          }}
+          inputStyle={INPUT}
+          labelStyle={LABEL}
+        />
+      )}
       <button
         type="button"
         className="btn btn-primary"
@@ -1075,7 +1125,7 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
         type="button"
         className="btn btn-secondary"
         onClick={() => {
-          void save(survey).then(ok => {
+          void save().then(ok => {
             if (ok) router.push(`/jobs/${job.id}/docs/house_survey?compose=1`)
           })
         }}

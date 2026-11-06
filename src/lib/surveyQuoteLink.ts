@@ -5,13 +5,10 @@
 
 import type { AssessmentData } from '@/lib/types'
 import {
-  areaSurfaces,
   newHouseSurveyAdjustment,
   newHouseSurveyArea,
   normalizeHouseSurvey,
   rectangularSurveyLegs,
-  pricedSurfaces,
-  traceHouseSurvey,
   type HouseSurveyArea,
   type HouseSurveyCapture,
 } from '@/lib/houseSurvey'
@@ -116,54 +113,4 @@ export function surveyAreasFromQuoteRooms(link: QuoteSurveyLink): HouseSurveyAre
 /** Nothing measured yet: no area has a wall length. */
 export function surveyIsBlank(survey: Pick<HouseSurveyCapture, 'areas' | 'price_per_m2'>): boolean {
   return survey.areas.every(area => !area.title.trim() && area.legs.every(leg => leg.length_m == null))
-}
-
-export interface QuotedMeasuredRow {
-  label: string
-  quoted_m2: number | null
-  measured_m2: number | null
-}
-
-function round2(n: number): number {
-  return Math.round(n * 100) / 100
-}
-
-function key(label: string): string {
-  return label.trim().toLowerCase()
-}
-
-/** Quoted square metres beside measured, matched by room title. Rows keep quote order, then survey-only rooms. */
-export function quotedVersusMeasured(
-  survey: Pick<HouseSurveyCapture, 'areas' | 'price_per_m2'>,
-  link: QuoteSurveyLink | null,
-): { rows: QuotedMeasuredRow[]; quoted_m2: number | null; measured_m2: number | null } {
-  const rows: QuotedMeasuredRow[] = []
-  const byKey = new Map<string, QuotedMeasuredRow>()
-  const row = (label: string): QuotedMeasuredRow => {
-    const existing = byKey.get(key(label))
-    if (existing) return existing
-    const next: QuotedMeasuredRow = { label: label.trim(), quoted_m2: null, measured_m2: null }
-    byKey.set(key(label), next)
-    rows.push(next)
-    return next
-  }
-  for (const room of link?.rooms ?? []) {
-    const r = row(room.name)
-    r.quoted_m2 = round2((r.quoted_m2 ?? 0) + room.quoted_m2)
-  }
-  let measuredAny = false
-  let measuredSum = 0
-  survey.areas.forEach((area, index) => {
-    const priced = pricedSurfaces(areaSurfaces(traceHouseSurvey(area.legs), area.height_m), area.adjustments).priced
-    if (priced == null) return
-    measuredAny = true
-    measuredSum += priced
-    const r = row(area.title.trim() || `Area ${index + 1}`)
-    r.measured_m2 = round2((r.measured_m2 ?? 0) + priced)
-  })
-  return {
-    rows,
-    quoted_m2: link?.quoted_m2 ?? null,
-    measured_m2: measuredAny ? round2(measuredSum) : null,
-  }
 }

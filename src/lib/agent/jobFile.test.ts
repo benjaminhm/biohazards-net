@@ -109,23 +109,23 @@ test('changes since: coarse fallback by timestamps and logged capture edits', ()
 
 test('batch patches: all-or-nothing, merged into one card per capture', () => {
   const def = DOC_AGENTS.statement_of_accounts
-  const ad = { statement_of_accounts: { invoice1_amount: 1000 } }
+  const ad = { statement_of_accounts: { deposit_amount: 1000 } }
   const good = preparePatches(def, ad, [
-    { key: 'statement_of_accounts', patch: { invoice1_amount: 1650 } },
-    { patch: { invoice1_callout: 200 } },
+    { key: 'statement_of_accounts', patch: { deposit_amount: 1650 } },
+    { patch: { deposit_date: '2026-11-02' } },
   ])
   assert.equal(good.ok, true)
   assert.equal(good.ok && good.drafts.length, 1)
-  assert.deepEqual(good.ok && Object.keys(good.drafts[0].draft.proposed).sort(), ['invoice1_amount', 'invoice1_callout'])
+  assert.deepEqual(good.ok && Object.keys(good.drafts[0].draft.proposed).sort(), ['deposit_amount', 'deposit_date'])
 
   const bad = preparePatches(def, ad, [
-    { patch: { invoice1_amount: 1650 } },
-    { patch: { invoice1_amount: 'lots' } },
+    { patch: { deposit_amount: 1650 } },
+    { patch: { deposit_amount: 'lots' } },
   ])
   assert.equal(bad.ok, false)
   assert.ok(!bad.ok && bad.reasons.some(r => /Change 2/.test(r)))
 
-  assert.throws(() => preparePatches(def, ad, [{ patch: { invoice1_amount: 1 } }, { key: 'house_survey', patch: { price_per_m2: 5 } }]), (err: unknown) => {
+  assert.throws(() => preparePatches(def, ad, [{ patch: { deposit_amount: 1 } }, { key: 'house_survey', patch: { price_per_m2: 5 } }]), (err: unknown) => {
     assert.ok(err instanceof ToolError)
     const b = JSON.parse(err.message)
     assert.equal(b.blocked_action, 'draft_patch:house_survey')
@@ -135,19 +135,19 @@ test('batch patches: all-or-nothing, merged into one card per capture', () => {
 })
 
 test('validate_patch and approval share checkPatch', () => {
-  const current = { invoice1_amount: 1000 }
-  const draft = buildPatchDraft(current, { invoice1_amount: 1650 })
+  const current = { deposit_amount: 1000 }
+  const draft = buildPatchDraft(current, { deposit_amount: 1650 })
   const input = { target_path: TARGET.capture('statement_of_accounts'), created_by: docAgentId('statement_of_accounts'), before: draft.before, proposed: draft.proposed, current }
   assert.deepEqual(checkPatch(input), { ok: true, reasons: [], stale: false })
-  const viaValidate = preparePatches(DOC_AGENTS.statement_of_accounts, { statement_of_accounts: current }, [{ patch: { invoice1_amount: 1650 } }])
+  const viaValidate = preparePatches(DOC_AGENTS.statement_of_accounts, { statement_of_accounts: current }, [{ patch: { deposit_amount: 1650 } }])
   assert.equal(viaValidate.ok, checkPatch(input).ok)
 
-  const stale = checkPatch({ ...input, current: { invoice1_amount: 999 } })
+  const stale = checkPatch({ ...input, current: { deposit_amount: 999 } })
   assert.equal(stale.ok, false)
   assert.equal(stale.stale, true)
   const foreign = checkPatch({ ...input, target_path: TARGET.capture('house_survey'), created_by: docAgentId('statement_of_accounts'), current: null, before: {} })
   assert.ok(foreign.reasons.some(r => /may only change statement_of_accounts/.test(r)))
-  const typed = checkPatch({ ...input, proposed: { invoice1_amount: '1650' } })
+  const typed = checkPatch({ ...input, proposed: { deposit_amount: '1650' } })
   assert.ok(typed.reasons.some(r => /must be a number/.test(r)))
   const unknownField = checkPatch({ ...input, proposed: { made_up: 1 }, before: { made_up: null } })
   assert.equal(unknownField.ok, false)
@@ -178,7 +178,7 @@ test('health: status expectations, next status, incomplete captures, conflicts',
   assert.match(byCode.get('status_expects:completed')!.message, /quote acceptance/)
   assert.match(byCode.get('status_expects:completed')!.message, /completion report/)
   assert.match(byCode.get('blocks_next:report_sent')!.message, /Statement of Accounts/)
-  assert.match(byCode.get('incomplete:statement_of_accounts')!.message, /invoice1 amount/)
+  assert.match(byCode.get('statement_check:0')!.message, /nothing to bill/)
   assert.equal(nextStatus('paid'), null)
 })
 

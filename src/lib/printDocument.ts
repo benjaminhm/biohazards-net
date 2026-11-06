@@ -23,7 +23,7 @@ import type {
   DocType, Photo, PhotoCategory, CompanyProfile, Area,
   QuoteContent, SOWContent, AssessmentDocumentContent, SWMSContent, AuthorityToProceedContent,
   EngagementAgreementContent, ReportContent, CertificateOfDecontaminationContent,
-  WasteDisposalManifestContent, StatementOfAccountsContent, StatementSurveySnapshot, StatementDisposalSnapshot, PaymentReminderContent, JSAContent, NDAContent, RiskAssessmentContent,
+  WasteDisposalManifestContent, StatementOfAccountsContent, StatementOfAccountsV2Content, StatementSurveySnapshot, StatementDisposalSnapshot, PaymentReminderContent, JSAContent, NDAContent, RiskAssessmentContent,
   WasteDisposalManifestVehicleSnapshot,
   WorkStep, RiskRow, WasteItem, OutcomeQuoteRow,
   PathophysiologyRow,
@@ -32,6 +32,7 @@ import type {
 } from './types'
 import { DOC_TYPE_LABELS } from './types'
 import type { HouseSurveyDocumentContent, SurveySketch } from './houseSurvey'
+import type { BiohazardRecordSummary } from './biohazardCleaningRecord'
 import { fixedCharges, labourDaysText, recordSummary, type FixedCharges, type RecordSummary } from '@/lib/fixedCharges'
 import { filterGroupedStages, groupPhotosByRoomAndStage, isContentsClearanceAppendixPhoto, isDocumentAppendixPhoto, isQuoteAppendixPhoto, isSurfaceAreaAppendixPhoto, type RoomPhotoGroup } from './photoGroups'
 import { photosForComposedReports } from '@/lib/photosForComposedReports'
@@ -49,7 +50,7 @@ import type { CustomPricingRow, SectionTerms, VolumeDisposalFeeMode, VolumePrici
 const DEFAULT_PRINT_ORG_NAME = 'Brisbane Biohazard Cleaning'
 import { proseHasPrintableContent, richBodyHtmlForPrint } from '@/lib/richTextPrint'
 import type { CompanyLetterheadContent } from '@/lib/companyLetterhead'
-import { presentStatementDocument, statementClientLines, statementPhone, StatementReconciliationError, type StatementPresentation } from '@/lib/statementOfAccounts'
+import { isStatementV2Content, presentStatementDocument, presentStatementV2, statementClientLines, statementPhone, StatementReconciliationError, type StatementPresentation, type StatementV2Presentation } from '@/lib/statementOfAccounts'
 import type { ContentsClearanceQuoteContent } from '@/lib/contentsClearanceQuote'
 import { fillBiohazardCleaningEngagement, fillContentsClearanceEngagement, fillSurfaceAreaCleaningEngagement } from '@/lib/quoteEngagement'
 import { SURFACE_AREA_ESTIMATE_NOTE, SURFACE_AREA_LABOUR_NOTE, type SurfaceAreaCleaningQuoteContent } from '@/lib/surfaceAreaCleaningQuote'
@@ -3191,21 +3192,21 @@ function buildPaymentReminderHTML(c: PaymentReminderContent, company: CompanyPro
   )
 }
 
-function buildStatementHTML(c: StatementOfAccountsContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
-  const loaded = loadStatementView(c)
-  if (typeof loaded === 'string') {
-    return wrapBranded(
-      statementFailureHtml(loaded),
-      c.title || 'Statement of Accounts',
-      c.title || 'Statement of Accounts',
-      c.reference,
-      company,
-      client,
-      defaultBrandedMeta(company, client),
-      wrapBrandedPrintOpts(screenActionBar),
-    )
-  }
-  const view = loaded
+function statementFailurePage(message: string, c: { title?: string; reference: string }, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
+  return wrapBranded(
+    statementFailureHtml(message),
+    c.title || 'Statement of Accounts',
+    c.title || 'Statement of Accounts',
+    c.reference,
+    company,
+    client,
+    defaultBrandedMeta(company, client),
+    wrapBrandedPrintOpts(screenActionBar),
+  )
+}
+
+/** Client and business details across the top, and the questions / due / terms footer. Shared by both statement models. */
+function statementFrame(c: { payment_terms?: string; due_date?: string }, company: CompanyProfile | null, client: ClientInfo | undefined): { metaHtml: string; footerNote: string } {
   const clientName = (client?.client_organization_name || client?.client_name || '').trim()
   const clientLines = statementClientLines(clientName)
   const contactPhone = statementPhone(client?.client_phone || '')
@@ -3219,13 +3220,83 @@ function buildStatementHTML(c: StatementOfAccountsContent, company: CompanyProfi
           <div class="sow-meta-cell"><div class="sow-meta-label">Company</div><div class="sow-meta-value">${esc(company?.name?.trim() || 'Brisbane Biohazard Cleaning')}</div></div>
           <div class="sow-meta-cell"><div class="sow-meta-label">Business details</div><div class="sow-meta-value">${businessPhone ? `<div class="soa-phone">${esc(businessPhone)}</div>` : ''}${businessEmail ? `<div class="soa-email">${esc(businessEmail)}</div>` : ''}${(company?.address || '').trim() ? `<div>${esc(company?.address?.trim() || '')}</div>` : ''}${!businessPhone && !businessEmail && !(company?.address || '').trim() ? '—' : ''}</div></div>
         </div>`
-  const property = statementPropertyHtml(c)
   const questions = businessPhone || businessEmail
     ? `Questions about this statement? ${businessPhone ? `Call ${esc(businessPhone)}` : ''}${businessPhone && businessEmail ? ' or ' : ''}${businessEmail ? `email ${esc(businessEmail)}` : ''}.`
     : ''
   const due = (c.due_date || '').trim() ? `Due ${esc(c.due_date?.trim() || '')}.` : ''
   const terms = (c.payment_terms || '').trim() ? esc(c.payment_terms?.trim() || '') : ''
-  const footerNote = [questions, due, terms].filter(Boolean).join(' ')
+  return { metaHtml, footerNote: [questions, due, terms].filter(Boolean).join(' ') }
+}
+
+function statementV2SummaryHtml(view: StatementV2Presentation): string {
+  return `
+    <div class="soa-summary">
+      <div>
+        <div class="soa-summary-label">Total job value</div>
+        <div class="soa-summary-num">${statementMoney(view.jobTotal)}</div>
+      </div>
+      <div>
+        <div class="soa-summary-label">Paid to date</div>
+        <div class="soa-summary-num">${statementMoney(view.paid)}</div>
+      </div>
+      <div class="soa-summary-due">
+        <div class="soa-summary-label">${view.balanceLabel === 'Credit' ? 'Credit' : 'Balance due'}</div>
+        <div class="soa-summary-num">${statementMoney(view.balance)}</div>
+      </div>
+    </div>`
+}
+
+function buildStatementV2Mid(c: StatementOfAccountsV2Content, view: StatementV2Presentation): string {
+  const amountCell = (n: number) => n < -0.004 ? `(${statementMoney(n)})` : statementMoney(n)
+  const rows = view.rows.map(row => {
+    const weight = row.strong ? ' style="font-weight:700"' : ''
+    return `<tr${row.strong ? ' class="soa-balance"' : ''}><td${weight}>${esc(row.label)}</td><td class="r"${weight}>${amountCell(row.amount)}</td></tr>`
+  }).join('')
+  const invoice = c.invoice_number.trim() ? `<p class="body-text"><strong>Invoice:</strong> ${esc(c.invoice_number.trim())}</p>` : ''
+  const note = view.estimatesNote ? `<p class="body-text soa-note">${esc(view.estimatesNote)}</p>` : ''
+  const pay = view.payHref && view.payLabel ? `<a class="soa-pay" href="${esc(view.payHref)}">${esc(view.payLabel)}</a>` : ''
+  return `
+    <p class="body-text"><strong>Property:</strong> ${esc(c.site_address || '—')}</p>
+    ${invoice}
+    ${note}
+    <table>
+      <thead><tr><th>Item</th><th class="r">Amount</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    ${pay}`
+}
+
+function loadStatementV2View(c: StatementOfAccountsV2Content): StatementV2Presentation | string {
+  try {
+    return presentStatementV2(c)
+  } catch (err) {
+    if (err instanceof StatementReconciliationError) return err.message
+    throw err
+  }
+}
+
+function buildStatementV2HTML(c: StatementOfAccountsV2Content, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
+  const loaded = loadStatementV2View(c)
+  if (typeof loaded === 'string') return statementFailurePage(loaded, c, company, client, screenActionBar)
+  const { metaHtml, footerNote } = statementFrame(c, company, client)
+  return wrapBranded(
+    buildStatementV2Mid(c, loaded),
+    c.title || 'Statement of Accounts',
+    c.title || 'Statement of Accounts',
+    c.reference,
+    company,
+    client,
+    defaultBrandedMeta(company, client),
+    { ...wrapBrandedPrintOpts(screenActionBar), rootClass: 'soa-doc', afterTitleHtml: statementV2SummaryHtml(loaded), metaHtml, footerNote },
+  )
+}
+
+function buildStatementHTML(c: StatementOfAccountsContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {
+  const loaded = loadStatementView(c)
+  if (typeof loaded === 'string') return statementFailurePage(loaded, c, company, client, screenActionBar)
+  const view = loaded
+  const { metaHtml, footerNote } = statementFrame(c, company, client)
+  const property = statementPropertyHtml(c)
   return wrapBranded(
     c.layout_version === 2 ? buildStatementSectionsMid(c, view) : property + buildStatementMid(view, false),
     c.title || 'Statement of Accounts',
@@ -3332,7 +3403,28 @@ function buildHouseSurveyMid(c: HouseSurveyDocumentContent): string {
       <p class="body-text">Walls are the walk length times the room height.${hasAdjustments ? ' Priced is after exclusions and additions.' : ''}</p>
     </div>
     ${buildHouseSurveySummary(c)}
+    ${biohazardRecordHtml(c.biohazard_record)}
   `
+}
+
+/** Biohazard Cleaning Record: one line per charge, then totals and GST. */
+function biohazardRecordHtml(r: BiohazardRecordSummary | undefined): string {
+  if (!r) return ''
+  const money = (n: number) => esc(formatAud(n))
+  const missing = r.missing.length ? `<p class="body-text">Still to record: ${esc(r.missing.join(', '))}.</p>` : ''
+  return `
+    <div class="sow-sec">
+      <div class="sow-sec-title">Biohazard Cleaning Record</div>
+      ${missing}
+      <table>
+        <tbody>
+          ${r.lines.map(line => `<tr><td>${esc(line.label)}</td><td class="r">${money(line.amount_ex)}</td></tr>`).join('')}
+          <tr><td><strong>Total ex GST</strong></td><td class="r"><strong>${money(r.total_ex)}</strong></td></tr>
+          <tr><td>GST</td><td class="r">${money(r.gst)}</td></tr>
+          <tr><td><strong>Total inc GST</strong></td><td class="r"><strong>${money(r.total_inc)}</strong></td></tr>
+        </tbody>
+      </table>
+    </div>`
 }
 
 /** Quantity × rate, labour, call-out fee, then totals and GST. Same six lines on the survey and the disposal record. */
@@ -4159,6 +4251,10 @@ export function buildPrintMidHTML(
     case 'waste_disposal_manifest':
       return buildWDMMid(c as unknown as WasteDisposalManifestContent)
     case 'statement_of_accounts': {
+      if (isStatementV2Content(c)) {
+        const loadedV2 = loadStatementV2View(c)
+        return typeof loadedV2 === 'string' ? statementFailureHtml(loadedV2) : buildStatementV2Mid(c, loadedV2)
+      }
       const statement = c as unknown as StatementOfAccountsContent
       const loaded = loadStatementView(statement)
       if (typeof loaded === 'string') return statementFailureHtml(loaded)
@@ -4277,7 +4373,10 @@ export function buildPrintHTML(
                                          : buildReportHTML(c as unknown as ReportContent, photos, areas, company, client, screenActionBar)
     case 'certificate_of_decontamination': return buildCODHTML(c as unknown as CertificateOfDecontaminationContent, company, client, screenActionBar)
     case 'waste_disposal_manifest':    return buildWDMHTML(c as unknown as WasteDisposalManifestContent, company, client, screenActionBar)
-    case 'statement_of_accounts':      return buildStatementHTML(c as unknown as StatementOfAccountsContent, company, client, screenActionBar)
+    case 'statement_of_accounts':
+      return isStatementV2Content(c)
+        ? buildStatementV2HTML(c, company, client, screenActionBar)
+        : buildStatementHTML(c as unknown as StatementOfAccountsContent, company, client, screenActionBar)
     case 'payment_reminder':           return buildPaymentReminderHTML(c as unknown as PaymentReminderContent, company, client, screenActionBar)
     case 'house_survey':               return buildHouseSurveyHTML(c as unknown as HouseSurveyDocumentContent, company, client, screenActionBar)
     case 'jsa':                        return buildJSAHTML(c as unknown as JSAContent, company, client, screenActionBar)

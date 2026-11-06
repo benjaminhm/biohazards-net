@@ -81,7 +81,7 @@ import {
   vehicleTypeLabel,
   vehicleVolumeM3,
 } from '@/lib/disposalManifest'
-import { houseSurveyDocument } from '@/lib/houseSurvey'
+import { houseSurveyDocument, type HouseSurveyDocumentContent } from '@/lib/houseSurvey'
 import { houseSurveyWithQuote, quoteSurveyLink } from '@/lib/surveyQuoteLink'
 import { collectExcludedSurfaces } from '@/lib/areaSurfaces'
 import { effectiveAreaDimensions } from '@/lib/areaSubzones'
@@ -93,8 +93,8 @@ import {
   volumePricingHasContent,
 } from '@/lib/quoteSections'
 import { buildPrintHTML, type ClientInfo } from '@/lib/printDocument'
-import { latestDisposalDocument, documentReference, normalizeStatementCapture, statementFromJob, statementSurveyAreas, surveyDocumentCode } from '@/lib/statementOfAccounts'
-import { statementDisposalSnapshot, statementSurveySnapshot } from '@/lib/statementSnapshot'
+import { statementV2Content, statementV2Figures } from '@/lib/statementOfAccounts'
+import { biohazardRecordFromJob } from '@/lib/biohazardCleaningRecord'
 import { buildPaymentReminderContent } from '@/lib/paymentOverdue'
 import type { CompanyProfile } from '@/lib/types'
 import {
@@ -1217,15 +1217,17 @@ function composeBiohazardCleaningQuote(
 }
 
 function composeHouseSurvey(job: Job): ComposeDocumentResult {
-  return {
-    content: houseSurveyDocument(
+  const record = biohazardRecordFromJob(job.assessment_data)
+  const content: HouseSurveyDocumentContent = {
+    ...houseSurveyDocument(
       job.site_address || '',
       refPrefix('house_survey', job.id),
       houseSurveyWithQuote(job.assessment_data),
       quoteSurveyLink(job.assessment_data)?.charges ?? null,
-    ) as unknown as Record<string, unknown>,
-    source: 'assessment_capture',
+    ),
+    ...(record && (record.needed || record.exists) ? { biohazard_record: record.summary } : {}),
   }
+  return { content: content as unknown as Record<string, unknown>, source: 'assessment_capture' }
 }
 
 function composePaymentReminder(job: Job): ComposeDocumentResult {
@@ -1235,71 +1237,9 @@ function composePaymentReminder(job: Job): ComposeDocumentResult {
   }
 }
 
-function composeStatement(job: Job, documents: Document[]): ComposeDocumentResult {
-  const figures = statementFromJob(documents, job.assessment_data)
-  const capture = normalizeStatementCapture(job.assessment_data?.statement_of_accounts)
-  const surveyAreas = statementSurveyAreas(capture.survey_areas, job.assessment_data)
-  const surveyReference = surveyDocumentCode(job.id, documents)
-  const disposalReference = documentReference(latestDisposalDocument(documents), '—')
-  return {
-    content: {
-      title: 'Statement of Accounts',
-      reference: refPrefix('statement_of_accounts', job.id),
-      site_address: job.site_address || '',
-      quote_reference: figures.reference,
-      survey_reference: surveyReference,
-      disposal_reference: disposalReference,
-      gst_mode: figures.gst_mode,
-      quote_ex: figures.quote_ex,
-      quote_gst: figures.quote_gst,
-      quote_inc: figures.quote_inc,
-      disposal: figures.disposal,
-      deposit_taken: figures.deposit_taken,
-      deposit_entered: figures.deposit_entered,
-      deposit_ex: figures.deposit_ex,
-      owing_ex: figures.owing_ex,
-      gst: figures.gst,
-      owing_inc: figures.owing_inc,
-      original_owing_ex: figures.original_owing_ex,
-      original_owing_inc: figures.original_owing_inc,
-      new_invoice_ex: figures.new_invoice_ex,
-      new_invoice_inc: figures.new_invoice_inc,
-      remeasured: figures.remeasured,
-      invoice1_revised_ex: figures.invoice1_revised_ex,
-      invoice1_revised_inc: figures.invoice1_revised_inc,
-      remeasure_ex: figures.remeasure_ex,
-      remeasure_inc: figures.remeasure_inc,
-      invoice2_owing_ex: figures.invoice2_owing_ex,
-      invoice2_owing_inc: figures.invoice2_owing_inc,
-      job_total_ex: figures.job_total_ex,
-      job_total_inc: figures.job_total_inc,
-      ledger: true,
-      has_invoice2: figures.has_invoice2,
-      lines: figures.lines,
-      original_invoice_number: capture.original_invoice_number,
-      original_invoice_url: capture.original_invoice_url,
-      new_invoice_number: capture.new_invoice_number,
-      new_invoice_url: capture.new_invoice_url,
-      invoice1_callout: capture.invoice1_callout,
-      invoice1_contents: capture.invoice1_contents,
-      invoice1_cleaning: capture.invoice1_cleaning,
-      survey_areas: surveyAreas,
-      invoice2_m3: capture.invoice2_m3,
-      invoice2_skips: capture.invoice2_skips,
-      invoice2_trailers: capture.invoice2_trailers,
-      invoice2_utes: capture.invoice2_utes,
-      invoice2_tip_receipts: capture.invoice2_tip_receipts,
-      invoice2_prepaid: capture.invoice2_prepaid,
-      manual_adjustment_inc: capture.manual_adjustment,
-      manual_adjustment_reason: capture.manual_adjustment_reason,
-      deposit_date: capture.deposit_date,
-      adjustment_reason: capture.adjustment_reason,
-      layout_version: 2,
-      survey_snapshot: statementSurveySnapshot(surveyAreas, job.assessment_data, surveyReference),
-      disposal_snapshot: statementDisposalSnapshot(job.assessment_data, disposalReference, capture.invoice2_m3),
-    },
-    source: 'assessment_capture',
-  }
+function composeStatement(job: Job): ComposeDocumentResult {
+  const content = statementV2Content(statementV2Figures(job.assessment_data), refPrefix('statement_of_accounts', job.id), job.site_address || '')
+  return { content: content as unknown as Record<string, unknown>, source: 'assessment_capture' }
 }
 
 function composeCompanyLetterhead(job: Job): ComposeDocumentResult {
@@ -1352,7 +1292,7 @@ export function composeDocumentContent(type: DocType, job: Job, options?: Compos
     case 'waste_disposal_manifest':
       return composeWdm(job)
     case 'statement_of_accounts':
-      return composeStatement(job, options?.documents ?? [])
+      return composeStatement(job)
     case 'payment_reminder':
       return composePaymentReminder(job)
     case 'house_survey':

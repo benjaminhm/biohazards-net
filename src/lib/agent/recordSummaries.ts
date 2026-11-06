@@ -1,16 +1,17 @@
 /*
  * lib/agent/recordSummaries.ts
  *
- * The House Survey and Contents Disposal Record summaries as read-only
- * objects: the same figures their tabs and documents show (houseSurveyDocument
- * and disposalRecordSummary, both through fixedCharges / recordSummary). The
- * Statement agent reads these instead of the records themselves.
+ * The House Survey, Contents Disposal Record and Biohazard Cleaning Record
+ * summaries as read-only objects: the same figures their tabs and documents
+ * show (houseSurveyDocument, disposalRecordSummary, biohazardRecordSummary).
+ * The Statement agent reads these instead of the records themselves.
  */
 import type { AssessmentData } from '@/lib/types'
 import type { FixedCharges, RecordSummary } from '@/lib/fixedCharges'
 import { disposalRecordSummary, loadHasContent, mergedDisposalManifestCapture, quoteDisposalLink } from '@/lib/disposalManifest'
 import { houseSurveyDocument } from '@/lib/houseSurvey'
 import { houseSurveyWithQuote, quoteSurveyLink } from '@/lib/surveyQuoteLink'
+import { biohazardRecordFromJob } from '@/lib/biohazardCleaningRecord'
 
 export interface RecordSummaryView {
   /** False until the record is started on the job; every figure is then null. */
@@ -58,6 +59,36 @@ export function surveySummary(ad: AssessmentData | null | undefined): RecordSumm
   const doc = houseSurveyDocument('', '', houseSurveyWithQuote(ad), quoteSurveyLink(ad)?.charges ?? null)
   if (!doc.charges || !doc.summary) return summaryView('Surface cleaning', 'm²', null)
   return summaryView('Surface cleaning', 'm²', { quantity: doc.totals.priced, rate: doc.price_per_m2, charges: doc.charges, summary: doc.summary })
+}
+
+export interface BiohazardRecordSummaryView {
+  /** The job has a Biohazard Cleaning Quote. */
+  has_quote: boolean
+  /** The quote is priced by area or tests, so the statement bills from this record. False is fixed price: the quote total. */
+  needed: boolean
+  exists: boolean
+  lines: { label: string; amount_ex_gst: number }[]
+  /** Actuals still to enter before the statement can be issued. */
+  missing: string[]
+  total_ex_gst: number | null
+  gst: number | null
+  total_inc_gst: number | null
+}
+
+/** Biohazard Cleaning Record lines and totals, as the House Survey shows them (biohazardRecordSummary). */
+export function bcqRecordSummary(ad: AssessmentData | null | undefined): BiohazardRecordSummaryView {
+  const r = biohazardRecordFromJob(ad)
+  const shown = r != null && (r.exists || r.needed)
+  return {
+    has_quote: r != null,
+    needed: r?.needed ?? false,
+    exists: r?.exists ?? false,
+    lines: shown ? r.summary.lines.map(line => ({ label: line.label, amount_ex_gst: line.amount_ex })) : [],
+    missing: r?.needed ? r.summary.missing : [],
+    total_ex_gst: shown ? r.summary.total_ex : null,
+    gst: shown ? r.summary.gst : null,
+    total_inc_gst: shown ? r.summary.total_inc : null,
+  }
 }
 
 /** Contents removal (counted m³ × rate), labour, call-out fee and GST, as the Contents Disposal Record summary shows them. */

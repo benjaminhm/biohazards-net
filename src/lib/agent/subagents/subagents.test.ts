@@ -14,6 +14,7 @@ import {
   readableDocumentTypes,
   readsFullJob,
   extraReadsFor,
+  ownCaptures,
 } from './registry'
 import { DOC_AGENT_TYPES, type GenerateInputs } from './types'
 import { DOC_AGENT_LABEL, draftedByLabel } from './labels'
@@ -89,7 +90,7 @@ test('sub-agent tools: own writes, generate and report; extra reads only when de
     const patch = subAgentTools(def).find(t => t.name === 'draft_patch')!
     const changes = (patch.input_schema.properties as Record<string, { items?: { properties?: Record<string, { enum?: string[] }> } }>).changes
     const keyEnum = changes.items?.properties?.key.enum ?? []
-    assert.deepEqual(keyEnum, [def.captureKey])
+    assert.deepEqual(keyEnum, ownCaptures(def))
   }
 })
 
@@ -101,15 +102,18 @@ test('per-document generate checks before compose', () => {
   assert.equal(DOC_AGENTS.completion_report.generate(inputs(null)).ok, false)
   assert.equal(DOC_AGENTS.contents_clearance_quote.generate(inputs({ contents_clearance_quote: { maximum_man_days: 0 } })).ok, false)
   assert.equal(DOC_AGENTS.biohazard_cleaning_quote.generate(inputs({ biohazard_cleaning_quote: { labour_days: 0 } })).ok, false)
-  const st = DOC_AGENTS.statement_of_accounts.generate(inputs({ statement_of_accounts: { invoice1_amount: 1000, invoice1_callout: 100 } }))
+  const survey = { areas: [], labour_days: 1, rate_per_labour_day: 1000 }
+  const st = DOC_AGENTS.statement_of_accounts.generate(inputs({ house_survey: survey, statement_of_accounts: { model_version: 2, manual_adjustment: 50 } }))
   assert.equal(st.ok, false)
-  const good = DOC_AGENTS.statement_of_accounts.generate(inputs({ statement_of_accounts: { invoice1_amount: 1000, invoice1_callout: 200, invoice1_cleaning: 800 } }))
+  const good = DOC_AGENTS.statement_of_accounts.generate(inputs({ house_survey: survey, statement_of_accounts: { model_version: 2 } }))
   assert.equal(good.ok, true)
+  assert.equal(DOC_AGENTS.house_survey.generate(inputs({ house_survey: { areas: [] }, biohazard_cleaning_record: { primary_m2: 4 } })).ok, true)
 })
 
 test('per-document patch checks: statement shape, BCQ overrides, CDR photo links', () => {
   assert.match(DOC_AGENTS.statement_of_accounts.patchProblem?.({ made_up_field: 1 }) ?? '', /./)
-  assert.equal(DOC_AGENTS.statement_of_accounts.patchProblem?.({ invoice1_amount: 1650 }) ?? null, null)
+  assert.equal(DOC_AGENTS.statement_of_accounts.patchProblem?.({ deposit_amount: 1650, deposit_date: '2026-11-02' }) ?? null, null)
+  assert.match(DOC_AGENTS.statement_of_accounts.patchProblem?.({ invoice1_amount: 1650 }) ?? '', /no input/)
   assert.match(DOC_AGENTS.biohazard_cleaning_quote.patchProblem?.({ check_override: ['x'] }) ?? '', /./)
 })
 
@@ -156,8 +160,8 @@ const FULL_READS = ['get_job_snapshot', 'get_job_changes_since', 'get_job_health
 test('statement agent reads the whole job file in delegated and direct modes', () => {
   const def = DOC_AGENTS.statement_of_accounts
   assert.equal(readsFullJob(def), true)
-  const summarised = ['house_survey', 'disposal_manifest_capture']
-  assert.deepEqual([...readableCaptures(def)].sort(), [...CAPTURE_KEYS.filter(k => !summarised.includes(k)), 'survey_summary', 'cdr_summary'].sort())
+  const summarised = ['house_survey', 'disposal_manifest_capture', 'biohazard_cleaning_record']
+  assert.deepEqual([...readableCaptures(def)].sort(), [...CAPTURE_KEYS.filter(k => !summarised.includes(k)), 'survey_summary', 'cdr_summary', 'bcq_record_summary'].sort())
   assert.equal(readableDocumentTypes(def), null)
   for (const t of ['quote', 'report', 'swms', 'completion_report', 'authority_to_proceed']) assert.ok(canReadDocument(def, t), t)
   for (const tools of [subAgentTools(def), directTools(def)]) {
@@ -203,7 +207,7 @@ test('the other six document agents keep their scoped reads', () => {
   for (const def of Object.values(DOC_AGENTS)) {
     if (def.type === 'statement_of_accounts') continue
     assert.equal(readsFullJob(def), false, def.type)
-    assert.deepEqual(readableCaptures(def), [def.captureKey, ...def.readCaptures])
+    assert.deepEqual(readableCaptures(def), [...ownCaptures(def), ...def.readCaptures])
     assert.deepEqual(readableDocumentTypes(def), [def.documentType, ...def.readDocumentTypes])
     const names = subAgentTools(def).map(t => t.name)
     for (const n of ['get_job_snapshot', 'get_job_changes_since', 'get_job_health', 'list_job_documents']) assert.ok(!names.includes(n), `${def.type} must not have ${n}`)

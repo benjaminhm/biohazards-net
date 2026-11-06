@@ -6,11 +6,11 @@
  * raise with staff and which document sub-agent to hand work to.
  */
 import type { AssessmentData, JobStatus } from '@/lib/types'
-import { buildStatementDraft, cdrVolumeM3 } from './statementDraft'
+import { cdrVolumeM3, statementFlags } from './statementDraft'
 import { documentConflicts } from './conflicts'
 import { getPath, isEmptyLeaf } from './patchDraft'
 import { checkStatus, nextStatus } from './statusRules'
-import { DOC_AGENTS } from './subagents/registry'
+import { DOC_AGENTS, ownCaptures } from './subagents/registry'
 import type { DocAgentType } from './subagents/types'
 
 export type HealthSeverity = 'info' | 'warning' | 'urgent'
@@ -57,7 +57,7 @@ function differs(a: number, b: number): boolean {
 function capturedNotGenerated(ad: Record<string, unknown>, docs: HealthDocument[]): HealthIssue[] {
   const out: HealthIssue[] = []
   for (const def of Object.values(DOC_AGENTS)) {
-    if (ad[def.captureKey] == null) continue
+    if (ownCaptures(def).every(k => ad[k] == null)) continue
     if (docs.some(d => d.type === def.documentType)) continue
     out.push({
       code: `not_generated:${def.type}`,
@@ -70,16 +70,13 @@ function capturedNotGenerated(ad: Record<string, unknown>, docs: HealthDocument[
 }
 
 function statementChecks(ad: AssessmentData | null): HealthIssue[] {
-  const raw = (ad as Record<string, unknown> | null)?.statement_of_accounts
-  if (raw == null) return []
-  const r = buildStatementDraft(ad)
-  if (!r.ok || !Object.keys(r.proposed ?? {}).length) return []
-  return [{
-    code: 'statement_quantities_stale',
-    severity: 'warning',
-    message: `Statement of Accounts quantities differ from the House Survey / CDR (${r.summary}).`,
-    doc_agent: 'statement_of_accounts',
-  }]
+  if (ad?.statement_of_accounts == null) return []
+  return statementFlags(ad).map((message, i) => ({
+    code: `statement_check:${i}`,
+    severity: 'warning' as const,
+    message: `Statement of Accounts: ${message}`,
+    doc_agent: 'statement_of_accounts' as const,
+  }))
 }
 
 function cdrVsClearanceQuote(ad: AssessmentData | null): HealthIssue[] {

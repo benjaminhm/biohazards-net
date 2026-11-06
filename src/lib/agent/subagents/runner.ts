@@ -13,13 +13,13 @@ import type { AssessmentData } from '@/lib/types'
 import { runLoop, str, ToolError, type AgentTool, type Input } from '../loop'
 import { blocked } from '../permissions'
 import { changesSince, jobSnapshotFor, loadSnapshotRaw, redactFinancials, seesFinancials, storedSnapshot, touchedCapturesSince } from '../jobSnapshot'
-import { buildPatchDraft, mergePatchDrafts, PatchError, TARGET, type PatchDraft } from '../patchDraft'
+import { buildPatchDraft, mergePatchDrafts, PatchError, TARGET, type CaptureKey, type PatchDraft } from '../patchDraft'
 import { checkPatch } from '../patchCheck'
 import { captureLabel, listPendingDrafts, upsertDraft, upsertPatchDraft } from '../drafts'
 import { capped, readAcceptances, readCalls, readDocument, readDocumentList, readPhotos, readProgressNotes, readXeroInvoice } from '../jobReads'
 import {
-  agentView, canDraftCapture, canDraftDocument, canReadDocument, DOC_AGENTS, docAgent, docAgentId, extraReadsFor, generateTarget,
-  hiddenCaptures, readableCaptures, readableDocumentTypes, readsFullJob, readViewFor,
+  agentView, canDraftCapture, canDraftDocument, canReadDocument, captureOwner, DOC_AGENTS, docAgent, docAgentId, extraReadsFor, generateTarget,
+  hiddenCaptures, ownCaptures, readableCaptures, readableDocumentTypes, readsFullJob, readViewFor,
 } from './registry'
 import { checkGenerate } from './generate'
 import { DOC_AGENT_TYPES, type DocAgentDef, type DocAgentReport, type DocAgentType, type ExtraRead, type SubAgentApi } from './types'
@@ -65,8 +65,18 @@ async function readableDocumentList(ctx: SubCtx) {
 }
 
 function otherAgentFor(key: string): string {
-  const owner = Object.values(DOC_AGENTS).find(d => d.captureKey === key || d.documentType === key)
+  const owner = captureOwner(key) ?? Object.values(DOC_AGENTS).find(d => d.documentType === key)
   return owner ? owner.label : 'the file agent or staff'
+}
+
+function isOwnCaptureTarget(def: DocAgentDef, target: string): boolean {
+  return ownCaptures(def).some(k => target === TARGET.capture(k))
+}
+
+function ownCapturesText(def: DocAgentDef, ad: Record<string, unknown>): string {
+  return ownCaptures(def)
+    .map((k, i) => `${i === 0 ? 'YOUR CAPTURE' : 'ALSO YOURS'} (${k}): ${JSON.stringify(capped(ad[k] ?? null, OWN_CAP))}`)
+    .join('\n\n')
 }
 
 export interface PatchChange { key?: unknown; patch?: unknown; summary?: unknown }
@@ -97,7 +107,7 @@ export function preparePatches(def: DocAgentDef, assessment: Record<string, unkn
       blocked_action: `draft_patch:${foreign}`,
       required_permission: `write:${foreign}`,
       handled_by: otherAgentFor(foreign),
-      message: `The ${def.label} may only change ${def.captureKey}. Nothing was drafted.`,
+      message: `The ${def.label} may only change ${ownCaptures(def).join(' or ')}. Nothing was drafted.`,
     })
   }
   const reasons: string[] = []
@@ -133,9 +143,9 @@ function changesArg(input: Input): PatchChange[] {
   return []
 }
 
-async function recordPatch(ctx: SubCtx, draft: PatchDraft, summary?: string) {
+async function recordPatch(ctx: SubCtx, key: string, draft: PatchDraft, summary?: string) {
   const id = await upsertPatchDraft(ctx.supabase, {
-    orgId: ctx.orgId, jobId: ctx.jobId, target_path: TARGET.capture(ctx.def.captureKey), label: captureLabel(ctx.def.captureKey),
+    orgId: ctx.orgId, jobId: ctx.jobId, target_path: TARGET.capture(key), label: captureLabel(key),
     draft, summary, createdBy: docAgentId(ctx.def.type),
   })
   ctx.drafts.push({ id, summary: summary ?? `${ctx.def.docLabel}: ${Object.keys(draft.proposed).length} field change(s)` })
@@ -262,7 +272,7 @@ function baseTools(def: DocAgentDef): AgentTool<SubCtx>[] {
     },
     {
       name: 'draft_patch',
-      description: `Draft changes to ${def.captureKey} (your document). changes is a list of {key, patch, summary}; key is always ${def.captureKey}. Each patch is merged in: nested objects are walked; lists, text and numbers replace the value. Ids cannot change. Every change is checked first (the same checks as approval) and nothing is drafted unless all pass. One card per capture; later patches add to it.`,
+      description: `Draft changes to ${ownCaptures(def).join(' or ')} (your document). changes is a list of {key, patch, summary}; key is ${ownCaptures(def).join(' or ')} (default ${def.captureKey}). Each patch is merged in: nested objects are walked; lists, text and numbers replace the value. Ids cannot change. Every change is checked first (the same checks as approval) and nothing is drafted unless all pass. One card per capture; later patches add to it.`,
       input_schema: {
         type: 'object',
         properties: {
@@ -271,7 +281,7 @@ function baseTools(def: DocAgentDef): AgentTool<SubCtx>[] {
             items: {
               type: 'object',
               properties: {
-                key: { type: 'string', enum: [def.captureKey] },
+                key: { type: 'string', enum: ownCaptures(def) },
                 patch: { type: 'object' },
                 summary: { type: 'string', description: 'One line for the change card.' },
               },
@@ -286,7 +296,7 @@ function baseTools(def: DocAgentDef): AgentTool<SubCtx>[] {
         const prepared = preparePatches(def, ad, changesArg(input))
         if (!prepared.ok) return { drafted: false, reasons: prepared.reasons, note: 'Nothing was drafted. Fix these and try again.' }
         const out = []
-        for (const d of prepared.drafts) out.push(await recordPatch(ctx, d.draft, d.summary))
+        for (const d of prepared.drafts) out.push(await recordPatch(ctx, d.key, d.draft, d.summary))
         return { drafted: out, ...(prepared.unchanged.length ? { already_those_values: prepared.unchanged } : {}) }
       },
     },
@@ -355,7 +365,7 @@ function baseTools(def: DocAgentDef): AgentTool<SubCtx>[] {
       async run(ctx) {
         const check = await checkGenerate(ctx.supabase, ctx.orgId, ctx.jobId, def.type)
         const pending = await listPendingDrafts(ctx.supabase, ctx.orgId, ctx.jobId)
-        const ownChangesWaiting = pending.some(d => d.target_path === TARGET.capture(def.captureKey)) || ctx.drafts.length > 0
+        const ownChangesWaiting = pending.some(d => isOwnCaptureTarget(def, d.target_path)) || ctx.drafts.length > 0
         if (!check.ok && !ownChangesWaiting) return { drafted: false, cannot_generate_yet: check.reason }
         const summary = `Generate the ${def.docLabel} (saved to the job, not sent)`
         const id = await upsertDraft(ctx.supabase, {
@@ -399,7 +409,7 @@ export function readScopeLine(def: DocAgentDef): string {
     ? ` You never see ${hiddenCaptures(def).join(' or ')} themselves or their saved documents: only ${def.summarised.map(s => s.key).join(' and ')} (computed, read only, shown each turn and in the snapshot).`
     : ''
   if (readsFullJob(def)) {
-    return `- Read the whole job file, read only: get_job_snapshot, get_job_changes_since, get_job_health, list_job_documents, read_capture (any capture), read_document (any saved document), read_calls, read_progress_notes, read_photos, read_xero_invoice, read_acceptances. Pull in what you need.${summaries} Reading another document never lets you edit it: you draft only ${def.captureKey} and saved ${def.documentType} documents; anything else is refused with a permission error naming who handles it.`
+    return `- Read the whole job file, read only: get_job_snapshot, get_job_changes_since, get_job_health, list_job_documents, read_capture (any capture), read_document (any saved document), read_calls, read_progress_notes, read_photos, read_xero_invoice, read_acceptances. Pull in what you need.${summaries} Reading another document never lets you edit it: you draft only ${ownCaptures(def).join(' and ')} and saved ${def.documentType} documents; anything else is refused with a permission error naming who handles it.`
   }
   return `- Read your own capture and these inputs only: captures ${def.readCaptures.join(', ') || '(none)'}; saved documents ${(readableDocumentTypes(def) ?? []).join(', ')}${def.extraReads.length ? `; ${def.extraReads.join(', ')}` : ''}.${summaries}`
 }
@@ -418,7 +428,7 @@ ${def.shape}
 
 YOU CAN
 ${readScopeLine(def)}
-- Draft changes to ${def.captureKey} only (draft_patch, several changes in one call), patch saved ${def.documentType} documents (draft_document_patch), and queue generating it (draft_generate). validate_patch checks changes without drafting. Every write is a card staff approve; nothing changes until then.
+- Draft changes to ${ownCaptures(def).join(' and ')} only (draft_patch, several changes in one call), patch saved ${def.documentType} documents (draft_document_patch), and queue generating it (draft_generate). validate_patch checks changes without drafting. Every write is a card staff approve; nothing changes until then.
 
 YOU NEVER: send email or SMS, share links, release to the client portal, send payment reminders, touch Xero, delete anything, or change any other document.
 
@@ -433,7 +443,7 @@ export function inputsMessage(def: DocAgentDef, ad: Record<string, unknown>, doc
   const inputs = inputCaptures(def, ad)
   return `INSTRUCTION FROM THE FILE AGENT: ${instruction}${notes ? `\nCONTEXT NOTES: ${notes}` : ''}
 
-YOUR CAPTURE (${def.captureKey}): ${JSON.stringify(capped(ad[def.captureKey] ?? null, OWN_CAP))}
+${ownCapturesText(def, ad)}
 
 INPUT CAPTURES (trimmed; read_capture for the full one): ${JSON.stringify(inputs)}
 
@@ -446,11 +456,11 @@ function ownApi(ctx: SubCtx): SubAgentApi {
   const def = ctx.def
   return {
     readAssessment: () => assessment(ctx),
-    draftOwnPatch: async (draft: PatchDraft, summary?: string) => {
+    draftOwnPatch: async (draft: PatchDraft, summary?: string, key: CaptureKey = def.captureKey) => {
       const ad = ((await assessment(ctx)) ?? {}) as Record<string, unknown>
-      const check = checkPatch({ target_path: TARGET.capture(def.captureKey), created_by: docAgentId(def.type), before: draft.before, proposed: draft.proposed, current: ad[def.captureKey] ?? null })
+      const check = checkPatch({ target_path: TARGET.capture(key), created_by: docAgentId(def.type), before: draft.before, proposed: draft.proposed, current: ad[key] ?? null })
       if (!check.ok) throw new ToolError(check.reasons.join(' '))
-      return (await recordPatch(ctx, draft, summary)).draft_id
+      return (await recordPatch(ctx, key, draft, summary)).draft_id
     },
   }
 }
@@ -471,7 +481,7 @@ export async function runDocAgent(
     listPendingDrafts(base.supabase, base.orgId, base.jobId),
   ])
   const mine = pending
-    .filter(d => d.target_path === TARGET.capture(def.captureKey) || d.target_path === generateTarget(type))
+    .filter(d => isOwnCaptureTarget(def, d.target_path) || d.target_path === generateTarget(type))
     .map(d => ({ kind: d.kind, target_path: d.target_path, summary: d.summary }))
   const api = ownApi(ctx)
   const messages: Anthropic.MessageParam[] = [
@@ -512,7 +522,7 @@ export function buildReport(
 /** Who handles a capture or document type, for refusals and the switch button. */
 export function referralFor(target: string): Referral {
   if (isDocAgentTypeName(target)) return { doc_agent: target, label: DOC_AGENTS[target].label }
-  const owner = Object.values(DOC_AGENTS).find(d => d.captureKey === target || d.documentType === target || d.label === target)
+  const owner = captureOwner(target) ?? Object.values(DOC_AGENTS).find(d => d.documentType === target || d.label === target)
   return owner ? { doc_agent: owner.type, label: owner.label } : { doc_agent: null, label: 'File agent' }
 }
 
@@ -577,7 +587,7 @@ ${def.shape}
 YOU CAN
 - Answer questions about the ${def.docLabel} from the current state below, read_capture and read_document.
 ${readScopeLine(def)}
-- Draft changes to ${def.captureKey} only (draft_patch), patch saved ${def.documentType} documents (draft_document_patch), check changes first (validate_patch) and queue generating it (draft_generate). Every write is a card staff approve on screen; nothing changes until then. Call the draft tools directly; do not ask "shall I?" first.
+- Draft changes to ${ownCaptures(def).join(' and ')} only (draft_patch), patch saved ${def.documentType} documents (draft_document_patch), check changes first (validate_patch) and queue generating it (draft_generate). Every write is a card staff approve on screen; nothing changes until then. Call the draft tools directly; do not ask "shall I?" first.
 
 YOU NEVER: send email or SMS, share links, release to the client portal, send payment reminders, touch Xero, delete anything, or change any other document or the job itself.
 
@@ -612,7 +622,7 @@ export async function runDocAgentDirect(
     listPendingDrafts(base.supabase, base.orgId, base.jobId),
   ])
   const mine = pending
-    .filter(d => d.target_path === TARGET.capture(def.captureKey) || d.target_path === generateTarget(type) || d.created_by === docAgentId(type))
+    .filter(d => isOwnCaptureTarget(def, d.target_path) || d.target_path === generateTarget(type) || d.created_by === docAgentId(type))
     .map(d => ({ kind: d.kind, target_path: d.target_path, summary: d.summary }))
   const shown = (v: unknown) => (base.redact ? redactFinancials(v) : v)
   const context = stateText(def, (shown(ad) ?? {}) as Record<string, unknown>, shown(docs), mine)
@@ -638,7 +648,7 @@ export async function runDocAgentDirect(
 
 export function stateText(def: DocAgentDef, ad: Record<string, unknown>, docs: unknown, pending: { kind: string; target_path: string; summary: string }[]): string {
   const inputs = inputCaptures(def, ad)
-  return `YOUR CAPTURE (${def.captureKey}): ${JSON.stringify(capped(ad[def.captureKey] ?? null, OWN_CAP))}
+  return `${ownCapturesText(def, ad)}
 
 INPUT CAPTURES (trimmed; read_capture for the full one): ${JSON.stringify(inputs)}
 

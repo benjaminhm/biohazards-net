@@ -1,56 +1,52 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import type { AssessmentData, Document, StatementOfAccountsContent } from '@/lib/types'
-import { biohazardCleaningFigures, emptyBiohazardCleaningCapture } from '@/lib/biohazardCleaningQuote'
+import type { AssessmentData, StatementOfAccountsContent } from '@/lib/types'
 import {
   emptyStatementCapture,
-  statementReferencePanel,
+  normalizeStatementCapture,
   presentStatementDocument,
+  presentStatementV2,
   statementClientLines,
-  statementFigures,
   statementPayHref,
   statementPhone,
-  surveyDocumentCode,
+  statementReminderLines,
+  statementV2Content,
+  statementV2Figures,
+  statementV2Rows,
   StatementReconciliationError,
   type StatementOfAccountsCapture,
 } from '@/lib/statementOfAccounts'
-import { statementDisposalSnapshot, statementSurveySnapshot } from '@/lib/statementSnapshot'
-import { surveyPrice } from '@/lib/houseSurvey'
-import { computeDisposalTotals, emptyDisposalLoad, emptyDisposalVehicle, mergedDisposalManifestCapture } from '@/lib/disposalManifest'
+import { surveySummary, cdrSummary } from '@/lib/agent/recordSummaries'
+import { surfaceAreaCaptureFigures, emptySurfaceAreaCleaningCapture } from '@/lib/surfaceAreaCleaningQuote'
+import { emptyBiohazardCleaningCapture } from '@/lib/biohazardCleaningQuote'
 import { buildPrintHTML } from '@/lib/printDocument'
+
+/** Model 1 figures for the fixture, as they were stored on statements issued before model 2. */
+const V1_FIGURES = {
+  gst_mode: 'exclusive', quote_ex: 15763, quote_gst: 1576.3, quote_inc: 17339.3, disposal: 5670.42, deposit_taken: true,
+  deposit_entered: 8669.65, deposit_ex: 7881.5, owing_ex: 13319.57, gst: 1331.96, owing_inc: 14651.53, original_owing_ex: 7881.5,
+  original_owing_inc: 8669.65, new_invoice_ex: 5670.42, new_invoice_inc: 6237.46, remeasured: true, remeasure_inc: 255.58,
+  invoice2_owing_inc: 5981.88, job_total_ex: 21201.07, job_total_inc: 23321.18, has_invoice2: true,
+} as const
+
+/** The same with a manual adjustment on the last invoice. */
+const V1_MANUAL: Record<number, Partial<StatementOfAccountsContent>> = {
+  [-100]: { owing_ex: 13228.66, gst: 1322.87, owing_inc: 14551.53, invoice2_owing_inc: 5881.88, job_total_ex: 21110.16, job_total_inc: 23221.18 },
+  [-50]: { owing_ex: 13274.12, gst: 1327.41, owing_inc: 14601.53, invoice2_owing_inc: 5931.88, job_total_ex: 21155.62, job_total_inc: 23271.18 },
+}
 
 function contentFor(
   capture: StatementOfAccountsCapture,
   extra: Partial<StatementOfAccountsContent> = {},
 ): StatementOfAccountsContent {
-  const figures = statementFigures(capture)
   return {
     title: 'Statement of Accounts',
     reference: 'SOA-20260926-CFA2',
     site_address: '1 Example Street',
     quote_reference: 'EST-1',
     disposal_reference: 'CDR-1',
-    gst_mode: figures.gst_mode,
-    quote_ex: figures.quote_ex,
-    quote_gst: figures.quote_gst,
-    quote_inc: figures.quote_inc,
-    disposal: figures.disposal,
-    deposit_taken: figures.deposit_taken,
-    deposit_entered: figures.deposit_entered,
-    deposit_ex: figures.deposit_ex,
-    owing_ex: figures.owing_ex,
-    gst: figures.gst,
-    owing_inc: figures.owing_inc,
-    original_owing_ex: figures.original_owing_ex,
-    original_owing_inc: figures.original_owing_inc,
-    new_invoice_ex: figures.new_invoice_ex,
-    new_invoice_inc: figures.new_invoice_inc,
-    remeasured: figures.remeasured,
-    remeasure_inc: figures.remeasure_inc,
-    invoice2_owing_inc: figures.invoice2_owing_inc,
-    job_total_ex: figures.job_total_ex,
-    job_total_inc: figures.job_total_inc,
-    has_invoice2: figures.has_invoice2,
+    ...V1_FIGURES,
+    ...(capture.manual_adjustment == null ? {} : V1_MANUAL[capture.manual_adjustment]),
     original_invoice_number: capture.original_invoice_number,
     original_invoice_url: capture.original_invoice_url,
     new_invoice_number: capture.new_invoice_number,
@@ -235,19 +231,6 @@ test('a manual line changes the last invoice total', () => {
   )
 })
 
-test('survey code falls back to the same code a survey document would get', () => {
-  const on = new Date('2026-09-28T01:00:00.000Z')
-  assert.equal(surveyDocumentCode('cfa2d3c7-5399-43bf-bd6b-0103768e1718', [], on), 'SUR-20260928-CFA2')
-  assert.equal(surveyDocumentCode('cfa2d3c7-5399-43bf-bd6b-0103768e1718', [{
-    id: '1',
-    job_id: 'cfa2d3c7-5399-43bf-bd6b-0103768e1718',
-    type: 'house_survey',
-    content: { reference: 'SUR-20260924-CFA2' },
-    file_url: null,
-    created_at: '2026-09-24T00:00:00.000Z',
-  }], on), 'SUR-20260924-CFA2')
-})
-
 test('client name, phone, and pay links stay readable', () => {
   assert.deepEqual(statementClientLines('L.J.H. Holdings Pty Ltd ACN 087871341'), {
     line1: 'L.J.H. Holdings Pty Ltd',
@@ -258,103 +241,18 @@ test('client name, phone, and pay links stay readable', () => {
   assert.equal(statementPayHref('https://pay.example.com/a?utm_source=x&keep=1'), 'https://pay.example.com/a?keep=1')
 })
 
-test('the reference panel always shows BCQ, SACQ, and CCQ, empty until priced', () => {
-  const panel = statementReferencePanel(null, [])
-  assert.deepEqual(panel.quotes.map(block => block.heading), [
-    'Biohazard cleaning (BCQ)',
-    'Surface area cleaning (SACQ)',
-    'Contents clearance (CCQ)',
-  ])
-  assert.deepEqual(panel.quotes.map(block => block.empty), ['No BCQ price yet.', 'No SACQ price yet.', 'No CCQ price yet.'])
-  assert.ok(panel.quotes.every(block => block.lines.length === 0))
-})
-
-test('a priced BCQ shows its lines and total, with the saved quote reference', () => {
-  const bcq = { ...emptyBiohazardCleaningCapture(), estimated_m2: 20, rate_per_m2: 50, labour_days: 2, rate_per_labour_day: 600 }
-  const figures = biohazardCleaningFigures(bcq)
-  const doc = { type: 'biohazard_cleaning_quote', created_at: '2026-11-01', content: { reference: 'BCQ-1' } } as unknown as Document
-  const panel = statementReferencePanel({ biohazard_cleaning_quote: bcq } as unknown as AssessmentData, [doc])
-  const block = panel.quotes.find(b => b.heading === 'Biohazard cleaning (BCQ)')!
-  assert.equal(block.reference, 'BCQ-1')
-  assert.equal(block.empty, null)
-  assert.deepEqual(block.lines.find(line => line.label === 'Primary zone'), { label: 'Primary zone', quantity: '20 m²', ex: 1000, inc: 1100 })
-  assert.deepEqual(block.lines.at(-1), { label: 'Total', ex: figures.subtotal, inc: figures.total, strong: true })
-})
-
-const snapshotSurveyAd = { house_survey: { areas: [], price_per_m2: 20 } } as unknown as AssessmentData
-
-test('survey snapshot prices rooms like the survey and totals area and value', () => {
-  const snap = statementSurveySnapshot([
-    { label: 'Lounge', sqm: 12, total: null },
-    { label: 'Kitchen', sqm: 8, total: 200 },
-    { label: '', sqm: 4, total: null },
-  ], snapshotSurveyAd, 'SUR-1')
-  assert.ok(snap)
-  const lounge = surveyPrice(12, 20)
-  assert.deepEqual(snap.rooms.map(r => r.name), ['Lounge', 'Kitchen'])
-  assert.deepEqual(snap.rooms[0], { name: 'Lounge', sqm: 12, rate_ex: 20, line_ex: lounge.ex, line_inc: lounge.inc })
-  assert.equal(snap.rooms[1].line_inc, 200)
-  assert.equal(snap.rooms[1].line_ex, 181.82)
-  assert.equal(snap.rooms[1].rate_ex, 22.73)
-  assert.equal(snap.total_sqm, 20)
-  assert.equal(snap.subtotal_ex, Math.round(((lounge.ex ?? 0) + 181.82) * 100) / 100)
-  assert.equal(snap.total_value_inc, Math.round(((lounge.inc ?? 0) + 200) * 100) / 100)
-  assert.equal(snap.gst, Math.round(((snap.total_value_inc ?? 0) - (snap.subtotal_ex ?? 0)) * 100) / 100)
-  assert.equal(statementSurveySnapshot([], snapshotSurveyAd, 'SUR-1'), null)
-})
-
-function snapshotDisposalAd(): AssessmentData {
-  const skip = () => ({
-    ...emptyDisposalLoad(),
-    weight_kg: 400,
-    vehicles: [{ ...emptyDisposalVehicle('skip'), length_m: 3, width_m: 2, height_m: 1, waste_sqm: 6, skip_cost: 0 }],
-  })
-  return {
-    disposal_manifest_capture: {
-      loads: [
-        skip(),
-        skip(),
-        {
-          ...emptyDisposalLoad(),
-          distance_km: 22.5,
-          vehicles: [
-            { ...emptyDisposalVehicle('ute'), length_m: 2, width_m: 1.5, height_m: 1 },
-            { ...emptyDisposalVehicle('trailer'), length_m: 2, width_m: 1.5, height_m: 1 },
-          ],
-        },
-      ],
-    },
-  } as unknown as AssessmentData
-}
-
-test('disposal snapshot adds up loads, vehicles, distance, weight and volume', () => {
-  const ad = snapshotDisposalAd()
-  const loads = mergedDisposalManifestCapture(ad).loads
-  const snap = statementDisposalSnapshot(ad, 'CDR-9', null)
-  assert.ok(snap)
-  assert.equal(snap.reference, 'CDR-9')
-  assert.equal(snap.load_count, 3)
-  assert.equal(snap.total_m3, computeDisposalTotals(loads).volume_m3)
-  assert.deepEqual(snap.vehicles.map(v => [v.type, v.count]), [['skip', 2], ['ute', 1], ['trailer', 1]])
-  assert.equal(snap.distance_km, 22.5)
-  assert.equal(snap.weight_kg, 800)
-  assert.equal(snap.invoiced_m3, null)
-  assert.equal(statementDisposalSnapshot(ad, 'CDR-9', 99)?.invoiced_m3, 99)
-  assert.equal(statementDisposalSnapshot({} as AssessmentData, '—', null), null)
-})
-
 function combinedContent(extra: Partial<StatementOfAccountsContent> = {}): StatementOfAccountsContent {
   return contentFor(fixture(), {
     survey_areas: [{ label: 'Lounge', sqm: 12, total: 264 }],
     invoice2_m3: 15,
     layout_version: 2,
-    survey_snapshot: statementSurveySnapshot([{ label: 'Lounge', sqm: 12, total: 264 }], snapshotSurveyAd, 'SUR-1'),
-    disposal_snapshot: statementDisposalSnapshot(snapshotDisposalAd(), 'CDR-9', 15),
+    survey_snapshot: { reference: 'SUR-1', rooms: [{ name: 'Lounge', sqm: 12, rate_ex: 20, line_ex: 240, line_inc: 264 }], total_sqm: 12, subtotal_ex: 240, gst: 24, total_value_inc: 264 },
+    disposal_snapshot: { reference: 'CDR-9', total_m3: 9, load_count: 3, vehicles: [{ type: 'skip', label: 'Skip', count: 2 }], distance_km: 22.5, weight_kg: 800, invoiced_m3: 15 },
     ...extra,
   })
 }
 
-function statementHtml(content: StatementOfAccountsContent): string {
+function statementHtml(content: StatementOfAccountsContent | ReturnType<typeof statementV2Content>): string {
   return buildPrintHTML('statement_of_accounts', content as unknown as Record<string, unknown>, [], [], null, 'job-1', 'https://app.example.com')
 }
 
@@ -387,4 +285,128 @@ test('a statement generated before the combined layout prints as it did', () => 
   assert.equal(html.includes('1. Survey Rooms'), false)
   assert.equal(html.includes('Cubic metres removed'), true)
   assert.ok(presentStatementDocument(legacy).invoices[0].rows.some(row => row.quantity))
+})
+
+test('model 1 content still prints the two-invoice statement, not model 2', () => {
+  const html = statementHtml(contentFor(fixture()))
+  assert.match(html, /INV-0244 — Invoice 1 \(initial works\)/)
+  assert.match(html, /INV-0256 — Invoice 2 \(contents\)/)
+  assert.equal(html.includes('Less deposit paid'), false)
+})
+
+const sacq = { ...emptySurfaceAreaCleaningCapture(), estimated_m2: 100, rate_per_m2: 10 }
+const bcqByArea = { ...emptyBiohazardCleaningCapture(), estimated_m2: 20, rate_per_m2: 50, labour_days: 2, rate_per_labour_day: 600, travel_km: 0 }
+
+function v2Job(statement: Partial<StatementOfAccountsCapture> = {}, extra: Record<string, unknown> = {}): AssessmentData {
+  return {
+    surface_area_cleaning_quote: sacq,
+    house_survey: { areas: [], price_per_m2: 20, labour_days: 1, rate_per_labour_day: 500, mobilisation_fee: 100 },
+    biohazard_cleaning_quote: bcqByArea,
+    biohazard_cleaning_record: { primary_m2: 18 },
+    statement_of_accounts: { ...emptyStatementCapture(), ...statement },
+    ...extra,
+  } as unknown as AssessmentData
+}
+
+test('model 2: record totals, GST once, less the deposit', () => {
+  const ad = v2Job({ deposit_amount: 1000, deposit_date: '2026-11-02' })
+  const f = statementV2Figures(ad)
+  assert.deepEqual(f.problems, [])
+  assert.deepEqual(f.lines, [
+    { label: 'Surface cleaning', amount_ex: surveySummary(ad).total_ex_gst },
+    { label: 'Biohazard cleaning', amount_ex: 18 * 50 + 2 * 600 },
+  ])
+  assert.equal(f.total_ex, 600 + 2100)
+  assert.equal(f.gst, 270)
+  assert.equal(f.total_inc, 2970)
+  assert.equal(f.balance, 1970)
+  assert.deepEqual(statementV2Rows(f).map(row => [row.label, row.amount]), [
+    ['Surface cleaning', 600],
+    ['Biohazard cleaning', 2100],
+    ['Job total ex GST', 2700],
+    ['GST', 270],
+    ['Job total inc GST', 2970],
+    ['Less deposit paid (2 November 2026)', -1000],
+    ['Balance owing', 1970],
+  ])
+})
+
+test('model 2: estimates are a paragraph, never in the sum, and suggest half as the deposit', () => {
+  const f = statementV2Figures(v2Job())
+  const sacqInc = Math.round(surfaceAreaCaptureFigures(sacq).total * 100) / 100
+  assert.deepEqual(f.estimates.map(e => e.label), ['Surface area cleaning', 'Biohazard cleaning'])
+  assert.equal(f.estimates[0].amount, sacqInc)
+  assert.match(f.estimates_note, /^The original estimates totalled \$[\d,.]+ \(Surface area cleaning \$[\d,.]+, Biohazard cleaning \$[\d,.]+\)\. Final figures are based on measured surface area, counted volume and work completed\.$/)
+  assert.equal(f.suggested_deposit, Math.round((sacqInc + 2420) / 2 * 100) / 100)
+  assert.equal(f.total_ex, 2700)
+  assert.equal(statementV2Figures({ house_survey: { areas: [], labour_days: 1, rate_per_labour_day: 100 }, statement_of_accounts: {} } as unknown as AssessmentData).estimates_note, '')
+})
+
+test('model 2: an adjustment with its reason, and a credit when the deposit is more', () => {
+  const adjusted = statementV2Figures(v2Job({ deposit_amount: 1000, deposit_date: '2026-11-02', manual_adjustment: -70, manual_adjustment_reason: 'goodwill' }))
+  assert.equal(adjusted.balance, 1900)
+  assert.deepEqual(statementV2Rows(adjusted).slice(-2), [
+    { label: 'Adjustment (goodwill)', amount: -70 },
+    { label: 'Balance owing', amount: 1900, strong: true },
+  ])
+  const credit = statementV2Figures(v2Job({ deposit_amount: 3000, deposit_date: '2026-11-02' }))
+  assert.equal(credit.balance, -30)
+  assert.deepEqual(statementV2Rows(credit).at(-1), { label: 'Credit', amount: 30, strong: true })
+  assert.deepEqual(statementReminderLines(credit).at(-1), { label: 'Credit', ex: 27.27, inc: 30, strong: true })
+  const noGst = statementV2Figures(v2Job({ charges_gst: false }))
+  assert.equal(noGst.gst, 0)
+  assert.equal(noGst.balance, 2700)
+  assert.deepEqual(statementV2Rows(noGst).map(row => row.label), ['Surface cleaning', 'Biohazard cleaning', 'Job total', 'Balance owing'])
+})
+
+test('model 2: a fixed-price BCQ bills its total with no record', () => {
+  const fixed = { ...emptyBiohazardCleaningCapture(), labour_days: 1, rate_per_labour_day: 800, travel_km: 0 }
+  const f = statementV2Figures(v2Job({}, { biohazard_cleaning_quote: fixed, biohazard_cleaning_record: undefined }))
+  assert.deepEqual(f.problems, [])
+  assert.deepEqual(f.lines.at(-1), { label: 'Biohazard cleaning', amount_ex: 800 })
+})
+
+test('model 2 refuses a statement with missing pieces', () => {
+  const problems = (ad: AssessmentData) => statementV2Figures(ad).problems
+  assert.match(problems(v2Job({}, { house_survey: undefined }))[0], /needs a House Survey/)
+  assert.match(problems(v2Job({}, { contents_clearance_quote: { estimated_m3: 10, rate_per_m3: 80 } }))[0], /needs a Contents Disposal Record/)
+  assert.match(problems(v2Job({}, { biohazard_cleaning_record: undefined }))[0], /Fill in the Biohazard Cleaning Record/)
+  assert.match(problems(v2Job({}, { biohazard_cleaning_record: { primary_m2: null } }))[0], /missing: Measured m² for primary zone/)
+  assert.deepEqual(problems(v2Job({ deposit_amount: 500 })), ['Enter the date the deposit was paid.'])
+  assert.deepEqual(problems(v2Job({ manual_adjustment: 50 })), ['Enter the reason for the adjustment.'])
+  assert.match(problems({ statement_of_accounts: {} } as unknown as AssessmentData)[0], /nothing to bill/)
+  const content = statementV2Content(statementV2Figures(v2Job({ deposit_amount: 500 })), 'SOA-1', '1 Example Street')
+  assert.throws(() => presentStatementV2(content), (err: unknown) => err instanceof StatementReconciliationError && /deposit was paid/.test(err.message))
+  assert.match(statementHtml(content), /This statement could not be generated\.<\/strong> Enter the date the deposit was paid\./)
+})
+
+test('model 2 prints the summary, the estimates paragraph and the pay link', () => {
+  const content = statementV2Content(
+    statementV2Figures(v2Job({ deposit_amount: 1000, deposit_date: '2026-11-02', invoice_number: 'INV-9', invoice_url: 'https://pay.example.com/inv-9?utm_source=x' })),
+    'SOA-1',
+    '1 Example Street',
+  )
+  assert.equal(content.model_version, 2)
+  const html = statementHtml(content)
+  assert.match(html, /The original estimates totalled/)
+  assert.match(html, /Less deposit paid \(2 November 2026\)<\/td><td class="r">\(\$1,000\.00\)/)
+  assert.match(html, /Balance owing<\/td><td class="r" style="font-weight:700">\$1,970\.00/)
+  assert.match(html, /href="https:\/\/pay\.example\.com\/inv-9"/)
+  assert.equal(html.includes('Invoice 1'), false)
+  assert.equal(presentStatementV2(content).payLabel, 'Pay $1,970.00 online')
+  assert.ok(cdrSummary(v2Job()).exists === false)
+})
+
+test('a model 1 capture in progress becomes model 2 inputs without losing its stored fields', () => {
+  const v1 = { ...fixture(), model_version: undefined, invoice_number: undefined, invoice_url: undefined }
+  const c = normalizeStatementCapture(v1)
+  assert.equal(c.model_version, 2)
+  assert.equal(c.deposit_amount, 8669.65)
+  assert.equal(c.deposit_date, '2026-09-20')
+  assert.equal(c.invoice_number, 'INV-0244')
+  assert.equal(c.invoice_url, fixture().original_invoice_url)
+  assert.equal(c.invoice1_amount, 17339.30)
+  assert.equal(c.invoice2_amount, 6237.46)
+  assert.equal(normalizeStatementCapture({ deposit_taken: false, deposit_amount: 500 }).deposit_amount, null)
+  assert.equal(normalizeStatementCapture({ model_version: 2, deposit_amount: 500 }).deposit_amount, 500)
 })

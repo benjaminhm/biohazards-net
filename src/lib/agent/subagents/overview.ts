@@ -11,7 +11,7 @@ import type { HealthIssue, HealthSeverity } from '../jobHealth'
 import type { Conflict } from '../conflicts'
 import { STATUS_ORDER } from '../statusRules'
 import { TARGET } from '../patchDraft'
-import { DOC_AGENTS, docAgentId, generateTarget } from './registry'
+import { DOC_AGENTS, docAgentId, generateTarget, ownCaptures } from './registry'
 import { DOC_AGENT_TYPES, type DocAgentType } from './types'
 
 export type DocAgentState = 'missing' | 'in_progress' | 'generated'
@@ -84,7 +84,7 @@ export function draftOwner(d: { created_by?: string | null; target_path: string 
   for (const type of DOC_AGENT_TYPES) {
     const def = DOC_AGENTS[type]
     if (d.created_by === docAgentId(type)) return type
-    if (d.target_path === TARGET.capture(def.captureKey) || d.target_path === generateTarget(type)) return type
+    if (ownCaptures(def).some(k => d.target_path === TARGET.capture(k)) || d.target_path === generateTarget(type)) return type
     if (d.target_path.startsWith('doc:') && docTypeById.get(d.target_path.slice(4)) === def.documentType) return type
   }
   return null

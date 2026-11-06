@@ -1,31 +1,32 @@
-import type { AssessmentData, DisposalManifestCapture, Document, QuoteGstMode, QuoteSpoke, StatementLedgerLine, StatementOfAccountsContent } from '@/lib/types'
+import type { AssessmentData, StatementLedgerLine, StatementOfAccountsContent, StatementOfAccountsV2Content } from '@/lib/types'
 import { parsePhoneNumberFromString } from 'libphonenumber-js'
-import { houseSurveyWithQuote, quoteSurveyLink, quotedVersusMeasured } from '@/lib/surveyQuoteLink'
-import { computeDisposalTotals, disposalCaptureWithQuote, quoteDisposalLink, disposalPriceLines, formatAud, formatKg, formatM3, loadHasContent, vehicleBilledM3 } from '@/lib/disposalManifest'
-import { houseSurveyDocument, surveyPrice } from '@/lib/houseSurvey'
-import { getQuoteSpokes } from '@/lib/quoteSpokes'
-import { biohazardCleaningFigures, emptyBiohazardCleaningCapture, normalizeBiohazardCleaningCapture } from '@/lib/biohazardCleaningQuote'
-import { emptySurfaceAreaCleaningCapture, normalizeSurfaceAreaCleaningCapture, surfaceAreaCaptureFigures } from '@/lib/surfaceAreaCleaningQuote'
-import { contentsClearanceCaptureFigures, emptyContentsClearanceCapture, normalizeContentsClearanceCapture } from '@/lib/contentsClearanceQuote'
-import {
-  areaPricingSectionSubtotal,
-  computeQuoteCaptureTotals,
-  customSectionSubtotal,
-  derivePricingLayoutFromCapture,
-  quoteContentIsEstimate,
-  volumePricingSectionSubtotal,
-} from '@/lib/quoteSections'
+import { formatAud } from '@/lib/disposalManifest'
+import { biohazardCleaningFigures } from '@/lib/biohazardCleaningQuote'
+import { biohazardRecordFromJob } from '@/lib/biohazardCleaningRecord'
+import { normalizeSurfaceAreaCleaningCapture, surfaceAreaCaptureFigures } from '@/lib/surfaceAreaCleaningQuote'
+import { contentsClearanceCaptureFigures, normalizeContentsClearanceCapture } from '@/lib/contentsClearanceQuote'
+import { cdrSummary, surveySummary } from '@/lib/agent/recordSummaries'
 
-export interface StatementSurveyArea {
+export const STATEMENT_MODEL_VERSION = 2
+
+interface StatementSurveyArea {
   label: string
   sqm: number | null
-  /** GST-inclusive price of this area. Printed beside the square metres, not added to the invoice. */
   total: number | null
 }
 
+/**
+ * Model 2 reads deposit_amount, deposit_date, manual_adjustment (+ reason),
+ * invoice_number / invoice_url and charges_gst. The other fields are model 1
+ * and are kept so saving does not drop them.
+ */
 export interface StatementOfAccountsCapture {
+  model_version: number
+  /** The one invoice for the job. */
+  invoice_number: string
+  invoice_url: string
   deposit_taken: boolean
-  /** Dollars received. Includes GST when deposit_includes_gst is true and the quote charges GST. */
+  /** Dollars received. Includes GST when the statement charges GST. */
   deposit_amount: number | null
   deposit_includes_gst: boolean
   original_invoice_number: string
@@ -54,49 +55,16 @@ export interface StatementOfAccountsCapture {
   invoice2_utes: number | null
   invoice2_tip_receipts: number | null
   invoice2_prepaid: number | null
-  /** Signed dollars on the last invoice only. Negative reduces its balance. Includes GST when the statement charges GST. */
+  /** Signed dollars. Negative reduces the balance. Includes GST when the statement charges GST. */
   manual_adjustment: number | null
-  /** Required when a manual adjustment is entered. Printed as that line. */
+  /** Required when an adjustment is entered. Printed with it. */
   manual_adjustment_reason: string
-  /** Every typed amount includes GST. */
+  /** The job charges GST: every typed amount includes it. */
   charges_gst: boolean
   /** When the deposit was received, shown on the statement as the payment date. */
   deposit_date: string
   /** Why invoice 1 was adjusted. Required before an adjusted statement can be generated. */
   adjustment_reason: string
-}
-
-export interface StatementFigures {
-  reference: string
-  gst_mode: QuoteGstMode
-  quote_ex: number
-  quote_gst: number
-  quote_inc: number
-  disposal: number
-  deposit_taken: boolean
-  deposit_entered: number
-  deposit_ex: number
-  owing_ex: number
-  gst: number
-  owing_inc: number
-  original_owing_ex: number
-  original_owing_inc: number
-  new_invoice_ex: number
-  new_invoice_inc: number
-  /** True once staff enter a remeasured invoice 1. */
-  remeasured: boolean
-  invoice1_revised_ex: number | null
-  invoice1_revised_inc: number | null
-  /** Original invoice 1 minus the remeasure. Positive when the price went down. */
-  remeasure_ex: number
-  remeasure_inc: number
-  /** Contents invoice after the remeasure difference is applied. */
-  invoice2_owing_ex: number
-  invoice2_owing_inc: number
-  job_total_ex: number | null
-  job_total_inc: number | null
-  has_invoice2: boolean
-  lines: StatementLedgerLine[]
 }
 
 function textField(raw: unknown): string {
@@ -105,6 +73,9 @@ function textField(raw: unknown): string {
 
 export function emptyStatementCapture(): StatementOfAccountsCapture {
   return {
+    model_version: STATEMENT_MODEL_VERSION,
+    invoice_number: '',
+    invoice_url: '',
     deposit_taken: false,
     deposit_amount: null,
     deposit_includes_gst: true,
@@ -134,12 +105,21 @@ export function emptyStatementCapture(): StatementOfAccountsCapture {
   }
 }
 
+/** A model 1 capture is read as model 2: its deposit only counts when it was ticked as taken, and invoice 1 becomes the invoice. */
 export function normalizeStatementCapture(raw: unknown): StatementOfAccountsCapture {
   const o = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {}
-  const amount = typeof o.deposit_amount === 'number' ? o.deposit_amount : Number(o.deposit_amount)
+  const v2 = o.model_version === STATEMENT_MODEL_VERSION
+  const amount = moneyOrNull(o.deposit_amount)
+  const originalNumber = textField(o.original_invoice_number)
+  const newNumber = textField(o.new_invoice_number)
   return {
-    deposit_taken: o.deposit_taken === true,
-    deposit_amount: Number.isFinite(amount) && amount >= 0 ? amount : null,
+    model_version: STATEMENT_MODEL_VERSION,
+    invoice_number: v2 ? textField(o.invoice_number) : originalNumber || newNumber,
+    invoice_url: v2
+      ? textField(o.invoice_url)
+      : (originalNumber ? textField(o.original_invoice_url) : textField(o.new_invoice_url) || textField(o.original_invoice_url)),
+    deposit_taken: v2 ? (amount ?? 0) > 0 : o.deposit_taken === true,
+    deposit_amount: v2 || o.deposit_taken === true ? amount : null,
     deposit_includes_gst: o.deposit_includes_gst !== false,
     original_invoice_number: textField(o.original_invoice_number),
     original_invoice_url: textField(o.original_invoice_url),
@@ -180,31 +160,6 @@ function surveyAreasOrNull(value: unknown): StatementSurveyArea[] | null {
   })
 }
 
-/** Priced square metres and inc-GST total for each survey area. Printed under Cleaning, not added to the invoice. */
-export function surveyAreaQuantities(assessment: AssessmentData | null | undefined): StatementSurveyArea[] {
-  const survey = houseSurveyDocument('', '', houseSurveyWithQuote(assessment))
-  return survey.areas.flatMap(area => {
-    if (area.priced == null || !Number.isFinite(area.priced)) return []
-    return [{ label: area.title, sqm: area.priced, total: area.price_inc }]
-  })
-}
-
-/** Saved rows win. A missing total is taken from the survey, or from the survey rate when the square metres changed. */
-export function statementSurveyAreas(
-  saved: StatementSurveyArea[] | null,
-  assessment: AssessmentData | null | undefined,
-): StatementSurveyArea[] {
-  const seeded = surveyAreaQuantities(assessment)
-  if (saved == null) return seeded
-  const rate = houseSurveyDocument('', '', houseSurveyWithQuote(assessment)).price_per_m2
-  return saved.map(area => {
-    if (area.total != null && Number.isFinite(area.total)) return area
-    const match = seeded.find(row => row.label === area.label && row.sqm === area.sqm)
-    if (match?.total != null) return { ...area, total: match.total }
-    return { ...area, total: surveyPrice(area.sqm, rate).inc }
-  })
-}
-
 function moneyOrNull(value: unknown): number | null {
   if (value == null || value === '') return null
   const amount = typeof value === 'number' ? value : Number(value)
@@ -225,563 +180,6 @@ function round2(n: number): number {
 function formatSqm(n: number): string {
   const text = round2(n).toLocaleString('en-AU', { maximumFractionDigits: 2 })
   return `${text} m²`
-}
-
-/** Billed cubic metres for each vehicle (or its dimensions when blank), split the same way as the price. */
-function disposalVolumes(loads: Parameters<typeof computeDisposalTotals>[0]): { skip: string; trailer: string; ute: string; other: string } {
-  let skip = 0
-  let trailer = 0
-  let ute = 0
-  let other = 0
-  let skipN = 0
-  let trailerN = 0
-  let uteN = 0
-  let otherN = 0
-  for (const load of loads) {
-    for (const vehicle of load.vehicles) {
-      const volume = vehicleBilledM3(vehicle, load)
-      if (volume == null) continue
-      if (vehicle.type === 'skip') {
-        skip += volume
-        skipN += 1
-      } else if (vehicle.type === 'ute') {
-        ute += volume
-        uteN += 1
-      } else if (vehicle.type === 'other') {
-        other += volume
-        otherN += 1
-      } else {
-        trailer += volume
-        trailerN += 1
-      }
-    }
-  }
-  return {
-    skip: skipN > 0 ? formatM3(round2(skip)) : '',
-    trailer: trailerN > 0 ? formatM3(round2(trailer)) : '',
-    ute: uteN > 0 ? formatM3(round2(ute)) : '',
-    other: otherN > 0 ? formatM3(round2(other)) : '',
-  }
-}
-
-function latestOfType(documents: Document[], type: Document['type']): Document | null {
-  const rows = documents.filter(d => d.type === type)
-  if (!rows.length) return null
-  return [...rows].sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))[0]
-}
-
-export function latestQuoteDocument(documents: Document[]): Document | null {
-  return latestOfType(documents, 'quote')
-}
-
-export function latestDisposalDocument(documents: Document[]): Document | null {
-  return latestOfType(documents, 'waste_disposal_manifest')
-}
-
-export function latestSurveyDocument(documents: Document[]): Document | null {
-  return latestOfType(documents, 'house_survey')
-}
-
-export function documentReference(doc: Document | null, fallback: string): string {
-  const raw = doc?.content?.reference
-  return typeof raw === 'string' && raw.trim() ? raw.trim() : fallback
-}
-
-/** Saved survey document code, or the code a survey document saved today would use. */
-export function surveyDocumentCode(jobId: string, documents: Document[], on = new Date()): string {
-  const saved = documentReference(latestSurveyDocument(documents), '')
-  if (saved) return saved
-  const tail = jobId.replace(/-/g, '').slice(0, 4).toUpperCase()
-  const day = on.toISOString().slice(0, 10).replace(/-/g, '')
-  return `SUR-${day}-${tail}`
-}
-
-export interface StatementReferenceLine {
-  label: string
-  ex: number
-  inc: number
-  strong?: boolean
-  /** Cubic metres or weight shown beside this price. */
-  quantity?: string
-}
-
-/** One source of prices shown beside the statement. Never written into statement fields. */
-export interface StatementReferenceBlock {
-  heading: string
-  reference: string
-  detail: string
-  /** Quantities beside the prices. Display only. */
-  facts: { label: string; value: string }[]
-  /** Survey and disposal: item, quantity, ex GST, and inc GST. */
-  quantityColumn?: boolean
-  itemHeading?: string
-  quantityHeading?: string
-  /** no_gst quotes show a single amount. Survey and disposal always show both. */
-  gst_mode: QuoteGstMode
-  lines: StatementReferenceLine[]
-  empty: string | null
-}
-
-export interface StatementReferencePanel {
-  survey: StatementReferenceBlock
-  quotes: StatementReferenceBlock[]
-  disposal: StatementReferenceBlock
-}
-
-function quoteMoney(amount: number, gstMode: QuoteGstMode): { ex: number; inc: number } {
-  if (gstMode === 'no_gst') {
-    const value = round2(amount)
-    return { ex: value, inc: value }
-  }
-  if (gstMode === 'inclusive') {
-    const inc = round2(amount)
-    return { ex: round2(inc / 1.1), inc }
-  }
-  const ex = round2(amount)
-  return { ex, inc: round2(ex * 1.1) }
-}
-
-function gstDetail(gstMode: QuoteGstMode): string {
-  if (gstMode === 'inclusive') return 'Amounts include GST'
-  if (gstMode === 'exclusive') return 'GST is added on'
-  return 'No GST'
-}
-
-function quoteDocuments(documents: Document[]): Document[] {
-  return documents
-    .filter(doc => doc.type === 'quote')
-    .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
-}
-
-function referenceForSpoke(docs: Document[], spokeId: string, singleSpoke: boolean): string {
-  const matched = docs.find(doc => doc.content?.quote_id === spokeId)
-  if (matched) return documentReference(matched, '')
-  if (singleSpoke && docs.length === 1) return documentReference(docs[0], '')
-  return ''
-}
-
-function quoteHeading(kind: 'quote' | 'estimate', label: string): string {
-  const name = label.trim()
-  const title = kind === 'estimate' ? 'Estimate' : 'Quote'
-  if (!name || name.toLowerCase() === title.toLowerCase()) return title
-  return `${title} · ${name}`
-}
-
-function blockFromQuoteDocument(doc: Document): StatementReferenceBlock {
-  const content = doc.content ?? {}
-  const subtotal = typeof content.subtotal === 'number' ? content.subtotal : Number(content.subtotal)
-  const total = typeof content.total === 'number' ? content.total : Number(content.total)
-  const gst = typeof content.gst === 'number' ? content.gst : Number(content.gst)
-  const ex = Number.isFinite(subtotal) ? round2(subtotal) : 0
-  const inc = Number.isFinite(total) ? round2(total) : ex
-  const gst_mode: QuoteGstMode = content.gst_mode === 'inclusive' || content.gst_mode === 'exclusive' || content.gst_mode === 'no_gst'
-    ? content.gst_mode
-    : (Number.isFinite(gst) && gst > 0 ? 'exclusive' : 'no_gst')
-  const kind = content.is_estimate === true ? 'estimate' : 'quote'
-  const label = typeof content.quote_label === 'string' ? content.quote_label : ''
-  const priced = ex > 0.004 || inc > 0.004
-  return {
-    heading: quoteHeading(kind, label),
-    reference: documentReference(doc, ''),
-    detail: priced ? gstDetail(gst_mode) : '',
-    facts: [],
-    gst_mode,
-    lines: priced ? [{ label: 'Total', ex, inc, strong: true }] : [],
-    empty: priced ? null : 'No price on this document yet.',
-  }
-}
-
-function blockFromSpoke(spoke: QuoteSpoke, reference: string): StatementReferenceBlock {
-  const layout = derivePricingLayoutFromCapture(spoke)
-  const gst_mode: QuoteGstMode = spoke.gst_mode === 'inclusive' || spoke.gst_mode === 'exclusive' ? spoke.gst_mode : 'no_gst'
-  const kind = spoke.quote_kind ?? (quoteContentIsEstimate({
-    pricing_layout: layout,
-    volume_pricing: spoke.volume_pricing,
-  }) ? 'estimate' : 'quote')
-  const mobilisation = Math.max(0, Number(spoke.global_mobilisation_fee || 0))
-  const outcomeRows = (spoke.rows ?? []).reduce((sum, row) => sum + Math.max(0, Number(row.price || 0)), 0)
-  const outcomeSum = mobilisation > 0
-    ? mobilisation
-    : (layout.outcomes_enabled && (spoke.rows ?? []).length > 0 ? outcomeRows : 0)
-  const surfaceSum = layout.per_sqm_enabled
-    ? areaPricingSectionSubtotal(spoke.area_pricing, spoke.area_pricing_section_total)
-    : 0
-  const volumeSum = layout.per_m3_enabled
-    ? volumePricingSectionSubtotal(spoke.volume_pricing, spoke.volume_pricing_section_total)
-    : 0
-  const customSum = layout.custom_enabled
-    ? customSectionSubtotal(spoke.custom_section_rows, spoke.custom_section_total)
-    : 0
-  const totals = computeQuoteCaptureTotals(
-    spoke.rows ?? [],
-    spoke.area_pricing,
-    spoke.volume_pricing,
-    layout,
-    gst_mode,
-    mobilisation,
-    Math.max(0, Number(spoke.area_pricing_section_total || 0)),
-    Math.max(0, Number(spoke.volume_pricing_section_total || 0)),
-    spoke.custom_section_rows,
-    Math.max(0, Number(spoke.custom_section_total || 0)),
-  )
-  const sections: { label: string; amount: number }[] = mobilisation > 0
-    ? [{ label: 'Total cost of the quote', amount: mobilisation }]
-    : [
-      { label: 'Mobilisation & fees', amount: outcomeSum },
-      { label: 'Contents removal', amount: volumeSum },
-      { label: 'Remediation & cleaning', amount: surfaceSum },
-      { label: (spoke.custom_section_title ?? '').trim() || 'Other', amount: customSum },
-    ]
-  const lines: StatementReferenceLine[] = sections
-    .filter(section => section.amount > 0.004)
-    .map(section => ({ label: section.label, ...quoteMoney(section.amount, gst_mode) }))
-  const priced = totals.total > 0.004 || totals.subtotal > 0.004
-  if (priced) {
-    lines.push({ label: 'Total', ex: totals.subtotal, inc: totals.total, strong: true })
-  }
-  return {
-    heading: quoteHeading(kind, spoke.label),
-    reference,
-    detail: priced ? gstDetail(gst_mode) : '',
-    facts: [],
-    gst_mode,
-    lines,
-    empty: priced ? null : 'No quote price yet.',
-  }
-}
-
-interface QuoteFigures {
-  lines: { label: string; quantity: number; unit: string; amount: number }[]
-  subtotal: number
-  total: number
-}
-
-/** BCQ, SACQ, and CCQ price ex GST and add GST on. Unpriced lines are left out. */
-function blockFromQuoteFigures(heading: string, reference: string, figures: QuoteFigures, empty: string): StatementReferenceBlock {
-  const lines: StatementReferenceLine[] = figures.lines
-    .filter(line => line.amount > 0.004)
-    .map(line => ({
-      label: line.label,
-      quantity: line.quantity > 0 && line.unit && line.unit !== 'fee' ? `${round2(line.quantity)} ${line.unit}` : '',
-      ...quoteMoney(line.amount, 'exclusive'),
-    }))
-  const priced = figures.total > 0.004
-  if (priced) lines.push({ label: 'Total', ex: figures.subtotal, inc: figures.total, strong: true })
-  return {
-    heading,
-    reference,
-    detail: priced ? gstDetail('exclusive') : '',
-    facts: [],
-    quantityColumn: true,
-    gst_mode: 'exclusive',
-    lines,
-    empty: priced ? null : empty,
-  }
-}
-
-function specialistQuoteBlocks(assessment: AssessmentData | null | undefined, documents: Document[]): StatementReferenceBlock[] {
-  const bcq = normalizeBiohazardCleaningCapture(assessment?.biohazard_cleaning_quote ?? emptyBiohazardCleaningCapture())
-  const sacq = normalizeSurfaceAreaCleaningCapture(assessment?.surface_area_cleaning_quote ?? emptySurfaceAreaCleaningCapture())
-  const ccq = normalizeContentsClearanceCapture(assessment?.contents_clearance_quote ?? emptyContentsClearanceCapture())
-  return [
-    blockFromQuoteFigures(
-      'Biohazard cleaning (BCQ)',
-      documentReference(latestOfType(documents, 'biohazard_cleaning_quote'), ''),
-      biohazardCleaningFigures(bcq),
-      'No BCQ price yet.',
-    ),
-    blockFromQuoteFigures(
-      'Surface area cleaning (SACQ)',
-      documentReference(latestOfType(documents, 'surface_area_cleaning_quote'), ''),
-      surfaceAreaCaptureFigures(sacq),
-      'No SACQ price yet.',
-    ),
-    blockFromQuoteFigures(
-      'Contents clearance (CCQ)',
-      documentReference(latestOfType(documents, 'contents_clearance_quote'), ''),
-      contentsClearanceCaptureFigures(ccq),
-      'No CCQ price yet.',
-    ),
-  ]
-}
-
-/** Quoted beside measured. Shown only once there is a quote figure to compare against. */
-function quotedMeasuredFacts(
-  quoted: number | null,
-  measured: number | null,
-  format: (n: number) => string,
-  quoteCode: string,
-  recordCode: string,
-): { label: string; value: string }[] {
-  if (quoted == null) return []
-  const facts = [{ label: `Quoted (${quoteCode})`, value: format(quoted) }]
-  if (measured == null) return facts
-  const diff = round2(measured - quoted)
-  const change = diff === 0 ? 'same as quoted' : `${diff > 0 ? '+' : '−'}${format(Math.abs(diff))}`
-  facts.push({ label: `Measured (${recordCode})`, value: `${format(measured)} (${change})` })
-  return facts
-}
-
-/** Prices from the survey, each quote or estimate, and the contents disposal record. Display only. */
-export function statementReferencePanel(
-  assessment: AssessmentData | null | undefined,
-  documents: Document[],
-  jobId = '',
-): StatementReferencePanel {
-  const surveyDoc = houseSurveyDocument('', '', houseSurveyWithQuote(assessment))
-  const surveyReference = jobId
-    ? surveyDocumentCode(jobId, documents)
-    : documentReference(latestOfType(documents, 'house_survey'), '')
-  const surveyLines: StatementReferenceLine[] = surveyDoc.areas
-    .filter(area => area.priced != null || area.price_ex != null)
-    .map(area => ({
-      label: area.title,
-      ex: area.price_ex ?? Number.NaN,
-      inc: area.price_inc ?? Number.NaN,
-      quantity: area.priced == null ? '' : formatSqm(area.priced),
-    }))
-  const surveyPriced = surveyLines.length > 0
-  if (surveyDoc.totals.price_ex != null && surveyDoc.totals.price_inc != null) {
-    surveyLines.push({
-      label: 'Total',
-      ex: surveyDoc.totals.price_ex,
-      inc: surveyDoc.totals.price_inc,
-      quantity: surveyDoc.totals.priced == null ? '' : formatSqm(surveyDoc.totals.priced),
-      strong: true,
-    })
-  }
-
-  const quotes = quoteDocuments(documents)
-  const spokes = getQuoteSpokes(assessment)
-  const quoteBlocks = spokes.length > 0
-    ? spokes.map(spoke => blockFromSpoke(spoke, referenceForSpoke(quotes, spoke.id, spokes.length === 1)))
-    : quotes.map(blockFromQuoteDocument)
-
-  const disposalCapture = disposalCaptureWithQuote(assessment)
-  const disposalLoads = disposalCapture.loads.filter(loadHasContent)
-  const disposalPrices = disposalPriceLines(disposalLoads, disposalCapture.cost_per_m3, disposalCapture.prepaid_m3)
-  const volumes = disposalVolumes(disposalLoads)
-  const disposalTotals = computeDisposalTotals(disposalLoads)
-  const weight = disposalTotals.weight_recorded > 0 ? formatKg(disposalTotals.weight_kg) : ''
-  const disposalLines: StatementReferenceLine[] = []
-  const priced = (amount: number) => amount > 0.004
-  if (priced(disposalPrices.skips_inc) || volumes.skip) {
-    disposalLines.push({ label: 'Skip', ex: disposalPrices.skips_ex, inc: disposalPrices.skips_inc, quantity: volumes.skip })
-  }
-  if (priced(disposalPrices.trailers_ex) || volumes.trailer) {
-    disposalLines.push({ label: 'Trailer', ex: disposalPrices.trailers_ex, inc: disposalPrices.trailers_inc, quantity: volumes.trailer })
-  }
-  if (priced(disposalPrices.utes_ex) || volumes.ute) {
-    disposalLines.push({ label: 'Ute', ex: disposalPrices.utes_ex, inc: disposalPrices.utes_inc, quantity: volumes.ute })
-  }
-  if (priced(disposalPrices.others_ex) || volumes.other) {
-    disposalLines.push({ label: 'Other', ex: disposalPrices.others_ex, inc: disposalPrices.others_inc, quantity: volumes.other })
-  }
-  if (priced(disposalPrices.dump_fees_inc) || weight) {
-    disposalLines.push({ label: 'Tip fees', ex: disposalPrices.dump_fees_ex, inc: disposalPrices.dump_fees_inc, quantity: weight })
-  }
-  if (priced(disposalPrices.prepaid_ex)) {
-    disposalLines.push({
-      label: 'Prepaid',
-      ex: round2(-disposalPrices.prepaid_ex),
-      inc: round2(-disposalPrices.prepaid_inc),
-    })
-  }
-  const disposalPriced = disposalLines.length > 0
-  if (disposalPriced) {
-    disposalLines.push({
-      label: 'Total',
-      ex: disposalPrices.total_ex,
-      inc: disposalPrices.total_inc,
-      strong: true,
-    })
-  }
-
-  const surveyCompare = quotedVersusMeasured(houseSurveyWithQuote(assessment), quoteSurveyLink(assessment))
-  const surveyFacts = quotedMeasuredFacts(surveyCompare.quoted_m2, surveyCompare.measured_m2, formatSqm, 'SACQ', 'survey')
-  const quotedM3 = quoteDisposalLink(assessment)?.quoted_m3 ?? null
-  const disposalFacts = quotedMeasuredFacts(quotedM3, disposalTotals.volume_m3 > 0 ? disposalTotals.volume_m3 : null, formatM3, 'CCQ', 'CDR')
-
-  return {
-    survey: {
-      heading: 'Survey',
-      reference: surveyReference,
-      detail: '',
-      facts: surveyFacts,
-      quantityColumn: true,
-      itemHeading: 'Room',
-      quantityHeading: 'Area',
-      gst_mode: 'exclusive',
-      lines: surveyLines,
-      empty: surveyPriced ? null : 'No survey price yet.',
-    },
-    quotes: [...quoteBlocks, ...specialistQuoteBlocks(assessment, documents)],
-    disposal: {
-      heading: 'Contents disposal',
-      reference: documentReference(latestDisposalDocument(documents), ''),
-      detail: '',
-      facts: disposalFacts,
-      quantityColumn: true,
-      gst_mode: 'exclusive',
-      lines: disposalLines,
-      empty: disposalPriced ? null : 'No disposal price yet.',
-    },
-  }
-}
-
-export function disposalTotals(capture: DisposalManifestCapture | null | undefined): { ex: number; inc: number } {
-  if (!capture) return { ex: 0, inc: 0 }
-  const lines = disposalPriceLines(capture.loads ?? [], capture.cost_per_m3, capture.prepaid_m3)
-  return { ex: lines.total_ex, inc: lines.total_inc }
-}
-
-export function disposalTotal(capture: DisposalManifestCapture | null | undefined): number {
-  return disposalTotals(capture).ex
-}
-
-function withNumber(label: string, number: string): string {
-  const trimmed = number.trim()
-  return trimmed ? `${label} (${trimmed})` : label
-}
-
-function positionLine(owingEx: number, owingInc: number, overLabel: string, underLabel: string, evenLabel: string): StatementLedgerLine {
-  if (owingInc > 0.004) return { label: underLabel, ex: owingEx, inc: owingInc, strong: true }
-  if (owingInc < -0.004) return { label: overLabel, ex: round2(-owingEx), inc: round2(-owingInc), strong: true }
-  return { label: evenLabel, ex: 0, inc: 0, strong: true }
-}
-
-/** Dollars are typed on the statement. The quote and disposal record are references only. */
-export function statementFigures(capture: StatementOfAccountsCapture): StatementFigures {
-  const gst_mode: QuoteGstMode = capture.charges_gst ? 'exclusive' : 'no_gst'
-  const pair = (amount: number | null) => amount == null ? null : enteredPair(amount, gst_mode, true)
-  const invoice1 = pair(capture.invoice1_amount) ?? { ex: 0, inc: 0 }
-  const deposit = capture.deposit_taken ? (pair(capture.deposit_amount) ?? { ex: 0, inc: 0 }) : { ex: 0, inc: 0 }
-  const revised = pair(capture.invoice1_adjusted_amount)
-  const invoice2 = pair(capture.invoice2_amount)
-  const quote_ex = invoice1.ex
-  const quote_inc = invoice1.inc
-  const quote_gst = gst_mode === 'no_gst' ? 0 : round2(quote_inc - quote_ex)
-  const deposit_ex = deposit.ex
-  const deposit_inc = deposit.inc
-  const new_invoice_ex = invoice2?.ex ?? 0
-  const new_invoice_inc = invoice2?.inc ?? 0
-  const original_owing_ex = round2(quote_ex - deposit_ex)
-  const original_owing_inc = round2(quote_inc - deposit_inc)
-  const remeasured = revised != null
-  const remeasure_ex = revised == null ? 0 : round2(quote_ex - revised.ex)
-  const remeasure_inc = revised == null ? 0 : round2(quote_inc - revised.inc)
-  const has_invoice2 = invoice2 != null
-  const manual = capture.manual_adjustment == null ? null : enteredPair(capture.manual_adjustment, gst_mode, true)
-  const manual_ex = manual?.ex ?? 0
-  const manual_inc = manual?.inc ?? 0
-  const invoice2_owing_ex = round2(new_invoice_ex - remeasure_ex + (has_invoice2 ? manual_ex : 0))
-  const invoice2_owing_inc = round2(new_invoice_inc - remeasure_inc + (has_invoice2 ? manual_inc : 0))
-  const owing_ex = has_invoice2
-    ? round2(original_owing_ex + invoice2_owing_ex)
-    : round2(original_owing_ex - remeasure_ex + manual_ex)
-  const owing_inc = has_invoice2
-    ? round2(original_owing_inc + invoice2_owing_inc)
-    : round2(original_owing_inc - remeasure_inc + manual_inc)
-  const priced = revised ?? invoice1
-  const job_total_ex = round2(priced.ex + new_invoice_ex + manual_ex)
-  const job_total_inc = round2(priced.inc + new_invoice_inc + manual_inc)
-  const gst = gst_mode === 'no_gst' ? 0 : round2(owing_inc - owing_ex)
-  const lines: StatementLedgerLine[] = [
-    { label: 'Invoice 1', ex: quote_ex, inc: quote_inc },
-    { label: 'Deposit paid', ex: deposit_ex, inc: deposit_inc },
-    positionLine(
-      original_owing_ex,
-      original_owing_inc,
-      'Overpay on invoice 1',
-      withNumber('Underpay. Still to come on invoice 1', capture.original_invoice_number),
-      'Invoice 1 is paid',
-    ),
-  ]
-  if (revised) {
-    lines.push({ label: 'Invoice 1 after adjustment', ex: revised.ex, inc: revised.inc })
-    lines.push(positionLine(
-      -remeasure_ex,
-      -remeasure_inc,
-      'Overpay carried to the next invoice',
-      'Underpay added to the next invoice',
-      'No change from the adjustment',
-    ))
-  }
-  if (invoice2) {
-    lines.push({ label: 'Invoice 2', ex: new_invoice_ex, inc: new_invoice_inc })
-  }
-  if (manual) {
-    lines.push({
-      label: capture.manual_adjustment_reason.trim() || 'Adjustment',
-      ex: manual_ex,
-      inc: manual_inc,
-    })
-  }
-  if (invoice2) {
-    lines.push(positionLine(
-      invoice2_owing_ex,
-      invoice2_owing_inc,
-      withNumber('Overpay on invoice 2', capture.new_invoice_number),
-      withNumber('Underpay. Owing on invoice 2', capture.new_invoice_number),
-      'Invoice 2 is paid',
-    ))
-  }
-  if (revised || invoice2 || manual) {
-    lines.push({ label: 'Job total after adjustments', ex: job_total_ex, inc: job_total_inc, strong: true })
-  }
-  lines.push({ label: 'Total remaining owed', ex: owing_ex, inc: owing_inc, strong: true })
-  return {
-    reference: '',
-    gst_mode,
-    quote_ex,
-    quote_gst,
-    quote_inc,
-    disposal: round2(new_invoice_ex),
-    deposit_taken: capture.deposit_taken,
-    deposit_entered: deposit_inc,
-    deposit_ex,
-    owing_ex,
-    gst,
-    owing_inc,
-    original_owing_ex,
-    original_owing_inc,
-    new_invoice_ex,
-    new_invoice_inc,
-    remeasured,
-    invoice1_revised_ex: revised?.ex ?? null,
-    invoice1_revised_inc: revised?.inc ?? null,
-    remeasure_ex,
-    remeasure_inc,
-    invoice2_owing_ex: has_invoice2 ? invoice2_owing_ex : 0,
-    invoice2_owing_inc: has_invoice2 ? invoice2_owing_inc : 0,
-    job_total_ex,
-    job_total_inc,
-    has_invoice2,
-    lines,
-  }
-}
-
-/** Split a typed dollar amount into ex GST and inc GST. */
-function enteredPair(amount: number, gstMode: QuoteGstMode, includesGst: boolean): { ex: number; inc: number } {
-  if (gstMode === 'no_gst') {
-    const value = round2(amount)
-    return { ex: value, inc: value }
-  }
-  if (includesGst) {
-    const inc = round2(amount)
-    return { ex: round2(inc / 1.1), inc }
-  }
-  const ex = round2(amount)
-  return { ex, inc: round2(ex * 1.1) }
-}
-
-export function statementFromJob(
-  documents: Document[],
-  assessment: AssessmentData | null | undefined,
-): StatementFigures {
-  const capture = normalizeStatementCapture(assessment?.statement_of_accounts)
-  const figures = statementFigures(capture)
-  return { ...figures, reference: documentReference(latestQuoteDocument(documents), '—') }
 }
 
 export class StatementReconciliationError extends Error {
@@ -1175,4 +573,231 @@ export function presentStatementDocument(c: StatementOfAccountsContent): Stateme
     adjustmentNote,
     warnings,
   }
+}
+
+export function isStatementV2Content(content: unknown): content is StatementOfAccountsV2Content {
+  return Boolean(content && typeof content === 'object' && (content as { model_version?: unknown }).model_version === STATEMENT_MODEL_VERSION)
+}
+
+export type StatementLineKey = 'surface' | 'contents' | 'biohazard'
+
+export interface StatementEstimate {
+  key: StatementLineKey
+  label: string
+  /** Inc GST when the statement charges GST. */
+  amount: number
+}
+
+export type StatementV2Figures = Omit<StatementOfAccountsV2Content, 'model_version' | 'title' | 'reference' | 'site_address' | 'payment_terms' | 'due_date'> & {
+  estimates: StatementEstimate[]
+  /** Half the quotes' total, in the statement's GST basis. Null without quotes. */
+  suggested_deposit: number | null
+}
+
+const LINE_LABELS: Record<StatementLineKey, string> = {
+  surface: 'Surface cleaning',
+  contents: 'Contents removal',
+  biohazard: 'Biohazard cleaning',
+}
+
+const ESTIMATE_LABELS: Record<StatementLineKey, string> = {
+  surface: 'Surface area cleaning',
+  contents: 'Contents clearance',
+  biohazard: 'Biohazard cleaning',
+}
+
+/** Quote totals ex GST. A quote counts once it has a price. */
+function quoteTotals(ad: AssessmentData | null | undefined): Partial<Record<StatementLineKey, number>> {
+  const totals: Partial<Record<StatementLineKey, number>> = {}
+  if (ad?.surface_area_cleaning_quote != null) {
+    const ex = surfaceAreaCaptureFigures(normalizeSurfaceAreaCleaningCapture(ad.surface_area_cleaning_quote)).subtotal
+    if (ex > 0.004) totals.surface = ex
+  }
+  if (ad?.contents_clearance_quote != null) {
+    const ex = contentsClearanceCaptureFigures(normalizeContentsClearanceCapture(ad.contents_clearance_quote)).subtotal
+    if (ex > 0.004) totals.contents = ex
+  }
+  const bcq = biohazardRecordFromJob(ad)
+  if (bcq) {
+    const ex = biohazardCleaningFigures(bcq.quote).subtotal
+    if (ex > 0.004) totals.biohazard = ex
+  }
+  return totals
+}
+
+function longDate(raw: string): string {
+  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw.trim())
+  if (!iso) return raw.trim()
+  const date = new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]))
+  if (Number.isNaN(date.getTime())) return raw.trim()
+  return date.toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })
+}
+
+function estimatesNote(estimates: StatementEstimate[]): string {
+  if (estimates.length === 0) return ''
+  const total = round2(estimates.reduce((sum, e) => sum + e.amount, 0))
+  const parts = estimates.map(e => `${e.label} ${formatAud(e.amount)}`).join(', ')
+  return `The original estimates totalled ${formatAud(total)} (${parts}). Final figures are based on measured surface area, counted volume and work completed.`
+}
+
+/**
+ * The statement's only maths: each record's total, GST once, less the deposit,
+ * plus an optional adjustment. Quotes are shown as estimates and never added in.
+ */
+export function statementV2Figures(
+  ad: AssessmentData | null | undefined,
+  capture: StatementOfAccountsCapture = normalizeStatementCapture(ad?.statement_of_accounts),
+): StatementV2Figures {
+  const quotes = quoteTotals(ad)
+  const problems: string[] = []
+  const lines: StatementOfAccountsV2Content['lines'] = []
+  const add = (key: StatementLineKey, ex: number | null | undefined) => {
+    if (ex != null && ex > 0.004) lines.push({ label: LINE_LABELS[key], amount_ex: round2(ex) })
+  }
+
+  const survey = surveySummary(ad)
+  if (quotes.surface != null && !survey.exists) problems.push('The surface area cleaning quote needs a House Survey. Measure the surfaces first.')
+  else if (quotes.surface != null && survey.total_ex_gst == null) problems.push('The House Survey has no total yet. Measure an area and set the rate.')
+  add('surface', survey.total_ex_gst)
+
+  const cdr = cdrSummary(ad)
+  if (quotes.contents != null && !cdr.exists) problems.push('The contents clearance quote needs a Contents Disposal Record. Count the loads first.')
+  else if (quotes.contents != null && cdr.total_ex_gst == null) problems.push('The Contents Disposal Record has no total yet.')
+  add('contents', cdr.total_ex_gst)
+
+  const bcq = biohazardRecordFromJob(ad)
+  if (bcq?.needed) {
+    if (!bcq.exists) problems.push('The Biohazard Cleaning Quote is priced by area or tests. Fill in the Biohazard Cleaning Record on the House Survey.')
+    else if (bcq.summary.missing.length > 0) problems.push(`The Biohazard Cleaning Record is missing: ${bcq.summary.missing.join(', ')}.`)
+    add('biohazard', bcq.summary.total_ex)
+  } else {
+    add('biohazard', quotes.biohazard)
+  }
+
+  if (lines.length === 0 && problems.length === 0) problems.push('There is nothing to bill yet. Complete the House Survey, Contents Disposal Record or Biohazard Cleaning Record.')
+
+  const charges_gst = capture.charges_gst
+  const total_ex = round2(lines.reduce((sum, line) => sum + line.amount_ex, 0))
+  const gst = charges_gst ? round2(total_ex * 0.1) : 0
+  const total_inc = round2(total_ex + gst)
+  const deposit = round2(capture.deposit_amount ?? 0)
+  if (deposit > 0.004 && !capture.deposit_date.trim()) problems.push('Enter the date the deposit was paid.')
+  const adjustment = capture.manual_adjustment == null ? null : round2(capture.manual_adjustment)
+  const adjustment_reason = capture.manual_adjustment_reason.trim()
+  if (adjustment != null && !adjustment_reason) problems.push('Enter the reason for the adjustment.')
+
+  const basis = (ex: number) => charges_gst ? round2(ex * 1.1) : round2(ex)
+  const estimates = (Object.keys(ESTIMATE_LABELS) as StatementLineKey[]).flatMap(key => {
+    const ex = quotes[key]
+    return ex == null ? [] : [{ key, label: ESTIMATE_LABELS[key], amount: basis(ex) }]
+  })
+  const quoted = estimates.reduce((sum, e) => sum + e.amount, 0)
+  return {
+    charges_gst,
+    estimates_note: estimatesNote(estimates),
+    lines,
+    total_ex,
+    gst,
+    total_inc,
+    deposit,
+    deposit_date: capture.deposit_date.trim(),
+    adjustment,
+    adjustment_reason,
+    balance: round2(total_inc - deposit + (adjustment ?? 0)),
+    invoice_number: capture.invoice_number.trim(),
+    invoice_url: capture.invoice_url.trim(),
+    problems,
+    estimates,
+    suggested_deposit: estimates.length > 0 ? round2(quoted / 2) : null,
+  }
+}
+
+export function statementV2Content(f: StatementV2Figures, reference: string, siteAddress: string): StatementOfAccountsV2Content {
+  return {
+    model_version: STATEMENT_MODEL_VERSION,
+    title: 'Statement of Accounts',
+    reference,
+    site_address: siteAddress,
+    charges_gst: f.charges_gst,
+    estimates_note: f.estimates_note,
+    lines: f.lines,
+    total_ex: f.total_ex,
+    gst: f.gst,
+    total_inc: f.total_inc,
+    deposit: f.deposit,
+    deposit_date: f.deposit_date,
+    adjustment: f.adjustment,
+    adjustment_reason: f.adjustment_reason,
+    balance: f.balance,
+    invoice_number: f.invoice_number,
+    invoice_url: f.invoice_url,
+    problems: f.problems,
+  }
+}
+
+export interface StatementV2Row {
+  label: string
+  amount: number
+  /** Totals and the balance. */
+  strong?: boolean
+}
+
+export interface StatementV2Presentation {
+  rows: StatementV2Row[]
+  jobTotal: number
+  paid: number
+  /** Positive is owing. Negative is a credit to the client. */
+  balance: number
+  balanceLabel: 'Balance owing' | 'Credit'
+  payHref: string | null
+  payLabel: string | null
+  estimatesNote: string
+}
+
+type StatementV2Totals = Pick<StatementOfAccountsV2Content,
+  'charges_gst' | 'lines' | 'total_ex' | 'gst' | 'total_inc' | 'deposit' | 'deposit_date' | 'adjustment' | 'adjustment_reason' | 'balance' | 'invoice_url' | 'estimates_note'>
+
+/** The summary rows. One source for the tab, the printed statement and the payment reminder. */
+export function statementV2Rows(c: StatementV2Totals): StatementV2Row[] {
+  const rows: StatementV2Row[] = c.lines.map(line => ({ label: line.label, amount: line.amount_ex }))
+  if (c.charges_gst) {
+    rows.push({ label: 'Job total ex GST', amount: c.total_ex, strong: true })
+    rows.push({ label: 'GST', amount: c.gst })
+    rows.push({ label: 'Job total inc GST', amount: c.total_inc, strong: true })
+  } else {
+    rows.push({ label: 'Job total', amount: c.total_ex, strong: true })
+  }
+  if (c.deposit > 0.004) {
+    rows.push({ label: c.deposit_date ? `Less deposit paid (${longDate(c.deposit_date)})` : 'Less deposit paid', amount: -c.deposit })
+  }
+  if (c.adjustment != null) rows.push({ label: `Adjustment (${c.adjustment_reason})`, amount: c.adjustment })
+  const credit = c.balance < -0.004
+  rows.push({ label: credit ? 'Credit' : 'Balance owing', amount: credit ? -c.balance : c.balance, strong: true })
+  return rows
+}
+
+/** Throws when the statement cannot be issued, so the page and print refuse it with the reason. */
+export function presentStatementV2(c: StatementOfAccountsV2Content): StatementV2Presentation {
+  if (c.problems.length > 0) throw new StatementReconciliationError(c.problems.join(' '))
+  const payHref = c.balance > 0.004 ? statementPayHref(c.invoice_url) : null
+  return {
+    rows: statementV2Rows(c),
+    jobTotal: c.total_inc,
+    paid: c.deposit,
+    balance: c.balance,
+    balanceLabel: c.balance < -0.004 ? 'Credit' : 'Balance owing',
+    payHref,
+    payLabel: payHref ? `Pay ${moneyLabel(c.balance)} online` : null,
+    estimatesNote: c.estimates_note,
+  }
+}
+
+/** The statement as the payment reminder shows it: job total, deposit, adjustment, balance. */
+export function statementReminderLines(f: StatementV2Figures): StatementLedgerLine[] {
+  const pair = (amount: number) => ({ ex: f.charges_gst ? round2(amount / 1.1) : amount, inc: amount })
+  const lines: StatementLedgerLine[] = [{ label: 'Job total', ex: f.total_ex, inc: f.total_inc }]
+  if (f.deposit > 0.004) lines.push({ label: 'Less deposit paid', ...pair(-f.deposit) })
+  if (f.adjustment != null) lines.push({ label: `Adjustment (${f.adjustment_reason})`, ...pair(f.adjustment) })
+  lines.push({ label: f.balance < -0.004 ? 'Credit' : 'Balance owing', ...pair(Math.abs(f.balance)), strong: true })
+  return lines
 }

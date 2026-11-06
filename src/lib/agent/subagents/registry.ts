@@ -11,7 +11,7 @@ import { houseSurveyAgent } from './defs/houseSurvey'
 import { statementOfAccountsAgent } from './defs/statementOfAccounts'
 import { surfaceAreaCleaningQuoteAgent } from './defs/surfaceAreaCleaningQuote'
 import { wasteDisposalManifestAgent } from './defs/wasteDisposalManifest'
-import { CAPTURE_KEYS, TARGET } from '../patchDraft'
+import { CAPTURE_KEYS, TARGET, type CaptureKey } from '../patchDraft'
 import type { ReadView } from '../jobSnapshot'
 import type { AssessmentData } from '@/lib/types'
 import { DOC_AGENT_TYPES, EXTRA_READS, type DocAgentDef, type DocAgentType, type ExtraRead } from './types'
@@ -51,7 +51,7 @@ export function hiddenDocumentTypes(def: DocAgentDef): string[] {
  */
 export function readableCaptures(def: DocAgentDef): string[] {
   const hidden = hiddenCaptures(def)
-  const base = readsFullJob(def) ? [...CAPTURE_KEYS] : [def.captureKey, ...def.readCaptures]
+  const base = readsFullJob(def) ? [...CAPTURE_KEYS] : [...ownCaptures(def), ...def.readCaptures]
   return [...base.filter(k => !hidden.includes(k)), ...(def.summarised ?? []).map(s => s.key)]
 }
 
@@ -94,9 +94,19 @@ export function extraReadsFor(def: DocAgentDef): ExtraRead[] {
   return readsFullJob(def) ? [...EXTRA_READS] : def.extraReads
 }
 
-/** The only capture key a sub-agent may draft. Enforced by the draft tools. */
+/** The capture keys a sub-agent drafts: its own, then any record it also keeps. */
+export function ownCaptures(def: DocAgentDef): CaptureKey[] {
+  return [def.captureKey, ...(def.alsoOwns ?? [])]
+}
+
+/** Only its own capture keys. Enforced by the draft tools and on approval. */
 export function canDraftCapture(def: DocAgentDef, key: string): boolean {
-  return key === def.captureKey
+  return (ownCaptures(def) as string[]).includes(key)
+}
+
+/** The sub-agent that keeps a capture, if any. */
+export function captureOwner(key: string): DocAgentDef | undefined {
+  return Object.values(DOC_AGENTS).find(d => canDraftCapture(d, key))
 }
 
 /** The only saved document type a sub-agent may patch or generate. */

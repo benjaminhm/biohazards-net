@@ -12,6 +12,7 @@ import {
   xeroSettings,
 } from './invoice'
 import { xeroErrorMessage } from './client'
+import { invoicePaid, xeroDate } from './payments'
 import { isAcceptableQuoteType } from '../acceptableQuotes'
 
 const KEY = 'a'.repeat(64)
@@ -92,4 +93,16 @@ test('BCQ, CCQ and SACQ are acceptable quotes', () => {
     assert.ok(isAcceptableQuoteType(t))
   }
   assert.ok(!isAcceptableQuoteType('report'))
+})
+
+test('deposit prefill reads what Xero says was paid, with the latest payment date', () => {
+  assert.equal(xeroDate('/Date(1762387200000+0000)/'), '2025-11-06')
+  assert.equal(xeroDate('2026-11-02T00:00:00'), '2026-11-02')
+  assert.equal(xeroDate('soon'), null)
+  assert.deepEqual(
+    invoicePaid({ InvoiceNumber: 'INV-9', AmountPaid: 1100.004, Payments: [{ Date: '/Date(1762387200000+0000)/' }, { Date: '2025-10-01' }] }),
+    { invoice_number: 'INV-9', amount_paid: 1100, paid_on: '2025-11-06' },
+  )
+  assert.equal(invoicePaid({ InvoiceNumber: 'INV-9', AmountPaid: 0 }), null)
+  assert.equal(invoicePaid(null), null)
 })

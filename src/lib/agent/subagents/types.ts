@@ -59,7 +59,8 @@ export interface SummarisedCapture {
 export interface SubAgentApi {
   /** The raw assessment, for code that computes. Tools return only what the agent may read. */
   readAssessment: () => Promise<AssessmentData | null>
-  draftOwnPatch: (draft: PatchDraft, summary?: string) => Promise<string>
+  /** Drafts on captureKey unless key names another capture it owns. */
+  draftOwnPatch: (draft: PatchDraft, summary?: string, key?: CaptureKey) => Promise<string>
 }
 
 export interface DocAgentDef {
@@ -67,15 +68,17 @@ export interface DocAgentDef {
   /** Shown as "File agent > <label>". */
   label: string
   docLabel: string
-  /** The only capture it may draft changes to. */
+  /** The capture it drafts changes to. */
   captureKey: CaptureKey
+  /** Records printed in its document that it also keeps. Nobody else may draft them. */
+  alsoOwns?: CaptureKey[]
   /** The only saved document type it may patch or generate. */
   documentType: DocType
   /**
    * 'full': reads the whole job file (snapshot, changes, health, any capture,
    * any document, calls, notes, photos, Xero, acceptances), read only.
    * 'scoped' (default): only readCaptures, readDocumentTypes and extraReads.
-   * Writes stay limited to captureKey and documentType either way.
+   * Writes stay limited to its own captures and documentType either way.
    */
   reads?: 'full' | 'scoped'
   /** Other captures it reads as inputs (its own is always readable). With reads 'full', the ones shown up front each turn. */

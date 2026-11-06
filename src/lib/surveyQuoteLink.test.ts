@@ -5,11 +5,9 @@ import { emptyHouseSurvey, houseSurveyDocument } from '@/lib/houseSurvey'
 import {
   houseSurveyWithQuote,
   quoteSurveyLink,
-  quotedVersusMeasured,
   surveyAreasFromQuoteRooms,
   surveyIsBlank,
 } from '@/lib/surveyQuoteLink'
-import { statementReferencePanel } from '@/lib/statementOfAccounts'
 
 const sacq = {
   rate_per_m2: 12,
@@ -67,18 +65,4 @@ test('labour and the call-out fee carry from the quote into the survey total', (
   const waivedDoc = houseSurveyDocument('', '', { areas, price_per_m2: 12 }, waived!.charges)
   assert.equal(waivedDoc.charges?.mobilisation_ex, 0)
   assert.equal(waivedDoc.totals.price_ex, doc.totals.price_ex)
-})
-
-test('quoted and measured line up by room, and the statement shows both', () => {
-  const ad = { surface_area_cleaning_quote: sacq } as unknown as AssessmentData
-  const link = quoteSurveyLink(ad)!
-  const areas = surveyAreasFromQuoteRooms(link)
-  areas[0].legs[0].length_m = 6
-  areas[0].legs[2].length_m = 6
-  const compare = quotedVersusMeasured({ areas, price_per_m2: null }, link)
-  const lounge = compare.rows.find(row => row.label === 'Lounge')!
-  assert.ok(lounge.measured_m2! > lounge.quoted_m2!)
-  const panel = statementReferencePanel({ ...ad, house_survey: { areas, price_per_m2: null } } as unknown as AssessmentData, [])
-  assert.equal(panel.survey.facts[0]?.label, 'Quoted (SACQ)')
-  assert.match(panel.survey.facts[1]?.value ?? '', /\+/)
 })

@@ -6,7 +6,7 @@ import type { Job } from '@/lib/types'
 import { mergeAssessmentData } from '@/lib/riskDerivation'
 import { useRegisterUnsavedChanges } from '@/lib/unsavedChangesContext'
 import { formatAud } from '@/lib/disposalManifest'
-import { normalizeStatementCapture, statementFigures } from '@/lib/statementOfAccounts'
+import { statementReminderLines, statementV2Figures } from '@/lib/statementOfAccounts'
 import {
   formatLongDate,
   normalizePaymentOverdueCapture,
@@ -107,11 +107,8 @@ export default function PaymentOverdueTab({ job, onJobUpdate }: Props) {
   const isDirty = !capturesEqual(capture, baseline)
   useRegisterUnsavedChanges('payment-overdue', isDirty)
 
-  const statement = useMemo(
-    () => normalizeStatementCapture(job.assessment_data?.statement_of_accounts),
-    [job.assessment_data?.statement_of_accounts],
-  )
-  const figures = useMemo(() => statementFigures(statement), [statement])
+  const statement = useMemo(() => statementV2Figures(job.assessment_data), [job.assessment_data])
+  const statementLines = useMemo(() => statementReminderLines(statement), [statement])
   const options = useMemo(() => overdueInvoiceOptions(statement), [statement])
   const letterDate = capture.letter_date || todayIso()
   const result = useMemo(
@@ -165,22 +162,22 @@ export default function PaymentOverdueTab({ job, onJobUpdate }: Props) {
     if (ok) router.push(`/jobs/${job.id}/docs/payment_reminder?compose=1`)
   }
 
-  const chargesGst = figures.gst_mode !== 'no_gst'
+  const chargesGst = statement.charges_gst
 
   return (
     <div style={{ paddingBottom: 120 }}>
       <h2 style={{ fontSize: 18, fontWeight: 700, margin: '0 0 6px' }}>Payment Overdue</h2>
       <p style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.55, marginTop: 0 }}>
-        The invoices and amounts come from the Statement of Accounts. Mark which of them is late.
-        The late amount is that invoice’s remaining balance. The 14, 21, and 28 day dates start on the letter date.
+        The invoice and amounts come from the Statement of Accounts. Mark the invoice as late.
+        The late amount is the balance owing on the statement. The 14, 21, and 28 day dates start on the letter date.
       </p>
 
       <section style={cardStyle}>
         <div style={headingStyle}>Statement of Accounts</div>
-        {statement.invoice1_amount == null && statement.invoice2_amount == null ? (
-          <p style={{ margin: 0, color: 'var(--text-muted)' }}>Enter the invoices on Statement of Accounts first.</p>
+        {statement.lines.length === 0 ? (
+          <p style={{ margin: 0, color: 'var(--text-muted)' }}>Complete the Statement of Accounts first.</p>
         ) : (
-          figures.lines.map((line, index) => (
+          statementLines.map((line, index) => (
             <div
               key={`${line.label}-${index}`}
               style={{

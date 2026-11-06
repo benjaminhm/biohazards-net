@@ -8,8 +8,8 @@ import { disposalRecordSummary, loadHasContent, mergedDisposalManifestCapture, q
 import { agentView, canReadDocument, DOC_AGENTS, readableCaptures, readViewFor } from './registry'
 import { directTools, inputsMessage, stateText, subAgentTools, type SubCtx } from './runner'
 import { buildSnapshot, changesSince, snapshotHashes, type SnapshotRaw } from '../jobSnapshot'
-import { cdrSummary, surveySummary } from '../recordSummaries'
-import { statementAgentFigures, summaryDollarFigures } from '../statementDraft'
+import { bcqRecordSummary, cdrSummary, surveySummary } from '../recordSummaries'
+import { statementAgentFigures } from '../statementDraft'
 import { CAPTURE_KEYS } from '../patchDraft'
 import { ToolError } from '../loop'
 import type { DraftRow } from '../drafts'
@@ -39,12 +39,14 @@ function job(): AssessmentData {
       cost_per_m3: 100,
       prepaid_m3: 2,
     },
+    biohazard_cleaning_quote: { estimated_m2: 10, rate_per_m2: 40, travel_km: 0 },
+    biohazard_cleaning_record: { primary_m2: 8, extra_amounts: {}, other_zones: [] },
     statement_of_accounts: { invoice1_amount: 1650, charges_gst: true },
     sow_capture: { objective: 'Clean the lounge' },
   } as unknown as AssessmentData
 }
 
-const RAW_ONLY = ['SECRET-TIP', 'skip_cost', 'prepaid_m3', 'dump_fee', '"legs"', '4321']
+const RAW_ONLY = ['SECRET-TIP', 'skip_cost', 'prepaid_m3', 'dump_fee', '"legs"', '4321', '"primary_m2"', '"extra_amounts"']
 
 function assertNoRaw(value: unknown, where: string) {
   const s = JSON.stringify(value)
@@ -116,16 +118,19 @@ test('a record not started yet is flagged, with no figures', () => {
 
 test('statement agent: raw survey and CDR captures and documents are unreadable; summaries replace them', () => {
   const keys = readableCaptures(soa)
-  assert.ok(!keys.includes('house_survey') && !keys.includes('disposal_manifest_capture'))
-  assert.ok(keys.includes('survey_summary') && keys.includes('cdr_summary'))
-  for (const k of CAPTURE_KEYS) if (k !== 'house_survey' && k !== 'disposal_manifest_capture') assert.ok(keys.includes(k), k)
+  const hidden = ['house_survey', 'disposal_manifest_capture', 'biohazard_cleaning_record']
+  for (const k of hidden) assert.ok(!keys.includes(k as never), k)
+  assert.ok(keys.includes('survey_summary') && keys.includes('cdr_summary') && keys.includes('bcq_record_summary'))
+  for (const k of CAPTURE_KEYS) if (!hidden.includes(k)) assert.ok(keys.includes(k), k)
   assert.equal(canReadDocument(soa, 'house_survey'), false)
   assert.equal(canReadDocument(soa, 'waste_disposal_manifest'), false)
   for (const t of ['quote', 'contents_clearance_quote', 'statement_of_accounts', 'completion_report']) assert.ok(canReadDocument(soa, t), t)
 
   const ad = job()
   const view = agentView(soa, ad)
-  assert.ok(!('house_survey' in view) && !('disposal_manifest_capture' in view))
+  assert.ok(!('house_survey' in view) && !('disposal_manifest_capture' in view) && !('biohazard_cleaning_record' in view))
+  assert.deepEqual(view.bcq_record_summary, bcqRecordSummary(ad))
+  assert.equal((view.bcq_record_summary as { total_ex_gst: number }).total_ex_gst, 320)
   assert.deepEqual(view.survey_summary, surveySummary(ad))
   assert.deepEqual(view.cdr_summary, cdrSummary(ad))
   assert.deepEqual(view.statement_of_accounts, ad.statement_of_accounts)
@@ -173,7 +178,7 @@ test('statement agent: read tools refuse the records and documents, and return s
   for (const tools of [subAgentTools(soa), directTools(soa)]) {
     const readCapture = tools.find(t => t.name === 'read_capture')!
     const ctx = ctxWith({ assessment_data: ad })
-    for (const key of ['house_survey', 'disposal_manifest_capture']) {
+    for (const key of ['house_survey', 'disposal_manifest_capture', 'biohazard_cleaning_record']) {
       await assert.rejects(readCapture.run(ctx, { key }), (err: unknown) => {
         assert.ok(err instanceof ToolError)
         assert.equal(JSON.parse(err.message).blocked_action, `read_capture:${key}`)
@@ -197,19 +202,19 @@ test('statement agent: read tools refuse the records and documents, and return s
   }
 })
 
-test('statement agent figures come from the summaries, never skip, tip, prepaid or waste charge', () => {
+test('statement agent figures come from the three summaries, never skip, tip, prepaid or waste charge', () => {
   const ad = job()
   const figures = statementAgentFigures(ad)
   assert.deepEqual(figures.survey_summary, surveySummary(ad))
   assert.deepEqual(figures.cdr_summary, cdrSummary(ad))
+  assert.deepEqual(figures.bcq_record_summary, bcqRecordSummary(ad))
   assertNoRaw(figures, 'survey_and_cdr_figures')
-  assert.deepEqual(summaryDollarFigures(ad).map(f => [f.statement_field, f.amount]), [
-    ['invoice1_adjusted_amount', surveySummary(ad).total_inc_gst],
-    ['invoice2_amount', 1760],
+  assert.deepEqual(figures.statement.lines_ex_gst?.map(line => [line.label, line.amount_ex]), [
+    ['Surface cleaning', surveySummary(ad).total_ex_gst],
+    ['Contents removal', 1600],
+    ['Biohazard cleaning', 320],
   ])
-  const exGst = { ...ad, statement_of_accounts: { charges_gst: false } } as AssessmentData
-  assert.deepEqual(summaryDollarFigures(exGst).map(f => f.amount), [surveySummary(ad).total_ex_gst, 1600])
-  for (const f of summaryDollarFigures(ad)) assert.ok(!/skips|trailers|utes|tip_receipts|prepaid/.test(f.statement_field))
+  assert.ok(!/skips|trailers|utes|tip_receipts|invoice2/.test(JSON.stringify(figures)))
 })
 
 test('other agents keep their reads of the survey and CDR', () => {

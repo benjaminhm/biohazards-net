@@ -1198,8 +1198,13 @@ export interface AssessmentData {
   }
   /** Biohazard Cleaning Quote. Shape and defaults are in lib/biohazardCleaningQuote.ts. */
   biohazard_cleaning_quote?: Record<string, unknown>
-  /** Statement of Accounts — deposit taken against the quote, before the balance is worked out. */
+  /** Biohazard Cleaning Record: measured actuals for the BCQ. Shape is in lib/biohazardCleaningRecord.ts. */
+  biohazard_cleaning_record?: Record<string, unknown>
+  /** Statement of Accounts. Model 2 bills the records' totals less the deposit; the invoice fields below it are model 1. */
   statement_of_accounts?: {
+    model_version?: number
+    invoice_number?: string
+    invoice_url?: string
     deposit_taken: boolean
     deposit_amount: number | null
     deposit_includes_gst: boolean
@@ -2341,7 +2346,37 @@ export interface StatementLedgerLine {
   strong?: boolean
 }
 
+/** Model 2: the records' totals, less the deposit, plus an optional adjustment. */
+export interface StatementOfAccountsV2Content {
+  model_version: 2
+  title: string
+  reference: string
+  site_address: string
+  charges_gst: boolean
+  /** Original estimates, shown as a paragraph. Never part of the calculation. Empty when there are no quotes. */
+  estimates_note: string
+  /** Ex GST: surface cleaning, contents removal, biohazard cleaning. */
+  lines: { label: string; amount_ex: number }[]
+  total_ex: number
+  gst: number
+  total_inc: number
+  /** Inc GST when the statement charges GST. */
+  deposit: number
+  deposit_date: string
+  adjustment: number | null
+  adjustment_reason: string
+  balance: number
+  invoice_number: string
+  invoice_url: string
+  /** Why the statement cannot be issued. Printing is refused while any remain. */
+  problems: string[]
+  payment_terms?: string
+  due_date?: string
+}
+
+/** Model 1. Issued statements keep this shape and print as they were. */
 export interface StatementOfAccountsContent {
+  model_version?: 1
   title: string
   reference: string
   site_address: string

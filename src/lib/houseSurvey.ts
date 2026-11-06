@@ -1,6 +1,7 @@
 import type { Area } from '@/lib/types'
 import { getEffectiveSubzones } from '@/lib/areaSubzones'
 import { fixedCharges, recordSummary, type FixedChargeDefaults, type FixedCharges, type RecordSummary } from '@/lib/fixedCharges'
+import type { BiohazardRecordSummary } from '@/lib/biohazardCleaningRecord'
 
 export type HouseSurveyTurn = 'left' | 'right'
 
@@ -504,6 +505,8 @@ export interface HouseSurveyDocumentContent {
   charges?: FixedCharges
   /** Surface cleaning, labour, call-out fee, and GST. Totals above stay surface cleaning only. */
   summary?: RecordSummary
+  /** Biohazard Cleaning Record, when the job's BCQ is priced by area or tests. Its own section and summary. */
+  biohazard_record?: BiohazardRecordSummary
 }
 
 export function houseSurveyDocument(

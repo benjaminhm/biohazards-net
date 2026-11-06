@@ -278,7 +278,7 @@ async function jobAssessment(ctx: WsContext, jobId: string): Promise<AssessmentD
 const getSurveyAndDisposal: WsTool = {
   name: 'get_survey_and_disposal',
   description:
-    'Read the House Survey rooms (priced m² and price at the survey rate), the Contents Disposal Record (CDR) loads, volume and weight, and the Statement of Accounts as it stands.',
+    'Read the House Survey, Contents Disposal Record (CDR) and Biohazard Cleaning Record summaries (survey_summary, cdr_summary, bcq_record_summary: quantity × rate, labour, call-out fee, totals and GST), the Statement of Accounts as it calculates now, and what stops it being issued (flags).',
   input_schema: { type: 'object', properties: {} },
   async run(ctx) {
     return surveyAndDisposalSummary(await jobAssessment(ctx, activeJob(ctx)))

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import type { Job } from '@/lib/types'
+import type { AssessmentData, Job } from '@/lib/types'
 import { buildPrintHTML } from '@/lib/printDocument'
 import {
   addCalendarDays,
@@ -12,10 +12,18 @@ import {
   resolveContractedPayer,
   type PaymentOverdueCapture,
 } from '@/lib/paymentOverdue'
-import { emptyStatementCapture, type StatementOfAccountsCapture } from '@/lib/statementOfAccounts'
+import { emptyStatementCapture, statementV2Figures, type StatementOfAccountsCapture } from '@/lib/statementOfAccounts'
 
-function statement(patch: Partial<StatementOfAccountsCapture>): StatementOfAccountsCapture {
-  return { ...emptyStatementCapture(), ...patch }
+/** A job whose House Survey bills `ex` (one labour day), with the statement inputs given. */
+function statementAd(ex: number, patch: Partial<StatementOfAccountsCapture> = {}): AssessmentData {
+  return {
+    house_survey: { areas: [], labour_days: 1, rate_per_labour_day: ex },
+    statement_of_accounts: { ...emptyStatementCapture(), ...patch },
+  } as unknown as AssessmentData
+}
+
+function statement(ex: number, patch: Partial<StatementOfAccountsCapture> = {}) {
+  return statementV2Figures(statementAd(ex, patch))
 }
 
 function capture(patch: Partial<PaymentOverdueCapture> = {}): PaymentOverdueCapture {
@@ -63,33 +71,19 @@ test('a person with no organisation is the contracted payer', () => {
   assert.equal(payer.address, '1 Site St')
 })
 
-test('a paid invoice cannot be marked late', () => {
-  const options = overdueInvoiceOptions(statement({
-    invoice1_amount: 1100,
-    deposit_taken: true,
-    deposit_amount: 1100,
-    invoice2_amount: 550,
-    original_invoice_number: 'INV-1',
-    new_invoice_number: 'INV-2',
-  }))
-  assert.deepEqual(options.map(option => option.key), ['invoice2'])
-  assert.equal(options[0].label, 'Invoice 2 (INV-2)')
-  assert.equal(options[0].remainingInc, 550)
+test('a paid statement has no late invoice', () => {
+  assert.deepEqual(overdueInvoiceOptions(statement(1000, { deposit_amount: 1100, deposit_date: '2026-09-01' })), [])
 })
 
-test('invoice 1 keeps its own balance when invoice 2 carries an adjustment', () => {
-  const options = overdueInvoiceOptions(statement({
-    invoice1_amount: 1100,
-    deposit_taken: true,
-    deposit_amount: 100,
-    invoice1_adjusted_amount: 900,
-    invoice2_amount: 500,
-    adjustment_reason: 'Remeasured',
+test('the late invoice is the statement balance after the deposit and adjustment', () => {
+  const options = overdueInvoiceOptions(statement(1000, {
+    deposit_amount: 500,
+    deposit_date: '2026-09-01',
+    manual_adjustment: -100,
+    manual_adjustment_reason: 'goodwill',
+    invoice_number: 'INV-1',
   }))
-  const invoice1 = options.find(option => option.key === 'invoice1')
-  const invoice2 = options.find(option => option.key === 'invoice2')
-  assert.equal(invoice1?.remainingInc, 1000)
-  assert.equal(invoice2?.remainingInc, 300)
+  assert.deepEqual(options, [{ key: 'invoice1', label: 'Invoice (INV-1)', remainingInc: 500 }])
 })
 
 test('the reminder quotes the statement and counts 14, 21 and 28 days from the letter', () => {
@@ -97,19 +91,11 @@ test('the reminder quotes the statement and counts 14, 21 and 28 days from the l
     '8 Example Road',
     {
       ...ready,
-      invoice2_late: true,
-      invoice2_submitted: '2026-09-01',
-      invoice2_due: '2026-09-10',
       guarantor_name: 'Sam Lee',
       guarantor_address: '4 Home Street, Brisbane',
       guarantee_reference: 'engagement dated 1 July 2026',
     },
-    statement({
-      invoice1_amount: 1100,
-      invoice2_amount: 550,
-      original_invoice_number: 'INV-1',
-      new_invoice_number: 'INV-2',
-    }),
+    statement(1500, { invoice_number: 'INV-1' }),
     '2026-10-05',
   )
   assert.equal(result.ok, true)
@@ -119,10 +105,9 @@ test('the reminder quotes the statement and counts 14, 21 and 28 days from the l
   assert.equal(result.draft.finalOn, '2026-11-02')
   assert.equal(result.draft.lateTotalInc, 1650)
   assert.equal(result.draft.lateInvoices[0].daysLate, daysBetween('2026-08-15', '2026-10-05'))
-  assert.ok(result.draft.statementLines.some(line => line.label === 'Invoice 1'))
+  assert.deepEqual(result.draft.statementLines.map(line => [line.label, line.inc]), [['Job total', 1650], ['Balance owing', 1650]])
   assert.match(result.draft.paragraphs.join('\n'), /Statement of Accounts for 8 Example Road/)
-  assert.match(result.draft.paragraphs.join('\n'), /Invoice 1 \(INV-1\) is late by/)
-  assert.match(result.draft.paragraphs.join('\n'), /Invoice 2 \(INV-2\) is late by/)
+  assert.match(result.draft.paragraphs.join('\n'), /Invoice \(INV-1\) is late by/)
   assert.match(result.draft.paragraphs.join('\n'), /letter of demand will be sent to Northside Property Pty Ltd at 12 Accounts Street/)
   assert.match(result.draft.paragraphs.join('\n'), /Sam Lee, who personally guaranteed this payment \(engagement dated 1 July 2026\)/)
   assert.match(result.draft.paragraphs.join('\n'), /legal action will be commenced/)
@@ -133,7 +118,7 @@ test('an invoice that is not yet due is rejected', () => {
   const result = paymentReminderResult(
     '8 Example Road',
     { ...ready, invoice1_due: '2026-10-20' },
-    statement({ invoice1_amount: 1100, original_invoice_number: 'INV-1' }),
+    statement(1000, { invoice_number: 'INV-1' }),
     '2026-10-05',
   )
   assert.equal(result.ok, false)
@@ -145,7 +130,7 @@ test('a partial guarantor is rejected', () => {
   const result = paymentReminderResult(
     '8 Example Road',
     { ...ready, guarantor_name: 'Sam Lee' },
-    statement({ invoice1_amount: 1100 }),
+    statement(1000),
     '2026-10-05',
   )
   assert.equal(result.ok, false)
@@ -157,10 +142,7 @@ test('compose stores the reminder and reports a missing balance', () => {
   const job = {
     id: 'job-1',
     site_address: '8 Example Road',
-    assessment_data: {
-      statement_of_accounts: statement({ invoice1_amount: 1100, original_invoice_number: 'INV-1' }),
-      payment_overdue: ready,
-    },
+    assessment_data: { ...statementAd(1000, { invoice_number: 'INV-1' }), payment_overdue: ready },
   } as Job
   const content = buildPaymentReminderContent(job, 'PRM-20261005-JOB1')
   assert.equal(content.error, '')

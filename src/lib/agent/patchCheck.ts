@@ -8,7 +8,7 @@
  * from its registry definition.
  */
 import { flattenPatch, getPath, isCaptureKey, parseTarget, PatchError, photoPatch, patchIsCurrent } from './patchDraft'
-import { DOC_AGENTS } from './subagents/registry'
+import { DOC_AGENTS, canDraftCapture, ownCaptures } from './subagents/registry'
 import { isDocAgentType, type DocAgentDef } from './subagents/types'
 
 export interface PatchCheckInput {
@@ -66,7 +66,7 @@ export function checkPatch(input: PatchCheckInput): PatchCheck {
   let docDef: DocAgentDef | undefined
   if (target.type === 'capture') {
     if (!isCaptureKey(target.ref)) reasons.push(`"${target.ref}" is not a capture agents may change`)
-    if (owner && owner.captureKey !== target.ref) reasons.push(`The ${owner.label} may only change ${owner.captureKey}.`)
+    if (owner && !canDraftCapture(owner, target.ref)) reasons.push(`The ${owner.label} may only change ${ownCaptures(owner).join(' or ')}.`)
     docDef = Object.values(DOC_AGENTS).find(d => d.captureKey === target.ref)
   } else if (target.type === 'doc') {
     if (!input.documentType) reasons.push('Document not found on this job')

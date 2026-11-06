@@ -25,7 +25,7 @@ export const CAPTURE_KEYS = [
   'sow_capture', 'sow_objective', 'assessment_document_capture', 'content_blocks', 'content_blocks_version',
   'completion_report_capture', 'per_execute_capture', 'disposal_manifest_capture', 'outcome_quote_capture',
   'outcome_quotes', 'post_remediation_evaluations', 'pre_multi_part', 'quotes_required', 'house_survey',
-  'contents_clearance_quote', 'surface_area_cleaning_quote', 'biohazard_cleaning_quote', 'statement_of_accounts',
+  'contents_clearance_quote', 'surface_area_cleaning_quote', 'biohazard_cleaning_quote', 'biohazard_cleaning_record', 'statement_of_accounts',
   'company_letterhead', 'payment_overdue', 'pathogens_capture',
 ] as const satisfies readonly (keyof AssessmentData)[]
 export type CaptureKey = (typeof CAPTURE_KEYS)[number]

@@ -22,7 +22,7 @@ import {
   patchLines,
   photoPatch,
 } from './patchDraft'
-import { buildStatementDraft, cdrDollarFigures, statementPatchProblem } from './statementDraft'
+import { cdrVolumeM3, statementFlags, statementInputsDraft, statementPatchProblem, surveyAndDisposalSummary } from './statementDraft'
 import { composeStatementForJob } from './statementGenerate'
 import {
   describeNewJob,
@@ -153,25 +153,18 @@ function surveyRoom(title: string, l: number, w: number, h: number) {
   return { id: title, title, description: '', start_note: '', height_m: h, legs: [l, w, l, w].map(leg), adjustments: [] }
 }
 
-test('draft_statement: survey rooms and quantities only, no typed dollar fields', () => {
+test('draft_statement_inputs: a model 1 capture becomes model 2 with its inputs carried', () => {
   const ad = {
     house_survey: { price_per_m2: 10, areas: [surveyRoom('Kitchen', 4, 3, 2.4)] },
-    statement_of_accounts: { invoice1_amount: 1500, deposit_taken: true, deposit_amount: 500 },
+    statement_of_accounts: { invoice1_amount: 1500, deposit_taken: true, deposit_amount: 500, original_invoice_number: 'INV-7' },
   } as unknown as AssessmentData
-  const r = buildStatementDraft(ad)
-  assert.equal(r.ok, true)
-  if (!r.ok) return
-  assert.deepEqual(Object.keys(r.proposed), ['survey_areas'])
-  const room = r.proposed.survey_areas?.[0]
-  assert.equal(room?.label, 'Kitchen')
-  assert.ok((room?.sqm ?? 0) > 0)
-  assert.deepEqual(r.before, { survey_areas: null })
-  const applied = applyPatch((ad as unknown as Record<string, unknown>).statement_of_accounts, r.proposed as Record<string, unknown>)
+  const d = statementInputsDraft(ad, { deposit_date: '2026-11-02' })!
+  assert.deepEqual(d.proposed, { deposit_date: '2026-11-02', model_version: 2, invoice_number: 'INV-7' })
+  const applied = applyPatch((ad as unknown as Record<string, unknown>).statement_of_accounts, d.proposed as Record<string, unknown>)
   assert.equal(applied.invoice1_amount, 1500)
-  assert.equal(applied.deposit_amount, 500)
-  const again = buildStatementDraft({ ...ad, statement_of_accounts: applied } as unknown as AssessmentData)
-  assert.equal(again.ok, false)
-  assert.equal(buildStatementDraft({} as AssessmentData).ok, false)
+  assert.equal(statementInputsDraft({ ...ad, statement_of_accounts: applied } as unknown as AssessmentData, { deposit_date: '2026-11-02' }), null)
+  const cleared = statementInputsDraft({ ...ad, statement_of_accounts: applied } as unknown as AssessmentData, { deposit_amount: null })!
+  assert.deepEqual(cleared.proposed, { deposit_amount: null, deposit_taken: false })
 })
 
 // ── Head agent: new job drafts ────────────────────────────────────────────────
@@ -241,34 +234,44 @@ const cdr = {
   prepaid_m3: 2,
 }
 
-test('draft_statement: CDR m³ only; loads, vehicles and weight reported as having no statement field', () => {
-  const ad = { disposal_manifest_capture: cdr } as unknown as AssessmentData
-  const r = buildStatementDraft(ad)
-  assert.equal(r.ok, true)
-  if (!r.ok) return
-  assert.deepEqual(r.proposed, { invoice2_m3: 9 })
-  assert.deepEqual(r.not_on_statement, ['2 loads', 'vehicles: 1 × Trailer, 1 × Skip', 'weight 420 kg'])
-  const dollars = cdrDollarFigures(ad)
-  assert.deepEqual(dollars.map(d => [d.statement_field, d.amount]), [
-    ['invoice2_skips', 400], ['invoice2_tip_receipts', 180], ['invoice2_prepaid', 200], ['invoice2_amount', 900],
-  ])
+test('file agent survey and disposal: summaries only, no waste charges', () => {
+  const ad = { disposal_manifest_capture: cdr, statement_of_accounts: {} } as unknown as AssessmentData
+  assert.equal(cdrVolumeM3(ad), 9)
+  const view = surveyAndDisposalSummary(ad)
+  assert.equal(view.cdr_summary.total_ex_gst, 900)
+  assert.deepEqual(view.statement.lines_ex_gst, [{ label: 'Contents removal', amount_ex: 900 }])
+  for (const marker of ['skip_cost', 'dump_fee', 'prepaid', 'invoice2']) assert.ok(!JSON.stringify(view).includes(marker), marker)
 })
 
-test('statement dollar patches: allowed when stated, checked for shape', () => {
+test('statement patches: the staff inputs only, checked for shape', () => {
   assert.equal(isCaptureKey('statement_of_accounts'), true)
   const patch = {
-    invoice1_amount: 1650, invoice2_amount: 900, invoice2_skips: 400, deposit_taken: true, deposit_amount: 500,
-    manual_adjustment: -50, manual_adjustment_reason: 'Goodwill', original_invoice_number: 'INV-0101', new_invoice_url: 'https://pay.example/1',
+    deposit_amount: 500, deposit_date: '2026-11-02', deposit_taken: true, model_version: 2,
+    manual_adjustment: -50, manual_adjustment_reason: 'Goodwill', invoice_number: 'INV-0101', invoice_url: 'https://pay.example/1',
   }
   assert.equal(statementPatchProblem(patch), null)
-  assert.match(statementPatchProblem({ invoice1_amount: '$1,650' }) ?? '', /plain number/)
-  assert.match(statementPatchProblem({ invoice1_amount: -5 }) ?? '', /negative/)
+  assert.match(statementPatchProblem({ deposit_amount: '$1,650' }) ?? '', /plain number/)
+  assert.match(statementPatchProblem({ deposit_amount: -5 }) ?? '', /negative/)
   assert.match(statementPatchProblem({ deposit_taken: 'yes' }) ?? '', /true or false/)
-  assert.match(statementPatchProblem({ total_due: 10 }) ?? '', /no field "total_due"/)
+  assert.match(statementPatchProblem({ deposit_date: '2 Nov' }) ?? '', /YYYY-MM-DD/)
+  assert.match(statementPatchProblem({ invoice1_amount: 1650 }) ?? '', /no input "invoice1_amount"/)
+  assert.match(statementPatchProblem({ model_version: 1 }) ?? '', /model_version must be 2/)
   const d = buildPatchDraft(null, patch)
   const applied = applyPatch(null, d.proposed, emptyStatementCapture as unknown as () => Record<string, unknown>)
-  assert.equal(applied.invoice1_amount, 1650)
+  assert.equal(applied.deposit_amount, 500)
   assert.equal(applied.charges_gst, true)
+})
+
+test('statement flags: missing records, deposit date, reason, and a deposit far from half', () => {
+  const sacq = { estimated_m2: 100, rate_per_m2: 10 }
+  const flags = (statement: Record<string, unknown>, extra: Record<string, unknown> = {}) =>
+    statementFlags({ surface_area_cleaning_quote: sacq, statement_of_accounts: { model_version: 2, ...statement }, ...extra } as unknown as AssessmentData)
+  assert.match(flags({})[0], /needs a House Survey/)
+  const survey = { house_survey: { areas: [], labour_days: 1, rate_per_labour_day: 1000 } }
+  assert.deepEqual(flags({ deposit_amount: 550, deposit_date: '2026-11-02' }, survey), [])
+  assert.match(flags({ deposit_amount: 200, deposit_date: '2026-11-02' }, survey)[0], /not about half the quotes \(\$550\.00\)/)
+  assert.deepEqual(flags({ deposit_amount: 550 }, survey), ['Enter the date the deposit was paid.'])
+  assert.deepEqual(flags({ manual_adjustment: 10 }, survey), ['Enter the reason for the adjustment.'])
 })
 
 function statementJob(statement: Record<string, unknown> | null): Job {
@@ -280,13 +283,20 @@ function statementJob(statement: Record<string, unknown> | null): Job {
 
 test('generate statement: same checks as the Generate button', () => {
   assert.match((composeStatementForJob(statementJob(null), []) as { reason: string }).reason, /not been started/)
-  const unreasoned = composeStatementForJob(statementJob({ invoice1_amount: 1000, manual_adjustment: -50 }), [])
+  const nothing = composeStatementForJob(statementJob({}), [])
+  assert.equal(nothing.ok, false)
+  assert.match((nothing as { reason: string }).reason, /nothing to bill/)
+  const job = (statement: Record<string, unknown>) => ({
+    ...statementJob(statement),
+    assessment_data: { house_survey: { areas: [], labour_days: 1, rate_per_labour_day: 1000 }, statement_of_accounts: { model_version: 2, ...statement } },
+  } as unknown as Job)
+  const unreasoned = composeStatementForJob(job({ manual_adjustment: -50 }), [])
   assert.equal(unreasoned.ok, false)
-  assert.match((unreasoned as { reason: string }).reason, /why the last invoice total changed/)
-  const notAddingUp = composeStatementForJob(statementJob({ invoice1_amount: 1000, invoice1_callout: 100 }), [])
-  assert.equal(notAddingUp.ok, false)
-  assert.match((notAddingUp as { reason: string }).reason, /call out/i)
-  const good = composeStatementForJob(statementJob({ invoice1_amount: 1000, invoice1_callout: 200, invoice1_cleaning: 800 }), [])
+  assert.match((unreasoned as { reason: string }).reason, /reason for the adjustment/)
+  const good = composeStatementForJob(job({ deposit_amount: 500, deposit_date: '2026-11-02' }), [])
   assert.equal(good.ok, true)
-  assert.equal((good as { content: Record<string, unknown> }).content.title, 'Statement of Accounts')
+  const content = (good as { content: Record<string, unknown> }).content
+  assert.equal(content.title, 'Statement of Accounts')
+  assert.equal(content.model_version, 2)
+  assert.equal(content.balance, 600)
 })
