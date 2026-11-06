@@ -6,7 +6,7 @@
  * Agent view: three panels.
  *   Left   — job list (status groups, search, unread and drafts-waiting markers)
  *   Middle — one running chat with the head agent and each job's file agent
- *   Right  — the open job, editable by hand, with pending agent drafts on top
+ *   Right  — the full Classic job page (iframe), with pending agent drafts on top
  *
  * /workspace?job=<id> opens a job; &agent=<doc type> one of its document
  * agents. The Classic job page links back here via
@@ -16,7 +16,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import type { Document, Job, Photo } from '@/lib/types'
+import type { Job } from '@/lib/types'
 import type { ChatRow } from '@/lib/agent/workspaceText'
 import { isApproveAllPhrase, voiceApprovable } from '@/lib/agent/workspaceText'
 import { isDocAgentType, type DocAgentType } from '@/lib/agent/subagents/types'
@@ -54,8 +54,6 @@ function Workspace() {
   const [drafts, setDrafts] = useState<DraftView[]>([])
   const [localLines, setLocalLines] = useState<LocalLine[]>([])
   const [job, setJob] = useState<Job | null>(null)
-  const [photos, setPhotos] = useState<Photo[]>([])
-  const [documents, setDocuments] = useState<Document[]>([])
   const [version, setVersion] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -100,16 +98,10 @@ function Workspace() {
       setJob(null)
       return
     }
-    const [jobRes, docsRes] = await Promise.all([fetch(`/api/jobs/${jobId}`), fetch(`/api/documents?jobId=${jobId}`)])
+    const jobRes = await fetch(`/api/jobs/${jobId}`)
+    const d = jobRes.ok ? await jobRes.json() : null
     if (activeRef.current !== jobId) return
-    if (jobRes.ok) {
-      const d = await jobRes.json()
-      setJob(d.job ?? null)
-      setPhotos(d.photos ?? [])
-    } else {
-      setJob(null)
-    }
-    if (docsRes.ok) setDocuments((await docsRes.json()).documents ?? [])
+    setJob(d?.job ?? null)
     setVersion(v => v + 1)
   }, [])
 
@@ -253,7 +245,7 @@ function Workspace() {
           <ViewToggle current="agent" jobId={activeJobId} />
         </div>
       </header>
-      <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: job ? '260px minmax(0, 1fr) minmax(380px, 40%)' : '260px minmax(0, 1fr)' }}>
+      <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: job ? '260px minmax(0, 1fr) auto' : '260px minmax(0, 1fr)' }}>
         <JobListPanel
           jobs={jobs}
           markers={markers}
@@ -285,18 +277,14 @@ function Workspace() {
         {job && (
           <JobPanel
             job={job}
-            photos={photos}
-            documents={documents}
             drafts={jobDrafts}
             version={version}
-            onJobUpdate={next => {
-              setJob(next)
-              setJobs(list => list.map(j => (j.id === next.id ? { ...j, ...next } : j)))
-              setTimeout(() => void loadChat(activeRef.current, agentRef.current), 800)
-            }}
-            onPhotosUpdate={setPhotos}
-            onDocumentsUpdate={setDocuments}
             onDraftsDecided={() => void refreshAfterChange()}
+            onEmbedChanged={() => {
+              void loadJobs()
+              void loadMarkers()
+              void loadChat(activeRef.current, agentRef.current)
+            }}
           />
         )}
       </div>

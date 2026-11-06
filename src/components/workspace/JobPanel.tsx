@@ -3,167 +3,244 @@
 /*
  * components/workspace/JobPanel.tsx
  *
- * Right panel: the open job, editable by hand, reusing the Classic job tabs.
- * Pending agent drafts sit at the top with approve / reject. Reloaded by the
- * workspace after each agent turn and each approval.
+ * Right panel: the full Classic job page for the open job, in a same-origin
+ * iframe, so every tab and /jobs/<id>/docs/<type> work unchanged. The
+ * workspace's pending drafts and pinned flags sit in a strip above it so
+ * approvals still happen here.
+ *
+ * The workspace bumps `version` after each agent turn and approval; the panel
+ * then asks the embedded page to refresh quietly (lib/jobEmbed), falling back
+ * to a reload. Saves inside the page come back as onEmbedChanged. Width is
+ * draggable and remembered in localStorage.
  */
-import { useEffect, useState } from 'react'
-import Link from 'next/link'
-import type { Document, Job, Photo } from '@/lib/types'
-import ClientDetailsTab from '@/components/tabs/ClientDetailsTab'
-import TimelineTab from '@/components/tabs/TimelineTab'
-import DocumentsTab from '@/components/tabs/DocumentsTab'
-import PhotosTab from '@/components/tabs/PhotosTab'
-import ProgressNotesTab from '@/components/tabs/ProgressNotesTab'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { Job } from '@/lib/types'
+import { JOB_EMBED_MSG } from '@/lib/jobEmbed'
 import DraftList, { type DraftView } from './DraftList'
 import JobFlags from './JobFlags'
-import { STATUS_LABELS } from './JobListPanel'
 
-type Tab = 'details' | 'documents' | 'photos' | 'calls' | 'notes'
-const TABS: { id: Tab; label: string }[] = [
-  { id: 'details', label: 'Details' },
-  { id: 'documents', label: 'Documents' },
-  { id: 'photos', label: 'Photos' },
-  { id: 'calls', label: 'Calls' },
-  { id: 'notes', label: 'Notes' },
-]
+const WIDTH_KEY = 'bh.workspace.jobPanelWidth'
+const DEFAULT_WIDTH = 640
+const MIN_WIDTH = 380
+/** Job list (260) plus a usable chat column. */
+const RESERVED_LEFT = 260 + 340
 
-interface CallItem {
-  id: string
-  created_at: string
-  caller_number: string
-  status: string
-  extraction: { summary?: string } | null
-  validation: { decision?: string } | null
+function maxWidth() {
+  return Math.max(MIN_WIDTH, window.innerWidth - RESERVED_LEFT)
+}
+
+function clampWidth(w: number) {
+  return Math.round(Math.min(Math.max(w, MIN_WIDTH), maxWidth()))
+}
+
+function readStoredWidth(): number {
+  if (typeof window === 'undefined') return DEFAULT_WIDTH
+  const stored = Number(window.localStorage.getItem(WIDTH_KEY))
+  return clampWidth(Number.isFinite(stored) && stored > 0 ? stored : DEFAULT_WIDTH)
 }
 
 export default function JobPanel({
   job,
-  photos,
-  documents,
   drafts,
   version,
-  onJobUpdate,
-  onPhotosUpdate,
-  onDocumentsUpdate,
   onDraftsDecided,
+  onEmbedChanged,
 }: {
   job: Job
-  photos: Photo[]
-  documents: Document[]
   drafts: DraftView[]
   version: number
-  onJobUpdate: (job: Job) => void
-  onPhotosUpdate: (photos: Photo[]) => void
-  onDocumentsUpdate: (docs: Document[]) => void
   onDraftsDecided: () => void
+  onEmbedChanged: () => void
 }) {
-  const [tab, setTab] = useState<Tab>('details')
-  const [loadedCalls, setLoadedCalls] = useState<{ key: string; calls: CallItem[] } | null>(null)
-  const callsKey = `${job.id}:${version}`
-  const calls = loadedCalls?.key === callsKey ? loadedCalls.calls : null
-
-  useEffect(() => {
-    if (tab !== 'calls') return
-    let live = true
-    fetch(`/api/calls?job_id=${job.id}`)
-      .then(r => (r.ok ? r.json() : { calls: [] }))
-      .then(d => { if (live) setLoadedCalls({ key: callsKey, calls: d.calls ?? [] }) })
-      .catch(() => { if (live) setLoadedCalls({ key: callsKey, calls: [] }) })
-    return () => { live = false }
-  }, [tab, job.id, callsKey])
+  const base = `/jobs/${job.id}`
+  const iframeRef = useRef<HTMLIFrameElement>(null)
+  const loadedRef = useRef(false)
+  const ackTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [frameKey, setFrameKey] = useState(0)
+  const [strayed, setStrayed] = useState(false)
+  const [framePath, setFramePath] = useState(base)
+  const [width, setWidth] = useState(readStoredWidth)
+  const [restoreWidth, setRestoreWidth] = useState<number | null>(null)
+  const [dragging, setDragging] = useState(false)
+  const [stripOpen, setStripOpen] = useState(true)
 
   const pending = drafts.filter(d => d.status === 'pending')
+  const onChangedRef = useRef(onEmbedChanged)
+  useEffect(() => {
+    onChangedRef.current = onEmbedChanged
+  })
+
+  const saveWidth = useCallback((w: number) => {
+    const next = clampWidth(w)
+    setWidth(next)
+    window.localStorage.setItem(WIDTH_KEY, String(next))
+  }, [])
+
+  useEffect(() => {
+    const onResize = () => setWidth(w => clampWidth(w))
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  const readFramePath = useCallback((): string | null => {
+    try {
+      const loc = iframeRef.current?.contentWindow?.location
+      return loc ? `${loc.pathname}${loc.search}` : null
+    } catch {
+      return null
+    }
+  }, [])
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (!loadedRef.current) return
+      const path = readFramePath()
+      const pathname = path?.split('?')[0] ?? ''
+      setStrayed(!(pathname === base || pathname.startsWith(`${base}/`)))
+      if (path) setFramePath(path)
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [base, readFramePath])
+
+  useEffect(() => {
+    function onMessage(e: MessageEvent) {
+      if (e.origin !== window.location.origin || e.source !== iframeRef.current?.contentWindow) return
+      if (e.data?.type === JOB_EMBED_MSG.refreshAck) {
+        if (ackTimer.current) clearTimeout(ackTimer.current)
+        ackTimer.current = null
+      } else if (e.data?.type === JOB_EMBED_MSG.changed) {
+        onChangedRef.current()
+      }
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [])
+
+  useEffect(() => {
+    loadedRef.current = false
+  }, [job.id])
+
+  useEffect(() => {
+    const win = iframeRef.current?.contentWindow
+    if (!loadedRef.current || !win) return
+    win.postMessage({ type: JOB_EMBED_MSG.refresh }, window.location.origin)
+    if (ackTimer.current) clearTimeout(ackTimer.current)
+    ackTimer.current = setTimeout(() => {
+      ackTimer.current = null
+      // Reload only the main job page; a composed document's URL can't be reloaded.
+      if (readFramePath()?.split('?')[0] === base) {
+        try { win.location.reload() } catch { /* navigated away */ }
+      }
+    }, 2500)
+  }, [version, base, readFramePath])
+
+  useEffect(() => () => {
+    if (ackTimer.current) clearTimeout(ackTimer.current)
+  }, [])
+
+  function startDrag(e: React.PointerEvent<HTMLDivElement>) {
+    e.preventDefault()
+    const startX = e.clientX
+    const startW = width
+    setDragging(true)
+    setRestoreWidth(null)
+    const move = (ev: PointerEvent) => setWidth(clampWidth(startW + (startX - ev.clientX)))
+    const up = (ev: PointerEvent) => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      setDragging(false)
+      saveWidth(startW + (startX - ev.clientX))
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
+
+  const wide = restoreWidth !== null
+  function toggleWide() {
+    if (wide) {
+      saveWidth(restoreWidth)
+      setRestoreWidth(null)
+    } else {
+      setRestoreWidth(width)
+      saveWidth(maxWidth())
+    }
+  }
+
+  function backToJob() {
+    loadedRef.current = false
+    setStrayed(false)
+    setFramePath(base)
+    setFrameKey(k => k + 1)
+  }
+
+  const btn: React.CSSProperties = {
+    padding: '4px 9px', fontSize: 12, fontWeight: 700, borderRadius: 6, cursor: 'pointer',
+    border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-muted)', whiteSpace: 'nowrap',
+  }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%', borderLeft: '1px solid var(--border)' }}>
-      <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)' }}>
+    <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%', width, borderLeft: '1px solid var(--border)' }}>
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize job panel"
+        title="Drag to resize"
+        onPointerDown={startDrag}
+        onDoubleClick={() => { setRestoreWidth(null); saveWidth(DEFAULT_WIDTH) }}
+        style={{
+          position: 'absolute', left: -4, top: 0, bottom: 0, width: 8, cursor: 'col-resize', zIndex: 5,
+          background: dragging ? 'var(--accent-dim)' : 'transparent',
+        }}
+      />
+
+      <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 12, fontWeight: 800, color: 'var(--accent)' }}>
             {job.job_code ? `#${job.job_code}` : ''}
           </span>
-          <span style={{ flex: 1, fontWeight: 700, fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <span style={{ flex: 1, minWidth: 0, fontWeight: 700, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {job.client_name || 'Unnamed'}
           </span>
-          <span className={`badge badge-${job.status}`}>{STATUS_LABELS[job.status]}</span>
-          <Link href={`/jobs/${job.id}`} style={{ fontSize: 12, color: 'var(--text-muted)' }} title="Open this job in Classic view">
-            Classic ↗
-          </Link>
+          <button
+            type="button"
+            onClick={() => setStripOpen(o => !o)}
+            aria-expanded={stripOpen}
+            style={{ ...btn, color: pending.length ? 'var(--accent)' : 'var(--text-muted)' }}
+          >
+            {pending.length ? `${pending.length} waiting` : 'Flags'} {stripOpen ? '▴' : '▾'}
+          </button>
+          <button type="button" onClick={toggleWide} aria-pressed={wide} style={btn} title="Widen the job panel">
+            {wide ? 'Narrow' : 'Wide'}
+          </button>
+          <a href={strayed ? base : framePath} target="_blank" rel="noopener" style={{ ...btn, textDecoration: 'none' }} title="Open this job full-page in Classic view">
+            Open in Classic ↗
+          </a>
         </div>
-        {job.site_address && <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{job.site_address}</div>}
-        <div style={{ display: 'flex', gap: 2, marginTop: 10 }}>
-          {TABS.map(t => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setTab(t.id)}
-              style={{
-                padding: '5px 10px', fontSize: 12, fontWeight: 700, borderRadius: 6, border: 'none', cursor: 'pointer',
-                background: tab === t.id ? 'var(--surface-2)' : 'transparent',
-                color: tab === t.id ? 'var(--text)' : 'var(--text-muted)',
-              }}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+        {stripOpen && (
+          <div style={{ maxHeight: '35vh', overflowY: 'auto', marginTop: 8, display: 'grid', gap: 8 }}>
+            <JobFlags jobId={job.id} reloadKey={version} compact />
+            {pending.length > 0 && <DraftList drafts={pending} onDecided={onDraftsDecided} />}
+          </div>
+        )}
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: 14 }}>
-        <div style={{ marginBottom: 10 }}>
-          <JobFlags jobId={job.id} reloadKey={version} compact />
+      {strayed && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: '1px solid var(--border)', background: 'var(--accent-dim)', fontSize: 13 }}>
+          <span style={{ flex: 1 }}>This panel has left the job file.</span>
+          <button type="button" onClick={backToJob} className="btn btn-primary" style={{ padding: '4px 10px', fontSize: 12 }}>
+            Back to job
+          </button>
         </div>
-        {pending.length > 0 && (
-          <div style={{ marginBottom: 14 }}>
-            <DraftList drafts={pending} onDecided={onDraftsDecided} />
-          </div>
-        )}
+      )}
 
-        {tab === 'details' && (
-          <div key={`details-${version}`}>
-            <ClientDetailsTab job={job} onJobUpdate={onJobUpdate} />
-            <TimelineTab job={job} onJobUpdate={onJobUpdate} />
-          </div>
-        )}
-        {tab === 'documents' && (
-          <DocumentsTab
-            key={`docs-${version}`}
-            jobId={job.id}
-            documents={documents}
-            clientName={job.client_name}
-            clientEmail={job.client_email ?? ''}
-            onDocumentDeleted={docId => onDocumentsUpdate(documents.filter(d => d.id !== docId))}
-            mode="history"
-          />
-        )}
-        {tab === 'photos' && (
-          <PhotosTab
-            jobId={job.id}
-            photos={photos}
-            assessmentData={job.assessment_data}
-            onAssessmentDataUpdate={assessment_data => onJobUpdate({ ...job, assessment_data })}
-            onPhotosUpdate={onPhotosUpdate}
-          />
-        )}
-        {tab === 'calls' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {calls === null && <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Loading…</div>}
-            {calls?.length === 0 && <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>No calls or website enquiries on this job.</div>}
-            {calls?.map(c => (
-              <div key={c.id} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 10, background: 'var(--surface)' }}>
-                <div style={{ display: 'flex', gap: 8, fontSize: 12, color: 'var(--text-muted)' }}>
-                  <span>{new Date(c.created_at).toLocaleString('en-AU', { dateStyle: 'medium', timeStyle: 'short' })}</span>
-                  <span>{c.caller_number || 'Website enquiry'}</span>
-                  <span style={{ marginLeft: 'auto' }}>{c.status.replace(/_/g, ' ')}</span>
-                </div>
-                {c.extraction?.summary && <div style={{ fontSize: 13, marginTop: 6, whiteSpace: 'pre-wrap' }}>{c.extraction.summary}</div>}
-              </div>
-            ))}
-            <Link href="/calls" style={{ fontSize: 12, color: 'var(--text-muted)' }}>All calls ↗</Link>
-          </div>
-        )}
-        {tab === 'notes' && <ProgressNotesTab key={`notes-${version}`} job={job} />}
-      </div>
+      <iframe
+        key={`${job.id}:${frameKey}`}
+        ref={iframeRef}
+        src={base}
+        title={`Job file ${job.job_code ?? job.client_name ?? ''}`}
+        onLoad={() => { loadedRef.current = true }}
+        style={{ flex: 1, minHeight: 0, width: '100%', border: 'none', background: 'var(--bg)', pointerEvents: dragging ? 'none' : 'auto' }}
+      />
     </div>
   )
 }

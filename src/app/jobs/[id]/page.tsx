@@ -75,6 +75,7 @@ import AgentDrawer from '@/components/agent/AgentDrawer'
 import AgentDraftsBanner from '@/components/workspace/AgentDraftsBanner'
 import JobFlags from '@/components/workspace/JobFlags'
 import ViewToggle from '@/components/workspace/ViewToggle'
+import { useJobEmbedBridge } from '@/lib/jobEmbed'
 import { isTradingNameId, type TradingNameId } from '@/lib/tradingNames'
 import { useUser } from '@/lib/userContext'
 import {
@@ -990,6 +991,13 @@ export default function JobPage() {
     setPhotos(data.photos ?? [])
   }
 
+  const embedded = useJobEmbedBridge(id, async () => {
+    setFlagsKey(k => k + 1)
+    const docsRes = await fetch(`/api/documents?jobId=${id}`)
+    if (docsRes.ok) setDocuments((await docsRes.json()).documents ?? [])
+    await Promise.all([refreshJobQuietly(), refreshDocumentBundles()])
+  })
+
   if (loading) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, color: 'var(--text-muted)' }}>
@@ -1308,9 +1316,11 @@ export default function JobPage() {
       <div data-devid="P2-E1" style={{ borderBottom: '1px solid var(--border)', padding: '14px 0', position: 'sticky', top: 0, background: 'var(--bg)', zIndex: 10 }}>
         <div className="container">
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-            <Link href={jobsListHref} onClick={onBackToJobsClick}>
-              <button className="btn btn-ghost" style={{ padding: '6px 0', fontSize: 14 }}>{jobsBackLabel}</button>
-            </Link>
+            {!embedded && (
+              <Link href={jobsListHref} onClick={onBackToJobsClick}>
+                <button className="btn btn-ghost" style={{ padding: '6px 0', fontSize: 14 }}>{jobsBackLabel}</button>
+              </Link>
+            )}
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 700, fontSize: 17, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {isAdmin || caps.edit_job_details
@@ -1324,7 +1334,7 @@ export default function JobPage() {
               )}
             </div>
             <div data-devid="P2-E2" style={{ display: 'flex', gap: 6, flexShrink: 0, alignItems: 'center' }}>
-              <ViewToggle current="classic" jobId={id} />
+              {!embedded && <ViewToggle current="classic" jobId={id} />}
               {job.job_code && (
                 <span
                   title="4-digit dispatch / photo code for photo.forensiccleaningqld.com.au"
@@ -1377,7 +1387,7 @@ export default function JobPage() {
       </div>
 
       <JobFlags jobId={id} reloadKey={flagsKey} />
-      <AgentDraftsBanner jobId={id} onApplied={() => { setFlagsKey(k => k + 1); void refreshJobQuietly() }} />
+      <AgentDraftsBanner jobId={id} reloadKey={flagsKey} onApplied={() => { setFlagsKey(k => k + 1); void refreshJobQuietly() }} />
 
       {/* Tab content */}
       <div data-devid="P2-E4" className="container" style={{ paddingTop: 24 }}>
@@ -2023,7 +2033,7 @@ export default function JobPage() {
         />
       )}
 
-      <AgentDrawer jobId={id} onChanged={refreshJobQuietly} />
+      {!embedded && <AgentDrawer jobId={id} onChanged={refreshJobQuietly} />}
     </div>
         )}
       </UnsavedNavigationGuard>

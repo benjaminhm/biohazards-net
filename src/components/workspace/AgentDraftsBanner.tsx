@@ -9,7 +9,7 @@
 import { useEffect, useState } from 'react'
 import DraftList, { type DraftView } from './DraftList'
 
-export default function AgentDraftsBanner({ jobId, onApplied }: { jobId: string; onApplied?: () => void }) {
+export default function AgentDraftsBanner({ jobId, reloadKey = 0, onApplied }: { jobId: string; reloadKey?: number; onApplied?: () => void }) {
   const [drafts, setDrafts] = useState<DraftView[]>([])
   const [open, setOpen] = useState(false)
   const [reload, setReload] = useState(0)
@@ -21,7 +21,7 @@ export default function AgentDraftsBanner({ jobId, onApplied }: { jobId: string;
       .then(d => { if (live && d) setDrafts(d.drafts ?? []) })
       .catch(() => {})
     return () => { live = false }
-  }, [jobId, reload])
+  }, [jobId, reload, reloadKey])
   const load = () => setReload(n => n + 1)
 
   if (!drafts.length) return null

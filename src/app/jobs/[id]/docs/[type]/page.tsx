@@ -18,6 +18,7 @@ import { DOC_TYPE_LABELS } from '@/lib/types'
 import { composeDocumentContent, buildComposedPreviewHtml, type ComposeDocumentOptions } from '@/lib/composeDocument'
 import { documentPlainText } from '@/lib/documentAsk'
 import DocumentAskPanel from '@/components/DocumentAskPanel'
+import { useJobEmbedBridge } from '@/lib/jobEmbed'
 import { presentStatementDocument, StatementReconciliationError } from '@/lib/statementOfAccounts'
 import { mergeQuoteLineItemsIntoDocContent } from '@/lib/quoteLineItemsForDocuments'
 import { applyTradingBrand } from '@/lib/tradingNames'
@@ -51,6 +52,7 @@ function DocViewerInner() {
   const quoteId = searchParams.get('quoteId')
   const preId   = searchParams.get('preId')
   const preV2Id = searchParams.get('preV2Id')
+  useJobEmbedBridge(jobId)
 
   const [job,              setJob]             = useState<Job | null>(null)
   const [photos,           setPhotos]          = useState<Photo[]>([])
