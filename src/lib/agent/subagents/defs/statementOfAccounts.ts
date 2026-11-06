@@ -18,8 +18,9 @@ export const statementOfAccountsAgent: DocAgentDef = {
 - Invoice 2 dollars: invoice2_amount; breakdown invoice2_skips, invoice2_trailers, invoice2_utes, invoice2_tip_receipts, less invoice2_prepaid (must add up to invoice2_amount). These are dollars, not counts.
 - Deposit: deposit_taken (true/false), deposit_amount, deposit_includes_gst, deposit_date.
 - manual_adjustment (signed dollars on the last invoice) + manual_adjustment_reason (required).
-- original_invoice_number/url, new_invoice_number/url (payment links), charges_gst.`,
-  rules: `- Quantities from the survey and CDR: use fill_quantities_from_survey_and_cdr. It never fills dollars. Report which CDR facts have no statement field (loads, vehicles, weight, distance).
+- original_invoice_number/url, new_invoice_number/url (payment links), charges_gst.
+Generated document (one pass, three sections): 1. Survey Rooms (each room's m², rate per m² ex GST, line total; rooms subtotal, total m², total survey value inc GST), 2. Contents Disposal Record (total m³, loads, vehicle types with counts, distance, weight, CDR reference), 3. Invoice Summary (invoice 1 and 2 breakdowns, deposit, adjustments with reasons, total owing). Survey rooms and CDR facts are copied into the document when it is generated, so later survey or CDR edits do not change it; regenerate to pick them up. A missing survey or CDR prints "Not applicable". The survey value is for reference only; total owing comes from the invoice figures alone.`,
+  rules: `- Quantities from the survey and CDR: use fill_quantities_from_survey_and_cdr. It never fills dollars. Loads, vehicles, weight and distance have no statement field; the generated document copies them from the CDR.
 - Dollar and text fields: only values the staff member states, or tells you to take from the CDR dollar figures listed by survey_and_cdr_figures. Plain numbers, inc GST when charges_gst.
 - Generate only when breakdowns add up and reasons are present; draft_generate runs the same checks and tells you what fails.`,
   unique: true,

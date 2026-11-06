@@ -93,6 +93,7 @@ import {
 } from '@/lib/quoteSections'
 import { buildPrintHTML, type ClientInfo } from '@/lib/printDocument'
 import { latestDisposalDocument, documentReference, normalizeStatementCapture, statementFromJob, statementSurveyAreas, surveyDocumentCode } from '@/lib/statementOfAccounts'
+import { statementDisposalSnapshot, statementSurveySnapshot } from '@/lib/statementSnapshot'
 import { buildPaymentReminderContent } from '@/lib/paymentOverdue'
 import type { CompanyProfile } from '@/lib/types'
 import {
@@ -1229,14 +1230,17 @@ function composePaymentReminder(job: Job): ComposeDocumentResult {
 function composeStatement(job: Job, documents: Document[]): ComposeDocumentResult {
   const figures = statementFromJob(documents, job.assessment_data)
   const capture = normalizeStatementCapture(job.assessment_data?.statement_of_accounts)
+  const surveyAreas = statementSurveyAreas(capture.survey_areas, job.assessment_data)
+  const surveyReference = surveyDocumentCode(job.id, documents)
+  const disposalReference = documentReference(latestDisposalDocument(documents), '—')
   return {
     content: {
       title: 'Statement of Accounts',
       reference: refPrefix('statement_of_accounts', job.id),
       site_address: job.site_address || '',
       quote_reference: figures.reference,
-      survey_reference: surveyDocumentCode(job.id, documents),
-      disposal_reference: documentReference(latestDisposalDocument(documents), '—'),
+      survey_reference: surveyReference,
+      disposal_reference: disposalReference,
       gst_mode: figures.gst_mode,
       quote_ex: figures.quote_ex,
       quote_gst: figures.quote_gst,
@@ -1271,7 +1275,7 @@ function composeStatement(job: Job, documents: Document[]): ComposeDocumentResul
       invoice1_callout: capture.invoice1_callout,
       invoice1_contents: capture.invoice1_contents,
       invoice1_cleaning: capture.invoice1_cleaning,
-      survey_areas: statementSurveyAreas(capture.survey_areas, job.assessment_data),
+      survey_areas: surveyAreas,
       invoice2_m3: capture.invoice2_m3,
       invoice2_skips: capture.invoice2_skips,
       invoice2_trailers: capture.invoice2_trailers,
@@ -1282,6 +1286,9 @@ function composeStatement(job: Job, documents: Document[]): ComposeDocumentResul
       manual_adjustment_reason: capture.manual_adjustment_reason,
       deposit_date: capture.deposit_date,
       adjustment_reason: capture.adjustment_reason,
+      layout_version: 2,
+      survey_snapshot: statementSurveySnapshot(surveyAreas, job.assessment_data, surveyReference),
+      disposal_snapshot: statementDisposalSnapshot(job.assessment_data, disposalReference, capture.invoice2_m3),
     },
     source: 'assessment_capture',
   }

@@ -23,7 +23,7 @@ import type {
   DocType, Photo, PhotoCategory, CompanyProfile, Area,
   QuoteContent, SOWContent, AssessmentDocumentContent, SWMSContent, AuthorityToProceedContent,
   EngagementAgreementContent, ReportContent, CertificateOfDecontaminationContent,
-  WasteDisposalManifestContent, StatementOfAccountsContent, PaymentReminderContent, JSAContent, NDAContent, RiskAssessmentContent,
+  WasteDisposalManifestContent, StatementOfAccountsContent, StatementSurveySnapshot, StatementDisposalSnapshot, PaymentReminderContent, JSAContent, NDAContent, RiskAssessmentContent,
   WasteDisposalManifestVehicleSnapshot,
   WorkStep, RiskRow, WasteItem, OutcomeQuoteRow,
   PathophysiologyRow,
@@ -243,6 +243,27 @@ function cssSowPrint(): string {
       color: var(--sow-navy);
       margin: 16px 0 6px;
     }
+    .sow-root.soa-doc .soa-sec { margin: 0 0 18px; }
+    .sow-root.soa-doc .soa-sec-title {
+      font-size: 12.5pt;
+      font-weight: 700;
+      color: var(--sow-navy);
+      border-bottom: 2px solid var(--sow-navy);
+      padding-bottom: 4px;
+      margin: 18px 0 8px;
+      break-after: avoid;
+      page-break-after: avoid;
+    }
+    .sow-root.soa-doc .soa-sec-ref,
+    .sow-root.soa-doc .soa-sec-note { font-size: 9pt; color: var(--sow-mid); margin: 0 0 6px; }
+    .sow-root.soa-doc .soa-sec-note { margin-top: 6px; }
+    .sow-root.soa-doc .soa-na { color: var(--sow-mid); }
+    .sow-root.soa-doc .soa-sec-cdr,
+    .sow-root.soa-doc .soa-owing { break-inside: avoid; page-break-inside: avoid; }
+    .sow-root.soa-doc .soa-sec table tr,
+    .sow-root.soa-doc .soa-inv-title { break-inside: avoid; page-break-inside: avoid; }
+    .sow-root.soa-doc .soa-inv-title { break-after: avoid; page-break-after: avoid; }
+    .sow-root.soa-doc .soa-owing { margin-top: 12px; }
     .sow-root.soa-doc .label { letter-spacing: 0.02em; }
     .sow-root.soa-doc .soa-pay {
       display: inline-block;
@@ -3093,6 +3114,71 @@ function statementPropertyHtml(c: StatementOfAccountsContent): string {
     <p class="body-text"><strong>Contents disposal record:</strong> ${esc(c.disposal_reference || '—')}</p>`
 }
 
+function statementQty(n: number | null, unit: string): string {
+  return n == null ? '—' : esc(`${Number(n.toFixed(2)).toLocaleString('en-AU')} ${unit}`)
+}
+
+function statementNotApplicable(what: string): string {
+  return `<p class="body-text soa-na">Not applicable. ${esc(what)}</p>`
+}
+
+function statementSurveySectionHtml(s: StatementSurveySnapshot | null | undefined): string {
+  const title = '<div class="soa-sec-title">1. Survey Rooms</div>'
+  if (!s?.rooms.length) return `<section class="soa-sec soa-sec-survey">${title}${statementNotApplicable('No House Survey was recorded for this job.')}</section>`
+  const money = (n: number | null) => n == null ? '—' : esc(fmtMoney(n))
+  const rows = s.rooms.map(r => `<tr><td>${esc(r.name)}</td><td class="r">${statementQty(r.sqm, 'm²')}</td><td class="r">${money(r.rate_ex)}</td><td class="r">${money(r.line_ex)}</td></tr>`).join('')
+  return `<section class="soa-sec soa-sec-survey">${title}
+    <p class="body-text soa-sec-ref"><strong>Survey:</strong> ${esc(s.reference || '—')}</p>
+    <table class="soa-sec-table">
+      <thead><tr><th>Room</th><th class="r">Area</th><th class="r">Rate per m² (ex GST)</th><th class="r">Line total (ex GST)</th></tr></thead>
+      <tbody>${rows}
+        <tr class="soa-charge"><td>Rooms subtotal (ex GST)</td><td></td><td></td><td class="r">${money(s.subtotal_ex)}</td></tr>
+        <tr class="soa-explain"><td>GST</td><td></td><td></td><td class="r">${money(s.gst)}</td></tr>
+        <tr class="soa-charge"><td>Total area</td><td class="r">${statementQty(s.total_sqm, 'm²')}</td><td></td><td></td></tr>
+        <tr class="soa-balance"><td style="font-weight:700">Total survey value (inc GST)</td><td></td><td></td><td class="r" style="font-weight:700">${money(s.total_value_inc)}</td></tr>
+      </tbody>
+    </table>
+    <p class="body-text soa-sec-note">Survey value is shown for reference. It is not added to the amount owing; charges are in the Invoice Summary.</p>
+  </section>`
+}
+
+function statementDisposalSectionHtml(d: StatementDisposalSnapshot | null | undefined): string {
+  const title = '<div class="soa-sec-title">2. Contents Disposal Record</div>'
+  if (!d) return `<section class="soa-sec soa-sec-cdr">${title}${statementNotApplicable('No contents disposal was recorded for this job.')}</section>`
+  const vehicles = d.vehicles.length ? d.vehicles.map(v => `${v.label} × ${v.count}`).join(', ') : '—'
+  const rows: [string, string][] = [
+    ['CDR reference', esc(d.reference || '—')],
+    ['Total volume', statementQty(d.total_m3, 'm³')],
+    ['Loads', esc(String(d.load_count))],
+    ['Vehicles', esc(vehicles)],
+    ['Distance', statementQty(d.distance_km, 'km')],
+    ['Weight', statementQty(d.weight_kg, 'kg')],
+  ]
+  if (d.invoiced_m3 != null) rows.push(['Cubic metres invoiced', statementQty(d.invoiced_m3, 'm³')])
+  return `<section class="soa-sec soa-sec-cdr">${title}
+    <table class="soa-sec-table soa-kv"><tbody>${rows.map(([k, v]) => `<tr><td>${k}</td><td class="r">${v}</td></tr>`).join('')}</tbody></table>
+  </section>`
+}
+
+function statementInvoiceSectionHtml(view: StatementPresentation): string {
+  const owing = view.summary.balanceInc
+  const shown = owing < -0.004 ? `(${statementMoney(owing)})` : statementMoney(owing)
+  return `<section class="soa-sec soa-sec-invoices"><div class="soa-sec-title">3. Invoice Summary</div>
+    ${buildStatementMid(view, false)}
+    <table class="soa-owing"><tbody><tr class="soa-balance"><td style="font-weight:700">Total owing</td><td class="r" style="font-weight:700">${shown}</td></tr></tbody></table>
+  </section>`
+}
+
+/** Layout 2: survey rooms, then contents disposal record, then invoices, from the snapshots taken at generation. */
+function buildStatementSectionsMid(c: StatementOfAccountsContent, view: StatementPresentation): string {
+  return `
+    <p class="body-text"><strong>Property:</strong> ${esc(c.site_address || '—')}</p>
+    <p class="body-text"><strong>Quote / estimate:</strong> ${esc(c.quote_reference || '—')}</p>
+    ${statementSurveySectionHtml(c.survey_snapshot)}
+    ${statementDisposalSectionHtml(c.disposal_snapshot)}
+    ${statementInvoiceSectionHtml(view)}`
+}
+
 function statementMetaValue(lines: string[]): string {
   return lines.filter(Boolean).map(line => `<div>${esc(line)}</div>`).join('')
 }
@@ -3229,7 +3315,7 @@ function buildStatementHTML(c: StatementOfAccountsContent, company: CompanyProfi
   const terms = (c.payment_terms || '').trim() ? esc(c.payment_terms?.trim() || '') : ''
   const footerNote = [questions, due, terms].filter(Boolean).join(' ')
   return wrapBranded(
-    property + buildStatementMid(view, false),
+    c.layout_version === 2 ? buildStatementSectionsMid(c, view) : property + buildStatementMid(view, false),
     c.title || 'Statement of Accounts',
     c.title || 'Statement of Accounts',
     c.reference,

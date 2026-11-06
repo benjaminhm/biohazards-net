@@ -14,6 +14,10 @@ import {
   StatementReconciliationError,
   type StatementOfAccountsCapture,
 } from '@/lib/statementOfAccounts'
+import { statementDisposalSnapshot, statementSurveySnapshot } from '@/lib/statementSnapshot'
+import { surveyPrice } from '@/lib/houseSurvey'
+import { computeDisposalTotals, emptyDisposalLoad, emptyDisposalVehicle, mergedDisposalManifestCapture } from '@/lib/disposalManifest'
+import { buildPrintHTML } from '@/lib/printDocument'
 
 function contentFor(
   capture: StatementOfAccountsCapture,
@@ -275,4 +279,112 @@ test('a priced BCQ shows its lines and total, with the saved quote reference', (
   assert.equal(block.empty, null)
   assert.deepEqual(block.lines.find(line => line.label === 'Primary zone'), { label: 'Primary zone', quantity: '20 m²', ex: 1000, inc: 1100 })
   assert.deepEqual(block.lines.at(-1), { label: 'Total', ex: figures.subtotal, inc: figures.total, strong: true })
+})
+
+const snapshotSurveyAd = { house_survey: { areas: [], price_per_m2: 20 } } as unknown as AssessmentData
+
+test('survey snapshot prices rooms like the survey and totals area and value', () => {
+  const snap = statementSurveySnapshot([
+    { label: 'Lounge', sqm: 12, total: null },
+    { label: 'Kitchen', sqm: 8, total: 200 },
+    { label: '', sqm: 4, total: null },
+  ], snapshotSurveyAd, 'SUR-1')
+  assert.ok(snap)
+  const lounge = surveyPrice(12, 20)
+  assert.deepEqual(snap.rooms.map(r => r.name), ['Lounge', 'Kitchen'])
+  assert.deepEqual(snap.rooms[0], { name: 'Lounge', sqm: 12, rate_ex: 20, line_ex: lounge.ex, line_inc: lounge.inc })
+  assert.equal(snap.rooms[1].line_inc, 200)
+  assert.equal(snap.rooms[1].line_ex, 181.82)
+  assert.equal(snap.rooms[1].rate_ex, 22.73)
+  assert.equal(snap.total_sqm, 20)
+  assert.equal(snap.subtotal_ex, Math.round(((lounge.ex ?? 0) + 181.82) * 100) / 100)
+  assert.equal(snap.total_value_inc, Math.round(((lounge.inc ?? 0) + 200) * 100) / 100)
+  assert.equal(snap.gst, Math.round(((snap.total_value_inc ?? 0) - (snap.subtotal_ex ?? 0)) * 100) / 100)
+  assert.equal(statementSurveySnapshot([], snapshotSurveyAd, 'SUR-1'), null)
+})
+
+function snapshotDisposalAd(): AssessmentData {
+  const skip = () => ({
+    ...emptyDisposalLoad(),
+    weight_kg: 400,
+    vehicles: [{ ...emptyDisposalVehicle('skip'), length_m: 3, width_m: 2, height_m: 1, waste_sqm: 6, skip_cost: 0 }],
+  })
+  return {
+    disposal_manifest_capture: {
+      loads: [
+        skip(),
+        skip(),
+        {
+          ...emptyDisposalLoad(),
+          distance_km: 22.5,
+          vehicles: [
+            { ...emptyDisposalVehicle('ute'), length_m: 2, width_m: 1.5, height_m: 1 },
+            { ...emptyDisposalVehicle('trailer'), length_m: 2, width_m: 1.5, height_m: 1 },
+          ],
+        },
+      ],
+    },
+  } as unknown as AssessmentData
+}
+
+test('disposal snapshot adds up loads, vehicles, distance, weight and volume', () => {
+  const ad = snapshotDisposalAd()
+  const loads = mergedDisposalManifestCapture(ad).loads
+  const snap = statementDisposalSnapshot(ad, 'CDR-9', null)
+  assert.ok(snap)
+  assert.equal(snap.reference, 'CDR-9')
+  assert.equal(snap.load_count, 3)
+  assert.equal(snap.total_m3, computeDisposalTotals(loads).volume_m3)
+  assert.deepEqual(snap.vehicles.map(v => [v.type, v.count]), [['skip', 2], ['ute', 1], ['trailer', 1]])
+  assert.equal(snap.distance_km, 22.5)
+  assert.equal(snap.weight_kg, 800)
+  assert.equal(snap.invoiced_m3, null)
+  assert.equal(statementDisposalSnapshot(ad, 'CDR-9', 99)?.invoiced_m3, 99)
+  assert.equal(statementDisposalSnapshot({} as AssessmentData, '—', null), null)
+})
+
+function combinedContent(extra: Partial<StatementOfAccountsContent> = {}): StatementOfAccountsContent {
+  return contentFor(fixture(), {
+    survey_areas: [{ label: 'Lounge', sqm: 12, total: 264 }],
+    invoice2_m3: 15,
+    layout_version: 2,
+    survey_snapshot: statementSurveySnapshot([{ label: 'Lounge', sqm: 12, total: 264 }], snapshotSurveyAd, 'SUR-1'),
+    disposal_snapshot: statementDisposalSnapshot(snapshotDisposalAd(), 'CDR-9', 15),
+    ...extra,
+  })
+}
+
+function statementHtml(content: StatementOfAccountsContent): string {
+  return buildPrintHTML('statement_of_accounts', content as unknown as Record<string, unknown>, [], [], null, 'job-1', 'https://app.example.com')
+}
+
+test('combined statement prints survey, disposal, then invoices with no repeated survey rows', () => {
+  const content = combinedContent()
+  const html = statementHtml(content)
+  const survey = html.indexOf('1. Survey Rooms')
+  const cdr = html.indexOf('2. Contents Disposal Record')
+  const invoices = html.indexOf('3. Invoice Summary')
+  assert.ok(survey > 0 && cdr > survey && invoices > cdr)
+  assert.equal(html.split('>Lounge<').length - 1, 1)
+  assert.equal(html.includes('Total area'), true)
+  assert.equal(html.includes('Cubic metres removed'), false)
+  assert.match(html, /Total owing<\/td><td class="r"[^>]*>\$14,651\.53/)
+  const view = presentStatementDocument(content)
+  assert.equal(view.invoices[0].rows.some(row => row.quantity), false)
+  assert.equal(view.summary.balanceInc, presentStatementDocument(contentFor(fixture())).summary.balanceInc)
+})
+
+test('combined statement says Not applicable without a survey or CDR', () => {
+  const html = statementHtml(combinedContent({ survey_snapshot: null, disposal_snapshot: null }))
+  assert.match(html, /1\. Survey Rooms<\/div><p class="body-text soa-na">Not applicable/)
+  assert.match(html, /2\. Contents Disposal Record<\/div><p class="body-text soa-na">Not applicable/)
+  assert.equal(html.includes('Cubic metres removed'), true)
+})
+
+test('a statement generated before the combined layout prints as it did', () => {
+  const legacy = contentFor(fixture(), { survey_areas: [{ label: 'Lounge', sqm: 12, total: 264 }], invoice2_m3: 15 })
+  const html = statementHtml(legacy)
+  assert.equal(html.includes('1. Survey Rooms'), false)
+  assert.equal(html.includes('Cubic metres removed'), true)
+  assert.ok(presentStatementDocument(legacy).invoices[0].rows.some(row => row.quantity))
 })

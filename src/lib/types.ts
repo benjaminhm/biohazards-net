@@ -2387,6 +2387,46 @@ export interface StatementOfAccountsContent {
   xero_new_amount_due?: number | null
   payment_terms?: string
   due_date?: string
+  /**
+   * 2 = one document in three sections (survey rooms, contents disposal record,
+   * invoice summary) from the snapshots below. Missing = the earlier layout,
+   * survey rooms under Cleaning on invoice 1; kept so issued statements print
+   * as they were.
+   */
+  layout_version?: number
+  /** House Survey rooms as they stood when the statement was generated. Null when the job has no survey. */
+  survey_snapshot?: StatementSurveySnapshot | null
+  /** Contents Disposal Record facts as they stood when the statement was generated. Null when the job has no CDR. */
+  disposal_snapshot?: StatementDisposalSnapshot | null
+}
+
+export interface StatementSurveyRoom {
+  name: string
+  sqm: number | null
+  /** Dollars per m² ex GST, as the House Survey prices it. */
+  rate_ex: number | null
+  line_ex: number | null
+  line_inc: number | null
+}
+
+export interface StatementSurveySnapshot {
+  reference: string
+  rooms: StatementSurveyRoom[]
+  total_sqm: number
+  subtotal_ex: number | null
+  gst: number | null
+  total_value_inc: number | null
+}
+
+export interface StatementDisposalSnapshot {
+  reference: string
+  total_m3: number | null
+  load_count: number
+  vehicles: { type: string; label: string; count: number }[]
+  distance_km: number | null
+  weight_kg: number | null
+  /** Cubic metres typed on invoice 2, shown when it differs from the CDR total. */
+  invoiced_m3: number | null
 }
 
 export interface PaymentReminderContent {

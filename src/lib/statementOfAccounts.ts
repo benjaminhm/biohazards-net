@@ -1031,6 +1031,8 @@ function xeroWarning(number: string, balance: number, xeroDue: number | null | u
  * summary balance is the job total minus what has been paid.
  */
 export function presentStatementDocument(c: StatementOfAccountsContent): StatementPresentation {
+  /** Layout 2 prints survey rooms and CDR facts in their own sections, so the invoices do not repeat them. */
+  const combined = c.layout_version === 2
   const chargesGst = c.gst_mode !== 'no_gst'
   const invoice1Amount = round2(chargesGst ? c.quote_inc : c.quote_ex)
   const paid = round2(c.deposit_taken ? c.deposit_entered : 0)
@@ -1080,11 +1082,13 @@ export function presentStatementDocument(c: StatementOfAccountsContent): Stateme
     amountInc: invoice1Amount,
     balanceInc: sourceBalance,
     deductions: sourceRows,
-    explanation: explanationWithAreas(sourceParts, areaRows(c.survey_areas?.map(area => ({
-      label: area.label,
-      sqm: area.sqm,
-      total: area.total ?? null,
-    })))),
+    explanation: combined
+      ? sourceParts
+      : explanationWithAreas(sourceParts, areaRows(c.survey_areas?.map(area => ({
+          label: area.label,
+          sqm: area.sqm,
+          total: area.total ?? null,
+        })))),
     payUrl: c.original_invoice_url ?? '',
   })
   const invoices: BuiltInvoice[] = [source]
@@ -1114,7 +1118,7 @@ export function presentStatementDocument(c: StatementOfAccountsContent): Stateme
       ...moneyParts([['Prepaid', c.invoice2_prepaid]]).map(row => ({ ...row, amountInc: round2(-row.amountInc) })),
     ]
     assertExplained(targetHeading, targetParts, invoice2Amount)
-    const metres = metresRow(c.invoice2_m3)
+    const metres = combined && c.disposal_snapshot ? null : metresRow(c.invoice2_m3)
     invoices.push(buildInvoice({
       heading: targetHeading,
       balanceName: (c.new_invoice_number ?? '').trim() || 'invoice 2',
