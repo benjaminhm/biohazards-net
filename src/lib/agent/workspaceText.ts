@@ -6,8 +6,9 @@
  * turned back into a model conversation, and parsing "@1234" job switches.
  */
 import type Anthropic from '@anthropic-ai/sdk'
+import { DOC_AGENT_TYPES, type DocAgentType } from './subagents/types'
 
-export type Speaker = 'user' | 'head_agent' | 'file_agent' | 'system'
+export type Speaker = 'user' | 'head_agent' | 'file_agent' | 'doc_agent' | 'system'
 
 export interface ChatRow {
   id: string
@@ -15,7 +16,17 @@ export interface ChatRow {
   job_id: string | null
   speaker: Speaker
   author: string
-  content: { text?: string; draft_ids?: string[]; handover?: { job_id: string; job_code: string | null } }
+  content: {
+    text?: string
+    draft_ids?: string[]
+    handover?: { job_id: string; job_code: string | null }
+    /** What the file agent asked, on a delegated sub-agent line. */
+    instruction?: string
+    /** A sub-agent sending staff elsewhere: a document agent, or null for the file agent. */
+    switch_to?: { doc_agent: DocAgentType | null; label: string }
+  }
+  /** The document sub-agent this line belongs to (migration 064). */
+  doc_agent?: DocAgentType | null
   created_at: string
 }
 
@@ -107,17 +118,99 @@ export function showValue(v: unknown, max = 80): string {
   return s.length > max ? `${s.slice(0, max - 1)}…` : s
 }
 
-/** "@1234 rest" switches to job code 1234. Returns null when there is no mention. */
-export function parseJobMention(text: string): { code: string; rest: string } | null {
-  const m = /^\s*@([A-Za-z0-9-]{2,12})\b[\s,:]*([\s\S]*)$/.exec(text)
+/** Short names staff type after "@1234/" for each document agent. */
+export const DOC_AGENT_ALIASES: Record<string, DocAgentType> = {
+  statement: 'statement_of_accounts', soa: 'statement_of_accounts', statement_of_accounts: 'statement_of_accounts',
+  bcq: 'biohazard_cleaning_quote', biohazard: 'biohazard_cleaning_quote', biohazard_cleaning_quote: 'biohazard_cleaning_quote',
+  ccq: 'contents_clearance_quote', contents: 'contents_clearance_quote', contents_clearance_quote: 'contents_clearance_quote',
+  sacq: 'surface_area_cleaning_quote', surface: 'surface_area_cleaning_quote', surface_area_cleaning_quote: 'surface_area_cleaning_quote',
+  survey: 'house_survey', house_survey: 'house_survey',
+  cdr: 'waste_disposal_manifest', disposal: 'waste_disposal_manifest', wdm: 'waste_disposal_manifest', waste_disposal_manifest: 'waste_disposal_manifest',
+  completion: 'completion_report', report: 'completion_report', completion_report: 'completion_report',
+}
+
+/** Document agent for an alias, 'file' for the file agent, null when unknown. */
+export function resolveAgentAlias(raw: string): DocAgentType | 'file' | null {
+  const key = raw.trim().toLowerCase().replace(/[\s-]+/g, '_')
+  if (key === 'file' || key === 'file_agent') return 'file'
+  return DOC_AGENT_ALIASES[key] ?? ((DOC_AGENT_TYPES as readonly string[]).includes(key) ? (key as DocAgentType) : null)
+}
+
+export interface JobMention {
+  code: string
+  /** Set when "@1234/<agent>" named an agent: a document agent or 'file'. */
+  agent?: DocAgentType | 'file'
+  /** The text after "/" when it named no known agent. */
+  unknownAgent?: string
+  rest: string
+}
+
+/** "@1234 rest" switches to job code 1234; "@1234/statement rest" to its Statement agent. Null when there is no mention. */
+export function parseJobMention(text: string): JobMention | null {
+  const m = /^\s*@([A-Za-z0-9-]{2,12})(?:\/([A-Za-z_-]{1,40}))?(?![A-Za-z0-9/-])[\s,:]*([\s\S]*)$/.exec(text)
   if (!m) return null
-  return { code: m[1], rest: m[2].trim() }
+  const rest = m[3].trim()
+  if (!m[2]) return { code: m[1], rest }
+  const agent = resolveAgentAlias(m[2])
+  return agent ? { code: m[1], agent, rest } : { code: m[1], unknownAgent: m[2], rest }
+}
+
+export type ChatTarget =
+  | { kind: 'head' }
+  | { kind: 'file'; jobId: string }
+  | { kind: 'doc'; jobId: string; docAgent: DocAgentType }
+
+/** Who answers a staff message: a document agent needs an open job; anything unknown falls back to the file agent. */
+export function chatTarget(jobId: string | null, docAgent: unknown): ChatTarget {
+  if (!jobId) return { kind: 'head' }
+  if (typeof docAgent === 'string' && (DOC_AGENT_TYPES as readonly string[]).includes(docAgent)) return { kind: 'doc', jobId, docAgent: docAgent as DocAgentType }
+  return { kind: 'file', jobId }
+}
+
+/** Lines of a direct staff conversation with a document agent (not delegated runs or log lines). */
+export function isDirectDocLine(r: Pick<ChatRow, 'speaker' | 'doc_agent'>): boolean {
+  return Boolean(r.doc_agent) && (r.speaker === 'user' || r.speaker === 'doc_agent')
+}
+
+/** What the file agent replays: everything on the job except direct document-agent conversations. */
+export function fileAgentRows<T extends Pick<ChatRow, 'speaker' | 'doc_agent'>>(rows: T[]): T[] {
+  return rows.filter(r => !isDirectDocLine(r))
+}
+
+/** One document agent's history on a job: direct lines, delegated runs and log lines tagged with it. */
+export function docAgentRows<T extends Pick<ChatRow, 'doc_agent'>>(rows: T[], type: DocAgentType): T[] {
+  return rows.filter(r => r.doc_agent === type)
+}
+
+/**
+ * A document agent's history as model input. A delegated run (a file agent
+ * line) becomes a log line with what was asked, so it is context rather than
+ * something the sub-agent said to staff.
+ */
+export function docAgentHistory(rows: ChatRow[]): ChatRow[] {
+  return rows.map(r => {
+    if (r.speaker !== 'file_agent') return r
+    const asked = r.content?.instruction ? `The file agent asked: ${r.content.instruction}. ` : ''
+    return { ...r, speaker: 'system' as const, author: 'Delegated by the file agent', content: { text: `${asked}You reported: ${r.content?.text ?? ''}` } }
+  })
+}
+
+/** Recent direct document-agent conversations on a job, for the file agent's prompt. Oldest first. */
+export function directConversationDigest(rows: ChatRow[], labels: Record<string, string>, maxLines = 12, maxChars = 280): string {
+  const lines = rows.filter(isDirectDocLine).slice(-maxLines).map(r => {
+    const who = labels[r.doc_agent as string] ?? 'Document agent'
+    const text = (r.content?.text ?? '').replace(/\s+/g, ' ').trim()
+    const cut = text.length > maxChars ? `${text.slice(0, maxChars - 1)}…` : text
+    return `[${who}] ${r.speaker === 'user' ? `Staff${r.author ? ` (${r.author})` : ''}` : 'Agent'}: ${cut}`
+  })
+  return lines.join('\n')
 }
 
 const LABEL: Record<Speaker, string> = {
   user: 'Staff',
   head_agent: 'Head agent',
   file_agent: 'File agent',
+  doc_agent: 'Document agent',
   system: 'Log',
 }
 
@@ -131,7 +224,7 @@ export function rebuildHistory(rows: ChatRow[]): Anthropic.MessageParam[] {
   for (const r of rows) {
     const text = (r.content?.text ?? '').trim()
     if (!text) continue
-    const role = r.speaker === 'head_agent' || r.speaker === 'file_agent' ? 'assistant' : 'user'
+    const role = r.speaker === 'head_agent' || r.speaker === 'file_agent' || r.speaker === 'doc_agent' ? 'assistant' : 'user'
     const line = r.speaker === 'system'
       ? `[${LABEL.system}${r.author ? ` · ${r.author}` : ''}] ${text}`
       : r.speaker === 'file_agent' && r.author?.startsWith('File agent >')

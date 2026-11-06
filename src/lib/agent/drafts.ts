@@ -76,12 +76,14 @@ export async function postMessage(
     job_id: string | null
     speaker: Speaker
     author?: string
+    /** Document agent the line belongs to (direct chat, delegated run, its approvals). */
+    doc_agent?: string | null
     content: Record<string, unknown>
   },
 ): Promise<string | null> {
   const { data, error } = await supabase
     .from('agent_messages')
-    .insert({ ...row, author: row.author ?? '' })
+    .insert({ ...row, author: row.author ?? '', doc_agent: row.doc_agent ?? null })
     .select('id')
     .single()
   if (error) {
@@ -373,6 +375,11 @@ export interface Approver {
   firstName: string
 }
 
+/** The document agent that drafted this, for tagging its log lines. */
+export function draftDocAgent(draft: Pick<DraftRow, 'created_by'>): string | null {
+  return draft.created_by?.startsWith('doc_agent:') ? draft.created_by.slice('doc_agent:'.length) : null
+}
+
 /** Which agent drafted this: a document sub-agent (doc_agent:<type>) or the file agent. */
 export function draftAgent(draft: Pick<DraftRow, 'created_by'>): 'file_agent' | `doc_agent:${string}` {
   return draft.created_by?.startsWith('doc_agent:') ? (draft.created_by as `doc_agent:${string}`) : 'file_agent'
@@ -395,7 +402,7 @@ async function generateFromDraft(supabase: Supabase, who: Approver, draft: Draft
   const r = await checkGenerate(supabase, who.orgId, draft.job_id, type)
   if (!r.ok) {
     await postMessage(supabase, {
-      org_id: who.orgId, thread_id: who.userId, job_id: draft.job_id, speaker: 'system', author: who.firstName,
+      org_id: who.orgId, thread_id: who.userId, job_id: draft.job_id, speaker: 'system', author: who.firstName, doc_agent: draftDocAgent(draft),
       content: { text: `${label} not generated: ${r.reason}` },
     })
     throw new DraftError(`Not generated: ${r.reason}`)
@@ -566,7 +573,7 @@ export async function approveDraft(
     if (decErr) throw decErr
     if (opts.postLine !== false) {
       await postMessage(supabase, {
-        org_id: who.orgId, thread_id: who.userId, job_id: draft.job_id, speaker: 'system', author: who.firstName,
+        org_id: who.orgId, thread_id: who.userId, job_id: draft.job_id, speaker: 'system', author: who.firstName, doc_agent: draftDocAgent(draft),
         content: { text: `Approved by ${who.firstName || 'staff'}: ${draft.summary}` },
       })
     }
@@ -601,7 +608,7 @@ export async function rejectDraft(
   if (!draft) return { ok: false, error: 'Nothing pending to reject' }
   if (opts.postLine !== false) {
     await postMessage(supabase, {
-      org_id: who.orgId, thread_id: who.userId, job_id: draft.job_id, speaker: 'system', author: who.firstName,
+      org_id: who.orgId, thread_id: who.userId, job_id: draft.job_id, speaker: 'system', author: who.firstName, doc_agent: draftDocAgent(draft),
       content: { text: `Rejected by ${who.firstName || 'staff'}: ${draft.summary}` },
     })
   }

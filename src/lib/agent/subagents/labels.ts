@@ -13,7 +13,7 @@ export const DOC_AGENT_LABEL: Record<DocAgentType, { agent: string; doc: string 
   surface_area_cleaning_quote: { agent: 'SACQ agent', doc: 'Surface Area Cleaning Quote' },
   house_survey: { agent: 'Survey agent', doc: 'House Survey' },
   waste_disposal_manifest: { agent: 'CDR agent', doc: 'Contents Disposal Record' },
-  completion_report: { agent: 'Report agent', doc: 'Completion Report' },
+  completion_report: { agent: 'Completion Report agent', doc: 'Completion Report' },
 }
 
 /** "File agent > Statement agent" for created_by doc_agent:<type>, else "File agent". */

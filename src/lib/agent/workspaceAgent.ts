@@ -37,6 +37,10 @@ import {
   normalizeFieldValue,
   parseJobMention,
   rebuildHistory,
+  chatTarget,
+  directConversationDigest,
+  docAgentHistory,
+  fileAgentRows,
   type ChatRow,
 } from './workspaceText'
 import { surveyAndDisposalSummary } from './statementDraft'
@@ -56,8 +60,11 @@ import {
   type SnapshotHashes,
 } from './jobSnapshot'
 import { DOC_AGENTS } from './subagents/registry'
-import { runDocAgent } from './subagents/runner'
-import { DOC_AGENT_TYPES, isDocAgentType } from './subagents/types'
+import { docAgentOverview, type JobAgentsOverview, type OverviewInput } from './subagents/overview'
+import { jobHealth } from './jobHealth'
+import { documentConflicts } from './conflicts'
+import { runDocAgent, runDocAgentDirect } from './subagents/runner'
+import { DOC_AGENT_TYPES, isDocAgentType, type DocAgentType } from './subagents/types'
 import {
   CAPTURE_KEYS,
   PHOTO_FIELDS,
@@ -414,8 +421,8 @@ const delegateToDocumentAgent: WsTool = {
     )
     const ids = report.drafts_created.map(d => d.id)
     const messageId = await postMessage(ctx.supabase, {
-      org_id: ctx.orgId, thread_id: ctx.userId, job_id: jobId, speaker: 'file_agent', author: `File agent > ${report.agent}`,
-      content: { text: report.message, ...(ids.length ? { draft_ids: ids } : {}) },
+      org_id: ctx.orgId, thread_id: ctx.userId, job_id: jobId, speaker: 'file_agent', author: `File agent > ${report.agent}`, doc_agent: type,
+      content: { text: report.message, instruction: str(input.instruction).slice(0, 1000), ...(ids.length ? { draft_ids: ids } : {}) },
     })
     if (messageId && ids.length) {
       await ctx.supabase.from('agent_drafts').update({ message_id: messageId }).in('id', ids).eq('org_id', ctx.orgId)
@@ -539,6 +546,64 @@ export async function markJobRead(supabase: Supabase, orgId: string, userId: str
   await supabase
     .from('agent_job_reads')
     .upsert({ user_id: userId, job_id: jobId, org_id: orgId, last_read_at: new Date().toISOString() }, { onConflict: 'user_id,job_id' })
+}
+
+/** Staff opened one document agent's conversation on a job. */
+export async function markDocRead(supabase: Supabase, orgId: string, userId: string, jobId: string, type: DocAgentType) {
+  const { data } = await supabase.from('agent_job_reads').select('last_read_at, doc_reads').eq('user_id', userId).eq('job_id', jobId).maybeSingle()
+  const docReads = { ...((data?.doc_reads ?? {}) as Record<string, string>), [type]: new Date().toISOString() }
+  await supabase.from('agent_job_reads').upsert(
+    { user_id: userId, job_id: jobId, org_id: orgId, last_read_at: (data?.last_read_at as string | undefined) ?? new Date(0).toISOString(), doc_reads: docReads },
+    { onConflict: 'user_id,job_id' },
+  )
+}
+
+/**
+ * Document agent rows for one job in the workspace list: capture state,
+ * pending cards, unread lines and health, from one load of the job.
+ */
+export async function jobAgentsSummary(supabase: Supabase, orgId: string, userId: string, jobId: string, role: string | null): Promise<JobAgentsOverview | null> {
+  const since = new Date(Date.now() - 30 * 86_400_000).toISOString()
+  const [jobRes, docsRes, acceptances, xero, pending, msgsRes, readRes] = await Promise.all([
+    supabase.from('jobs').select('status, assessment_data').eq('id', jobId).eq('org_id', orgId).maybeSingle(),
+    supabase.from('documents').select('id, type, content, created_at').eq('job_id', jobId).eq('org_id', orgId).limit(80),
+    readAcceptances(supabase, jobId),
+    readXeroInvoice(supabase, orgId, jobId),
+    listPendingDrafts(supabase, orgId, jobId),
+    supabase
+      .from('agent_messages')
+      .select('doc_agent, speaker, thread_id, created_at')
+      .eq('org_id', orgId)
+      .eq('job_id', jobId)
+      .neq('speaker', 'user')
+      .gte('created_at', since)
+      .limit(1000),
+    supabase.from('agent_job_reads').select('last_read_at, doc_reads').eq('user_id', userId).eq('job_id', jobId).maybeSingle(),
+  ])
+  if (!jobRes.data) return null
+  const documents = (docsRes.data ?? []) as { id: string; type: string; content: unknown; created_at: string }[]
+  const assessment = (jobRes.data.assessment_data ?? null) as AssessmentData | null
+  const health = jobHealth({
+    status: jobRes.data.status as string,
+    assessment,
+    documents,
+    acceptances: acceptances.map(a => ({ document_id: a.document_id ?? null, quote_total: a.quote_total ?? null, accepted_at: a.accepted_at })),
+    xeroInvoice: Boolean(xero),
+  })
+  const overview = docAgentOverview({
+    status: jobRes.data.status as string,
+    assessment: assessment as Record<string, unknown> | null,
+    documents,
+    health,
+    conflicts: documentConflicts(documents),
+    pendingDrafts: pending,
+    messages: (msgsRes.data ?? []) as OverviewInput['messages'],
+    userId,
+    jobReadAt: (readRes.data?.last_read_at as string | undefined) ?? null,
+    docReads: (readRes.data?.doc_reads ?? {}) as Record<string, string>,
+  })
+  if (seesFinancials(role)) return overview
+  return { ...overview, agents: overview.agents.map(a => ({ ...a, health_messages: a.health_messages.map(m => m.replace(/\$[\d,]+(\.\d+)?/g, '$—')) })) }
 }
 
 const listJobsNeedingMe: WsTool = {
@@ -721,7 +786,7 @@ function roleRules(role: string | null): string {
   return '- They are a team lead: put site, schedule, crew and safety first. Do not state dollar figures (prices, totals, invoice amounts, deposits) — your file leaves them out. If they ask for one, say an admin or manager can see it in the job file.'
 }
 
-function filePrompt(firstName: string, role: string | null, file: FileContext, jobCode: string | null) {
+function filePrompt(firstName: string, role: string | null, file: FileContext, jobCode: string | null, directDigest = '') {
   const agents = DOC_AGENT_TYPES.map(t => `${t} = ${DOC_AGENTS[t].docLabel} (${DOC_AGENTS[t].label})`).join('; ')
   const fileText = file.kind === 'full'
     ? `FIRST LOOK AT THIS JOB IN THIS CONVERSATION. Start your reply with any health warnings, conflicts or open flags below in a line or two (skip info items unless relevant), then deal with what was asked.
@@ -755,21 +820,56 @@ ${roleRules(role)}
 - If a [Log] line shows a staff edit that makes a pending draft or a document out of date, mention it briefly and offer to update it.
 - The job description is neutral and factual.
 ${COMMON_RULES}
-
+${directDigest ? `
+STAFF HAVE ALSO TALKED TO DOCUMENT AGENTS DIRECTLY ON THIS JOB (recent lines, oldest first; for awareness, not requests to you):
+${directDigest}
+` : ''}
 ${fileText}`
 }
 
 async function loadRows(supabase: Supabase, orgId: string, filter: { threadId?: string; jobId?: string | null }): Promise<ChatRow[]> {
   let q = supabase
     .from('agent_messages')
-    .select('id, thread_id, job_id, speaker, author, content, created_at')
+    .select(ROW_COLS)
     .eq('org_id', orgId)
     .order('created_at', { ascending: false })
     .limit(HISTORY_ROWS)
-  if (filter.jobId) q = q.eq('job_id', filter.jobId)
+  if (filter.jobId) q = q.eq('job_id', filter.jobId).or(FILE_AGENT_LINES)
   else q = q.eq('thread_id', filter.threadId ?? '').is('job_id', null)
   const { data } = await q
+  return fileAgentRows(((data ?? []) as ChatRow[]).reverse())
+}
+
+/** Everything except direct document-agent conversations (see isDirectDocLine). */
+const FILE_AGENT_LINES = 'doc_agent.is.null,speaker.in.(head_agent,file_agent,system)'
+const ROW_COLS = 'id, thread_id, job_id, speaker, author, content, doc_agent, created_at'
+
+/** One document agent's lines on a job (all staff), oldest first. */
+async function loadDocRows(supabase: Supabase, orgId: string, jobId: string, type: DocAgentType, limit = HISTORY_ROWS): Promise<ChatRow[]> {
+  const { data } = await supabase
+    .from('agent_messages')
+    .select(ROW_COLS)
+    .eq('org_id', orgId)
+    .eq('job_id', jobId)
+    .eq('doc_agent', type)
+    .order('created_at', { ascending: false })
+    .limit(limit)
   return ((data ?? []) as ChatRow[]).reverse()
+}
+
+/** Recent direct document-agent lines on a job, for the file agent's prompt. */
+async function directDigestFor(supabase: Supabase, orgId: string, jobId: string): Promise<string> {
+  const { data } = await supabase
+    .from('agent_messages')
+    .select(ROW_COLS)
+    .eq('org_id', orgId)
+    .eq('job_id', jobId)
+    .not('doc_agent', 'is', null)
+    .in('speaker', ['user', 'doc_agent'])
+    .order('created_at', { ascending: false })
+    .limit(12)
+  const labels = Object.fromEntries(DOC_AGENT_TYPES.map(t => [t, DOC_AGENTS[t].label]))
+  return directConversationDigest(((data ?? []) as ChatRow[]).reverse(), labels)
 }
 
 export interface ChatTurnInput {
@@ -782,46 +882,63 @@ export interface ChatTurnInput {
   activeJobId: string | null
   /** org_users.role. Members (technicians) never reach the workspace. */
   role: string | null
+  /** The open job's document agent staff are talking to directly, if any. */
+  activeDocAgent?: DocAgentType | null
 }
 
-/** One staff message in, saved agent replies out. Returns the job now in focus. */
-export async function handleChatTurn(input: ChatTurnInput): Promise<{ active_job_id: string | null }> {
+export interface ChatTurnResult { active_job_id: string | null; active_doc_agent: DocAgentType | null }
+
+const AGENT_ALIAS_HINT = 'statement, bcq, ccq, sacq, survey, cdr, completion or file'
+
+/** One staff message in, saved agent replies out. Returns the job and agent now in focus. */
+export async function handleChatTurn(input: ChatTurnInput): Promise<ChatTurnResult> {
   const { supabase, orgId, userId, firstName } = input
   let text = input.text.trim()
   let jobId = input.activeJobId
+  let docAgent: DocAgentType | null = jobId ? input.activeDocAgent ?? null : null
+  const say = async (reply: string) => {
+    await postMessage(supabase, { org_id: orgId, thread_id: userId, job_id: jobId, speaker: 'user', author: firstName, doc_agent: docAgent, content: { text } })
+    await postMessage(supabase, {
+      org_id: orgId, thread_id: userId, job_id: jobId, speaker: docAgent ? 'doc_agent' : jobId ? 'file_agent' : 'head_agent',
+      author: docAgent ? DOC_AGENTS[docAgent].label : '', doc_agent: docAgent, content: { text: reply },
+    })
+    return { active_job_id: jobId, active_doc_agent: docAgent }
+  }
 
   const mention = parseJobMention(text)
   if (mention) {
+    if (mention.unknownAgent) return say(`I don't know an agent called "${mention.unknownAgent}". Try ${AGENT_ALIAS_HINT}, e.g. @${mention.code}/statement.`)
     const { data: job } = await supabase
       .from('jobs')
       .select('id')
       .eq('org_id', orgId)
       .eq('job_code', mention.code)
       .maybeSingle()
-    if (!job) {
-      await postMessage(supabase, { org_id: orgId, thread_id: userId, job_id: jobId, speaker: 'user', author: firstName, content: { text } })
-      await postMessage(supabase, {
-        org_id: orgId, thread_id: userId, job_id: jobId, speaker: jobId ? 'file_agent' : 'head_agent',
-        content: { text: `I can't find a job with code ${mention.code}.` },
-      })
-      return { active_job_id: jobId }
-    }
+    if (!job) return say(`I can't find a job with code ${mention.code}.`)
     jobId = job.id as string
+    docAgent = mention.agent && mention.agent !== 'file' ? mention.agent : null
     text = mention.rest
-    await markJobRead(supabase, orgId, userId, jobId)
-    if (!text) return { active_job_id: jobId }
+    if (docAgent) await markDocRead(supabase, orgId, userId, jobId, docAgent)
+    else await markJobRead(supabase, orgId, userId, jobId)
+    if (!text) return { active_job_id: jobId, active_doc_agent: docAgent }
   }
-  if (!text) return { active_job_id: jobId }
+  if (!text) return { active_job_id: jobId, active_doc_agent: docAgent }
 
-  await postMessage(supabase, { org_id: orgId, thread_id: userId, job_id: jobId, speaker: 'user', author: firstName, content: { text } })
+  await postMessage(supabase, { org_id: orgId, thread_id: userId, job_id: jobId, speaker: 'user', author: firstName, doc_agent: docAgent, content: { text } })
 
   const anthropic = new Anthropic({ apiKey: input.apiKey })
   const base: WsContext = { userId, orgId, supabase, staffFirstName: firstName, jobId, draftIds: [], handover: null, role: input.role }
 
+  const target = chatTarget(jobId, docAgent)
+  if (target.kind === 'doc') {
+    await runDocAgentTurn(anthropic, base, target.jobId, target.docAgent)
+    return { active_job_id: target.jobId, active_doc_agent: target.docAgent }
+  }
+
   if (!jobId) {
     const rows = await loadRows(supabase, orgId, { threadId: userId, jobId: null })
     const messages = rebuildHistory(rows)
-    if (!messages.length) return { active_job_id: null }
+    if (!messages.length) return { active_job_id: null, active_doc_agent: null }
     const reply = await runLoop(anthropic, headPrompt(firstName, input.role), HEAD_TOOLS, messages, base, { maxSteps: MAX_STEPS, stopWhen: () => base.handover !== null })
     const h = base.handover as WsContext['handover']
     const draftIds = [...new Set(base.draftIds)]
@@ -836,13 +953,51 @@ export async function handleChatTurn(input: ChatTurnInput): Promise<{ active_job
     if (messageId && draftIds.length) {
       await supabase.from('agent_drafts').update({ message_id: messageId }).in('id', draftIds).eq('org_id', orgId)
     }
-    if (!h) return { active_job_id: null }
+    if (!h) return { active_job_id: null, active_doc_agent: null }
     await runFileAgent(anthropic, { ...base, jobId: h.job_id, draftIds: [] }, `[Handover from the head agent] ${h.brief}\nThe staff member said: "${text}"`)
-    return { active_job_id: h.job_id }
+    return { active_job_id: h.job_id, active_doc_agent: null }
   }
 
   await runFileAgent(anthropic, base, null)
-  return { active_job_id: jobId }
+  return { active_job_id: jobId, active_doc_agent: null }
+}
+
+/** Staff talking straight to one document agent: its own tools and history, replying as itself. */
+async function runDocAgentTurn(anthropic: Anthropic, ctx: WsContext, jobId: string, type: DocAgentType) {
+  const { supabase, orgId, userId } = ctx
+  const [rows, jobRes] = await Promise.all([
+    loadDocRows(supabase, orgId, jobId, type),
+    supabase.from('jobs').select('job_code').eq('id', jobId).eq('org_id', orgId).maybeSingle(),
+  ])
+  const label = DOC_AGENTS[type].label
+  if (!jobRes.data) {
+    await postMessage(supabase, { org_id: orgId, thread_id: userId, job_id: jobId, speaker: 'doc_agent', author: label, doc_agent: type, content: { text: 'I cannot find that job.' } })
+    return
+  }
+  const messages = rebuildHistory(docAgentHistory(rows))
+  if (!messages.length) return
+  const r = await runDocAgentDirect(
+    anthropic,
+    {
+      supabase, orgId, userId, jobId, staffFirstName: ctx.staffFirstName,
+      staffLine: staffLine(ctx.staffFirstName, ctx.role), jobCode: (jobRes.data.job_code as string | null) ?? null,
+      roleRule: roleRules(ctx.role), redact: !seesFinancials(ctx.role), today: today(),
+    },
+    type,
+    messages,
+  )
+  const messageId = await postMessage(supabase, {
+    org_id: orgId, thread_id: userId, job_id: jobId, speaker: 'doc_agent', author: label, doc_agent: type,
+    content: {
+      text: r.text || (r.draftIds.length ? 'Drafted. Check the changes below.' : 'Done.'),
+      ...(r.draftIds.length ? { draft_ids: r.draftIds } : {}),
+      ...(r.referral ? { switch_to: r.referral } : {}),
+    },
+  })
+  if (messageId && r.draftIds.length) {
+    await supabase.from('agent_drafts').update({ message_id: messageId }).in('id', r.draftIds).eq('org_id', orgId)
+  }
+  await markDocRead(supabase, orgId, userId, jobId, type)
 }
 
 /** Small always-present header for turns that get a diff instead of the whole file. */
@@ -879,7 +1034,7 @@ async function runFileAgent(anthropic: Anthropic, ctx: WsContext, handoverText: 
   } else {
     fileContext = { kind: 'full', snapshot: current.snapshot }
   }
-  const rows = await loadRows(supabase, orgId, { jobId })
+  const [rows, directDigest] = await Promise.all([loadRows(supabase, orgId, { jobId }), directDigestFor(supabase, orgId, jobId)])
   if (handoverText) {
     rows.push({
       id: 'handover', thread_id: userId, job_id: jobId, speaker: 'user', author: '', content: { text: handoverText },
@@ -889,7 +1044,7 @@ async function runFileAgent(anthropic: Anthropic, ctx: WsContext, handoverText: 
   const messages = rebuildHistory(rows)
   if (!messages.length) return
   const jobCode = (current.snapshot.job.job_code as string | null) ?? null
-  const reply = await runLoop(anthropic, filePrompt(ctx.staffFirstName, ctx.role, fileContext, jobCode), FILE_TOOLS, messages, ctx, { maxSteps: MAX_STEPS })
+  const reply = await runLoop(anthropic, filePrompt(ctx.staffFirstName, ctx.role, fileContext, jobCode, directDigest), FILE_TOOLS, messages, ctx, { maxSteps: MAX_STEPS })
   const draftIds = [...new Set(ctx.draftIds)]
   const messageId = await postMessage(supabase, {
     org_id: orgId, thread_id: userId, job_id: jobId, speaker: 'file_agent',
@@ -906,6 +1061,34 @@ async function runFileAgent(anthropic: Anthropic, ctx: WsContext, handoverText: 
 }
 
 // ── Chat view ─────────────────────────────────────────────────────────────────
+
+/** The running thread with the head and file agents; direct document-agent chats show only when that agent is open. */
+async function threadView(supabase: Supabase, orgId: string, userId: string, jobId: string | null): Promise<ChatRow[]> {
+  const threadQ = supabase
+    .from('agent_messages')
+    .select(ROW_COLS)
+    .eq('org_id', orgId)
+    .eq('thread_id', userId)
+    .or(FILE_AGENT_LINES)
+    .order('created_at', { ascending: false })
+    .limit(150)
+  const jobQ = jobId
+    ? supabase
+        .from('agent_messages')
+        .select(ROW_COLS)
+        .eq('org_id', orgId)
+        .eq('job_id', jobId)
+        .or(`thread_id.is.null,thread_id.neq."${userId.replace(/"/g, '')}"`)
+        .order('created_at', { ascending: false })
+        .limit(50)
+    : null
+  const [threadRes, jobRes] = await Promise.all([threadQ, jobQ])
+  const seen = new Set<string>()
+  return fileAgentRows([...((threadRes.data ?? []) as ChatRow[]), ...((jobRes?.data ?? []) as ChatRow[])])
+    .filter(r => (seen.has(r.id) ? false : (seen.add(r.id), true)))
+    .sort((a, b) => a.created_at.localeCompare(b.created_at))
+    .map(withoutSnapshot)
+}
 
 /** Snapshot hashes on file agent lines are for the agent only; keep them out of the browser. */
 function withoutSnapshot(r: ChatRow): ChatRow {
@@ -925,31 +1108,10 @@ export interface ChatView {
  * What the middle panel shows: this user's running thread, plus other lines on
  * the open job (pipeline posts, other staff) merged in by time.
  */
-export async function loadChatView(supabase: Supabase, orgId: string, userId: string, jobId: string | null): Promise<ChatView> {
-  const cols = 'id, thread_id, job_id, speaker, author, content, created_at'
-  const threadQ = supabase
-    .from('agent_messages')
-    .select(cols)
-    .eq('org_id', orgId)
-    .eq('thread_id', userId)
-    .order('created_at', { ascending: false })
-    .limit(150)
-  const jobQ = jobId
-    ? supabase
-        .from('agent_messages')
-        .select(cols)
-        .eq('org_id', orgId)
-        .eq('job_id', jobId)
-        .or(`thread_id.is.null,thread_id.neq."${userId.replace(/"/g, '')}"`)
-        .order('created_at', { ascending: false })
-        .limit(50)
-    : null
-  const [threadRes, jobRes] = await Promise.all([threadQ, jobQ])
-  const seen = new Set<string>()
-  const rows = [...((threadRes.data ?? []) as ChatRow[]), ...((jobRes?.data ?? []) as ChatRow[])]
-    .filter(r => (seen.has(r.id) ? false : (seen.add(r.id), true)))
-    .sort((a, b) => a.created_at.localeCompare(b.created_at))
-    .map(withoutSnapshot)
+export async function loadChatView(supabase: Supabase, orgId: string, userId: string, jobId: string | null, docAgent: DocAgentType | null = null): Promise<ChatView> {
+  const rows = jobId && docAgent
+    ? (await loadDocRows(supabase, orgId, jobId, docAgent, 150)).map(withoutSnapshot)
+    : await threadView(supabase, orgId, userId, jobId)
 
   const draftIds = [...new Set(rows.flatMap(r => r.content?.draft_ids ?? []))]
   const [referenced, pending] = await Promise.all([

@@ -8,7 +8,8 @@
  *   Middle — one running chat with the head agent and each job's file agent
  *   Right  — the open job, editable by hand, with pending agent drafts on top
  *
- * /workspace?job=<id> opens a job. The Classic job page links back here via
+ * /workspace?job=<id> opens a job; &agent=<doc type> one of its document
+ * agents. The Classic job page links back here via
  * the view toggle. Desktop and tablet only; staff with the full job file only
  * (the APIs enforce it).
  */
@@ -18,6 +19,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import type { Document, Job, Photo } from '@/lib/types'
 import type { ChatRow } from '@/lib/agent/workspaceText'
 import { isApproveAllPhrase, voiceApprovable } from '@/lib/agent/workspaceText'
+import { isDocAgentType, type DocAgentType } from '@/lib/agent/subagents/types'
 import { useUser } from '@/lib/userContext'
 import { writeViewMode } from '@/lib/viewMode'
 import ViewToggle from '@/components/workspace/ViewToggle'
@@ -39,12 +41,15 @@ function Workspace() {
   const params = useSearchParams()
   const { isAdmin, isManager, loading: userLoading } = useUser()
   const urlJob = params.get('job')
+  const urlAgent = params.get('agent')
 
   const [jobs, setJobs] = useState<Job[]>([])
   const [jobsLoading, setJobsLoading] = useState(true)
   const [markers, setMarkers] = useState<Record<string, JobMarkers>>({})
   const [newJobDrafts, setNewJobDrafts] = useState<DraftView[]>([])
   const [activeJobId, setActiveJobId] = useState<string | null>(urlJob)
+  const [activeDocAgent, setActiveDocAgent] = useState<DocAgentType | null>(urlJob && isDocAgentType(urlAgent) ? urlAgent : null)
+  const [agentsVersion, setAgentsVersion] = useState(0)
   const [rows, setRows] = useState<ChatRow[]>([])
   const [drafts, setDrafts] = useState<DraftView[]>([])
   const [localLines, setLocalLines] = useState<LocalLine[]>([])
@@ -56,6 +61,8 @@ function Workspace() {
   const [error, setError] = useState('')
   const activeRef = useRef(activeJobId)
   activeRef.current = activeJobId
+  const agentRef = useRef(activeDocAgent)
+  agentRef.current = activeDocAgent
 
   useEffect(() => {
     writeViewMode('agent')
@@ -75,14 +82,15 @@ function Workspace() {
     setNewJobDrafts(data.new_jobs ?? [])
   }, [])
 
-  const loadChat = useCallback(async (jobId: string | null) => {
-    const res = await fetch(`/api/agent/chat${jobId ? `?job=${jobId}` : ''}`)
+  const loadChat = useCallback(async (jobId: string | null, docAgent: DocAgentType | null = null) => {
+    const res = await fetch(`/api/agent/chat${jobId ? `?job=${jobId}${docAgent ? `&agent=${docAgent}` : ''}` : ''}`)
     if (!res.ok) {
       if (res.status === 403) setError('The Agent view needs full job file access.')
       return
     }
     const data = await res.json()
-    if (activeRef.current !== jobId) return
+    if (activeRef.current !== jobId || agentRef.current !== docAgent) return
+    setAgentsVersion(v => v + 1)
     setRows(data.rows ?? [])
     setDrafts(data.drafts ?? [])
   }, [])
@@ -111,13 +119,16 @@ function Workspace() {
   }, [loadJobs, loadMarkers])
 
   useEffect(() => {
-    void loadChat(activeJobId)
+    void loadChat(activeJobId, activeDocAgent)
+  }, [activeJobId, activeDocAgent, loadChat])
+
+  useEffect(() => {
     void loadJob(activeJobId)
-  }, [activeJobId, loadChat, loadJob])
+  }, [activeJobId, loadJob])
 
   const refreshAfterChange = useCallback(async () => {
     const id = activeRef.current
-    await Promise.all([loadChat(id), loadJob(id), loadMarkers()])
+    await Promise.all([loadChat(id, agentRef.current), loadJob(id), loadMarkers()])
   }, [loadChat, loadJob, loadMarkers])
 
   async function onDraftsDecided(created: string[]) {
@@ -127,12 +138,19 @@ function Workspace() {
     openJob(created[0])
   }
 
-  function openJob(id: string | null) {
+  function workspaceUrl(id: string | null, docAgent: DocAgentType | null) {
+    return id ? `/workspace?job=${id}${docAgent ? `&agent=${docAgent}` : ''}` : '/workspace'
+  }
+
+  function openJob(id: string | null, docAgent: DocAgentType | null = null) {
+    const agent = id ? docAgent : null
     activeRef.current = id
+    agentRef.current = agent
     setActiveJobId(id)
+    setActiveDocAgent(agent)
     setLocalLines([])
-    router.replace(id ? `/workspace?job=${id}` : '/workspace', { scroll: false })
-    if (id) setMarkers(m => (m[id] ? { ...m, [id]: { ...m[id], unread: 0 } } : m))
+    router.replace(workspaceUrl(id, agent), { scroll: false })
+    if (id && !agent) setMarkers(m => (m[id] ? { ...m, [id]: { ...m[id], unread: 0 } } : m))
   }
 
   function addLocal(text: string) {
@@ -170,36 +188,42 @@ function Workspace() {
     const sentAt = new Date().toISOString()
     setBusy(true)
     setRows(r => [...r, {
-      id: `pending-${sentAt}`, thread_id: null, job_id: activeJobId, speaker: 'user', author: '', content: { text }, created_at: sentAt,
+      id: `pending-${sentAt}`, thread_id: null, job_id: activeJobId, speaker: 'user', author: '', doc_agent: activeDocAgent, content: { text }, created_at: sentAt,
     }])
     try {
       const res = await fetch('/api/agent/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, active_job_id: activeJobId }),
+        body: JSON.stringify({ text, active_job_id: activeJobId, active_doc_agent: activeDocAgent }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'The agent failed')
       const nextJob = (data.active_job_id as string | null) ?? null
-      if (nextJob !== activeRef.current) {
+      const nextAgent = nextJob && isDocAgentType(data.active_doc_agent) ? data.active_doc_agent : null
+      if (nextJob !== activeRef.current || nextAgent !== agentRef.current) {
+        const jobChanged = nextJob !== activeRef.current
         activeRef.current = nextJob
+        agentRef.current = nextAgent
         setActiveJobId(nextJob)
-        router.replace(nextJob ? `/workspace?job=${nextJob}` : '/workspace', { scroll: false })
+        setActiveDocAgent(nextAgent)
+        router.replace(workspaceUrl(nextJob, nextAgent), { scroll: false })
+        if (!jobChanged) void loadJob(nextJob)
       } else {
         void loadJob(nextJob)
       }
+      setAgentsVersion(v => v + 1)
       const newRows = (data.rows ?? []) as ChatRow[]
       setRows(newRows)
       setDrafts(data.drafts ?? [])
       void loadMarkers()
       return newRows
-        .filter(r => r.created_at >= sentAt && (r.speaker === 'head_agent' || r.speaker === 'file_agent'))
+        .filter(r => r.created_at >= sentAt && (r.speaker === 'head_agent' || r.speaker === 'file_agent' || r.speaker === 'doc_agent'))
         .map(r => r.content?.text ?? '')
         .join(' ')
         .trim() || null
     } catch (e) {
       setError(e instanceof Error ? e.message : 'The agent failed')
-      void loadChat(activeRef.current)
+      void loadChat(activeRef.current, agentRef.current)
       return null
     } finally {
       setBusy(false)
@@ -236,7 +260,10 @@ function Workspace() {
           newJobDrafts={newJobDrafts}
           onNewJobDecided={created => void onDraftsDecided(created)}
           activeJobId={activeJobId}
+          activeDocAgent={activeDocAgent}
           onSelect={id => openJob(id)}
+          onSelectAgent={(id, agent) => openJob(id, agent)}
+          agentsRefreshKey={agentsVersion}
           loading={jobsLoading}
         />
         <ChatPanel
@@ -245,10 +272,13 @@ function Workspace() {
           drafts={drafts}
           jobs={jobRefs}
           activeJob={activeRefJob}
+          activeDocAgent={activeDocAgent}
           busy={busy}
           error={error}
           onSend={onSend}
           onClearJob={() => openJob(null)}
+          onClearDocAgent={() => openJob(activeJobId)}
+          onSwitchAgent={(id, agent) => openJob(id, agent)}
           onOpenJob={id => openJob(id)}
           onDraftsDecided={created => void onDraftsDecided(created)}
         />
@@ -262,7 +292,7 @@ function Workspace() {
             onJobUpdate={next => {
               setJob(next)
               setJobs(list => list.map(j => (j.id === next.id ? { ...j, ...next } : j)))
-              setTimeout(() => void loadChat(activeRef.current), 800)
+              setTimeout(() => void loadChat(activeRef.current, agentRef.current), 800)
             }}
             onPhotosUpdate={setPhotos}
             onDocumentsUpdate={setDocuments}

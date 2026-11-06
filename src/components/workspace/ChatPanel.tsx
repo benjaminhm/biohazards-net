@@ -7,13 +7,16 @@
  * file agent. Every reply is labelled with who said it and which job; a
  * coloured edge per job keeps a long thread readable. Agent drafts show as
  * change cards under the reply that made them. "Talking to" above the input
- * says who answers next.
+ * says who answers next: the head agent, a job's file agent, or one of its
+ * document agents ("Job #6743 › Statement agent"); × steps back one level.
  *
  * Voice: hold the mic to talk (browser speech recognition, en-AU); replies can
  * be read aloud (browser speech synthesis) with the speaker toggle.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { ChatRow } from '@/lib/agent/workspaceText'
+import type { DocAgentType } from '@/lib/agent/subagents/types'
+import { DOC_AGENT_LABEL } from '@/lib/agent/subagents/labels'
 import DraftList, { type DraftView } from './DraftList'
 
 export interface ChatJobRef { id: string; job_code: string | null; client_name: string | null }
@@ -88,10 +91,13 @@ export default function ChatPanel({
   drafts,
   jobs,
   activeJob,
+  activeDocAgent,
   busy,
   error,
   onSend,
   onClearJob,
+  onClearDocAgent,
+  onSwitchAgent,
   onOpenJob,
   onDraftsDecided,
 }: {
@@ -100,10 +106,15 @@ export default function ChatPanel({
   drafts: DraftView[]
   jobs: ChatJobRef[]
   activeJob: ChatJobRef | null
+  activeDocAgent: DocAgentType | null
   busy: boolean
   error: string
   onSend: (text: string, viaVoice: boolean) => Promise<string | null>
   onClearJob: () => void
+  /** Back from a document agent to the job's file agent. */
+  onClearDocAgent: () => void
+  /** Open another agent on this job (null = file agent), from a referral. */
+  onSwitchAgent: (jobId: string, docAgent: DocAgentType | null) => void
   onOpenJob: (id: string) => void
   onDraftsDecided: (created: string[]) => void
 }) {
@@ -183,8 +194,10 @@ export default function ChatPanel({
       <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 10 }}>
         {!items.length && (
           <div style={{ margin: 'auto', textAlign: 'center', color: 'var(--text-muted)', fontSize: 14, maxWidth: 360 }}>
-            Ask the head agent something like &ldquo;what needs me today?&rdquo;, or pick a job on the left to talk to its file agent.
-            Type <code>@1234</code> to jump to a job.
+            {activeDocAgent
+              ? <>Ask the {DOC_AGENT_LABEL[activeDocAgent].agent} about its {DOC_AGENT_LABEL[activeDocAgent].doc}, or give it figures to draft.</>
+              : <>Ask the head agent something like &ldquo;what needs me today?&rdquo;, or pick a job on the left to talk to its file agent or one of its document agents.
+                Type <code>@1234</code> to jump to a job, or <code>@1234/statement</code> (soa, bcq, ccq, sacq, survey, cdr, completion) to a document agent.</>}
           </div>
         )}
         {items.map(item => {
@@ -212,7 +225,10 @@ export default function ChatPanel({
           const job = r.job_id ? byId.get(r.job_id) : null
           const label = r.speaker === 'head_agent'
             ? 'Head agent'
-            : `${r.author && r.author !== 'File agent' ? r.author : 'File agent'}${job ? ` · #${job.job_code ?? ''}` : ''}`
+            : r.speaker === 'doc_agent'
+              ? `${r.author || (r.doc_agent ? DOC_AGENT_LABEL[r.doc_agent].agent : 'Document agent')}${job ? ` · #${job.job_code ?? ''}` : ''}`
+              : `${r.author && r.author !== 'File agent' ? r.author : 'File agent'}${job ? ` · #${job.job_code ?? ''}` : ''}`
+          const switchTo = r.content?.switch_to
           const cardDrafts = (r.content?.draft_ids ?? []).map(id => draftById.get(id)).filter((d): d is DraftView => Boolean(d))
           const hand = r.content?.handover
           return (
@@ -234,6 +250,15 @@ export default function ChatPanel({
                 {r.speaker === 'head_agent' ? withJobChips(text, byCode, onOpenJob) : text}
               </div>
               {hand && <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>→ Opened #{hand.job_code ?? ''}</div>}
+              {switchTo && r.job_id && (
+                <button
+                  type="button"
+                  onClick={() => onSwitchAgent(r.job_id as string, switchTo.doc_agent)}
+                  style={{ marginTop: 6, fontSize: 12, padding: '3px 10px', borderRadius: 6, border: '1px solid var(--accent)', background: 'var(--accent-dim)', color: 'var(--accent)', cursor: 'pointer' }}
+                >
+                  Switch to {switchTo.label}
+                </button>
+              )}
               {cardDrafts.length > 0 && (
                 <div style={{ marginTop: 8 }}>
                   <DraftList drafts={cardDrafts} onDecided={onDraftsDecided} />
@@ -249,7 +274,14 @@ export default function ChatPanel({
       <div style={{ borderTop: '1px solid var(--border)', padding: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, fontSize: 12, color: 'var(--text-muted)' }}>
           <span>Talking to:</span>
-          {activeJob ? (
+          {activeJob && activeDocAgent ? (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '2px 4px 2px 8px', borderRadius: 999, border: `1px solid hsl(${jobHue(activeJob.id)} 70% 55%)`, color: 'var(--text)' }}>
+              Job {activeJob.job_code ?? ''} › {DOC_AGENT_LABEL[activeDocAgent].agent}
+              <button type="button" onClick={onClearDocAgent} aria-label="Back to the file agent" title="Back to the file agent" style={{ border: 'none', background: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 13, padding: '0 4px' }}>
+                ×
+              </button>
+            </span>
+          ) : activeJob ? (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '2px 4px 2px 8px', borderRadius: 999, border: `1px solid hsl(${jobHue(activeJob.id)} 70% 55%)`, color: 'var(--text)' }}>
               Job #{activeJob.job_code ?? ''}{activeJob.client_name ? ` · ${activeJob.client_name}` : ''}
               <button type="button" onClick={onClearJob} aria-label="Back to the head agent" title="Back to the head agent" style={{ border: 'none', background: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 13, padding: '0 4px' }}>
@@ -280,7 +312,15 @@ export default function ChatPanel({
               }
             }}
             rows={2}
-            placeholder={listening ? 'Listening… let go to send' : activeJob ? `Message the file agent for #${activeJob.job_code ?? ''}` : 'Ask about all jobs, or @1234 to jump to one'}
+            placeholder={
+              listening
+                ? 'Listening… let go to send'
+                : activeJob && activeDocAgent
+                  ? `Message the ${DOC_AGENT_LABEL[activeDocAgent].agent} for #${activeJob.job_code ?? ''}`
+                  : activeJob
+                    ? `Message the file agent for #${activeJob.job_code ?? ''}, or @${activeJob.job_code ?? '1234'}/statement`
+                    : 'Ask about all jobs, or @1234 (or @1234/statement) to jump'
+            }
             style={{ flex: 1, resize: 'none', fontSize: 14 }}
           />
           {canListen && (

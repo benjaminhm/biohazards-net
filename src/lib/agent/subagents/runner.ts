@@ -12,13 +12,14 @@ import type { createServiceClient } from '@/lib/supabase'
 import type { AssessmentData } from '@/lib/types'
 import { runLoop, str, ToolError, type AgentTool, type Input } from '../loop'
 import { blocked } from '../permissions'
+import { redactFinancials } from '../jobSnapshot'
 import { buildPatchDraft, mergePatchDrafts, PatchError, TARGET, type PatchDraft } from '../patchDraft'
 import { checkPatch } from '../patchCheck'
 import { captureLabel, listPendingDrafts, upsertDraft, upsertPatchDraft } from '../drafts'
 import { capped, readAcceptances, readCalls, readDocument, readDocumentList, readPhotos, readProgressNotes, readXeroInvoice } from '../jobReads'
 import { canDraftCapture, canDraftDocument, DOC_AGENTS, docAgent, docAgentId, generateTarget, readableCaptures, readableDocumentTypes } from './registry'
 import { checkGenerate } from './generate'
-import type { DocAgentDef, DocAgentReport, DocAgentType, ExtraRead, SubAgentApi } from './types'
+import { DOC_AGENT_TYPES, type DocAgentDef, type DocAgentReport, type DocAgentType, type ExtraRead, type SubAgentApi } from './types'
 
 type Supabase = ReturnType<typeof createServiceClient>
 
@@ -35,7 +36,12 @@ export interface SubCtx {
   def: DocAgentDef
   drafts: { id: string; summary: string }[]
   reported: { summary: string; needs_from_staff: string[]; warnings: string[] } | null
+  /** Direct chat: where the agent sent staff for something outside its document. */
+  referral?: Referral | null
 }
+
+/** A document agent, or null for the file agent. */
+export interface Referral { doc_agent: DocAgentType | null; label: string }
 
 async function assessment(ctx: SubCtx): Promise<AssessmentData | null> {
   const { data } = await ctx.supabase.from('jobs').select('assessment_data').eq('id', ctx.jobId).eq('org_id', ctx.orgId).maybeSingle()
@@ -346,6 +352,19 @@ SAVED DOCUMENTS YOU CAN READ: ${JSON.stringify(docs)}
 PENDING CARDS ON THIS JOB FOR YOUR DOCUMENT: ${JSON.stringify(pending)}`
 }
 
+function ownApi(ctx: SubCtx): SubAgentApi {
+  const def = ctx.def
+  return {
+    readAssessment: () => assessment(ctx),
+    draftOwnPatch: async (draft: PatchDraft, summary?: string) => {
+      const ad = ((await assessment(ctx)) ?? {}) as Record<string, unknown>
+      const check = checkPatch({ target_path: TARGET.capture(def.captureKey), created_by: docAgentId(def.type), before: draft.before, proposed: draft.proposed, current: ad[def.captureKey] ?? null })
+      if (!check.ok) throw new ToolError(check.reasons.join(' '))
+      return (await recordPatch(ctx, draft, summary)).draft_id
+    },
+  }
+}
+
 export async function runDocAgent(
   anthropic: Anthropic,
   base: { supabase: Supabase; orgId: string; userId: string; jobId: string; staffFirstName: string },
@@ -364,15 +383,7 @@ export async function runDocAgent(
   const mine = pending
     .filter(d => d.target_path === TARGET.capture(def.captureKey) || d.target_path === generateTarget(type))
     .map(d => ({ kind: d.kind, target_path: d.target_path, summary: d.summary }))
-  const api: SubAgentApi = {
-    readAssessment: () => assessment(ctx),
-    draftOwnPatch: async (draft: PatchDraft, summary?: string) => {
-      const ad = ((await assessment(ctx)) ?? {}) as Record<string, unknown>
-      const check = checkPatch({ target_path: TARGET.capture(def.captureKey), created_by: docAgentId(type), before: draft.before, proposed: draft.proposed, current: ad[def.captureKey] ?? null })
-      if (!check.ok) throw new ToolError(check.reasons.join(' '))
-      return (await recordPatch(ctx, draft, summary)).draft_id
-    },
-  }
+  const api = ownApi(ctx)
   const messages: Anthropic.MessageParam[] = [
     { role: 'user', content: inputsMessage(def, (ad ?? {}) as Record<string, unknown>, docs, mine, instruction, notes) },
   ]
@@ -404,4 +415,144 @@ export function buildReport(
     warnings: reported?.warnings ?? [],
     message: reported?.summary || text || (drafts.length ? 'Drafted.' : 'Nothing drafted.'),
   }
+}
+
+// ── Direct chat ───────────────────────────────────────────────────────────────
+
+/** Who handles a capture or document type, for refusals and the switch button. */
+export function referralFor(target: string): Referral {
+  if (isDocAgentTypeName(target)) return { doc_agent: target, label: DOC_AGENTS[target].label }
+  const owner = Object.values(DOC_AGENTS).find(d => d.captureKey === target || d.documentType === target || d.label === target)
+  return owner ? { doc_agent: owner.type, label: owner.label } : { doc_agent: null, label: 'File agent' }
+}
+
+function isDocAgentTypeName(v: string): v is DocAgentType {
+  return (DOC_AGENT_TYPES as readonly string[]).includes(v)
+}
+
+/** A structured refusal in a tool result names who handles it; offer that agent. */
+export function referralFromToolError(content: string): Referral | null {
+  try {
+    const parsed = JSON.parse(content) as { blocked_action?: unknown; handled_by?: unknown }
+    if (typeof parsed?.blocked_action !== 'string' || typeof parsed.handled_by !== 'string') return null
+    return /file agent|staff/i.test(parsed.handled_by) ? { doc_agent: null, label: 'File agent' } : referralFor(parsed.handled_by)
+  } catch {
+    return null
+  }
+}
+
+function referTool(def: DocAgentDef): AgentTool<SubCtx> {
+  const targets = [...DOC_AGENT_TYPES.filter(t => t !== def.type), 'file_agent']
+  return {
+    name: 'refer_to_other_agent',
+    description: `Call when staff ask for something outside the ${def.docLabel}: another document (its agent) or job-level things like client details, status, notes, photos and flags (file_agent). Returns the permission error; tell staff in one line who handles it. The screen offers them a switch.`,
+    input_schema: {
+      type: 'object',
+      properties: {
+        agent: { type: 'string', enum: targets },
+        requested: { type: 'string', description: 'What they asked for, in a few words.' },
+      },
+      required: ['agent', 'requested'],
+    },
+    async run(ctx, input) {
+      const target = str(input.agent)
+      const referral = target === 'file_agent' || !isDocAgentTypeName(target) ? { doc_agent: null, label: 'File agent' } : referralFor(target)
+      ctx.referral = referral
+      blocked({
+        blocked_action: str(input.requested) || 'outside_document',
+        required_permission: referral.doc_agent ? `write:${DOC_AGENTS[referral.doc_agent].captureKey}` : 'write:job',
+        handled_by: referral.label,
+        message: `The ${def.label} only works on the ${def.docLabel}. ${referral.label} handles this.`,
+      })
+    },
+  }
+}
+
+/** What a document agent can use when staff talk to it directly: its own tools, no report step, plus referral. */
+export function directTools(def: DocAgentDef, api?: SubAgentApi, opts: { redact?: boolean } = {}): AgentTool<SubCtx>[] {
+  const tools = subAgentTools(def, api).filter(t => t.name !== 'report')
+  const out = opts.redact
+    ? tools.map(t => (t.name.startsWith('read_') ? { ...t, run: async (ctx: SubCtx, input: Input) => redactFinancials(await t.run(ctx, input)) } : t))
+    : tools
+  return [...out, referTool(def)]
+}
+
+export function directPrompt(def: DocAgentDef, o: { staffLine: string; jobCode: string | null; roleRule: string; context: string; today: string }): string {
+  const others = DOC_AGENT_TYPES.filter(t => t !== def.type).map(t => `${DOC_AGENTS[t].label} (${DOC_AGENTS[t].docLabel})`).join(', ')
+  return `You are the ${def.label} for job ${o.jobCode ? `#${o.jobCode}` : ''} in the Agent workspace of an Australian biohazard remediation company. Staff opened you directly; you talk with ${o.staffLine}. You look after the ${def.docLabel} on this job and nothing else. Today is ${o.today}.
+
+YOUR DOCUMENT
+${def.shape}
+
+YOU CAN
+- Answer questions about the ${def.docLabel} from the current state below, read_capture and read_document.
+- Read your own capture and these inputs only: captures ${def.readCaptures.join(', ') || '(none)'}; saved documents ${readableDocumentTypes(def).join(', ')}${def.extraReads.length ? `; ${def.extraReads.join(', ')}` : ''}.
+- Draft changes to ${def.captureKey} only (draft_patch), patch saved ${def.documentType} documents (draft_document_patch), check changes first (validate_patch) and queue generating it (draft_generate). Every write is a card staff approve on screen; nothing changes until then. Call the draft tools directly; do not ask "shall I?" first.
+
+YOU NEVER: send email or SMS, share links, release to the client portal, send payment reminders, touch Xero, delete anything, or change any other document or the job itself.
+
+OUTSIDE YOUR DOCUMENT: other documents have their own agents (${others}); job fields, status, notes, photos and flags are the File agent's. If asked for any of that, call refer_to_other_agent and say in one line who handles it. A tool result shaped {blocked_action, required_permission, handled_by, message} is a refusal: tell staff the message and who handles it.
+
+RULES
+${def.rules}
+- When values you need are missing, ask staff for them in one short list. Never invent names, figures or measurements.
+- Patch only the fields you mean to change, in the existing shape. If a draft tool returns reasons, tell staff plainly.
+- Mention drafts in a sentence; the cards show under your reply.
+${o.roleRule}
+- Australian English. Short, plain replies. No markdown headings.
+
+CURRENT STATE (fresh this turn)
+${o.context}`
+}
+
+export interface DirectResult { text: string; draftIds: string[]; referral: Referral | null; errors: string[] }
+
+/** One staff turn with a document agent, given its history as Messages API turns. Saves nothing itself. */
+export async function runDocAgentDirect(
+  anthropic: Anthropic,
+  base: { supabase: Supabase; orgId: string; userId: string; jobId: string; staffFirstName: string; staffLine: string; jobCode: string | null; roleRule: string; redact: boolean; today: string },
+  type: DocAgentType,
+  messages: Anthropic.MessageParam[],
+): Promise<DirectResult> {
+  const def = docAgent(type)
+  const ctx: SubCtx = { supabase: base.supabase, orgId: base.orgId, userId: base.userId, jobId: base.jobId, def, drafts: [], reported: null, referral: null }
+  const [ad, docs, pending] = await Promise.all([
+    assessment(ctx),
+    readDocumentList(base.supabase, base.orgId, base.jobId, readableDocumentTypes(def)),
+    listPendingDrafts(base.supabase, base.orgId, base.jobId),
+  ])
+  const mine = pending
+    .filter(d => d.target_path === TARGET.capture(def.captureKey) || d.target_path === generateTarget(type) || d.created_by === docAgentId(type))
+    .map(d => ({ kind: d.kind, target_path: d.target_path, summary: d.summary }))
+  const shown = (v: unknown) => (base.redact ? redactFinancials(v) : v)
+  const context = stateText(def, (shown(ad ?? {}) ?? {}) as Record<string, unknown>, shown(docs), mine)
+  const errors: string[] = []
+  const text = await runLoop(
+    anthropic,
+    directPrompt(def, { staffLine: base.staffLine, jobCode: base.jobCode, roleRule: base.roleRule, context, today: base.today }),
+    directTools(def, ownApi(ctx), { redact: base.redact }),
+    messages,
+    ctx,
+    {
+      maxSteps: SUB_AGENT_MAX_STEPS,
+      onToolResult: (name, content, isError) => {
+        if (!isError) return
+        errors.push(`${name}: ${content}`)
+        ctx.referral ??= referralFromToolError(content)
+      },
+    },
+  )
+  const seen = new Set<string>()
+  return { text, draftIds: ctx.drafts.map(d => d.id).filter(id => (seen.has(id) ? false : (seen.add(id), true))), referral: ctx.referral ?? null, errors }
+}
+
+function stateText(def: DocAgentDef, ad: Record<string, unknown>, docs: unknown, pending: { kind: string; target_path: string; summary: string }[]): string {
+  const inputs = Object.fromEntries(def.readCaptures.filter(k => ad[k] != null).map(k => [k, capped(ad[k], INPUT_CAP)]))
+  return `YOUR CAPTURE (${def.captureKey}): ${JSON.stringify(capped(ad[def.captureKey] ?? null, OWN_CAP))}
+
+INPUT CAPTURES (trimmed; read_capture for the full one): ${JSON.stringify(inputs)}
+
+SAVED DOCUMENTS YOU CAN READ: ${JSON.stringify(docs)}
+
+PENDING CARDS FOR YOUR DOCUMENT: ${JSON.stringify(pending)}`
 }
