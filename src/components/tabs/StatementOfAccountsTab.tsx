@@ -44,14 +44,18 @@ const LABEL: CSSProperties = {
   marginBottom: 6,
 }
 
+const REF_HIDDEN_KEY = 'soa-reference-hidden'
+
 function ReferencePanel({
   survey,
   quotes,
   disposal,
+  onClose,
 }: {
   survey: StatementReferenceBlock
   quotes: StatementReferenceBlock[]
   disposal: StatementReferenceBlock
+  onClose: () => void
 }) {
   return (
     <section
@@ -64,8 +68,27 @@ function ReferencePanel({
         background: 'var(--surface)',
       }}
     >
-      <div style={{ fontWeight: 800, fontSize: 13, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>
-        Reference
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+        <div style={{ flex: 1, fontWeight: 800, fontSize: 13, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+          Reference
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Hide reference"
+          title="Hide reference"
+          style={{
+            border: 'none',
+            background: 'transparent',
+            color: 'var(--text-muted)',
+            fontSize: 20,
+            lineHeight: 1,
+            padding: '2px 6px',
+            cursor: 'pointer',
+          }}
+        >
+          ×
+        </button>
       </div>
       <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5, margin: '0 0 14px' }}>
         Survey area, quote prices, and contents disposal quantities and fees. These stay in this panel. They are not copied into the amounts below.
@@ -218,6 +241,16 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
   const [saving, setSaving] = useState(false)
   const [savedFlash, setSavedFlash] = useState(false)
   const [saveError, setSaveError] = useState('')
+  const [refHidden, setRefHidden] = useState(false)
+
+  useEffect(() => {
+    setRefHidden(window.localStorage.getItem(REF_HIDDEN_KEY) === '1')
+  }, [])
+
+  function toggleReference(hidden: boolean) {
+    setRefHidden(hidden)
+    window.localStorage.setItem(REF_HIDDEN_KEY, hidden ? '1' : '0')
+  }
 
   useEffect(() => {
     setCapture(normalizeStatementCapture(job.assessment_data?.statement_of_accounts))
@@ -329,7 +362,7 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
           .soa-ref-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; }
         }
         @media (min-width: 1000px) {
-          .soa-layout { display: grid; grid-template-columns: minmax(280px, 360px) minmax(0, 1fr); gap: 18px; align-items: start; }
+          .soa-layout:not(.soa-layout--solo) { display: grid; grid-template-columns: minmax(280px, 360px) minmax(0, 1fr); gap: 18px; align-items: start; }
           .soa-ref-float { margin-bottom: 0; }
           .soa-ref-grid { grid-template-columns: minmax(0, 1fr); }
         }
@@ -342,12 +375,26 @@ export default function StatementOfAccountsTab({ job, documents, onJobUpdate }: 
         <div><strong>Property:</strong> {job.site_address || '—'}</div>
       </div>
 
-      <div className="soa-layout">
-        <ReferencePanel
-          survey={reference.survey}
-          quotes={reference.quotes}
-          disposal={reference.disposal}
-        />
+      {refHidden && (
+        <button
+          type="button"
+          className="btn btn-ghost"
+          onClick={() => toggleReference(false)}
+          style={{ fontSize: 13, padding: '6px 10px', marginBottom: 12 }}
+        >
+          Show reference
+        </button>
+      )}
+
+      <div className={refHidden ? 'soa-layout soa-layout--solo' : 'soa-layout'}>
+        {!refHidden && (
+          <ReferencePanel
+            survey={reference.survey}
+            quotes={reference.quotes}
+            disposal={reference.disposal}
+            onClose={() => toggleReference(true)}
+          />
+        )}
 
         <div>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 700, marginBottom: 16 }}>
