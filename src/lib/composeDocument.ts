@@ -81,7 +81,7 @@ import {
   vehicleVolumeM3,
 } from '@/lib/disposalManifest'
 import { houseSurveyDocument } from '@/lib/houseSurvey'
-import { houseSurveyWithQuote } from '@/lib/surveyQuoteLink'
+import { houseSurveyWithQuote, quoteSurveyLink } from '@/lib/surveyQuoteLink'
 import { collectExcludedSurfaces } from '@/lib/areaSurfaces'
 import { effectiveAreaDimensions } from '@/lib/areaSubzones'
 import {
@@ -1215,7 +1215,12 @@ function composeBiohazardCleaningQuote(
 
 function composeHouseSurvey(job: Job): ComposeDocumentResult {
   return {
-    content: houseSurveyDocument(job.site_address || '', refPrefix('house_survey', job.id), houseSurveyWithQuote(job.assessment_data)) as unknown as Record<string, unknown>,
+    content: houseSurveyDocument(
+      job.site_address || '',
+      refPrefix('house_survey', job.id),
+      houseSurveyWithQuote(job.assessment_data),
+      quoteSurveyLink(job.assessment_data),
+    ) as unknown as Record<string, unknown>,
     source: 'assessment_capture',
   }
 }

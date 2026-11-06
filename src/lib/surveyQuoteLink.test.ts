@@ -43,6 +43,28 @@ test('quoted rooms start the survey with the same priced area', () => {
   assert.equal(surveyIsBlank({ areas, price_per_m2: null }), false)
 })
 
+test('labour and the call-out fee carry from the quote into the survey total', () => {
+  const ad = {
+    surface_area_cleaning_quote: { ...sacq, labour_days: 2, rate_per_labour_day: 500, mobilisation_fee: 150 },
+  } as unknown as AssessmentData
+  const link = quoteSurveyLink(ad)!
+  const areas = surveyAreasFromQuoteRooms(link)
+  const doc = houseSurveyDocument('', '', { areas, price_per_m2: 12 }, link)
+  assert.equal(doc.charges?.labour_ex, 1000)
+  assert.equal(doc.charges?.mobilisation_ex, 150)
+  assert.equal(doc.job_total?.ex, Math.round((doc.totals.price_ex! + 1150) * 100) / 100)
+  const typed = houseSurveyDocument('', '', { areas, price_per_m2: 12, labour_days: 3 }, link)
+  assert.equal(typed.charges?.labour_ex, 1500)
+  assert.equal(typed.charges?.from_quote.labour_days, false)
+  const waived = quoteSurveyLink({
+    surface_area_cleaning_quote: { ...sacq, mobilisation_fee: 150, mobilisation_waived: true, mobilisation_reason: 'Repeat client' },
+  } as unknown as AssessmentData)
+  const waivedDoc = houseSurveyDocument('', '', { areas, price_per_m2: 12 }, waived)
+  assert.equal(waivedDoc.charges?.mobilisation_waived, true)
+  assert.equal(waivedDoc.charges?.mobilisation_ex, 0)
+  assert.equal(waivedDoc.totals.price_ex, doc.totals.price_ex)
+})
+
 test('quoted and measured line up by room, and the statement shows both', () => {
   const ad = { surface_area_cleaning_quote: sacq } as unknown as AssessmentData
   const link = quoteSurveyLink(ad)!

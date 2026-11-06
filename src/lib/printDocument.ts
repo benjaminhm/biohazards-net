@@ -3421,7 +3421,37 @@ function buildHouseSurveyMid(c: HouseSurveyDocumentContent): string {
       </table>
       <p class="body-text">Walls are the walk length times the room height. The price is that area’s floor, ceiling, and walls at the rate per m²${hasAdjustments ? ', after exclusions and additions' : ''}. GST is 10%.</p>
     </div>
+    ${buildHouseSurveyJobTotal(c)}
   `
+}
+
+function buildHouseSurveyJobTotal(c: HouseSurveyDocumentContent): string {
+  const charges = c.charges
+  const total = c.job_total
+  if (!charges || !total) return ''
+  const money = (ex: number | null) => ex == null
+    ? '<td class="r">—</td><td class="r">—</td>'
+    : `<td class="r">${esc(formatAud(ex))}</td><td class="r">${esc(formatAud(Math.round(ex * 1.1 * 100) / 100))}</td>`
+  const sqm = c.totals?.priced ?? c.totals?.all ?? null
+  const surface = sqm != null && c.price_per_m2 != null ? `${sqm} m² × ${formatAud(c.price_per_m2)}` : ''
+  const days = `${charges.labour_days} ${charges.labour_days === 1 ? 'day' : 'days'} × ${formatAud(charges.rate_per_labour_day)}`
+  const callout = charges.mobilisation_waived
+    ? `<td class="r" colspan="2">Waived${charges.mobilisation_reason ? ` — ${esc(charges.mobilisation_reason)}` : ''}</td>`
+    : money(charges.mobilisation_ex)
+  return `
+    <div class="sow-sec">
+      <div class="sow-sec-title">Job total</div>
+      <table>
+        <thead><tr><th>Item</th><th></th><th class="r">Ex GST</th><th class="r">Inc GST</th></tr></thead>
+        <tbody>
+          <tr><td>Surface cleaning</td><td>${esc(surface)}</td>${money(c.totals?.price_ex ?? null)}</tr>
+          <tr><td>Labour</td><td>${esc(days)}</td>${money(charges.labour_ex)}</tr>
+          <tr><td>Call-out fee</td><td></td>${callout}</tr>
+          <tr><td><strong>Total</strong></td><td></td><td class="r"><strong>${total.ex == null ? '—' : esc(formatAud(total.ex))}</strong></td><td class="r"><strong>${total.inc == null ? '—' : esc(formatAud(total.inc))}</strong></td></tr>
+        </tbody>
+      </table>
+      <p class="body-text">Labour and the call-out fee are fixed. The total is the measured area at the rate per m², plus labour and the call-out fee.</p>
+    </div>`
 }
 
 function buildHouseSurveyHTML(c: HouseSurveyDocumentContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {

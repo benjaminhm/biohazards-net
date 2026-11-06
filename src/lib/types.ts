@@ -1101,6 +1101,10 @@ export interface AssessmentData {
       }[]
     }[]
     price_per_m2: number | null
+    /** Fixed charges. Null follows the Surface Area Cleaning Quote. */
+    labour_days?: number | null
+    rate_per_labour_day?: number | null
+    mobilisation_fee?: number | null
   }
   /** Contents Clearance Quote — estimated cubic metres and kilometres. Rates and clauses are schema. */
   contents_clearance_quote?: {

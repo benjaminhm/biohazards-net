@@ -19,6 +19,8 @@ import {
   areaSurfaces,
   adjustmentSquareMetres,
   pricedSurfaces,
+  surveyFixedCharges,
+  surveyJobTotal,
   surveyPrice,
   metresToSketch,
   nearestPointOnSurvey,
@@ -67,6 +69,13 @@ const LINK_BUTTON: CSSProperties = {
 function sqm(value: number | null): string {
   return value == null ? '—' : `${value} m²`
 }
+
+function exInc(ex: number | null): string {
+  if (ex == null) return '—'
+  return `$${ex.toFixed(2)} / $${(Math.round(ex * 1.1 * 100) / 100).toFixed(2)}`
+}
+
+type ChargeKey = 'labour_days' | 'rate_per_labour_day' | 'mobilisation_fee'
 
 const LABEL: CSSProperties = {
   display: 'block',
@@ -310,6 +319,48 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
     }),
     [survey.areas],
   )
+  const pricedM2 = useMemo(() => {
+    const values = plans.map(({ area, trace }) => pricedSurfaces(areaSurfaces(trace, area.height_m), area.adjustments).priced)
+    if (values.every(value => value == null)) return null
+    return Math.round(values.reduce<number>((sum, value) => sum + (value ?? 0), 0) * 100) / 100
+  }, [plans])
+  const surfacePrice = surveyPrice(pricedM2, ratePerM2)
+  const charges = surveyFixedCharges(survey, quoteLink)
+  const jobTotal = surveyJobTotal(surfacePrice.ex, charges)
+
+  function chargeField(key: ChargeKey, label: string, step: string, quoted: number | null, fromQuote: boolean, quotedText: string) {
+    const value = survey[key]
+    return (
+      <div>
+        <label style={LABEL}>{label}{fromQuote ? ' · From SACQ' : ''}</label>
+        <input
+          type="number"
+          min={0}
+          step={step}
+          value={value ?? ''}
+          onChange={e => {
+            const raw = e.target.value
+            setSurvey(prev => ({ ...prev, [key]: raw === '' ? null : Number(raw) }))
+            setSavedFlash(false)
+          }}
+          placeholder={quoted != null ? quotedText : '0'}
+          style={INPUT}
+        />
+        {quoted != null && value != null && value !== quoted && (
+          <button
+            type="button"
+            onClick={() => {
+              setSurvey(prev => ({ ...prev, [key]: null }))
+              setSavedFlash(false)
+            }}
+            style={{ ...LINK_BUTTON, marginTop: 6 }}
+          >
+            Use SACQ {quotedText}
+          </button>
+        )}
+      </div>
+    )
+  }
 
   function touch() {
     setSavedFlash(false)
@@ -998,9 +1049,19 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
               </button>
             )}
           </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 8 }}>
+            {chargeField('labour_days', 'Labour days', '0.5', quoteLink?.labour_days ?? null, charges.from_quote.labour_days, String(quoteLink?.labour_days ?? 0))}
+            {chargeField('rate_per_labour_day', 'Rate per labour day (ex GST) ($)', '0.01', quoteLink?.rate_per_labour_day ?? null, charges.from_quote.rate_per_labour_day, `$${(quoteLink?.rate_per_labour_day ?? 0).toFixed(2)}`)}
+            {chargeField('mobilisation_fee', 'Call-out fee (ex GST) ($)', '0.01', quoteLink?.mobilisation_fee ?? null, charges.from_quote.mobilisation_fee, quoteLink?.mobilisation_waived ? 'waived' : `$${(quoteLink?.mobilisation_fee ?? 0).toFixed(2)}`)}
+          </div>
+          {charges.mobilisation_waived && (
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: 0 }}>
+              The call-out fee is waived on the SACQ{charges.mobilisation_reason ? `: ${charges.mobilisation_reason}` : ''}. Type a fee to charge it.
+            </p>
+          )}
           {quoteLink && (
             <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: 0 }}>
-              A blank price follows the Surface Area Cleaning Quote. Type a price to override it.
+              Blank fields follow the Surface Area Cleaning Quote. Type a value to override it.
             </p>
           )}
         </div>
@@ -1051,28 +1112,40 @@ export default function HouseSurveyTab({ job, onJobUpdate }: Props) {
         </table>
         <div style={{ padding: '12px 14px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', gap: 12, fontWeight: 800 }}>
           <span>Priced from all areas</span>
-          <span>
-            {(() => {
-              const values = plans.map(({ area, trace }) => pricedSurfaces(areaSurfaces(trace, area.height_m), area.adjustments).priced)
-              if (values.every(value => value == null)) return '—'
-              const total = Math.round(values.reduce<number>((sum, value) => sum + (value ?? 0), 0) * 100) / 100
-              return `${total} m²`
-            })()}
-          </span>
+          <span>{sqm(pricedM2)}</span>
         </div>
-        <div style={{ padding: '0 14px 12px', display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-          <span>Price, ex GST / inc GST</span>
-          <span>
-            {(() => {
-              const values = plans.map(({ area, trace }) => pricedSurfaces(areaSurfaces(trace, area.height_m), area.adjustments).priced)
-              const sqm = values.every(value => value == null)
-                ? null
-                : Math.round(values.reduce<number>((sum, value) => sum + (value ?? 0), 0) * 100) / 100
-              const price = surveyPrice(sqm, ratePerM2)
-              if (price.ex == null || price.inc == null) return '—'
-              return `$${price.ex.toFixed(2)} / $${price.inc.toFixed(2)}`
-            })()}
-          </span>
+        <div style={{ padding: '0 14px 12px', display: 'grid', gap: 6, fontSize: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, color: 'var(--text-muted)', fontSize: 12 }}>
+            <span />
+            <span>ex GST / inc GST</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+            <span>
+              Surface cleaning
+              {pricedM2 != null && ratePerM2 != null && (
+                <span style={{ color: 'var(--text-muted)' }}> · {pricedM2} m² × ${ratePerM2.toFixed(2)}</span>
+              )}
+            </span>
+            <span>{exInc(surfacePrice.ex)}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+            <span>
+              Labour
+              <span style={{ color: 'var(--text-muted)' }}> · {charges.labour_days} {charges.labour_days === 1 ? 'day' : 'days'} × ${charges.rate_per_labour_day.toFixed(2)}</span>
+            </span>
+            <span>{exInc(charges.labour_ex)}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+            <span>Call-out fee</span>
+            <span>{charges.mobilisation_waived ? 'Waived' : exInc(charges.mobilisation_ex)}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontWeight: 800, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
+            <span>Total</span>
+            <span>{jobTotal.ex == null || jobTotal.inc == null ? '—' : `$${jobTotal.ex.toFixed(2)} / $${jobTotal.inc.toFixed(2)}`}</span>
+          </div>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: 0 }}>
+            Labour and the call-out fee are fixed. The total is what the job should have cost: measured area at the rate, plus labour and the call-out fee.
+          </p>
         </div>
         {compare.quoted_m2 != null && (
           <div style={{ padding: '12px 14px', borderTop: '1px solid var(--border)', display: 'grid', gap: 6, fontSize: 14 }}>

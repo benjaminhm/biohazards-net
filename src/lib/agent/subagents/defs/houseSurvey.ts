@@ -14,11 +14,12 @@ export const houseSurveyAgent: DocAgentDef = {
   extraReads: ['progress_notes', 'photos'],
   shape: `house_survey:
 - price_per_m2 (survey rate, dollars).
+- labour_days, rate_per_labour_day, mobilisation_fee (call-out fee, dollars). Fixed charges; null follows the Surface Area Cleaning Quote.
 - areas []: {id, title, description, start_note, height_m, legs [{id, turn: left|right, length_m}], adjustments [{id, length_m, width_m, area_m2, effect: exclude|add, surface: floor|ceiling|walls, description}]}.
 - Each area is traced by walking its walls: every leg is a length then a left or right turn.`,
   rules: `- Measurements only as staff give them; never invent lengths, heights or adjustments. Keep existing ids; give new areas, legs and adjustments new ids.
 - areas is a list: patching it replaces the whole list, so send every area.
-- price_per_m2 only when staff give it.
+- price_per_m2, labour_days, rate_per_labour_day and mobilisation_fee only when staff give them.
 - Generating needs at least one area with a measured wall.`,
   unique: true,
   requiredFields: ['price_per_m2'],

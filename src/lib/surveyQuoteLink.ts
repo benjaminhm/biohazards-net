@@ -14,12 +14,14 @@ import {
   traceHouseSurvey,
   type HouseSurveyArea,
   type HouseSurveyCapture,
+  type SurveyQuoteCharges,
 } from '@/lib/houseSurvey'
 import {
   normalizeSurfaceAreaCleaningCapture,
   pricedRoomSurface,
   quotedSquareMetres,
   roomSurfaceArea,
+  surfaceAreaCaptureFigures,
   type SurfaceAreaRoom,
 } from '@/lib/surfaceAreaCleaningQuote'
 
@@ -31,7 +33,7 @@ export interface QuoteSurveyRoom {
   quoted_m2: number
 }
 
-export interface QuoteSurveyLink {
+export interface QuoteSurveyLink extends SurveyQuoteCharges {
   /** Ex GST rate per square metre on the quote. Null when the quote has no rate. */
   rate_per_m2: number | null
   /** Square metres on the quote, from the rooms or the typed total. */
@@ -57,12 +59,19 @@ export function quoteSurveyLink(ad: AssessmentData | null | undefined): QuoteSur
       quoted_m2: measure.total,
     }]
   })
-  if (rate == null && (quoted == null || quoted <= 0) && rooms.length === 0) return null
+  const figures = surfaceAreaCaptureFigures(quote)
+  const hasCharges = figures.labour_amount > 0 || figures.mobilisation_fee > 0 || quote.mobilisation_waived
+  if (rate == null && (quoted == null || quoted <= 0) && rooms.length === 0 && !hasCharges) return null
   return {
     rate_per_m2: rate,
     quoted_m2: quoted != null && quoted > 0 ? quoted : null,
     exclude_ceiling: quote.exclude_ceiling,
     rooms,
+    labour_days: figures.labour_days,
+    rate_per_labour_day: figures.rate_per_labour_day,
+    mobilisation_fee: figures.mobilisation_fee,
+    mobilisation_waived: quote.mobilisation_waived,
+    mobilisation_reason: quote.mobilisation_reason,
   }
 }
 
@@ -104,7 +113,7 @@ export function surveyAreasFromQuoteRooms(link: QuoteSurveyLink): HouseSurveyAre
 }
 
 /** Nothing measured yet: no area has a wall length. */
-export function surveyIsBlank(survey: HouseSurveyCapture): boolean {
+export function surveyIsBlank(survey: Pick<HouseSurveyCapture, 'areas' | 'price_per_m2'>): boolean {
   return survey.areas.every(area => !area.title.trim() && area.legs.every(leg => leg.length_m == null))
 }
 
@@ -124,7 +133,7 @@ function key(label: string): string {
 
 /** Quoted square metres beside measured, matched by room title. Rows keep quote order, then survey-only rooms. */
 export function quotedVersusMeasured(
-  survey: HouseSurveyCapture,
+  survey: Pick<HouseSurveyCapture, 'areas' | 'price_per_m2'>,
   link: QuoteSurveyLink | null,
 ): { rows: QuotedMeasuredRow[]; quoted_m2: number | null; measured_m2: number | null } {
   const rows: QuotedMeasuredRow[] = []

@@ -36,6 +36,30 @@ export interface HouseSurveyArea {
 export interface HouseSurveyCapture {
   areas: HouseSurveyArea[]
   price_per_m2: number | null
+  /** Fixed charges. Blank follows the Surface Area Cleaning Quote. */
+  labour_days: number | null
+  rate_per_labour_day: number | null
+  /** Call-out fee, ex GST. */
+  mobilisation_fee: number | null
+}
+
+/** Labour and call-out fee as the quote priced them. */
+export interface SurveyQuoteCharges {
+  labour_days: number
+  rate_per_labour_day: number
+  mobilisation_fee: number
+  mobilisation_waived: boolean
+  mobilisation_reason: string
+}
+
+export interface SurveyFixedCharges {
+  labour_days: number
+  rate_per_labour_day: number
+  labour_ex: number
+  mobilisation_ex: number
+  mobilisation_waived: boolean
+  mobilisation_reason: string
+  from_quote: { labour_days: boolean; rate_per_labour_day: boolean; mobilisation_fee: boolean }
 }
 
 export interface SurveyPoint {
@@ -85,7 +109,7 @@ export function newHouseSurveyAdjustment(): HouseSurveyAdjustment {
 }
 
 export function emptyHouseSurvey(): HouseSurveyCapture {
-  return { areas: [newHouseSurveyArea()], price_per_m2: null }
+  return { areas: [newHouseSurveyArea()], price_per_m2: null, labour_days: null, rate_per_labour_day: null, mobilisation_fee: null }
 }
 
 export function newHouseSurveyLeg(turn: HouseSurveyTurn = 'right'): HouseSurveyLeg {
@@ -205,14 +229,25 @@ function normalizeArea(raw: unknown): HouseSurveyArea {
 
 export function normalizeHouseSurvey(raw: unknown): HouseSurveyCapture {
   const o = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {}
+  const amount = (value: unknown): number | null => {
+    if (value == null || value === '') return null
+    const n = typeof value === 'number' ? value : Number(value)
+    return Number.isFinite(n) && n >= 0 ? n : null
+  }
   const price = typeof o.price_per_m2 === 'number' ? o.price_per_m2 : Number(o.price_per_m2)
   const price_per_m2 = Number.isFinite(price) && price >= 0 ? price : null
+  const charges = {
+    labour_days: amount(o.labour_days),
+    rate_per_labour_day: amount(o.rate_per_labour_day),
+    mobilisation_fee: amount(o.mobilisation_fee),
+  }
   if (Array.isArray(o.areas)) {
     const areas = o.areas.map(normalizeArea)
-    return { areas: areas.length > 0 ? areas : [newHouseSurveyArea()], price_per_m2 }
+    return { areas: areas.length > 0 ? areas : [newHouseSurveyArea()], price_per_m2, ...charges }
   }
   return {
     price_per_m2,
+    ...charges,
     areas: [normalizeArea({
       id: 'area_1',
       title: '',
@@ -305,6 +340,37 @@ export function pricedSurfaces(
 export function surveyPrice(sqm: number | null, rateEx: number | null): { ex: number | null; inc: number | null } {
   if (sqm == null || rateEx == null || !Number.isFinite(rateEx) || rateEx < 0) return { ex: null, inc: null }
   const ex = Math.round(sqm * rateEx * 100) / 100
+  return { ex, inc: Math.round(ex * 1.1 * 100) / 100 }
+}
+
+/** Typed survey charges win. Blank ones follow the quote, waiver included. No quote leaves them at zero. */
+export function surveyFixedCharges(
+  survey: Pick<HouseSurveyCapture, 'labour_days' | 'rate_per_labour_day' | 'mobilisation_fee'>,
+  quote: SurveyQuoteCharges | null,
+): SurveyFixedCharges {
+  const labour_days = survey.labour_days ?? quote?.labour_days ?? 0
+  const rate_per_labour_day = survey.rate_per_labour_day ?? quote?.rate_per_labour_day ?? 0
+  const followsQuoteFee = survey.mobilisation_fee == null && quote != null
+  const mobilisation_waived = followsQuoteFee && quote.mobilisation_waived
+  return {
+    labour_days,
+    rate_per_labour_day,
+    labour_ex: Math.round(labour_days * rate_per_labour_day * 100) / 100,
+    mobilisation_ex: mobilisation_waived ? 0 : Math.round((survey.mobilisation_fee ?? quote?.mobilisation_fee ?? 0) * 100) / 100,
+    mobilisation_waived,
+    mobilisation_reason: mobilisation_waived ? quote.mobilisation_reason.trim() : '',
+    from_quote: {
+      labour_days: survey.labour_days == null && quote != null,
+      rate_per_labour_day: survey.rate_per_labour_day == null && quote != null,
+      mobilisation_fee: followsQuoteFee,
+    },
+  }
+}
+
+/** Surface cleaning plus labour and the call-out fee. Null when nothing is priced. */
+export function surveyJobTotal(surfaceEx: number | null, charges: SurveyFixedCharges): { ex: number | null; inc: number | null } {
+  if (surfaceEx == null && charges.labour_ex <= 0 && charges.mobilisation_ex <= 0) return { ex: null, inc: null }
+  const ex = Math.round(((surfaceEx ?? 0) + charges.labour_ex + charges.mobilisation_ex) * 100) / 100
   return { ex, inc: Math.round(ex * 1.1 * 100) / 100 }
 }
 
@@ -484,9 +550,18 @@ export interface HouseSurveyDocumentContent {
     price_ex: number | null
     price_inc: number | null
   }
+  /** Absent on surveys saved before labour and the call-out fee were added. */
+  charges?: SurveyFixedCharges
+  /** Surface cleaning, labour, and call-out fee. Totals above stay surface cleaning only. */
+  job_total?: { ex: number | null; inc: number | null }
 }
 
-export function houseSurveyDocument(siteAddress: string, reference: string, raw: unknown): HouseSurveyDocumentContent {
+export function houseSurveyDocument(
+  siteAddress: string,
+  reference: string,
+  raw: unknown,
+  quote: SurveyQuoteCharges | null = null,
+): HouseSurveyDocumentContent {
   const survey = normalizeHouseSurvey(raw)
   const areas = survey.areas.map((area, index) => {
     const trace = traceHouseSurvey(area.legs)
@@ -528,6 +603,7 @@ export function houseSurveyDocument(siteAddress: string, reference: string, raw:
     ? null
     : Math.round(pricedValues.reduce<number>((sum, value) => sum + (value ?? 0), 0) * 100) / 100
   const price = surveyPrice(priced, survey.price_per_m2)
+  const charges = surveyFixedCharges(survey, quote)
   return {
     title: 'House Survey',
     reference,
@@ -543,5 +619,7 @@ export function houseSurveyDocument(siteAddress: string, reference: string, raw:
       price_ex: price.ex,
       price_inc: price.inc,
     },
+    charges,
+    job_total: surveyJobTotal(price.ex, charges),
   }
 }
