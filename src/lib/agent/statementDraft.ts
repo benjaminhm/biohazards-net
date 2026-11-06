@@ -28,17 +28,17 @@ import {
   type StatementOfAccountsCapture,
   type StatementSurveyArea,
 } from '@/lib/statementOfAccounts'
+import { cdrSummary, surveySummary } from './recordSummaries'
 
 export interface StatementQuantities {
   survey_areas?: StatementSurveyArea[] | null
   invoice2_m3?: number | null
 }
 
-/** Total billed cubic metres on the CDR, as the Statement tab's "Use CDR volume" button uses. */
+/** Counted cubic metres on the CDR: the quantity on its summary. */
 export function cdrVolumeM3(ad: AssessmentData | null | undefined): number | null {
-  const loads = mergedDisposalManifestCapture(ad).loads.filter(loadHasContent)
-  const m3 = computeDisposalTotals(loads).volume_m3
-  return m3 > 0 ? Math.round(m3 * 100) / 100 : null
+  const m3 = cdrSummary(ad).quantity
+  return m3 != null && m3 > 0 ? Math.round(m3 * 100) / 100 : null
 }
 
 function currentStatement(ad: AssessmentData | null | undefined): StatementOfAccountsCapture | null {
@@ -154,6 +154,60 @@ export function buildStatementDraft(ad: AssessmentData | null | undefined): Stat
   }
   if (!parts.length) return { ok: false, reason: 'The statement already has these survey rooms and this CDR volume.', not_on_statement }
   return { ok: true, before, proposed, summary: `Statement of Accounts quantities: ${parts.join(', ')}`, not_on_statement }
+}
+
+/**
+ * The Survey and CDR summary totals and the statement line each could fill,
+ * in the statement's terms (inc GST when it charges GST). Never drafted
+ * automatically; the Statement agent drafts one only when staff say so.
+ */
+export function summaryDollarFigures(ad: AssessmentData | null | undefined) {
+  const incGst = currentStatement(ad)?.charges_gst ?? true
+  const gst = incGst ? 'inc GST' : 'ex GST'
+  const out: { figure: string; amount: number; statement_field: string }[] = []
+  const survey = surveySummary(ad)
+  const surveyTotal = incGst ? survey.total_inc_gst : survey.total_ex_gst
+  if (surveyTotal != null) out.push({ figure: `House Survey total ${gst} (surface cleaning, labour, call-out fee)`, amount: surveyTotal, statement_field: 'invoice1_adjusted_amount' })
+  const cdr = cdrSummary(ad)
+  const cdrTotal = incGst ? cdr.total_inc_gst : cdr.total_ex_gst
+  if (cdrTotal != null) out.push({ figure: `CDR total ${gst} (contents removal, labour, call-out fee)`, amount: cdrTotal, statement_field: 'invoice2_amount' })
+  return out
+}
+
+/** What the Statement agent reads for the survey and CDR: their summaries only, and the statement as it stands. */
+export function statementAgentFigures(ad: AssessmentData | null | undefined) {
+  return {
+    survey_summary: surveySummary(ad),
+    cdr_summary: cdrSummary(ad),
+    dollar_figures_staff_can_use: summaryDollarFigures(ad),
+    statement: statementView(ad),
+    note: 'survey_summary and cdr_summary are the reference for what the House Survey and the CDR actually cost. Skip, trailer, ute and tip dollars, prepaid volume and the CDR waste charge are not part of them and are never used. survey_areas and invoice2_m3 are the only quantity fields on the statement (fill_quantities_from_survey_and_cdr fills them). Every other statement field is dollars or text, drafted only with values the staff member states or tells you to take from dollar_figures_staff_can_use.',
+  }
+}
+
+function statementView(ad: AssessmentData | null | undefined) {
+  const s = currentStatement(ad)
+  return s
+    ? {
+        started: true,
+        survey_areas: s.survey_areas,
+        invoice2_m3: s.invoice2_m3,
+        invoice1_amount: s.invoice1_amount,
+        invoice1_breakdown: { callout: s.invoice1_callout, contents: s.invoice1_contents, cleaning: s.invoice1_cleaning },
+        invoice1_adjusted_amount: s.invoice1_adjusted_amount,
+        adjustment_reason: s.adjustment_reason,
+        invoice2_amount: s.invoice2_amount,
+        invoice2_breakdown: {
+          skips: s.invoice2_skips, trailers: s.invoice2_trailers, utes: s.invoice2_utes,
+          tip_receipts: s.invoice2_tip_receipts, prepaid: s.invoice2_prepaid,
+        },
+        charges_gst: s.charges_gst,
+        deposit_taken: s.deposit_taken,
+        deposit_amount: s.deposit_amount,
+        invoice_numbers: { original: s.original_invoice_number, new: s.new_invoice_number },
+        manual_adjustment: s.manual_adjustment,
+      }
+    : { started: false }
 }
 
 /** What the file agent reads: survey rooms, CDR loads and the statement as it stands. */

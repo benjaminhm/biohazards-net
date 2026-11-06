@@ -43,8 +43,21 @@ export interface GenerateInputs {
 
 export type GenerateCheck = { ok: true; content: Record<string, unknown> } | { ok: false; reason: string }
 
+/**
+ * A capture the agent never reads raw, on any path: a computed, read-only
+ * summary is shown under its own key instead, and saved documents of the
+ * record's type (and drafts on either) are hidden.
+ */
+export interface SummarisedCapture {
+  capture: CaptureKey
+  documentType: DocType
+  key: string
+  summarise: (ad: AssessmentData | null) => unknown
+}
+
 /** What a sub-agent's own extra tools may do. Every write is a draft on its own capture. */
 export interface SubAgentApi {
+  /** The raw assessment, for code that computes. Tools return only what the agent may read. */
   readAssessment: () => Promise<AssessmentData | null>
   draftOwnPatch: (draft: PatchDraft, summary?: string) => Promise<string>
 }
@@ -67,6 +80,8 @@ export interface DocAgentDef {
   reads?: 'full' | 'scoped'
   /** Other captures it reads as inputs (its own is always readable). With reads 'full', the ones shown up front each turn. */
   readCaptures: CaptureKey[]
+  /** Read as summaries only, whatever reads says. Summaries are shown up front each turn. */
+  summarised?: SummarisedCapture[]
   /** Other saved document types it may read. */
   readDocumentTypes: DocType[]
   extraReads: ExtraRead[]

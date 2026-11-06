@@ -156,7 +156,8 @@ const FULL_READS = ['get_job_snapshot', 'get_job_changes_since', 'get_job_health
 test('statement agent reads the whole job file in delegated and direct modes', () => {
   const def = DOC_AGENTS.statement_of_accounts
   assert.equal(readsFullJob(def), true)
-  assert.deepEqual([...readableCaptures(def)].sort(), [...CAPTURE_KEYS].sort())
+  const summarised = ['house_survey', 'disposal_manifest_capture']
+  assert.deepEqual([...readableCaptures(def)].sort(), [...CAPTURE_KEYS.filter(k => !summarised.includes(k)), 'survey_summary', 'cdr_summary'].sort())
   assert.equal(readableDocumentTypes(def), null)
   for (const t of ['quote', 'report', 'swms', 'completion_report', 'authority_to_proceed']) assert.ok(canReadDocument(def, t), t)
   for (const tools of [subAgentTools(def), directTools(def)]) {

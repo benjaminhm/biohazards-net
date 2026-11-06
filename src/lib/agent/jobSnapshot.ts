@@ -42,6 +42,30 @@ export function seesFinancials(role: StaffRole | null | undefined): boolean {
   return role !== 'team_lead' && role !== 'member'
 }
 
+/**
+ * A reader that sees some captures only as summaries (the Statement agent).
+ * Health and hashes still come from the stored file; only what is shown changes.
+ */
+export interface ReadView {
+  /** assessment_data as shown. */
+  captures: (ad: AssessmentData | null) => Record<string, unknown>
+  /** Stored capture key → the key its summary is shown under. */
+  renamed: Record<string, string>
+  hiddenDocumentTypes: readonly string[]
+  /** Draft target paths not shown (besides drafts on hidden documents). */
+  hiddenDraftTargets: readonly string[]
+}
+
+function visibleDocuments(raw: SnapshotRaw, view: ReadView | null | undefined) {
+  return view ? raw.documents.filter(d => !view.hiddenDocumentTypes.includes(d.type)) : raw.documents
+}
+
+function visibleDrafts(raw: SnapshotRaw, view: ReadView | null | undefined): DraftRow[] {
+  if (!view) return raw.drafts
+  const hiddenDocs = new Set(raw.documents.filter(d => view.hiddenDocumentTypes.includes(d.type)).map(d => `doc:${d.id}`))
+  return raw.drafts.filter(d => !view.hiddenDraftTargets.includes(d.target_path) && !hiddenDocs.has(d.target_path))
+}
+
 // ── Raw rows ──────────────────────────────────────────────────────────────────
 
 export interface SnapshotRaw {
@@ -180,11 +204,14 @@ function jobFields(job: Record<string, unknown>) {
   return Object.fromEntries(SNAPSHOT_JOB_FIELDS.map(f => [f, job[f] ?? null]))
 }
 
-export function buildSnapshot(raw: SnapshotRaw, opts: { role?: StaffRole | null; serverTime?: string } = {}) {
+export function buildSnapshot(raw: SnapshotRaw, opts: { role?: StaffRole | null; serverTime?: string; view?: ReadView | null } = {}) {
   const money = seesFinancials(opts.role)
-  const ad = (raw.job.assessment_data ?? {}) as Record<string, unknown>
+  const stored = (raw.job.assessment_data ?? null) as AssessmentData | null
+  const ad = opts.view ? opts.view.captures(stored) : ((stored ?? {}) as Record<string, unknown>)
   const health = healthFor(raw).map(i => (money ? i : { ...i, message: redactText(i.message) }))
   const conflicts = documentConflicts(raw.documents)
+  const documents = visibleDocuments(raw, opts.view)
+  const drafts = visibleDrafts(raw, opts.view)
   const build = (captureCap: number, docCap: number) => ({
     server_time: opts.serverTime ?? new Date().toISOString(),
     financials: money ? 'shown' : 'omitted for this role',
@@ -192,13 +219,13 @@ export function buildSnapshot(raw: SnapshotRaw, opts: { role?: StaffRole | null;
     captures: Object.fromEntries(
       Object.entries(ad).filter(([, v]) => v != null).map(([k, v]) => [k, bounded(money ? v : redactFinancials(v), captureCap)]),
     ),
-    documents: raw.documents.map(d => docView(d, docCap, money)),
+    documents: documents.map(d => docView(d, docCap, money)),
     acceptances: raw.acceptances.map(a => (money ? a : { document_id: a.document_id, accepted_at: a.accepted_at, quote_reference: a.quote_reference ?? null })),
     photos: raw.photos.slice(0, SNAPSHOT_LIMITS.photos).map(photoView),
     progress_notes: raw.notes.slice(-SNAPSHOT_LIMITS.notes).map(noteView),
     calls_and_enquiries: raw.calls.slice(0, SNAPSHOT_LIMITS.calls).map(callView),
     xero: money ? raw.xero : raw.xero ? { status: raw.xero.xero_status ?? null } : null,
-    pending_drafts: raw.drafts.filter(d => d.status === 'pending').map(draftView),
+    pending_drafts: drafts.filter(d => d.status === 'pending').map(draftView),
     flags: raw.flags.map(flagView),
     conflicts,
     health,
@@ -227,6 +254,7 @@ export interface ChangesInput {
   touchedCaptures?: string[]
   role?: StaffRole | null
   serverTime?: string
+  view?: ReadView | null
 }
 
 function diffIds(prev: Record<string, string>, now: Record<string, string>) {
@@ -262,9 +290,15 @@ export function changesSince(input: ChangesInput) {
   const { raw, since } = input
   const money = seesFinancials(input.role)
   const now = snapshotHashes(raw)
-  const ad = (raw.job.assessment_data ?? {}) as Record<string, unknown>
+  const stored = (raw.job.assessment_data ?? null) as AssessmentData | null
+  const ad = input.view ? input.view.captures(stored) : ((stored ?? {}) as Record<string, unknown>)
+  const renamed = input.view?.renamed ?? {}
   const after = (t: unknown) => typeof t === 'string' && t > since
   const capture = (k: string) => bounded(money ? ad[k] ?? null : redactFinancials(ad[k] ?? null), SNAPSHOT_LIMITS.capture)
+  /** A change to a summarised capture shows as its summary; a removed one too (it no longer exists). */
+  const capturesShown = (keys: string[]) => Object.fromEntries([...new Set(keys.map(k => renamed[k] ?? k))].map(k => [k, capture(k)]))
+  const documents = visibleDocuments(raw, input.view)
+  const drafts = visibleDrafts(raw, input.view)
   const doc = (d: SnapshotRaw['documents'][number]) => docView(d, SNAPSHOT_LIMITS.document, money)
   const serverTime = input.serverTime ?? new Date().toISOString()
 
@@ -277,14 +311,17 @@ export function changesSince(input: ChangesInput) {
     const photos = diffIds(p.photos ?? {}, now.photos)
     const notes = diffIds(p.notes ?? {}, now.notes)
     const calls = diffIds(p.calls ?? {}, now.calls)
-    const drafts = diffIds(p.drafts ?? {}, now.drafts)
+    const draftIds = diffIds(p.drafts ?? {}, now.drafts)
     const flags = diffIds(p.flags ?? {}, now.flags)
     const diff: Diff = {
       job_fields: Object.fromEntries(fields.map(f => [f, raw.job[f] ?? null])),
-      captures: { changed: Object.fromEntries([...caps.added, ...caps.changed].map(k => [k, capture(k)])), removed: caps.removed },
+      captures: {
+        changed: capturesShown([...caps.added, ...caps.changed, ...caps.removed.filter(k => k in renamed)]),
+        removed: caps.removed.filter(k => !(k in renamed)),
+      },
       documents: {
-        added: pick(raw.documents, d => d.id, docs.added).map(doc),
-        changed: pick(raw.documents, d => d.id, docs.changed).map(doc),
+        added: pick(documents, d => d.id, docs.added).map(doc),
+        changed: pick(documents, d => d.id, docs.changed).map(doc),
         removed: docs.removed,
       },
       photos: {
@@ -301,21 +338,21 @@ export function changesSince(input: ChangesInput) {
         added: pick(raw.calls, c => c.id, calls.added).map(callView),
         changed: pick(raw.calls, c => c.id, calls.changed).map(callView),
       },
-      drafts: pick(raw.drafts, d => d.id, [...drafts.added, ...drafts.changed]).map(draftView),
-      drafts_no_longer_pending: drafts.removed,
+      drafts: pick(drafts, d => d.id, [...draftIds.added, ...draftIds.changed]).map(draftView),
+      drafts_no_longer_pending: draftIds.removed,
       flags: { new: pick(raw.flags, f => f.id, flags.added).map(flagView), resolved: flags.removed },
     }
     return { since, server_time: serverTime, precision: 'exact' as const, ...diff, nothing_changed: isEmptyDiff(diff) }
   }
 
   const jobChanged = after(raw.job.updated_at)
-  const touched = [...new Set(input.touchedCaptures ?? [])].filter(k => ad[k] != null)
+  const touched = [...new Set(input.touchedCaptures ?? [])].filter(k => (k in renamed) || ad[k] != null)
   const diff: Diff = {
     job_fields: jobChanged ? jobFields(raw.job) : {},
-    captures: { changed: Object.fromEntries(touched.map(k => [k, capture(k)])), removed: [] },
+    captures: { changed: capturesShown(touched), removed: [] },
     documents: {
-      added: raw.documents.filter(d => after(d.created_at)).map(doc),
-      changed: raw.documents.filter(d => !after(d.created_at) && after(d.released_to_portal_at)).map(doc),
+      added: documents.filter(d => after(d.created_at)).map(doc),
+      changed: documents.filter(d => !after(d.created_at) && after(d.released_to_portal_at)).map(doc),
       removed: [],
     },
     photos: { added: raw.photos.filter(x => after(x.uploaded_at)).map(photoView), changed: [], removed: [] },
@@ -325,7 +362,7 @@ export function changesSince(input: ChangesInput) {
       removed: [],
     },
     calls_and_enquiries: { added: raw.calls.filter(c => after(c.created_at)).map(callView), changed: [] },
-    drafts: raw.drafts.filter(d => after(d.created_at)).map(draftView),
+    drafts: drafts.filter(d => after(d.created_at)).map(draftView),
     drafts_no_longer_pending: [],
     flags: { new: raw.flags.filter(f => after(f.created_at)).map(flagView), resolved: [] },
   }
@@ -369,7 +406,7 @@ export async function loadSnapshotRaw(supabase: Supabase, orgId: string, jobId: 
 }
 
 /** Load, flag any new document conflicts, and build the snapshot and its hashes. */
-export async function jobSnapshotFor(supabase: Supabase, orgId: string, jobId: string, role: StaffRole | null) {
+export async function jobSnapshotFor(supabase: Supabase, orgId: string, jobId: string, role: StaffRole | null, view: ReadView | null = null) {
   const raw = await loadSnapshotRaw(supabase, orgId, jobId)
   if (!raw) return null
   const conflicts = documentConflicts(raw.documents)
@@ -377,7 +414,7 @@ export async function jobSnapshotFor(supabase: Supabase, orgId: string, jobId: s
     raw.flags = await listOpenFlags(supabase, orgId, jobId)
   }
   const serverTime = new Date().toISOString()
-  return { raw, snapshot: buildSnapshot(raw, { role, serverTime }), hashes: snapshotHashes(raw), serverTime }
+  return { raw, snapshot: buildSnapshot(raw, { role, serverTime, view }), hashes: snapshotHashes(raw), serverTime }
 }
 
 /**

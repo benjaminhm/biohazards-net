@@ -17,7 +17,10 @@ import { buildPatchDraft, mergePatchDrafts, PatchError, TARGET, type PatchDraft 
 import { checkPatch } from '../patchCheck'
 import { captureLabel, listPendingDrafts, upsertDraft, upsertPatchDraft } from '../drafts'
 import { capped, readAcceptances, readCalls, readDocument, readDocumentList, readPhotos, readProgressNotes, readXeroInvoice } from '../jobReads'
-import { canDraftCapture, canDraftDocument, canReadDocument, DOC_AGENTS, docAgent, docAgentId, extraReadsFor, generateTarget, readableCaptures, readableDocumentTypes, readsFullJob } from './registry'
+import {
+  agentView, canDraftCapture, canDraftDocument, canReadDocument, DOC_AGENTS, docAgent, docAgentId, extraReadsFor, generateTarget,
+  hiddenCaptures, readableCaptures, readableDocumentTypes, readsFullJob, readViewFor,
+} from './registry'
 import { checkGenerate } from './generate'
 import { DOC_AGENT_TYPES, type DocAgentDef, type DocAgentReport, type DocAgentType, type ExtraRead, type SubAgentApi } from './types'
 
@@ -49,6 +52,16 @@ async function assessment(ctx: SubCtx): Promise<AssessmentData | null> {
   const { data } = await ctx.supabase.from('jobs').select('assessment_data').eq('id', ctx.jobId).eq('org_id', ctx.orgId).maybeSingle()
   if (!data) throw new ToolError('Job not found')
   return (data.assessment_data ?? null) as AssessmentData | null
+}
+
+/** assessment_data as this agent may read it. */
+async function visibleAssessment(ctx: SubCtx): Promise<Record<string, unknown>> {
+  return agentView(ctx.def, await assessment(ctx))
+}
+
+async function readableDocumentList(ctx: SubCtx) {
+  const docs = await readDocumentList(ctx.supabase, ctx.orgId, ctx.jobId, readableDocumentTypes(ctx.def) ?? undefined)
+  return docs.filter(d => canReadDocument(ctx.def, d.type))
 }
 
 function otherAgentFor(key: string): string {
@@ -141,7 +154,7 @@ export const FULL_READ_TOOLS: AgentTool<SubCtx>[] = [
     description: 'The whole job file in one call (read only): job fields, every capture, every saved document, photo metadata, progress notes, calls and enquiries, Xero status, pending drafts, open flags, conflicts, health and server_time. Long values are cut with a [truncated] marker; read_capture or read_document for one in full.',
     input_schema: { type: 'object', properties: {} },
     async run(ctx) {
-      const r = await jobSnapshotFor(ctx.supabase, ctx.orgId, ctx.jobId, ctx.role ?? null)
+      const r = await jobSnapshotFor(ctx.supabase, ctx.orgId, ctx.jobId, ctx.role ?? null, readViewFor(ctx.def))
       if (!r) throw new ToolError('Job not found')
       return r.snapshot
     },
@@ -159,7 +172,7 @@ export const FULL_READ_TOOLS: AgentTool<SubCtx>[] = [
         touchedCapturesSince(ctx.supabase, ctx.orgId, ctx.jobId, since),
       ])
       if (!raw) throw new ToolError('Job not found')
-      return changesSince({ since: previous?.at ?? since, raw, previous: previous?.hashes ?? null, touchedCaptures: touched, role: ctx.role ?? null })
+      return changesSince({ since: previous?.at ?? since, raw, previous: previous?.hashes ?? null, touchedCaptures: touched, role: ctx.role ?? null, view: readViewFor(ctx.def) })
     },
   },
   {
@@ -167,7 +180,7 @@ export const FULL_READ_TOOLS: AgentTool<SubCtx>[] = [
     description: 'What on this job is missing, incomplete, expected for its status, blocking the next status or in conflict, with the document agent that can fix each. Read only.',
     input_schema: { type: 'object', properties: {} },
     async run(ctx) {
-      const r = await jobSnapshotFor(ctx.supabase, ctx.orgId, ctx.jobId, ctx.role ?? null)
+      const r = await jobSnapshotFor(ctx.supabase, ctx.orgId, ctx.jobId, ctx.role ?? null, readViewFor(ctx.def))
       if (!r) throw new ToolError('Job not found')
       return { status: r.snapshot.job.status, issues: r.snapshot.health, conflicts: r.snapshot.conflicts, open_flags: r.snapshot.flags }
     },
@@ -176,7 +189,7 @@ export const FULL_READ_TOOLS: AgentTool<SubCtx>[] = [
     name: 'list_job_documents',
     description: 'Every saved document on this job: id, type, title, reference and date. Read one with read_document.',
     input_schema: { type: 'object', properties: {} },
-    run: async ctx => ({ documents: shown(ctx, await readDocumentList(ctx.supabase, ctx.orgId, ctx.jobId)) }),
+    run: async ctx => ({ documents: shown(ctx, await readableDocumentList(ctx)) }),
   },
 ]
 
@@ -222,10 +235,16 @@ function baseTools(def: DocAgentDef): AgentTool<SubCtx>[] {
       async run(ctx, input) {
         const key = str(input.key)
         if (!readableCaptures(def).includes(key)) {
-          blocked({ blocked_action: `read_capture:${key}`, required_permission: `read:${key}`, handled_by: 'file agent', message: `The ${def.label} does not read ${key}; ask the file agent.` })
+          const summary = def.summarised?.find(s => s.capture === key)
+          blocked({
+            blocked_action: `read_capture:${key}`, required_permission: `read:${key}`, handled_by: 'file agent',
+            message: summary ? `The ${def.label} reads ${summary.key} instead of ${key}.` : `The ${def.label} does not read ${key}; ask the file agent.`,
+          })
         }
-        const ad = ((await assessment(ctx)) ?? {}) as Record<string, unknown>
-        return { key, exists: ad[key] != null, content: shown(ctx, capped(ad[key] ?? null)) }
+        const ad = await visibleAssessment(ctx)
+        const value = ad[key] ?? null
+        const exists = value != null && (value as { exists?: unknown }).exists !== false
+        return { key, exists, content: shown(ctx, capped(value)) }
       },
     },
     {
@@ -287,6 +306,7 @@ function baseTools(def: DocAgentDef): AgentTool<SubCtx>[] {
           if (str(input.document_id)) {
             const doc = await readDocument(ctx.supabase, ctx.orgId, ctx.jobId, str(input.document_id))
             if (!doc) return { ok: false, reasons: ['Document not found on this job'] }
+            if (!canReadDocument(def, doc.type as string)) return { ok: false, reasons: [`The ${def.label} does not read ${doc.type} documents.`] }
             const draft = buildPatchDraft(doc.content ?? null, parsePatch(input.patch))
             const c = checkPatch({ target_path: TARGET.doc(doc.id as string), created_by: docAgentId(def.type), before: draft.before, proposed: draft.proposed, current: doc.content ?? null, documentType: doc.type as string })
             return { ok: c.ok, reasons: c.reasons }
@@ -375,10 +395,19 @@ export function subAgentTools(def: DocAgentDef, api?: SubAgentApi): AgentTool<Su
 
 /** What the agent may read, for its prompt. Reading never permits editing. */
 export function readScopeLine(def: DocAgentDef): string {
+  const summaries = def.summarised?.length
+    ? ` You never see ${hiddenCaptures(def).join(' or ')} themselves or their saved documents: only ${def.summarised.map(s => s.key).join(' and ')} (computed, read only, shown each turn and in the snapshot).`
+    : ''
   if (readsFullJob(def)) {
-    return `- Read the whole job file, read only: get_job_snapshot, get_job_changes_since, get_job_health, list_job_documents, read_capture (any capture), read_document (any saved document), read_calls, read_progress_notes, read_photos, read_xero_invoice, read_acceptances. Pull in what you need. Reading another document never lets you edit it: you draft only ${def.captureKey} and saved ${def.documentType} documents; anything else is refused with a permission error naming who handles it.`
+    return `- Read the whole job file, read only: get_job_snapshot, get_job_changes_since, get_job_health, list_job_documents, read_capture (any capture), read_document (any saved document), read_calls, read_progress_notes, read_photos, read_xero_invoice, read_acceptances. Pull in what you need.${summaries} Reading another document never lets you edit it: you draft only ${def.captureKey} and saved ${def.documentType} documents; anything else is refused with a permission error naming who handles it.`
   }
-  return `- Read your own capture and these inputs only: captures ${def.readCaptures.join(', ') || '(none)'}; saved documents ${(readableDocumentTypes(def) ?? []).join(', ')}${def.extraReads.length ? `; ${def.extraReads.join(', ')}` : ''}.`
+  return `- Read your own capture and these inputs only: captures ${def.readCaptures.join(', ') || '(none)'}; saved documents ${(readableDocumentTypes(def) ?? []).join(', ')}${def.extraReads.length ? `; ${def.extraReads.join(', ')}` : ''}.${summaries}`
+}
+
+/** Input captures and summaries shown up front each turn. */
+function inputCaptures(def: DocAgentDef, ad: Record<string, unknown>) {
+  const keys = [...def.readCaptures, ...(def.summarised ?? []).map(s => s.key)]
+  return Object.fromEntries(keys.filter(k => ad[k] != null).map(k => [k, capped(ad[k], INPUT_CAP)]))
 }
 
 export function subAgentPrompt(def: DocAgentDef, staffFirstName: string): string {
@@ -400,8 +429,8 @@ ${def.rules}
 - Finish with report (summary, needs_from_staff, warnings). Australian English, plain words.`
 }
 
-function inputsMessage(def: DocAgentDef, ad: Record<string, unknown>, docs: unknown, pending: { kind: string; target_path: string; summary: string }[], instruction: string, notes: string): string {
-  const inputs = Object.fromEntries(def.readCaptures.filter(k => ad[k] != null).map(k => [k, capped(ad[k], INPUT_CAP)]))
+export function inputsMessage(def: DocAgentDef, ad: Record<string, unknown>, docs: unknown, pending: { kind: string; target_path: string; summary: string }[], instruction: string, notes: string): string {
+  const inputs = inputCaptures(def, ad)
   return `INSTRUCTION FROM THE FILE AGENT: ${instruction}${notes ? `\nCONTEXT NOTES: ${notes}` : ''}
 
 YOUR CAPTURE (${def.captureKey}): ${JSON.stringify(capped(ad[def.captureKey] ?? null, OWN_CAP))}
@@ -437,8 +466,8 @@ export async function runDocAgent(
   const ctx: SubCtx = { ...base, role: base.role ?? null, def, drafts: [], reported: null }
   const errors: string[] = []
   const [ad, docs, pending] = await Promise.all([
-    assessment(ctx),
-    readDocumentList(base.supabase, base.orgId, base.jobId, readableDocumentTypes(def) ?? undefined),
+    visibleAssessment(ctx),
+    readableDocumentList(ctx),
     listPendingDrafts(base.supabase, base.orgId, base.jobId),
   ])
   const mine = pending
@@ -446,7 +475,7 @@ export async function runDocAgent(
     .map(d => ({ kind: d.kind, target_path: d.target_path, summary: d.summary }))
   const api = ownApi(ctx)
   const messages: Anthropic.MessageParam[] = [
-    { role: 'user', content: inputsMessage(def, (ad ?? {}) as Record<string, unknown>, docs, mine, instruction, notes) },
+    { role: 'user', content: inputsMessage(def, ad, docs, mine, instruction, notes) },
   ]
   const text = await runLoop(anthropic, subAgentPrompt(def, base.staffFirstName), subAgentTools(def, api), messages, ctx, {
     maxSteps: SUB_AGENT_MAX_STEPS,
@@ -578,15 +607,15 @@ export async function runDocAgentDirect(
   const def = docAgent(type)
   const ctx: SubCtx = { supabase: base.supabase, orgId: base.orgId, userId: base.userId, jobId: base.jobId, role: base.role ?? null, def, drafts: [], reported: null, referral: null }
   const [ad, docs, pending] = await Promise.all([
-    assessment(ctx),
-    readDocumentList(base.supabase, base.orgId, base.jobId, readableDocumentTypes(def) ?? undefined),
+    visibleAssessment(ctx),
+    readableDocumentList(ctx),
     listPendingDrafts(base.supabase, base.orgId, base.jobId),
   ])
   const mine = pending
     .filter(d => d.target_path === TARGET.capture(def.captureKey) || d.target_path === generateTarget(type) || d.created_by === docAgentId(type))
     .map(d => ({ kind: d.kind, target_path: d.target_path, summary: d.summary }))
   const shown = (v: unknown) => (base.redact ? redactFinancials(v) : v)
-  const context = stateText(def, (shown(ad ?? {}) ?? {}) as Record<string, unknown>, shown(docs), mine)
+  const context = stateText(def, (shown(ad) ?? {}) as Record<string, unknown>, shown(docs), mine)
   const errors: string[] = []
   const text = await runLoop(
     anthropic,
@@ -607,8 +636,8 @@ export async function runDocAgentDirect(
   return { text, draftIds: ctx.drafts.map(d => d.id).filter(id => (seen.has(id) ? false : (seen.add(id), true))), referral: ctx.referral ?? null, errors }
 }
 
-function stateText(def: DocAgentDef, ad: Record<string, unknown>, docs: unknown, pending: { kind: string; target_path: string; summary: string }[]): string {
-  const inputs = Object.fromEntries(def.readCaptures.filter(k => ad[k] != null).map(k => [k, capped(ad[k], INPUT_CAP)]))
+export function stateText(def: DocAgentDef, ad: Record<string, unknown>, docs: unknown, pending: { kind: string; target_path: string; summary: string }[]): string {
+  const inputs = inputCaptures(def, ad)
   return `YOUR CAPTURE (${def.captureKey}): ${JSON.stringify(capped(ad[def.captureKey] ?? null, OWN_CAP))}
 
 INPUT CAPTURES (trimmed; read_capture for the full one): ${JSON.stringify(inputs)}

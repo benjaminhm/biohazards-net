@@ -11,7 +11,9 @@ import { houseSurveyAgent } from './defs/houseSurvey'
 import { statementOfAccountsAgent } from './defs/statementOfAccounts'
 import { surfaceAreaCleaningQuoteAgent } from './defs/surfaceAreaCleaningQuote'
 import { wasteDisposalManifestAgent } from './defs/wasteDisposalManifest'
-import { CAPTURE_KEYS } from '../patchDraft'
+import { CAPTURE_KEYS, TARGET } from '../patchDraft'
+import type { ReadView } from '../jobSnapshot'
+import type { AssessmentData } from '@/lib/types'
 import { DOC_AGENT_TYPES, EXTRA_READS, type DocAgentDef, type DocAgentType, type ExtraRead } from './types'
 
 export const DOC_AGENTS: Record<DocAgentType, DocAgentDef> = {
@@ -33,19 +35,58 @@ export function readsFullJob(def: DocAgentDef): boolean {
   return def.reads === 'full'
 }
 
-/** Captures the sub-agent may read: every capture with full reads, else its own and its inputs. */
-export function readableCaptures(def: DocAgentDef): string[] {
-  return readsFullJob(def) ? [...CAPTURE_KEYS] : [def.captureKey, ...def.readCaptures]
+/** Captures it sees only as summaries. */
+export function hiddenCaptures(def: DocAgentDef): string[] {
+  return (def.summarised ?? []).map(s => s.capture)
 }
 
-/** Saved document types the sub-agent may read; null means any type (full reads). */
+/** Saved document types hidden with those captures. */
+export function hiddenDocumentTypes(def: DocAgentDef): string[] {
+  return (def.summarised ?? []).map(s => s.documentType)
+}
+
+/**
+ * Captures the sub-agent may read: every capture with full reads, else its own
+ * and its inputs. Summarised captures are replaced by their summary keys.
+ */
+export function readableCaptures(def: DocAgentDef): string[] {
+  const hidden = hiddenCaptures(def)
+  const base = readsFullJob(def) ? [...CAPTURE_KEYS] : [def.captureKey, ...def.readCaptures]
+  return [...base.filter(k => !hidden.includes(k)), ...(def.summarised ?? []).map(s => s.key)]
+}
+
+/** Saved document types the sub-agent may read; null means any type (full reads) except hidden ones. */
 export function readableDocumentTypes(def: DocAgentDef): string[] | null {
-  return readsFullJob(def) ? null : [def.documentType, ...def.readDocumentTypes]
+  return readsFullJob(def) ? null : [def.documentType, ...def.readDocumentTypes].filter(t => !hiddenDocumentTypes(def).includes(t))
 }
 
 export function canReadDocument(def: DocAgentDef, documentType: string): boolean {
+  if (hiddenDocumentTypes(def).includes(documentType)) return false
   const types = readableDocumentTypes(def)
   return types === null || types.includes(documentType)
+}
+
+/** assessment_data as the sub-agent sees it: summarised captures removed, each summary under its own key. */
+export function agentView(def: DocAgentDef, ad: AssessmentData | null): Record<string, unknown> {
+  const raw = (ad ?? {}) as Record<string, unknown>
+  if (!def.summarised?.length) return raw
+  const hidden = hiddenCaptures(def)
+  return {
+    ...Object.fromEntries(Object.entries(raw).filter(([k]) => !hidden.includes(k))),
+    ...Object.fromEntries(def.summarised.map(s => [s.key, s.summarise(ad)])),
+  }
+}
+
+/** The same view for whole-file reads (snapshot, changes since). Null when it sees the file as stored. */
+export function readViewFor(def: DocAgentDef): ReadView | null {
+  if (!def.summarised?.length) return null
+  const owners = Object.values(DOC_AGENTS).filter(d => hiddenDocumentTypes(def).includes(d.documentType))
+  return {
+    captures: ad => agentView(def, ad),
+    renamed: Object.fromEntries(def.summarised.map(s => [s.capture, s.key])),
+    hiddenDocumentTypes: hiddenDocumentTypes(def),
+    hiddenDraftTargets: [...hiddenCaptures(def).map(TARGET.capture), ...owners.map(d => generateTarget(d.type))],
+  }
 }
 
 /** Calls, notes, photos, Xero and acceptances it may read: all of them with full reads. */
