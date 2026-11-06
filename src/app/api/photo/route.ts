@@ -229,11 +229,31 @@ export async function POST(req: Request) {
   const lng = rawLng != null && rawLng !== '' && Number.isFinite(Number(rawLng)) ? Number(rawLng) : null
   const accuracy_m = rawAcc != null && rawAcc !== '' && Number.isFinite(Number(rawAcc)) ? Number(rawAcc) : null
   const note = String(form.get('note') ?? '').trim().slice(0, 240)
+  const rawTag = String(form.get('photo_tag') ?? '').trim().toLowerCase()
   const rawJobCode = String(form.get('job_code') ?? '').trim()
   const rawJobId = String(form.get('job_id') ?? '').trim()
 
   const supabase = createServiceClient()
   const { jobId, jobCode } = await resolveJobForCode(supabase, person.org_id, rawJobCode, rawJobId)
+
+  const tagCategory: 'before' | 'during' | 'after' | 'assessment' =
+    rawTag === 'before'
+      ? 'before'
+      : rawTag === 'after'
+        ? 'after'
+        : rawTag === 'assessment'
+          ? 'assessment'
+          : 'during'
+  const tagPhase: 'assessment' | 'progress' =
+    tagCategory === 'before' || tagCategory === 'assessment' ? 'assessment' : 'progress'
+  const tagAreaRef =
+    rawTag === 'cdr_load'
+      ? 'CDR Load'
+      : rawTag === 'cdr_docket'
+        ? 'CDR Docket'
+        : rawTag === 'cdr_dropoff'
+          ? 'CDR Drop-off'
+          : ''
 
   const stampText =
     String(form.get('stamp_text') ?? '').trim() ||
@@ -272,9 +292,9 @@ export async function POST(req: Request) {
         org_id: person.org_id,
         file_url: publicUrl,
         caption: note || stampText,
-        area_ref: '',
-        category: 'during',
-        capture_phase: 'progress',
+        area_ref: tagAreaRef,
+        category: tagCategory,
+        capture_phase: tagPhase,
         uploaded_by_person_id: person.person_id,
         uploaded_by_name: `${person.name} (${person.person_code})`,
         taken_at: deviceTime.toISOString(),

@@ -43,6 +43,18 @@ interface CapturedPhoto {
 const PIN_STORAGE_KEY = 'fcq_photo_pin_v1'
 const JOB_STORAGE_KEY = 'fcq_photo_job_v1'
 
+const PHOTO_TAG_OPTIONS = [
+  { id: 'pool', label: 'Job Pool' },
+  { id: 'cdr_load', label: 'CDR Load' },
+  { id: 'cdr_dropoff', label: 'CDR Drop-off' },
+  { id: 'cdr_docket', label: 'CDR Docket' },
+  { id: 'before', label: 'Before' },
+  { id: 'during', label: 'During' },
+  { id: 'after', label: 'After' },
+] as const
+
+type PhotoTagId = (typeof PHOTO_TAG_OPTIONS)[number]['id']
+
 export default function StandalonePhotoPage() {
   const [pin, setPin] = useState('')
   const [person, setPerson] = useState<PinPerson | null>(null)
@@ -53,6 +65,7 @@ export default function StandalonePhotoPage() {
   const [jobOptions, setJobOptions] = useState<PinJobOption[]>([])
   const [jobCode, setJobCode] = useState('')
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null)
+  const [photoTag, setPhotoTag] = useState<PhotoTagId>('pool')
 
   const [now, setNow] = useState<Date>(() => new Date())
   const [geo, setGeo] = useState<GeoPointWithAccuracy | null>(null)
@@ -270,9 +283,10 @@ export default function StandalonePhotoPage() {
       ? `GPS ${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}${point.accuracy_m != null ? ` (±${point.accuracy_m}m)` : ''}`
       : 'GPS UNAVAILABLE'
     const cleanNote = note.trim()
+    const tagLabel = PHOTO_TAG_OPTIONS.find(t => t.id === photoTag)?.label ?? 'Job Pool'
     return [
       `TIME: ${timeLabel}`,
-      `USER: ${person.name} (${person.person_code} · PIN ${pin})  ·  JOB: ${cleanJobCode || 'UNASSIGNED'}`,
+      `USER: ${person.name} (${person.person_code} · PIN ${pin})  ·  JOB: ${cleanJobCode || 'UNASSIGNED'}  ·  TAG: ${tagLabel.toUpperCase()}`,
       cleanNote ? `${gpsLabel}  ·  NOTE: ${cleanNote}` : gpsLabel,
     ]
   }
@@ -288,6 +302,7 @@ export default function StandalonePhotoPage() {
     const form = new FormData()
     form.set('pin', pin)
     form.set('job_code', cleanJobCode)
+    form.set('photo_tag', photoTag)
     if (effectiveJobId) form.set('job_id', effectiveJobId)
     form.set('file', blob, 'photo.jpg')
     form.set('device_time', deviceTimeIso)
@@ -325,6 +340,7 @@ export default function StandalonePhotoPage() {
         pin,
         jobCode: cleanJobCode,
         jobId: effectiveJobId ?? null,
+        photoTag,
         blob,
         deviceTime: deviceTimeIso,
         lat: freshGeo?.lat ?? null,
@@ -717,13 +733,39 @@ export default function StandalonePhotoPage() {
             </div>
             <div style={{ fontWeight: 800 }}>TIME: {liveTimeText}</div>
             <div style={{ fontWeight: 800 }}>
-              USER: {person.name} ({person.person_code} · PIN {pin})  ·  JOB: {cleanJobCode || 'UNASSIGNED'}
+              USER: {person.name} ({person.person_code} · PIN {pin})  ·  JOB: {cleanJobCode || 'UNASSIGNED'}  ·  TAG: {(PHOTO_TAG_OPTIONS.find(t => t.id === photoTag)?.label ?? 'Job Pool').toUpperCase()}
             </div>
             <div style={{ fontWeight: 700, color: '#E2E8F0' }}>
               {liveGpsText}
               {note.trim() ? `  ·  NOTE: ${note.trim()}` : ''}
             </div>
           </div>
+        </div>
+
+        {/* 1-tap destination tag pills for Job Photo Pool / CDR / Reports */}
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {PHOTO_TAG_OPTIONS.map(opt => {
+            const active = photoTag === opt.id
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => setPhotoTag(opt.id)}
+                style={{
+                  padding: '7px 11px',
+                  borderRadius: 999,
+                  border: active ? '1px solid #FF6B35' : '1px solid var(--border)',
+                  background: active ? 'rgba(255, 107, 53, 0.2)' : 'var(--surface)',
+                  color: active ? '#FF6B35' : 'var(--text-muted)',
+                  fontSize: 12,
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                }}
+              >
+                {opt.label}
+              </button>
+            )
+          })}
         </div>
 
         <input

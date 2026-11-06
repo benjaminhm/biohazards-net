@@ -406,6 +406,125 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
 
   const record = useMemo(() => disposalRecordSummary(capture, quoteLink), [capture, quoteLink])
 
+  const usedPhotoIds = useMemo(() => {
+    const used = new Set<string>()
+    for (const l of capture.loads) {
+      if (l.trailer_photo_id) used.add(l.trailer_photo_id)
+      if (l.docket_photo_id) used.add(l.docket_photo_id)
+      for (const p of l.facility_photos ?? []) if (p.id) used.add(p.id)
+      for (const v of l.vehicles) {
+        if (v.photo_id) used.add(v.photo_id)
+        for (const p of v.extra_photos ?? []) if (p.id) used.add(p.id)
+      }
+    }
+    return used
+  }, [capture.loads])
+
+  const unassignedPoolPhotos = useMemo(
+    () => photos.filter(p => !usedPhotoIds.has(p.id) && p.file_url),
+    [photos, usedPhotoIds],
+  )
+  const [poolTargetLoadId, setPoolTargetLoadId] = useState<string>('')
+  const effectivePoolLoadId =
+    (poolTargetLoadId && capture.loads.some(l => l.id === poolTargetLoadId) ? poolTargetLoadId : null)
+    ?? openId
+    ?? capture.loads[0]?.id
+    ?? ''
+
+  function assignPoolPhotoToLoad(photo: Photo, slot: 'vehicle' | 'dropoff' | 'docket' | 'new_load') {
+    const dateStr = (photo.taken_at || photo.uploaded_at || '').slice(0, 10)
+    const noteText = (photo.caption || '').trim()
+
+    if (slot === 'new_load') {
+      const fresh = loadFromTripDefaults(applyJobSiteToLoad(emptyDisposalLoad(), job), capture.defaults)
+      const firstV = fresh.vehicles[0] ?? emptyDisposalVehicle(capture.defaults.vehicle_type || 'trailer')
+      const updatedLoad = withMirrors({
+        ...fresh,
+        date: fresh.date || dateStr,
+        vehicles: [
+          {
+            ...firstV,
+            photo_skipped: false,
+            photo_id: photo.id,
+            photo_url: photo.file_url,
+            photo_note: noteText,
+            photo_include_in_compose: true,
+          },
+          ...fresh.vehicles.slice(1),
+        ],
+      })
+      setCapture(prev => ({ ...prev, loads: [...prev.loads, updatedLoad] }))
+      setOpenId(updatedLoad.id)
+      setPoolTargetLoadId(updatedLoad.id)
+      touch()
+      return
+    }
+
+    const targetId = effectivePoolLoadId
+    if (!targetId) return
+
+    setCapture(prev => ({
+      ...prev,
+      loads: prev.loads.map(load => {
+        if (load.id !== targetId) return load
+        if (slot === 'vehicle') {
+          const first = load.vehicles[0]
+          if (!first) return load
+          if (!first.photo_url) {
+            return withMirrors({
+              ...load,
+              date: load.date || dateStr,
+              vehicles: [
+                {
+                  ...first,
+                  photo_skipped: false,
+                  photo_id: photo.id,
+                  photo_url: photo.file_url,
+                  photo_note: first.photo_note?.trim() ? first.photo_note : noteText,
+                  photo_include_in_compose: true,
+                },
+                ...load.vehicles.slice(1),
+              ],
+            })
+          }
+          return withMirrors({
+            ...load,
+            vehicles: [
+              {
+                ...first,
+                extra_photos: [
+                  ...(first.extra_photos ?? []),
+                  { id: photo.id, url: photo.file_url, note: noteText, include_in_compose: true },
+                ],
+              },
+              ...load.vehicles.slice(1),
+            ],
+          })
+        }
+        if (slot === 'dropoff') {
+          return withMirrors({
+            ...load,
+            facility_photos: [
+              ...(load.facility_photos ?? []),
+              { id: photo.id, url: photo.file_url, note: noteText, include_in_compose: true },
+            ],
+          })
+        }
+        // docket
+        return withMirrors({
+          ...load,
+          docket_skipped: false,
+          docket_lost: false,
+          docket_photo_id: photo.id,
+          docket_photo_url: photo.file_url,
+          docket_photo_note: load.docket_photo_note?.trim() ? load.docket_photo_note : noteText,
+          docket_include_in_compose: true,
+        })
+      }),
+    }))
+    touch()
+  }
+
   function touch() {
     setSavedFlash(false)
     setSaveError('')
@@ -1194,6 +1313,119 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
         that route and filled onto every load. Photos and weight are entered on each load.
         You can still change the shared details on a load that is different.
       </p>
+
+      {unassignedPoolPhotos.length > 0 && (
+        <div
+          style={{
+            border: '1px solid rgba(255, 107, 53, 0.45)',
+            borderRadius: 12,
+            background: 'var(--surface)',
+            marginBottom: 16,
+            padding: '12px 14px 14px',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 13, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--accent)' }}>
+                Job Photo Pool ({unassignedPoolPhotos.length} unassigned)
+                {job.job_code ? ` · Code ${job.job_code}` : ''}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                Photos captured with this job’s 4-digit code land here. Assign any photo to a load in one click.
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)' }}>
+                Target load:
+              </span>
+              <select
+                value={effectivePoolLoadId}
+                onChange={e => setPoolTargetLoadId(e.target.value)}
+                style={{ ...INPUT, width: 'auto', padding: '6px 10px', fontSize: 13, fontWeight: 700 }}
+              >
+                {capture.loads.map((l, idx) => (
+                  <option key={l.id} value={l.id}>
+                    Load {idx + 1} ({l.vehicles.map(v => vehicleTypeLabel(v.type)).filter(Boolean).join(' + ') || 'Load'})
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(175px, 1fr))',
+              gap: 10,
+            }}
+          >
+            {unassignedPoolPhotos.slice(0, 12).map(p => {
+              const tagBadge = (p.area_ref || '').trim() || p.category
+              const targetIdx = capture.loads.findIndex(l => l.id === effectivePoolLoadId) + 1
+              return (
+                <div
+                  key={p.id}
+                  style={{
+                    border: '1px solid var(--border)',
+                    borderRadius: 10,
+                    background: 'var(--surface-2)',
+                    overflow: 'hidden',
+                    display: 'flex',
+                    flexDirection: 'column',
+                  }}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={p.file_url}
+                    alt={p.caption || 'Job pool photo'}
+                    style={{ width: '100%', height: 115, objectFit: 'cover', display: 'block', background: '#000' }}
+                  />
+                  <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 4, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', color: 'var(--accent)' }}>
+                      <span>{tagBadge}</span>
+                      {p.uploaded_by_name && (
+                        <span style={{ color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {p.uploaded_by_name}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, marginTop: 'auto' }}>
+                      <button
+                        type="button"
+                        onClick={() => assignPoolPhotoToLoad(p, 'vehicle')}
+                        style={{ padding: '5px 6px', borderRadius: 6, border: 'none', background: 'var(--accent)', color: '#fff', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}
+                      >
+                        → L{targetIdx} Vehicle
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => assignPoolPhotoToLoad(p, 'dropoff')}
+                        style={{ padding: '5px 6px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+                      >
+                        → L{targetIdx} Drop-off
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => assignPoolPhotoToLoad(p, 'docket')}
+                        style={{ padding: '5px 6px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+                      >
+                        → L{targetIdx} Docket
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => assignPoolPhotoToLoad(p, 'new_load')}
+                        style={{ padding: '5px 6px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-muted)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+                      >
+                        + New Load
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       <div
         style={{

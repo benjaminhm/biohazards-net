@@ -1379,6 +1379,7 @@ export interface Photo {
   /** When false, omitted from composed quote/SOW/report/PDF outputs (default true). */
   include_in_composed_reports?: boolean
   uploaded_at: string
+  uploaded_by_name?: string | null
   taken_at?: string | null
   location_lat?: number | null
   location_lng?: number | null

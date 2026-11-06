@@ -13,6 +13,7 @@ export interface QueuedStandalonePhoto {
   pin: string
   jobCode: string
   jobId: string | null
+  photoTag?: string
   blob: Blob
   deviceTime: string
   lat: number | null
@@ -188,6 +189,7 @@ export async function flushStandalonePhotoQueue(): Promise<number> {
       form.set('pin', item.pin)
       form.set('job_code', item.jobCode ?? '')
       if (item.jobId) form.set('job_id', item.jobId)
+      if (item.photoTag) form.set('photo_tag', item.photoTag)
       form.set('file', item.blob, 'photo.jpg')
       form.set('device_time', item.deviceTime)
       form.set('stamp_text', item.stampText)
