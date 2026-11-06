@@ -105,7 +105,7 @@ export default function ChatPanel({
   onSend: (text: string, viaVoice: boolean) => Promise<string | null>
   onClearJob: () => void
   onOpenJob: (id: string) => void
-  onDraftsDecided: () => void
+  onDraftsDecided: (created: string[]) => void
 }) {
   const [input, setInput] = useState('')
   const [listening, setListening] = useState(false)

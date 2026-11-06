@@ -43,6 +43,7 @@ function Workspace() {
   const [jobs, setJobs] = useState<Job[]>([])
   const [jobsLoading, setJobsLoading] = useState(true)
   const [markers, setMarkers] = useState<Record<string, JobMarkers>>({})
+  const [newJobDrafts, setNewJobDrafts] = useState<DraftView[]>([])
   const [activeJobId, setActiveJobId] = useState<string | null>(urlJob)
   const [rows, setRows] = useState<ChatRow[]>([])
   const [drafts, setDrafts] = useState<DraftView[]>([])
@@ -68,7 +69,10 @@ function Workspace() {
 
   const loadMarkers = useCallback(async () => {
     const res = await fetch('/api/agent/workspace/summary')
-    if (res.ok) setMarkers((await res.json()).jobs ?? {})
+    if (!res.ok) return
+    const data = await res.json()
+    setMarkers(data.jobs ?? {})
+    setNewJobDrafts(data.new_jobs ?? [])
   }, [])
 
   const loadChat = useCallback(async (jobId: string | null) => {
@@ -116,7 +120,15 @@ function Workspace() {
     await Promise.all([loadChat(id), loadJob(id), loadMarkers()])
   }, [loadChat, loadJob, loadMarkers])
 
+  async function onDraftsDecided(created: string[]) {
+    if (!created.length) return refreshAfterChange()
+    await loadJobs()
+    void loadMarkers()
+    openJob(created[0])
+  }
+
   function openJob(id: string | null) {
+    activeRef.current = id
     setActiveJobId(id)
     setLocalLines([])
     router.replace(id ? `/workspace?job=${id}` : '/workspace', { scroll: false })
@@ -130,7 +142,7 @@ function Workspace() {
   async function onSend(text: string, viaVoice: boolean): Promise<string | null> {
     setError('')
     if (isApproveAllPhrase(text)) {
-      const pending = drafts.filter(d => d.status === 'pending' && (!activeJobId || d.job_id === activeJobId))
+      const pending = drafts.filter(d => d.status === 'pending' && d.kind !== 'new_job' && (!activeJobId || d.job_id === activeJobId))
       if (!pending.length) {
         const msg = 'Nothing is waiting for approval here.'
         addLocal(msg)
@@ -218,7 +230,15 @@ function Workspace() {
         </div>
       </header>
       <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: job ? '260px minmax(0, 1fr) minmax(380px, 40%)' : '260px minmax(0, 1fr)' }}>
-        <JobListPanel jobs={jobs} markers={markers} activeJobId={activeJobId} onSelect={id => openJob(id)} loading={jobsLoading} />
+        <JobListPanel
+          jobs={jobs}
+          markers={markers}
+          newJobDrafts={newJobDrafts}
+          onNewJobDecided={created => void onDraftsDecided(created)}
+          activeJobId={activeJobId}
+          onSelect={id => openJob(id)}
+          loading={jobsLoading}
+        />
         <ChatPanel
           rows={rows}
           localLines={localLines}
@@ -230,7 +250,7 @@ function Workspace() {
           onSend={onSend}
           onClearJob={() => openJob(null)}
           onOpenJob={id => openJob(id)}
-          onDraftsDecided={() => void refreshAfterChange()}
+          onDraftsDecided={created => void onDraftsDecided(created)}
         />
         {job && (
           <JobPanel

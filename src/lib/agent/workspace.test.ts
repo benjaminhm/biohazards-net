@@ -22,8 +22,21 @@ import {
   patchLines,
   photoPatch,
 } from './patchDraft'
-import { buildStatementDraft } from './statementDraft'
-import type { AssessmentData } from '@/lib/types'
+import { buildStatementDraft, cdrDollarFigures, statementPatchProblem } from './statementDraft'
+import { composeStatementForJob } from './statementGenerate'
+import {
+  describeNewJob,
+  findDuplicates,
+  newJobLines,
+  newJobRow,
+  normalizeNewJob,
+  similarName,
+  streetKey,
+  type DuplicateCandidate,
+} from './newJobDraft'
+import { emptyStatementCapture } from '@/lib/statementOfAccounts'
+import { formatToTwilioE164 } from '@/lib/phone'
+import type { AssessmentData, Job } from '@/lib/types'
 
 let n = 0
 function row(speaker: ChatRow['speaker'], text: string, author = ''): ChatRow {
@@ -159,4 +172,121 @@ test('draft_statement: survey rooms and quantities only, no typed dollar fields'
   const again = buildStatementDraft({ ...ad, statement_of_accounts: applied } as unknown as AssessmentData)
   assert.equal(again.ok, false)
   assert.equal(buildStatementDraft({} as AssessmentData).ok, false)
+})
+
+// ── Head agent: new job drafts ────────────────────────────────────────────────
+
+const existing: DuplicateCandidate[] = [
+  { id: 'a', job_code: '3452', client_name: 'John Smith', client_phone: '+61412345678', client_phones: [], client_email: '', site_address: '12 Smith Street, Annerley QLD 4103', status: 'lead' },
+  { id: 'b', job_code: '3456', client_name: 'Mary Jones', client_phone: '', client_phones: [{ label: 'Work', number: '0498 765 432' }], client_email: 'Mary@Example.com', site_address: 'Unit 3/40 Long Rd, Sunnybank', status: 'quoted' },
+  { id: 'c', job_code: '2455', client_name: 'Alan Brown', client_phone: '+61400000001', client_phones: [], client_email: '', site_address: '7 Park Ave, Toowong', status: 'scheduled' },
+]
+
+/** libphonenumber-js loads without its metadata under tsx (see calls.test.ts). */
+const phoneSkip = formatToTwilioE164('0412 345 678') ? false : 'phone metadata does not load under tsx'
+
+test('new job: input is cleaned and checked', () => {
+  const p = normalizeNewJob({ client_name: '  Jane Doe ', client_email: 'JANE@x.com', urgency: 'URGENT' })
+  assert.equal(p.client_name, 'Jane Doe')
+  assert.equal(p.client_email, 'jane@x.com')
+  assert.equal(p.urgency, 'urgent')
+  assert.equal(normalizeNewJob({}).urgency, 'standard')
+  assert.throws(() => normalizeNewJob({ client_phone: '123' }), /not a valid phone/)
+  assert.throws(() => normalizeNewJob({ client_email: 'nope' }), /not a valid email/)
+  assert.throws(() => normalizeNewJob({ urgency: 'asap' }))
+})
+
+test('new job: duplicates by email, similar name and street; strongest first', () => {
+  const byEmail = findDuplicates(normalizeNewJob({ client_email: 'mary@example.com' }), existing)
+  assert.deepEqual(byEmail.map(d => [d.job_code, d.reasons]), [['3456', ['same email']]])
+  const byName = findDuplicates(normalizeNewJob({ client_name: 'Smith, John' }), existing)
+  assert.deepEqual(byName.map(d => d.job_code), ['3452'])
+  const byStreet = findDuplicates(normalizeNewJob({ site_address: '12 Smith St Annerley' }), existing)
+  assert.deepEqual(byStreet.map(d => [d.job_code, d.reasons]), [['3452', ['same site address']]])
+  const strongestFirst = findDuplicates(normalizeNewJob({ client_name: 'Alan Brown', site_address: '12 Smith Street' }), existing)
+  assert.deepEqual(strongestFirst.map(d => d.job_code), ['3452', '2455'])
+  assert.deepEqual(findDuplicates(normalizeNewJob({ client_name: 'John', site_address: '12 Other St, Annerley' }), existing), [])
+  assert.equal(streetKey('Unit 3/40 Long Road, Sunnybank QLD'), '3/40 long rd')
+  assert.equal(similarName('Mrs Mary Anne Jones', 'Mary Jones'), true)
+  assert.equal(similarName('Mary', 'Mary Jones'), false)
+})
+
+test('new job: duplicates by E.164 phone, including other phones', { skip: phoneSkip }, () => {
+  const p = normalizeNewJob({ client_phone: '0412 345 678' })
+  assert.equal(p.client_phone, '+61412345678')
+  assert.deepEqual(findDuplicates(p, existing).map(d => [d.job_code, d.reasons]), [['3452', ['same phone']]])
+  assert.deepEqual(findDuplicates(normalizeNewJob({ client_phone: '+61 498 765 432' }), existing).map(d => d.job_code), ['3456'])
+})
+
+test('new job: approve payload matches a call-created lead', () => {
+  const p = normalizeNewJob({ client_name: 'Jane Doe', client_email: 'jane@x.com', site_address: '1 Test St', job_description: 'Unattended death clean-up' })
+  assert.deepEqual(newJobRow(p, '4821', 'org-1'), {
+    job_code: '4821', client_name: 'Jane Doe', client_phone: '', client_email: 'jane@x.com', site_address: '1 Test St',
+    job_description: 'Unattended death clean-up', job_type: 'other', urgency: 'standard', status: 'lead', notes: '',
+    assessment_data: null, org_id: 'org-1',
+  })
+  assert.equal(describeNewJob(p), 'Create a new job: Jane Doe · 1 Test St')
+  assert.deepEqual(newJobLines(p).map(l => l.label), ['Client', 'Email', 'Site', 'Description'])
+  assert.equal(describeNewJob(normalizeNewJob({})), 'Create a new job (empty)')
+})
+
+// ── Statement: CDR facts, dollar patches, generate ────────────────────────────
+
+const cdr = {
+  loads: [
+    { vehicles: [{ type: 'trailer', length_m: 2, width_m: 1.5, height_m: 1 }], weight_kg: 420, dump_fee: 180 },
+    { vehicles: [{ type: 'skip', length_m: 3, width_m: 2, height_m: 1, skip_cost: 400 }] },
+  ],
+  cost_per_m3: 100,
+  prepaid_m3: 2,
+}
+
+test('draft_statement: CDR m³ only; loads, vehicles and weight reported as having no statement field', () => {
+  const ad = { disposal_manifest_capture: cdr } as unknown as AssessmentData
+  const r = buildStatementDraft(ad)
+  assert.equal(r.ok, true)
+  if (!r.ok) return
+  assert.deepEqual(r.proposed, { invoice2_m3: 9 })
+  assert.deepEqual(r.not_on_statement, ['2 loads', 'vehicles: 1 × Trailer, 1 × Skip', 'weight 420 kg'])
+  const dollars = cdrDollarFigures(ad)
+  assert.deepEqual(dollars.map(d => [d.statement_field, d.amount]), [
+    ['invoice2_skips', 400], ['invoice2_tip_receipts', 180], ['invoice2_prepaid', 200], ['invoice2_amount', 900],
+  ])
+})
+
+test('statement dollar patches: allowed when stated, checked for shape', () => {
+  assert.equal(isCaptureKey('statement_of_accounts'), true)
+  const patch = {
+    invoice1_amount: 1650, invoice2_amount: 900, invoice2_skips: 400, deposit_taken: true, deposit_amount: 500,
+    manual_adjustment: -50, manual_adjustment_reason: 'Goodwill', original_invoice_number: 'INV-0101', new_invoice_url: 'https://pay.example/1',
+  }
+  assert.equal(statementPatchProblem(patch), null)
+  assert.match(statementPatchProblem({ invoice1_amount: '$1,650' }) ?? '', /plain number/)
+  assert.match(statementPatchProblem({ invoice1_amount: -5 }) ?? '', /negative/)
+  assert.match(statementPatchProblem({ deposit_taken: 'yes' }) ?? '', /true or false/)
+  assert.match(statementPatchProblem({ total_due: 10 }) ?? '', /no field "total_due"/)
+  const d = buildPatchDraft(null, patch)
+  const applied = applyPatch(null, d.proposed, emptyStatementCapture as unknown as () => Record<string, unknown>)
+  assert.equal(applied.invoice1_amount, 1650)
+  assert.equal(applied.charges_gst, true)
+})
+
+function statementJob(statement: Record<string, unknown> | null): Job {
+  return {
+    id: '11111111-2222-3333-4444-555555555555', site_address: '1 Test St',
+    assessment_data: statement ? { statement_of_accounts: statement } : null,
+  } as unknown as Job
+}
+
+test('generate statement: same checks as the Generate button', () => {
+  assert.match((composeStatementForJob(statementJob(null), []) as { reason: string }).reason, /not been started/)
+  const unreasoned = composeStatementForJob(statementJob({ invoice1_amount: 1000, manual_adjustment: -50 }), [])
+  assert.equal(unreasoned.ok, false)
+  assert.match((unreasoned as { reason: string }).reason, /why the last invoice total changed/)
+  const notAddingUp = composeStatementForJob(statementJob({ invoice1_amount: 1000, invoice1_callout: 100 }), [])
+  assert.equal(notAddingUp.ok, false)
+  assert.match((notAddingUp as { reason: string }).reason, /call out/i)
+  const good = composeStatementForJob(statementJob({ invoice1_amount: 1000, invoice1_callout: 200, invoice1_cleaning: 800 }), [])
+  assert.equal(good.ok, true)
+  assert.equal((good as { content: Record<string, unknown> }).content.title, 'Statement of Accounts')
 })

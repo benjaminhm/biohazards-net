@@ -10,11 +10,12 @@
 import { useState } from 'react'
 import { isOverwrite } from '@/lib/agent/workspaceText'
 import { parseTarget, patchLines } from '@/lib/agent/patchDraft'
+import { newJobLines, type NewJobProposal, type PossibleDuplicate } from '@/lib/agent/newJobDraft'
 
 export interface DraftView {
   id: string
-  job_id: string
-  kind: 'field' | 'note' | 'status' | 'document'
+  job_id: string | null
+  kind: 'field' | 'note' | 'status' | 'document' | 'new_job'
   target_path: string
   before: unknown
   proposed: unknown
@@ -29,7 +30,19 @@ const STATUS_TEXT: Record<DraftView['status'], string> = {
   stale: 'Out of date',
 }
 
-export async function decideDrafts(action: 'approve' | 'reject', ids: string[]): Promise<{ failed: { id: string; error: string }[] }> {
+export interface DecideResult {
+  failed: { id: string; error: string }[]
+  /** Jobs created by approving 'new_job' drafts. */
+  created: string[]
+}
+
+function createdJobs(list: unknown): string[] {
+  return (Array.isArray(list) ? (list as DraftView[]) : [])
+    .filter(d => d?.kind === 'new_job' && d.status === 'approved' && d.job_id)
+    .map(d => d.job_id as string)
+}
+
+export async function decideDrafts(action: 'approve' | 'reject', ids: string[]): Promise<DecideResult> {
   if (ids.length === 1) {
     const res = await fetch(`/api/agent/drafts/${ids[0]}`, {
       method: 'POST',
@@ -37,7 +50,8 @@ export async function decideDrafts(action: 'approve' | 'reject', ids: string[]):
       body: JSON.stringify({ action }),
     })
     const data = await res.json().catch(() => ({}))
-    return { failed: res.ok ? [] : [{ id: ids[0], error: data.error || 'Failed' }] }
+    if (!res.ok) return { failed: [{ id: ids[0], error: data.error || 'Failed' }], created: [] }
+    return { failed: [], created: createdJobs([data.draft]) }
   }
   const res = await fetch('/api/agent/drafts/bulk', {
     method: 'POST',
@@ -45,8 +59,8 @@ export async function decideDrafts(action: 'approve' | 'reject', ids: string[]):
     body: JSON.stringify({ action, ids }),
   })
   const data = await res.json().catch(() => ({}))
-  if (!res.ok) return { failed: ids.map(id => ({ id, error: data.error || 'Failed' })) }
-  return { failed: data.failed ?? [] }
+  if (!res.ok) return { failed: ids.map(id => ({ id, error: data.error || 'Failed' })), created: [] }
+  return { failed: data.failed ?? [], created: createdJobs(data.done) }
 }
 
 export default function DraftList({
@@ -56,27 +70,30 @@ export default function DraftList({
   title,
 }: {
   drafts: DraftView[]
-  onDecided: () => void
+  onDecided: (created: string[]) => void
   onFocus?: (d: DraftView) => void
   title?: string
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   if (!drafts.length) return null
-  const pending = drafts.filter(d => d.status === 'pending')
+  const pending = drafts.filter(d => d.status === 'pending' && d.kind !== 'new_job')
+  const onlyNewJobs = drafts.every(d => d.kind === 'new_job')
 
   async function decide(action: 'approve' | 'reject', ids: string[]) {
     if (!ids.length || busy) return
     setBusy(true)
     setError('')
+    let created: string[] = []
     try {
-      const { failed } = await decideDrafts(action, ids)
-      if (failed.length) setError(failed.map(f => f.error).join(' '))
+      const r = await decideDrafts(action, ids)
+      created = r.created
+      if (r.failed.length) setError(r.failed.map(f => f.error).join(' '))
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed')
     } finally {
       setBusy(false)
-      onDecided()
+      onDecided(created)
     }
   }
 
@@ -84,7 +101,7 @@ export default function DraftList({
     <div style={{ border: '1px solid rgba(255,107,53,0.35)', borderRadius: 10, background: 'var(--accent-dim)', padding: 10 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
         <div style={{ flex: 1, fontSize: 12, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--accent)' }}>
-          {title ?? (pending.length ? `${pending.length} change${pending.length === 1 ? '' : 's'} waiting` : 'Changes')}
+          {title ?? (onlyNewJobs ? 'Create job' : pending.length ? `${pending.length} change${pending.length === 1 ? '' : 's'} waiting` : 'Changes')}
         </div>
         {pending.length > 1 && (
           <>
@@ -97,7 +114,9 @@ export default function DraftList({
           </>
         )}
       </div>
-      {drafts.map(d => (
+      {drafts.map(d => d.kind === 'new_job' ? (
+        <NewJobCard key={d.id} d={d} busy={busy} onDecide={action => decide(action, [d.id])} />
+      ) : (
         <div key={d.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '6px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
           <button
             type="button"
@@ -131,6 +150,37 @@ export default function DraftList({
         </div>
       ))}
       {error && <div style={{ fontSize: 12, color: '#F87171', marginTop: 6 }}>{error}</div>}
+    </div>
+  )
+}
+
+function NewJobCard({ d, busy, onDecide }: { d: DraftView; busy: boolean; onDecide: (action: 'approve' | 'reject') => void }) {
+  const lines = newJobLines((d.proposed ?? {}) as Partial<NewJobProposal>)
+  const dups = ((d.before as { possible_duplicates?: PossibleDuplicate[] } | null)?.possible_duplicates ?? [])
+  const done = d.status === 'approved' ? 'Created' : d.status === 'rejected' ? 'Discarded' : STATUS_TEXT[d.status]
+  return (
+    <div style={{ padding: '6px 0', borderTop: '1px solid rgba(255,255,255,0.06)', opacity: d.status === 'pending' ? 1 : 0.55 }}>
+      <div style={{ display: 'grid', gap: 2, fontSize: 13 }}>
+        {lines.length ? lines.map(l => (
+          <div key={l.label} style={{ overflowWrap: 'anywhere' }}>
+            <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{l.label}: </span>{l.value}
+          </div>
+        )) : <div style={{ color: 'var(--text-muted)' }}>Empty job, no details yet</div>}
+        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>New lead · job type Other</div>
+      </div>
+      {dups.map(x => (
+        <div key={x.id} style={{ ...warnStyle, marginLeft: 0, marginTop: 4, display: 'block' }}>
+          ⚠ Possible duplicate: #{x.job_code ?? ''} {x.client_name ?? ''}{x.site_address ? ` · ${x.site_address}` : ''} ({x.reasons.join(', ')})
+        </div>
+      ))}
+      {d.status === 'pending' ? (
+        <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+          <button type="button" className="btn btn-primary" disabled={busy} style={smallBtn} onClick={() => onDecide('approve')}>Create</button>
+          <button type="button" className="btn btn-ghost" disabled={busy} style={smallBtn} onClick={() => onDecide('reject')}>Discard</button>
+        </div>
+      ) : (
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>{done}</div>
+      )}
     </div>
   )
 }

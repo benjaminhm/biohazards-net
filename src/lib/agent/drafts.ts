@@ -13,7 +13,11 @@ import { normalizeOptionalPhoneField } from '@/lib/phone'
 import { emptyBiohazardCleaningCapture } from '@/lib/biohazardCleaningQuote'
 import { emptyContentsClearanceCapture } from '@/lib/contentsClearanceQuote'
 import { emptySurfaceAreaCleaningCapture } from '@/lib/surfaceAreaCleaningQuote'
-import type { JobStatus } from '@/lib/types'
+import type { Document, Job, JobStatus } from '@/lib/types'
+import { GENERATE_STATEMENT_TARGET, composeStatementForJob } from './statementGenerate'
+import { generateUniqueJobCode } from '@/lib/jobCode'
+import { ensureJobInboundEmailToken } from '@/lib/jobInboundEmail'
+import { newJobRow, normalizeNewJob, type NewJobProposal, type PossibleDuplicate } from './newJobDraft'
 import { DRAFTABLE_FIELDS, fieldLabel, isDraftableField, isEmptyValue, showValue, type Speaker } from './workspaceText'
 import { emptyStatementCapture } from '@/lib/statementOfAccounts'
 import {
@@ -30,12 +34,13 @@ import {
 
 type Supabase = ReturnType<typeof createServiceClient>
 
-export type DraftKind = 'field' | 'note' | 'status' | 'document'
+export type DraftKind = 'field' | 'note' | 'status' | 'document' | 'new_job'
 
 export interface DraftRow {
   id: string
   org_id: string
-  job_id: string
+  /** NULL only for a pending 'new_job' draft; set to the new job once created. */
+  job_id: string | null
   message_id: string | null
   kind: DraftKind
   target_path: string
@@ -132,6 +137,89 @@ export async function upsertDraft(
   return data.id as string
 }
 
+export async function loadJobAndDocuments(supabase: Supabase, orgId: string, jobId: string): Promise<{ job: Job; documents: Document[] } | null> {
+  const [jobRes, docsRes] = await Promise.all([
+    supabase.from('jobs').select('*').eq('id', jobId).eq('org_id', orgId).maybeSingle(),
+    supabase.from('documents').select('*').eq('job_id', jobId).eq('org_id', orgId).order('created_at', { ascending: false }),
+  ])
+  if (!jobRes.data) return null
+  return { job: jobRes.data as Job, documents: (docsRes.data ?? []) as Document[] }
+}
+
+export const NEW_JOB_TARGET = 'new_job'
+
+/** A head-agent proposal to create a job. No job yet, so job_id stays NULL until Create. */
+export async function createNewJobDraft(
+  supabase: Supabase,
+  d: { orgId: string; proposed: NewJobProposal; duplicates: PossibleDuplicate[]; summary: string; createdBy: string },
+): Promise<string> {
+  const { data, error } = await supabase
+    .from('agent_drafts')
+    .insert({
+      org_id: d.orgId,
+      job_id: null,
+      kind: 'new_job',
+      target_path: NEW_JOB_TARGET,
+      before: { possible_duplicates: d.duplicates },
+      proposed: d.proposed,
+      summary: d.summary,
+      created_by: d.createdBy,
+    })
+    .select('id')
+    .single()
+  if (error) throw error
+  return data.id as string
+}
+
+export async function listNewJobDrafts(supabase: Supabase, orgId: string): Promise<DraftRow[]> {
+  const { data } = await supabase
+    .from('agent_drafts')
+    .select('*')
+    .eq('org_id', orgId)
+    .eq('kind', 'new_job')
+    .eq('status', 'pending')
+    .order('created_at', { ascending: true })
+    .limit(20)
+  return (data ?? []) as DraftRow[]
+}
+
+/**
+ * Create the job for an approved 'new_job' draft. The draft is claimed first so
+ * a double click cannot create two jobs; it goes back to pending on failure.
+ */
+async function approveNewJob(supabase: Supabase, who: Approver, draft: DraftRow): Promise<DraftRow> {
+  const proposed = normalizeNewJob((draft.proposed ?? {}) as Record<string, unknown>)
+  const decidedAt = new Date().toISOString()
+  const { data: claimed } = await supabase
+    .from('agent_drafts')
+    .update({ status: 'approved', decided_by: who.userId, decided_at: decidedAt })
+    .eq('id', draft.id)
+    .eq('status', 'pending')
+    .select('id')
+    .maybeSingle()
+  if (!claimed) throw new DraftError('This job was already created or discarded.')
+  try {
+    const row = newJobRow(proposed, await generateUniqueJobCode(supabase, who.orgId), who.orgId)
+    const { data, error } = await supabase.from('jobs').insert(row).select('id').single()
+    if (error) throw error
+    const jobId = data.id as string
+    await supabase.from('agent_drafts').update({ job_id: jobId }).eq('id', draft.id)
+    await ensureJobInboundEmailToken(jobId, who.orgId)
+    await logAgentAction(supabase, {
+      org_id: who.orgId, job_id: jobId, agent: 'head_agent', trigger: 'workspace_chat', action: 'create_job',
+      target_table: 'jobs', target_id: jobId, after: row, note: `Approved by ${who.firstName || who.userId}`,
+    })
+    await postMessage(supabase, {
+      org_id: who.orgId, thread_id: who.userId, job_id: jobId, speaker: 'system', author: who.firstName,
+      content: { text: `Job #${row.job_code} created by ${who.firstName || 'staff'} from the head agent's draft.` },
+    })
+    return { ...draft, job_id: jobId, status: 'approved' }
+  } catch (err) {
+    await supabase.from('agent_drafts').update({ status: 'pending', decided_by: null, decided_at: null }).eq('id', draft.id)
+    throw err
+  }
+}
+
 export function emptyQuoteCapture(key: QuoteDocKey, notes: { description?: string; estimated_m3?: number | null }): Record<string, unknown> {
   if (key === 'biohazard_cleaning_quote') {
     return { ...emptyBiohazardCleaningCapture(), description: notes.description ?? '' }
@@ -206,7 +294,7 @@ export async function upsertPatchDraft(
   })
 }
 
-async function applyPatchDraft(supabase: Supabase, who: Approver, draft: DraftRow, jobRow: Record<string, unknown>) {
+async function applyPatchDraft(supabase: Supabase, who: Approver, draft: DraftRow & { job_id: string }, jobRow: Record<string, unknown>) {
   const target = parseTarget(draft.target_path)
   if (!target) throw new DraftError('Unknown change')
   const before = (draft.before ?? {}) as Record<string, unknown>
@@ -285,6 +373,35 @@ export interface Approver {
   firstName: string
 }
 
+/**
+ * Approved draft_generate_statement: compose and check exactly as the Generate
+ * button does, then save the document. A failed check is posted on the job and
+ * the draft stays pending so staff can fix the figures and approve again.
+ */
+async function generateStatementFromDraft(supabase: Supabase, who: Approver, jobId: string) {
+  const loaded = await loadJobAndDocuments(supabase, who.orgId, jobId)
+  if (!loaded) throw new DraftError('Job not found')
+  const r = composeStatementForJob(loaded.job, loaded.documents)
+  if (!r.ok) {
+    await postMessage(supabase, {
+      org_id: who.orgId, thread_id: who.userId, job_id: jobId, speaker: 'system', author: who.firstName,
+      content: { text: `Statement of Accounts not generated: ${r.reason}` },
+    })
+    throw new DraftError(`Not generated: ${r.reason}`)
+  }
+  const { data, error } = await supabase
+    .from('documents')
+    .insert({ job_id: jobId, org_id: who.orgId, type: 'statement_of_accounts', content: r.content, file_url: null })
+    .select('id')
+    .single()
+  if (error) throw error
+  await logAgentAction(supabase, {
+    org_id: who.orgId, job_id: jobId, agent: 'file_agent', trigger: 'workspace_chat', action: 'generate_document',
+    target_table: 'documents', target_id: data.id as string, after: { type: 'statement_of_accounts', reference: r.content.reference ?? null },
+    note: `Statement of Accounts generated. Approved by ${who.firstName || who.userId}`,
+  })
+}
+
 /** Apply one pending draft. Returns an error message instead of throwing. */
 export async function approveDraft(
   supabase: Supabase,
@@ -303,6 +420,22 @@ export async function approveDraft(
   if (draft.status !== 'pending') return { ok: false, error: `This change is already ${draft.status}.` }
 
   const trigger = 'workspace_chat'
+  if (draft.kind === 'new_job') {
+    try {
+      return { ok: true, draft: await approveNewJob(supabase, who, draft) }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Could not create the job'
+      if (!(err instanceof DraftError)) {
+        await logAgentAction(supabase, {
+          org_id: who.orgId, job_id: null, agent: 'head_agent', trigger, action: 'create_job',
+          target_table: 'agent_drafts', target_id: draft.id, status: 'failed', note: msg,
+        })
+      }
+      return { ok: false, error: msg }
+    }
+  }
+  const jobId = draft.job_id
+  if (!jobId) return { ok: false, error: 'This change has no job' }
   try {
     const { data: job } = await supabase
       .from('jobs')
@@ -335,7 +468,7 @@ export async function approveDraft(
       if (error) throw error
       await logAgentAction(supabase, {
         org_id: who.orgId, job_id: draft.job_id, agent: 'file_agent', trigger, action: 'set_job_field',
-        target_table: 'jobs', target_id: draft.job_id, target_path: field,
+        target_table: 'jobs', target_id: jobId, target_path: field,
         before: current ?? null, after: value, note: `Approved by ${who.firstName || who.userId}`,
       })
     } else if (draft.kind === 'status') {
@@ -349,7 +482,7 @@ export async function approveDraft(
       if (error) throw error
       await logAgentAction(supabase, {
         org_id: who.orgId, job_id: draft.job_id, agent: 'file_agent', trigger, action: 'update_job_status',
-        target_table: 'jobs', target_id: draft.job_id, target_path: 'status',
+        target_table: 'jobs', target_id: jobId, target_path: 'status',
         before: jobRow.status, after: status, note: `Approved by ${who.firstName || who.userId}`,
       })
     } else if (draft.kind === 'note') {
@@ -375,8 +508,10 @@ export async function approveDraft(
         org_id: who.orgId, job_id: draft.job_id, agent: 'file_agent', trigger, action: 'add_progress_note',
         target_table: 'progress_notes', target_id: note.id as string, after: { body }, note: `Approved by ${who.firstName || who.userId}`,
       })
+    } else if (draft.kind === 'document' && draft.target_path === GENERATE_STATEMENT_TARGET) {
+      await generateStatementFromDraft(supabase, who, jobId)
     } else if (draft.kind === 'document' && parseTarget(draft.target_path)) {
-      await applyPatchDraft(supabase, who, draft, jobRow)
+      await applyPatchDraft(supabase, who, { ...draft, job_id: jobId }, jobRow)
     } else if (draft.kind === 'document') {
       const key = draft.target_path as QuoteDocKey
       if (!QUOTE_DOC_KEYS.includes(key)) throw new DraftError('Unknown document type')
@@ -394,7 +529,7 @@ export async function approveDraft(
       if (error) throw error
       await logAgentAction(supabase, {
         org_id: who.orgId, job_id: draft.job_id, agent: 'file_agent', trigger, action: 'draft_quote',
-        target_table: 'jobs', target_id: draft.job_id, target_path: `assessment_data.${key}`,
+        target_table: 'jobs', target_id: jobId, target_path: `assessment_data.${key}`,
         before: null, after: draft.proposed, note: `Prices left blank. Approved by ${who.firstName || who.userId}`,
       })
     }
@@ -464,10 +599,14 @@ export async function decideMany(
     else failed.push({ id, error: r.error })
   }
   const byJob = new Map<string, DraftRow[]>()
-  for (const d of done) byJob.set(d.job_id, [...(byJob.get(d.job_id) ?? []), d])
+  for (const d of done) {
+    if (d.kind === 'new_job' && approve) continue
+    const key = d.job_id ?? ''
+    byJob.set(key, [...(byJob.get(key) ?? []), d])
+  }
   for (const [jobId, list] of byJob) {
     await postMessage(supabase, {
-      org_id: who.orgId, thread_id: who.userId, job_id: jobId, speaker: 'system', author: who.firstName,
+      org_id: who.orgId, thread_id: who.userId, job_id: jobId || null, speaker: 'system', author: who.firstName,
       content: { text: `${list.length} change${list.length === 1 ? '' : 's'} ${approve ? 'approved' : 'rejected'} by ${who.firstName || 'staff'}: ${list.map(d => d.summary).join('; ')}` },
     })
   }

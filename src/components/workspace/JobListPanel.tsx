@@ -9,6 +9,7 @@
  */
 import { useMemo, useState } from 'react'
 import type { Job, JobStatus } from '@/lib/types'
+import DraftList, { type DraftView } from './DraftList'
 
 export interface JobMarkers { pending_drafts: number; unread: number }
 
@@ -27,12 +28,16 @@ export function suburb(address: string | null | undefined): string {
 export default function JobListPanel({
   jobs,
   markers,
+  newJobDrafts,
+  onNewJobDecided,
   activeJobId,
   onSelect,
   loading,
 }: {
   jobs: Job[]
   markers: Record<string, JobMarkers>
+  newJobDrafts: DraftView[]
+  onNewJobDecided: (created: string[]) => void
   activeJobId: string | null
   onSelect: (id: string) => void
   loading: boolean
@@ -54,7 +59,7 @@ export default function JobListPanel({
     return ORDER.map(s => ({ status: s, jobs: list.filter(j => j.status === s) })).filter(g => g.jobs.length)
   }, [jobs, markers, q, waitingOnly])
 
-  const waitingCount = Object.values(markers).filter(m => m.pending_drafts || m.unread).length
+  const waitingCount = Object.values(markers).filter(m => m.pending_drafts || m.unread).length + newJobDrafts.length
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%', borderRight: '1px solid var(--border)' }}>
@@ -72,6 +77,15 @@ export default function JobListPanel({
         </label>
       </div>
       <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0' }}>
+        {newJobDrafts.length > 0 && (
+          <div style={{ padding: 8 }}>
+            <DraftList
+              drafts={newJobDrafts}
+              title={`New job${newJobDrafts.length === 1 ? '' : 's'} to create`}
+              onDecided={onNewJobDecided}
+            />
+          </div>
+        )}
         {loading && <div style={{ padding: 12, fontSize: 13, color: 'var(--text-muted)' }}>Loading jobs…</div>}
         {!loading && !groups.length && <div style={{ padding: 12, fontSize: 13, color: 'var(--text-muted)' }}>No jobs</div>}
         {groups.map(g => (

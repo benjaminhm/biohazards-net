@@ -4,8 +4,8 @@
  * The two agents behind the Agent workspace chat.
  *
  *   Head agent — sees every job, never changes one. Answers cross-job
- *   questions ("what needs me?") and hands a job over to its file agent with
- *   open_job and a short brief.
+ *   questions ("what needs me?"), hands a job over to its file agent with
+ *   open_job and a short brief, and can propose a new empty job (Create card).
  *   File agent — one job only. Reads the job file and records proposals as
  *   agent_drafts; staff approve them on screen.
  *
@@ -22,7 +22,10 @@ import {
   QUOTE_DOC_KEYS,
   QUOTE_DOC_LABELS,
   captureLabel,
+  createNewJobDraft,
   describeFieldDraft,
+  listNewJobDrafts,
+  loadJobAndDocuments,
   upsertPatchDraft,
   emptyQuoteCapture,
   listPendingDrafts,
@@ -33,13 +36,15 @@ import {
 } from './drafts'
 import {
   DRAFTABLE_FIELDS,
+  URGENCIES,
   isDraftableField,
   normalizeFieldValue,
   parseJobMention,
   rebuildHistory,
   type ChatRow,
 } from './workspaceText'
-import { buildStatementDraft, surveyAndDisposalSummary } from './statementDraft'
+import { buildStatementDraft, statementPatchProblem, surveyAndDisposalSummary } from './statementDraft'
+import { GENERATE_STATEMENT_TARGET, composeStatementForJob } from './statementGenerate'
 import {
   CAPTURE_KEYS,
   PHOTO_FIELDS,
@@ -49,6 +54,15 @@ import {
   photoPatch,
   sameJson,
 } from './patchDraft'
+import {
+  describeNewJob,
+  duplicateSearchTerms,
+  findDuplicates,
+  normalizeNewJob,
+  type DuplicateCandidate,
+  type NewJobProposal,
+  type PossibleDuplicate,
+} from './newJobDraft'
 import type { AssessmentData } from '@/lib/types'
 
 type Supabase = ReturnType<typeof createServiceClient>
@@ -303,18 +317,50 @@ const getSurveyAndDisposal: WsTool = {
 const draftStatement: WsTool = {
   name: 'draft_statement',
   description:
-    'Draft the Statement of Accounts quantities from the House Survey and the CDR: survey rooms with m² (and their survey-rate prices) and the CDR cubic metres for invoice 2. Quantities only; staff type every invoice amount, the deposit, adjustments, invoice numbers and payment links. Replaces your earlier statement draft.',
+    'Draft the Statement of Accounts quantities from the House Survey and the CDR: survey rooms with m² (and their survey-rate prices) and the CDR cubic metres for invoice 2 — the only quantity fields the statement has. Returns the CDR facts (loads, vehicles, weight, distance) that have no statement field. Never fills dollar amounts. Replaces your earlier statement draft.',
   input_schema: { type: 'object', properties: {} },
   async run(ctx) {
     const jobId = activeJob(ctx)
     const r = buildStatementDraft(await jobAssessment(ctx, jobId))
-    if (!r.ok) return { skipped: r.reason }
+    if (!r.ok) return { skipped: r.reason, cdr_not_on_statement: r.not_on_statement }
     const id = await upsertPatchDraft(ctx.supabase, {
       orgId: ctx.orgId, jobId, target_path: TARGET.capture('statement_of_accounts'), label: captureLabel('statement_of_accounts'),
       draft: { before: r.before, proposed: r.proposed as Record<string, unknown> }, summary: r.summary, createdBy: 'file_agent',
     })
     ctx.draftIds.push(id)
-    return { draft_id: id, drafted: r.proposed, note: 'Pending staff approval. Dollar amounts stay with staff unless they ask.' }
+    return {
+      draft_id: id,
+      drafted: r.proposed,
+      cdr_not_on_statement: r.not_on_statement,
+      note: 'Pending staff approval. Survey rooms and CDR m³ are the only quantity fields on the statement. Tell staff which CDR facts have no statement field. Dollar amounts stay with staff unless they give them.',
+    }
+  },
+}
+
+const draftGenerateStatement: WsTool = {
+  name: 'draft_generate_statement',
+  description:
+    'Queue generating the Statement of Accounts document from the statement as saved (the same as staff pressing Generate). Staff approve the card; on approval the same checks run (breakdown lines must add up to the invoice amounts, adjustment reasons present) and the document is saved to the job. It is not sent, shared or released to the client.',
+  input_schema: { type: 'object', properties: {} },
+  async run(ctx) {
+    const jobId = activeJob(ctx)
+    const loaded = await loadJobAndDocuments(ctx.supabase, ctx.orgId, jobId)
+    if (!loaded) throw new ToolError('Job not found')
+    const check = composeStatementForJob(loaded.job, loaded.documents)
+    const pending = await listPendingDrafts(ctx.supabase, ctx.orgId, jobId)
+    const statementChangesWaiting = pending.some(d => d.target_path === TARGET.capture('statement_of_accounts'))
+    if (!check.ok && !statementChangesWaiting) {
+      return { drafted: false, cannot_generate_yet: check.reason }
+    }
+    const id = await upsertDraft(ctx.supabase, {
+      orgId: ctx.orgId, jobId, kind: 'document', target_path: GENERATE_STATEMENT_TARGET,
+      before: null, proposed: { type: 'statement_of_accounts' },
+      summary: 'Generate the Statement of Accounts document (saved to the job, not sent)', createdBy: 'file_agent',
+    })
+    ctx.draftIds.push(id)
+    return check.ok
+      ? { drafted: true, draft_id: id }
+      : { drafted: true, draft_id: id, note: `Approve the pending statement changes first. As saved now it would fail: ${check.reason}` }
   },
 }
 
@@ -440,8 +486,13 @@ const draftCapturePatch: WsTool = {
     const jobId = activeJob(ctx)
     const key = str(input.key)
     if (!isCaptureKey(key)) throw new ToolError('Unknown capture key')
+    const patch = patchInput(input)
+    if (key === 'statement_of_accounts') {
+      const problem = statementPatchProblem(patch)
+      if (problem) throw new ToolError(problem)
+    }
     const ad = ((await jobAssessment(ctx, jobId)) ?? {}) as Record<string, unknown>
-    const draft = buildPatchDraft(ad[key] ?? null, patchInput(input))
+    const draft = buildPatchDraft(ad[key] ?? null, patch)
     if (!Object.keys(draft.proposed).length) return { skipped: 'already those values' }
     const id = await upsertPatchDraft(ctx.supabase, {
       orgId: ctx.orgId, jobId, target_path: TARGET.capture(key), label: captureLabel(key), draft, createdBy: 'file_agent',
@@ -539,6 +590,7 @@ const FILE_TOOLS: WsTool[] = [
   draftStatus,
   draftDocument,
   draftStatement,
+  draftGenerateStatement,
   draftCapturePatch,
   draftDocumentPatch,
   draftPhotoChanges,
@@ -552,7 +604,7 @@ export interface JobMarkers { pending_drafts: number; unread: number }
 export async function workspaceMarkers(supabase: Supabase, orgId: string, userId: string): Promise<Record<string, JobMarkers>> {
   const since = new Date(Date.now() - 30 * 86_400_000).toISOString()
   const [draftsRes, msgsRes, readsRes] = await Promise.all([
-    supabase.from('agent_drafts').select('job_id').eq('org_id', orgId).eq('status', 'pending'),
+    supabase.from('agent_drafts').select('job_id').eq('org_id', orgId).eq('status', 'pending').not('job_id', 'is', null),
     supabase
       .from('agent_messages')
       .select('job_id, thread_id, created_at')
@@ -589,7 +641,7 @@ const listJobsNeedingMe: WsTool = {
   async run(ctx) {
     const since = new Date(Date.now() - 14 * 86_400_000).toISOString()
     const recent = new Date(Date.now() - 3 * 86_400_000).toISOString()
-    const [markers, reviewRes, callsRes] = await Promise.all([
+    const [markers, reviewRes, callsRes, newJobs] = await Promise.all([
       workspaceMarkers(ctx.supabase, ctx.orgId, ctx.userId),
       ctx.supabase
         .from('agent_actions')
@@ -606,7 +658,9 @@ const listJobsNeedingMe: WsTool = {
         .gte('created_at', recent)
         .order('created_at', { ascending: false })
         .limit(30),
+      listNewJobDrafts(ctx.supabase, ctx.orgId),
     ])
+    const new_jobs_waiting = newJobs.map(d => ({ draft_id: d.id, summary: d.summary }))
     const byJob = new Map<string, { drafts: number; unread: number; review: string[]; inbound: string[] }>()
     const get = (id: string) => {
       let v = byJob.get(id)
@@ -624,7 +678,7 @@ const listJobsNeedingMe: WsTool = {
       if (c.job_id) get(c.job_id as string).inbound.push(`${c.provider === 'netlify_form' ? 'website enquiry' : 'call'} ${c.created_at} (${c.status})`)
     }
     const ids = [...byJob.keys()]
-    if (!ids.length) return { jobs: [] }
+    if (!ids.length) return { jobs: [], new_jobs_waiting }
     const { data: jobs } = await ctx.supabase
       .from('jobs')
       .select('id, job_code, client_name, site_address, status')
@@ -632,6 +686,7 @@ const listJobsNeedingMe: WsTool = {
       .in('id', ids)
     return {
       jobs: (jobs ?? []).map(j => ({ ...j, ...byJob.get(j.id as string) })),
+      new_jobs_waiting,
     }
   },
 }
@@ -662,7 +717,63 @@ const openJob: WsTool = {
   },
 }
 
-const HEAD_TOOLS: WsTool[] = [reuse('find_jobs'), reuse('get_job_summary'), listJobsNeedingMe, openJob]
+async function likelyDuplicates(ctx: WsContext, p: NewJobProposal): Promise<PossibleDuplicate[]> {
+  const { name, street } = duplicateSearchTerms(p)
+  const ors = [
+    ...(p.client_phone ? [`client_phone.eq."${p.client_phone}"`] : []),
+    ...(p.client_email && !/[",()]/.test(p.client_email) ? [`client_email.ilike."${p.client_email}"`] : []),
+    ...(name ? [`client_name.ilike.%${name}%`] : []),
+    ...(street ? [`site_address.ilike.%${street}%`] : []),
+  ]
+  const cols = 'id, job_code, client_name, client_phone, client_phones, client_email, site_address, status'
+  const base = () => ctx.supabase.from('jobs').select(cols).eq('org_id', ctx.orgId).is('archived_at', null)
+  const [byFields, byOtherPhones] = await Promise.all([
+    ors.length ? base().or(ors.join(',')).order('created_at', { ascending: false }).limit(300) : null,
+    p.client_phone ? base().contains('client_phones', [{ number: p.client_phone }]).limit(20) : null,
+  ])
+  if (byFields?.error) throw byFields.error
+  const seen = new Set<string>()
+  const rows = [...(byFields?.data ?? []), ...(byOtherPhones?.data ?? [])].filter(r => (seen.has(r.id) ? false : (seen.add(r.id), true)))
+  return findDuplicates(p, rows as DuplicateCandidate[])
+}
+
+const draftNewJob: WsTool = {
+  name: 'draft_new_job',
+  description:
+    'Propose creating a new empty job (status lead). Staff press Create on the card; nothing is created until then. First call checks for likely duplicates (same phone, email, similar client name or site address): if any come back, the job is NOT drafted — tell the staff member and offer the existing job; call again with ignore_duplicates true only if they say it is a different job.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      client_name: { type: 'string' },
+      client_phone: { type: 'string', description: 'Australian number in any format.' },
+      client_email: { type: 'string' },
+      site_address: { type: 'string' },
+      job_description: { type: 'string', description: 'Neutral and factual, one or two sentences.' },
+      urgency: { type: 'string', enum: [...URGENCIES] },
+      ignore_duplicates: { type: 'boolean', description: 'Only after the staff member confirmed it is a different job.' },
+    },
+  },
+  async run(ctx, input) {
+    let proposed: NewJobProposal
+    try {
+      proposed = normalizeNewJob(input)
+    } catch (e) {
+      throw new ToolError(e instanceof Error ? e.message : 'Invalid details')
+    }
+    const duplicates = await likelyDuplicates(ctx, proposed)
+    const dupView = duplicates.map(d => ({ job_code: d.job_code, job_id: d.id, client: d.client_name, site: d.site_address, status: d.status, why: d.reasons.join(', ') }))
+    if (duplicates.length && input.ignore_duplicates !== true) {
+      return { drafted: false, possible_duplicates: dupView, next: 'Tell the staff member and offer the existing job (open_job). Draft again with ignore_duplicates only if they confirm it is different.' }
+    }
+    const id = await createNewJobDraft(ctx.supabase, {
+      orgId: ctx.orgId, proposed, duplicates, summary: describeNewJob(proposed), createdBy: ctx.userId,
+    })
+    ctx.draftIds.push(id)
+    return { drafted: true, draft_id: id, possible_duplicates: dupView }
+  },
+}
+
+const HEAD_TOOLS: WsTool[] = [reuse('find_jobs'), reuse('get_job_summary'), listJobsNeedingMe, openJob, draftNewJob]
 
 // ── Prompts ───────────────────────────────────────────────────────────────────
 
@@ -678,8 +789,10 @@ function headPrompt(firstName: string) {
   return `You are the head agent in the Agent workspace of an Australian biohazard remediation company. You talk with ${firstName || 'a staff member'} across all jobs. Today is ${today()}.
 
 RULES:
-- You never change a job. You find, summarise and route.
-- "What needs me / what needs approving" → call list_jobs_needing_me.
+- You never change an existing job. You find, summarise and route; the job's file agent makes changes.
+- You can propose a NEW empty job with draft_new_job (client name, phone, email, site address, description, urgency — only what the staff member gave you). It shows as a Create job card; nothing is created until staff press Create, then the chat moves to the new job's file agent.
+- draft_new_job checks for duplicates first. If it returns possible_duplicates, list them ("#3452 · Smith · Annerley — same phone"), offer to open the existing job, and only draft again with ignore_duplicates when the staff member says it is a different job.
+- "What needs me / what needs approving" → call list_jobs_needing_me. Mention any new jobs waiting to be created.
 - When you list jobs, write each on its own line starting with the job code like "#3452 · Annerley — 3 changes waiting" so staff can click it.
 - When the staff member wants to work on, change or review one job, call open_job with a short brief. The file agent replies after you; keep your own reply to one short line.
 - Resolve jobs with find_jobs; if more than one matches, ask which.
@@ -691,17 +804,19 @@ function filePrompt(firstName: string, snapshot: unknown, jobCode: string | null
 
 WHAT YOU CAN DO ON THIS JOB:
 - Read everything: job details (in the file below and get_job_file), every capture in full with get_capture (House Survey, Contents Disposal Record (CDR), Statement of Accounts, BCQ/CCQ/SACQ quotes, scope of work, PRE checklist, assessment areas, completion report and the rest), saved documents in full including prices (list_job_documents, get_document), call and website enquiry transcripts and extractions (get_job_calls), every progress note (get_progress_notes), photos (list_job_photos) and the job's Xero invoice status (get_xero_invoice, read only).
-- Write anything on this job as a draft: job fields (draft_field_changes), status (draft_status), progress notes (draft_note), any capture (draft_capture_patch), a saved document's content (draft_document_patch), photo caption, area, category, phase and report inclusion (draft_photo_changes), a new BCQ/CCQ/SACQ (draft_document), and the statement quantities from the survey and CDR (draft_statement).
+- Write anything on this job as a draft: job fields (draft_field_changes), status (draft_status), progress notes (draft_note), any capture (draft_capture_patch), a saved document's content (draft_document_patch), photo caption, area, category, phase and report inclusion (draft_photo_changes), a new BCQ/CCQ/SACQ (draft_document), the statement quantities from the survey and CDR (draft_statement), and generating the Statement of Accounts document (draft_generate_statement).
 - Every write is a draft that staff approve on screen; nothing changes until they do. Call the draft tools directly; do not ask "shall I?" first. You cannot delete anything.
 
-WHAT YOU NEVER DO (you have no tools for it): send email or SMS, release documents to the client portal, share links, trigger or change Xero, or anything else that reaches a client. If asked, say staff do that themselves from the job file.
+WHAT YOU NEVER DO (you have no tools for it): send email or SMS, release documents to the client portal, share links, send payment reminders, trigger or change Xero, or anything else that reaches a client. A generated statement is only saved to the job. If asked, say staff do that themselves from the job file.
 
 RULES:
 - Read before you patch: get_capture or get_document first, so your patch fits the existing shape. Patch only the fields you mean to change.
 - After drafting, say in one or two sentences what you drafted. The change card shows the detail. Say plainly when a draft would overwrite something already on file.
 - Only draft what the staff member asked for or what clearly follows from what they told you. Never invent names, numbers, emails, addresses or prices. If something is unclear (two addresses, which room), ask.
 - Prices and dollar amounts: only draft them when the staff member gives or explicitly asks for them. draft_document starts quotes with prices blank.
-- Statement of Accounts from the survey and CDR: read get_survey_and_disposal, then draft_statement (survey rooms with m² and survey-rate prices, CDR m³). Draft invoice amounts, deposit, adjustments, invoice numbers or payment links with draft_capture_patch on statement_of_accounts only when asked. Staff generate the statement.
+- Statement of Accounts quantities: read get_survey_and_disposal, then draft_statement. It fills survey rooms (m² and survey-rate prices) and the CDR m³ — the only quantity fields on the statement. Tell staff plainly which CDR facts have no statement field (cdr_not_on_statement: loads, vehicles, weight, distance).
+- Statement dollars and text (invoice1_amount, invoice2_amount, the invoice 1 breakdown invoice1_callout/contents/cleaning, the invoice 2 breakdown invoice2_skips/trailers/utes/tip_receipts/prepaid, deposit_taken/deposit_amount/deposit_date, invoice1_adjusted_amount with adjustment_reason, manual_adjustment with manual_adjustment_reason, original/new invoice numbers and urls): draft with draft_capture_patch on statement_of_accounts only with values the staff member states, or tells you to take from the CDR dollar figures get_survey_and_disposal lists. Plain numbers, inc GST when the statement charges GST. Never invent or calculate an amount they did not give.
+- Generating the statement: draft_generate_statement once the figures are in. On approval it runs the same checks as the Generate button (breakdowns must add up to each invoice; adjustments need a reason). If it reports a problem, explain it and offer to draft the fix. Generating saves the document only; staff send it.
 - If a [Log] line shows a staff edit that makes one of your pending drafts or a document out of date, mention it briefly and offer to update it.
 - The job description is neutral and factual.
 ${COMMON_RULES}
@@ -821,13 +936,18 @@ export async function handleChatTurn(input: ChatTurnInput): Promise<{ active_job
     if (!messages.length) return { active_job_id: null }
     const reply = await runLoop(anthropic, headPrompt(firstName), HEAD_TOOLS, messages, base, () => base.handover !== null)
     const h = base.handover as WsContext['handover']
-    await postMessage(supabase, {
+    const draftIds = [...new Set(base.draftIds)]
+    const messageId = await postMessage(supabase, {
       org_id: orgId, thread_id: userId, job_id: null, speaker: 'head_agent',
       content: {
-        text: reply || (h ? `Handing you to the file agent for #${h.job_code ?? ''}.` : 'Done.'),
+        text: reply || (h ? `Handing you to the file agent for #${h.job_code ?? ''}.` : draftIds.length ? 'Check the new job below and press Create.' : 'Done.'),
         ...(h ? { handover: { job_id: h.job_id, job_code: h.job_code } } : {}),
+        ...(draftIds.length ? { draft_ids: draftIds } : {}),
       },
     })
+    if (messageId && draftIds.length) {
+      await supabase.from('agent_drafts').update({ message_id: messageId }).in('id', draftIds).eq('org_id', orgId)
+    }
     if (!h) return { active_job_id: null }
     await runFileAgent(anthropic, { ...base, jobId: h.job_id, draftIds: [] }, `[Handover from the head agent] ${h.brief}\nThe staff member said: "${text}"`)
     return { active_job_id: h.job_id }
