@@ -14,12 +14,13 @@ export const wasteDisposalManifestAgent: DocAgentDef = {
   extraReads: ['photos', 'progress_notes'],
   shape: `disposal_manifest_capture (CDR):
 - cost_per_m3 (dollars per m³), prepaid_m3.
+- labour_days, rate_per_labour_day, mobilisation_fee (call-out fee, dollars). Fixed charges; null follows the Contents Clearance Quote.
 - defaults: vehicle_type (trailer|ute|skip|other), size, length_m, width_m, height_m, location, facility, distance_km.
 - loads []: {id, date, vehicles [{id, type, size, length_m, width_m, height_m, contents_type, contents_description, skip_cost, waste_sqm, waste_price, photo_*}], weight_kg, dump_fee, facility, dump_date, distance_km, docket_*, notes}.
 - Photos and dockets are attached in the app; do not set photo or docket ids or urls.`,
   rules: `- Loads, weights, dimensions and fees only as staff give them or as read from a docket staff describe. Never invent a load.
 - loads is a list: patching it replaces the whole list, so send every load with its existing ids.
-- Dollars (cost_per_m3, dump_fee, skip_cost, waste_price) only when staff give them.
+- Dollars (cost_per_m3, labour_days, rate_per_labour_day, mobilisation_fee, dump_fee, skip_cost, waste_price) only when staff give them.
 - Generating needs at least one load with something on it.`,
   unique: true,
   requiredFields: [],

@@ -14,8 +14,8 @@ import {
   traceHouseSurvey,
   type HouseSurveyArea,
   type HouseSurveyCapture,
-  type SurveyQuoteCharges,
 } from '@/lib/houseSurvey'
+import type { FixedChargeDefaults } from '@/lib/fixedCharges'
 import {
   normalizeSurfaceAreaCleaningCapture,
   pricedRoomSurface,
@@ -33,7 +33,7 @@ export interface QuoteSurveyRoom {
   quoted_m2: number
 }
 
-export interface QuoteSurveyLink extends SurveyQuoteCharges {
+export interface QuoteSurveyLink {
   /** Ex GST rate per square metre on the quote. Null when the quote has no rate. */
   rate_per_m2: number | null
   /** Square metres on the quote, from the rooms or the typed total. */
@@ -41,6 +41,8 @@ export interface QuoteSurveyLink extends SurveyQuoteCharges {
   exclude_ceiling: boolean
   /** Rooms with all three dimensions. */
   rooms: QuoteSurveyRoom[]
+  /** Labour and call-out fee for blank survey fields. A waived call-out is 0. */
+  charges: FixedChargeDefaults
 }
 
 export function quoteSurveyLink(ad: AssessmentData | null | undefined): QuoteSurveyLink | null {
@@ -67,11 +69,11 @@ export function quoteSurveyLink(ad: AssessmentData | null | undefined): QuoteSur
     quoted_m2: quoted != null && quoted > 0 ? quoted : null,
     exclude_ceiling: quote.exclude_ceiling,
     rooms,
-    labour_days: figures.labour_days,
-    rate_per_labour_day: figures.rate_per_labour_day,
-    mobilisation_fee: figures.mobilisation_fee,
-    mobilisation_waived: quote.mobilisation_waived,
-    mobilisation_reason: quote.mobilisation_reason,
+    charges: {
+      labour_days: figures.labour_days,
+      rate_per_labour_day: figures.rate_per_labour_day,
+      mobilisation_fee: quote.mobilisation_waived ? 0 : figures.mobilisation_fee,
+    },
   }
 }
 
@@ -98,13 +100,12 @@ export function surveyAreasFromQuoteRooms(link: QuoteSurveyLink): HouseSurveyAre
           width_m: room.width_m,
           area_m2: ceiling,
           surface: 'ceiling' as const,
-          description: 'Ceiling excluded on the quote',
+          description: 'Ceiling not cleaned',
         }]
       : []
     return {
       ...newHouseSurveyArea(),
       title: room.name,
-      description: 'From the quote. Measure and correct each wall.',
       height_m: room.height_m,
       legs,
       adjustments,

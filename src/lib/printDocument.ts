@@ -32,6 +32,7 @@ import type {
 } from './types'
 import { DOC_TYPE_LABELS } from './types'
 import type { HouseSurveyDocumentContent, SurveySketch } from './houseSurvey'
+import { fixedCharges, labourDaysText, recordSummary, type FixedCharges, type RecordSummary } from '@/lib/fixedCharges'
 import { filterGroupedStages, groupPhotosByRoomAndStage, isContentsClearanceAppendixPhoto, isDocumentAppendixPhoto, isQuoteAppendixPhoto, isSurfaceAreaAppendixPhoto, type RoomPhotoGroup } from './photoGroups'
 import { photosForComposedReports } from '@/lib/photosForComposedReports'
 import { docketStatusLabel, dimensionTrioToMetres, formatAud, formatDistanceLegs, formatKg, formatM3 } from '@/lib/disposalManifest'
@@ -1664,7 +1665,6 @@ function wdmVehicleSummary(v: WasteDisposalManifestVehicleSnapshot): string {
     v.contents_description,
     dims,
     v.volume_m3 != null ? formatM3(v.volume_m3) : '',
-    v.skip_cost != null ? `Skip ${formatAud(v.skip_cost)}` : '',
   ]
     .map(s => (s || '').trim())
     .filter(Boolean)
@@ -1723,8 +1723,6 @@ function wdmLoadCards(c: WasteDisposalManifestContent): string {
       ['Docket', docketStatusLabel(load) || ''],
       ['Volume', load.volume_m3 != null ? `${formatM3(load.volume_m3)} (close estimate)` : ''],
       ['Weight', load.weight_kg != null ? `${formatKg(load.weight_kg)} (from docket)` : ''],
-      ['Dump fee', load.dump_fee != null ? formatAud(load.dump_fee) : ''],
-      ['Skip cost', load.skip_cost != null ? formatAud(load.skip_cost) : ''],
       ['Distance', formatDistanceLegs(load.distance_out_km, load.distance_return_km) ?? (load.distance_km != null ? `${load.distance_km} km` : '')],
       ...(!vehicles.length
         ? [
@@ -1745,133 +1743,46 @@ function wdmLoadCards(c: WasteDisposalManifestContent): string {
   }).join('')
 }
 
-function wdmPriceTable(t: WasteDisposalManifestContent['totals']): string {
-  if (!t) return ''
-  const skipsInc = t.skip_fees ?? 0
-  const trailersEx = t.trailer_ute_fees ?? t.waste_gross ?? 0
-  const dumpsInc = t.dump_fees ?? 0
-  const prepaidEx = t.prepaid_value ?? 0
-  const hasGstSplit = t.skip_fees_ex != null || t.dump_fees_ex != null || t.trailer_ute_fees_inc != null || t.price_total_ex != null
-  const skipsEx = t.skip_fees_ex ?? Math.round(skipsInc / 1.1 * 100) / 100
-  const dumpsEx = t.dump_fees_ex ?? Math.round(dumpsInc / 1.1 * 100) / 100
-  const trailersInc = t.trailer_ute_fees_inc ?? Math.round(trailersEx * 1.1 * 100) / 100
-  const prepaidInc = t.prepaid_value_inc ?? Math.round(prepaidEx * 1.1 * 100) / 100
-  const totalEx = t.price_total_ex ?? Math.round((skipsEx + trailersEx + dumpsEx - prepaidEx) * 100) / 100
-  const totalInc = t.price_total ?? Math.round((skipsInc + trailersInc + dumpsInc - prepaidInc) * 100) / 100
-  if (!hasGstSplit) {
-    const row = (label: string, amount: number, strong = false) => `
-    <tr>
-      <td${strong ? ' style="font-weight:700"' : ''}>${label}</td>
-      <td class="r"${strong ? ' style="font-weight:700"' : ''}>${esc(formatAud(amount))}</td>
-    </tr>`
-    return `
-    <table style="margin-top:12px">
-      <thead><tr><th>Item</th><th class="r">Amount</th></tr></thead>
-      <tbody>
-        ${row('Skips', skipsInc)}
-        ${row('Trailers / utes', trailersEx)}
-        ${row('Dump fees', dumpsInc)}
-        ${prepaidEx ? row('Prepaid', -prepaidEx) : ''}
-        ${row('Total', t.price_total ?? Math.round((skipsInc + trailersEx + dumpsInc - prepaidEx) * 100) / 100, true)}
-      </tbody>
-    </table>`
-  }
-  const row = (label: string, before: number, amount: number, strong = false) => `
-    <tr>
-      <td${strong ? ' style="font-weight:700"' : ''}>${label}</td>
-      <td class="r"${strong ? ' style="font-weight:700"' : ''}>${esc(formatAud(before))}</td>
-      <td class="r"${strong ? ' style="font-weight:700"' : ''}>${esc(formatAud(amount))}</td>
-    </tr>`
-  const bothSkipKinds = (t.skip_waste_ex ?? 0) > 0 && (t.skip_hire_inc ?? 0) > 0
-  return `
-    <table style="margin-top:12px">
-      <thead><tr><th>Item</th><th class="r">Before GST</th><th class="r">Amount</th></tr></thead>
-      <tbody>
-        ${bothSkipKinds
-          ? `${row('Skips (waste)', t.skip_waste_ex ?? 0, t.skip_waste_inc ?? 0)}${row('Skip hire', t.skip_hire_ex ?? 0, t.skip_hire_inc ?? 0)}`
-          : (skipsInc ? row('Skips', skipsEx, skipsInc) : '')}
-        ${(t.trailer_fees_ex ?? 0) > 0 || (t.trailer_fees_inc ?? 0) > 0 ? row('Trailers', t.trailer_fees_ex ?? 0, t.trailer_fees_inc ?? 0) : ''}
-        ${(t.ute_fees_ex ?? 0) > 0 || (t.ute_fees_inc ?? 0) > 0 ? row('Utes', t.ute_fees_ex ?? 0, t.ute_fees_inc ?? 0) : ''}
-        ${(t.other_fees_ex ?? 0) > 0 || (t.other_fees_inc ?? 0) > 0 ? row('Other', t.other_fees_ex ?? 0, t.other_fees_inc ?? 0) : ''}
-        ${t.trailer_fees_ex == null && t.ute_fees_ex == null && t.other_fees_ex == null && trailersEx ? row('Trailers / utes', trailersEx, trailersInc) : ''}
-        ${dumpsInc ? row('Dump fees', dumpsEx, dumpsInc) : ''}
-        ${prepaidEx ? row('Prepaid', -prepaidEx, -prepaidInc) : ''}
-        ${row('Total', totalEx, totalInc, true)}
-      </tbody>
-    </table>`
-}
-
-function moneyOrDash(n: number | null | undefined): string {
-  if (n == null || n === 0) return '—'
-  return esc(formatAud(n))
-}
-
-function wdmSummary(c: WasteDisposalManifestContent): string {
-  const t = c.totals
+function wdmOverview(c: WasteDisposalManifestContent): string {
   const loads = c.loads ?? []
-  const anyOther = loads.some(load => (load.other_ex ?? 0) > 0 || (load.other_inc ?? 0) > 0)
   const indexTable = loads.length
     ? `
     <table class="wdm-break">
       <thead>
-        <tr>
-          <th rowspan="2">Load</th>
-          <th rowspan="2">Vehicles</th>
-          <th rowspan="2">Volume</th>
-          <th rowspan="2">Weight</th>
-          <th class="g-name g-skip g-start" colspan="2">Skip</th>
-          <th class="g-name g-trailer g-start" colspan="2">${anyOther ? 'Trailer / other' : 'Trailer'}</th>
-          <th class="g-name g-ute g-start" colspan="2">Ute</th>
-          <th class="g-name g-tip g-start" colspan="2">Tip</th>
-          <th class="g-name g-total g-start" colspan="2">Load total</th>
-        </tr>
-        <tr>
-          <th class="r g-skip g-start">ex GST</th><th class="r g-skip">inc GST</th>
-          <th class="r g-trailer g-start">ex GST</th><th class="r g-trailer">inc GST</th>
-          <th class="r g-ute g-start">ex GST</th><th class="r g-ute">inc GST</th>
-          <th class="r g-tip g-start">ex GST</th><th class="r g-tip">inc GST</th>
-          <th class="r g-total g-start">ex GST</th><th class="r g-total">inc GST</th>
-        </tr>
+        <tr><th>Load</th><th>Vehicles</th><th>Volume</th><th>Weight</th></tr>
       </thead>
       <tbody>
         ${loads.map(load => {
           const types = (load.vehicles ?? []).map(v => v.type).filter(Boolean).join(' + ')
             || load.contents
             || '—'
-          const fallback = [load.dump_fee, load.skip_cost].reduce<number>((sum, n) => sum + (n ?? 0), 0)
-          const costInc = load.cost_inc ?? load.cost ?? (fallback ? fallback : null)
-          const costEx = load.cost_ex ?? (costInc != null ? Math.round(costInc / 1.1 * 100) / 100 : null)
-          const trailerOtherEx = Math.round(((load.trailer_ex ?? 0) + (load.other_ex ?? 0)) * 100) / 100
-          const trailerOtherInc = Math.round(((load.trailer_inc ?? 0) + (load.other_inc ?? 0)) * 100) / 100
           return `
           <tr>
             <td>${load.load_number}</td>
             <td>${esc(types)}</td>
             <td>${load.volume_m3 != null ? esc(formatM3(load.volume_m3)) : '—'}</td>
             <td>${load.weight_kg != null ? esc(formatKg(load.weight_kg)) : '—'}</td>
-            <td class="r g-skip g-start">${moneyOrDash(load.skip_ex)}</td>
-            <td class="r g-skip">${moneyOrDash(load.skip_inc)}</td>
-            <td class="r g-trailer g-start">${moneyOrDash(trailerOtherEx)}</td>
-            <td class="r g-trailer">${moneyOrDash(trailerOtherInc)}</td>
-            <td class="r g-ute g-start">${moneyOrDash(load.ute_ex)}</td>
-            <td class="r g-ute">${moneyOrDash(load.ute_inc)}</td>
-            <td class="r g-tip g-start">${moneyOrDash(load.dump_ex)}</td>
-            <td class="r g-tip">${moneyOrDash(load.dump_inc)}</td>
-            <td class="r g-total g-start">${costEx != null && costEx !== 0 ? esc(formatAud(costEx)) : '—'}</td>
-            <td class="r g-total">${costInc != null && costInc !== 0 ? esc(formatAud(costInc)) : '—'}</td>
           </tr>`
         }).join('')}
       </tbody>
     </table>`
     : ''
-
+  if (!c.collection_date && !indexTable) return ''
   return `
     <div class="sow-sec">
-      <div class="sow-sec-title">Summary</div>
+      <div class="sow-sec-title">Overview</div>
       ${c.collection_date ? `<div class="body-text" style="margin-bottom:10px"><strong>Collection date:</strong> ${esc(c.collection_date)}</div>` : ''}
       ${indexTable}
-      ${wdmPriceTable(t)}
     </div>`
+}
+
+function wdmRecordSummary(c: WasteDisposalManifestContent): string {
+  const saved = c.summary
+  const volume = saved ? saved.volume_m3 : (c.totals?.volume_m3 ?? null)
+  const rate = saved ? saved.rate_per_m3 : (c.totals?.cost_per_m3 ?? null)
+  const charges = saved?.charges ?? fixedCharges({}, null)
+  const summary = saved?.summary ?? recordSummary(volume, rate, charges)
+  return recordSummaryHtml('Contents removal', volume == null ? '' : formatM3(volume), rate, charges, summary)
 }
 
 // ── 1. Quote ──────────────────────────────────────────────────────────────────
@@ -3043,11 +2954,12 @@ function buildWDMMid(c: WasteDisposalManifestContent): string {
   const showTransport = transport && transport !== '—'
   return `
     ${c.declaration ? `<div class="sow-summary">${esc(c.declaration)}</div>` : ''}
-    ${wdmSummary(c)}
+    ${wdmOverview(c)}
     ${showTransport ? section('Transport', transport) : ''}
     ${loadCards
       ? `<div class="sow-sec"><div class="sow-sec-title">Loads</div>${loadCards}</div>`
       : `<div class="label">Waste Items</div>${wasteTable(c.waste_items)}`}
+    ${wdmRecordSummary(c)}
   `
 }
 
@@ -3408,50 +3320,47 @@ function buildHouseSurveyMid(c: HouseSurveyDocumentContent): string {
     <div class="sow-sec">
       <div class="sow-sec-title">All areas</div>
       <table>
-        <thead><tr><th class="r">Floor</th><th class="r">Ceiling</th><th class="r">Walls</th><th class="r">All surfaces</th>${hasAdjustments ? '<th class="r">Priced</th>' : ''}<th class="r">Ex GST</th><th class="r">Inc GST</th></tr></thead>
+        <thead><tr><th class="r">Floor</th><th class="r">Ceiling</th><th class="r">Walls</th><th class="r">All surfaces</th>${hasAdjustments ? '<th class="r">Priced</th>' : ''}</tr></thead>
         <tbody><tr>
           <td class="r">${surveyMeasure(totals.floor, 'm²')}</td>
           <td class="r">${surveyMeasure(totals.ceiling, 'm²')}</td>
           <td class="r">${surveyMeasure(totals.walls, 'm²')}</td>
           <td class="r"><strong>${surveyMeasure(totals.all, 'm²')}</strong></td>
           ${hasAdjustments ? `<td class="r"><strong>${surveyMeasure(totals.priced ?? totals.all, 'm²')}</strong></td>` : ''}
-          <td class="r"><strong>${totals.price_ex == null ? '—' : esc(formatAud(totals.price_ex))}</strong></td>
-          <td class="r"><strong>${totals.price_inc == null ? '—' : esc(formatAud(totals.price_inc))}</strong></td>
         </tr></tbody>
       </table>
-      <p class="body-text">Walls are the walk length times the room height. The price is that area’s floor, ceiling, and walls at the rate per m²${hasAdjustments ? ', after exclusions and additions' : ''}. GST is 10%.</p>
+      <p class="body-text">Walls are the walk length times the room height.${hasAdjustments ? ' Priced is after exclusions and additions.' : ''}</p>
     </div>
-    ${buildHouseSurveyJobTotal(c)}
+    ${buildHouseSurveySummary(c)}
   `
 }
 
-function buildHouseSurveyJobTotal(c: HouseSurveyDocumentContent): string {
-  const charges = c.charges
-  const total = c.job_total
-  if (!charges || !total) return ''
-  const money = (ex: number | null) => ex == null
-    ? '<td class="r">—</td><td class="r">—</td>'
-    : `<td class="r">${esc(formatAud(ex))}</td><td class="r">${esc(formatAud(Math.round(ex * 1.1 * 100) / 100))}</td>`
-  const sqm = c.totals?.priced ?? c.totals?.all ?? null
-  const surface = sqm != null && c.price_per_m2 != null ? `${sqm} m² × ${formatAud(c.price_per_m2)}` : ''
-  const days = `${charges.labour_days} ${charges.labour_days === 1 ? 'day' : 'days'} × ${formatAud(charges.rate_per_labour_day)}`
-  const callout = charges.mobilisation_waived
-    ? `<td class="r" colspan="2">Waived${charges.mobilisation_reason ? ` — ${esc(charges.mobilisation_reason)}` : ''}</td>`
-    : money(charges.mobilisation_ex)
+/** Quantity × rate, labour, call-out fee, then totals and GST. Same six lines on the survey and the disposal record. */
+function recordSummaryHtml(quantityLabel: string, quantity: string, rate: number | null, charges: FixedCharges, s: RecordSummary): string {
+  const money = (n: number | null) => (n == null ? '—' : esc(formatAud(n)))
+  const quantityDetail = quantity && rate != null ? ` (${esc(`${quantity} × ${formatAud(rate)}`)})` : ''
+  const labourDetail = ` (${esc(`${labourDaysText(charges.labour_days)} × ${formatAud(charges.rate_per_labour_day)}`)})`
   return `
     <div class="sow-sec">
-      <div class="sow-sec-title">Job total</div>
+      <div class="sow-sec-title">Summary</div>
       <table>
-        <thead><tr><th>Item</th><th></th><th class="r">Ex GST</th><th class="r">Inc GST</th></tr></thead>
         <tbody>
-          <tr><td>Surface cleaning</td><td>${esc(surface)}</td>${money(c.totals?.price_ex ?? null)}</tr>
-          <tr><td>Labour</td><td>${esc(days)}</td>${money(charges.labour_ex)}</tr>
-          <tr><td>Call-out fee</td><td></td>${callout}</tr>
-          <tr><td><strong>Total</strong></td><td></td><td class="r"><strong>${total.ex == null ? '—' : esc(formatAud(total.ex))}</strong></td><td class="r"><strong>${total.inc == null ? '—' : esc(formatAud(total.inc))}</strong></td></tr>
+          <tr><td>${esc(quantityLabel)}${quantityDetail}</td><td class="r">${money(s.quantity_ex)}</td></tr>
+          <tr><td>Labour${labourDetail}</td><td class="r">${money(s.labour_ex)}</td></tr>
+          <tr><td>Call-out fee</td><td class="r">${money(s.mobilisation_ex)}</td></tr>
+          <tr><td><strong>Total ex GST</strong></td><td class="r"><strong>${money(s.total_ex)}</strong></td></tr>
+          <tr><td>GST</td><td class="r">${money(s.gst)}</td></tr>
+          <tr><td><strong>Total inc GST</strong></td><td class="r"><strong>${money(s.total_inc)}</strong></td></tr>
         </tbody>
       </table>
-      <p class="body-text">Labour and the call-out fee are fixed. The total is the measured area at the rate per m², plus labour and the call-out fee.</p>
     </div>`
+}
+
+function buildHouseSurveySummary(c: HouseSurveyDocumentContent): string {
+  const sqm = c.totals?.priced ?? null
+  const charges = c.charges ?? fixedCharges({}, null)
+  const summary = c.summary ?? recordSummary(sqm, c.price_per_m2, charges)
+  return recordSummaryHtml('Surface cleaning', sqm == null ? '' : `${sqm} m²`, c.price_per_m2, charges, summary)
 }
 
 function buildHouseSurveyHTML(c: HouseSurveyDocumentContent, company: CompanyProfile | null, client: ClientInfo | undefined, screenActionBar: boolean): string {

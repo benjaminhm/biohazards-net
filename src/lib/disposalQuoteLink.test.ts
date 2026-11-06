@@ -5,9 +5,11 @@ import {
   computeDisposalTotals,
   disposalCaptureWithQuote,
   disposalPriceLines,
+  disposalRecordSummary,
   effectiveCostPerM3,
   emptyDisposalLoad,
   emptyDisposalVehicle,
+  mergedDisposalManifestCapture,
   quoteDisposalLink,
 } from '@/lib/disposalManifest'
 
@@ -43,6 +45,36 @@ test('a typed disposal rate and tip are kept', () => {
   assert.equal(capture.cost_per_m3, 90)
   assert.equal(capture.defaults.facility, 'Red Hill Landfill')
   assert.equal(effectiveCostPerM3({ cost_per_m3: null }, quoteDisposalLink(ad)), 85)
+})
+
+test('the record summary is counted volume at the rate, plus labour and the call-out fee', () => {
+  const load = {
+    ...emptyDisposalLoad(),
+    dump_fee: 220,
+    vehicles: [{ ...emptyDisposalVehicle('skip'), waste_sqm: 10, skip_cost: 550, waste_price: 999 }],
+  }
+  const ad = {
+    contents_clearance_quote: { ...quote, maximum_man_days: 2, rate_per_labour_day: 600, mobilisation_fee: 150 },
+    disposal_manifest_capture: { loads: [load], prepaid_m3: 24 },
+  } as unknown as AssessmentData
+  const link = quoteDisposalLink(ad)
+  const record = disposalRecordSummary(mergedDisposalManifestCapture(ad), link)
+  assert.equal(record.volume_m3, 10)
+  assert.equal(record.rate_per_m3, 85)
+  assert.equal(record.summary.quantity_ex, 850)
+  assert.equal(record.summary.labour_ex, 1200)
+  assert.equal(record.summary.mobilisation_ex, 150)
+  assert.equal(record.summary.total_ex, 2200)
+  assert.equal(record.summary.gst, 220)
+  assert.equal(record.summary.total_inc, 2420)
+
+  const typed = disposalRecordSummary({ ...mergedDisposalManifestCapture(ad), labour_days: 1, mobilisation_fee: 0 }, link)
+  assert.equal(typed.summary.total_ex, 1450)
+
+  const waived = quoteDisposalLink({
+    contents_clearance_quote: { ...quote, mobilisation_fee: 150, mobilisation_waived: true },
+  } as unknown as AssessmentData)
+  assert.equal(waived?.charges.mobilisation_fee, 0)
 })
 
 test('no quote leaves the disposal record alone', () => {

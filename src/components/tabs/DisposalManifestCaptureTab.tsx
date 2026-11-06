@@ -1,8 +1,8 @@
 /*
  * Execute-phase Contents Disposal Record: one card per dump trip.
  * Trailer, dimensions, origin, tip, and kilometres are set once at the top and
- * copied onto each load. Photos, weight, and price stay on the load.
- * Skip uses price of skip; trailer/ute uses a shared weighbridge dump fee.
+ * copied onto each load. Photos and weight stay on the load.
+ * The money is counted volume × rate per m³, plus labour and the call-out fee.
  */
 'use client'
 
@@ -13,6 +13,8 @@ import { mergeAssessmentData } from '@/lib/riskDerivation'
 import { useRegisterUnsavedChanges } from '@/lib/unsavedChangesContext'
 import DisposalPhotoSlot, { PhotoNoteField, ZoomablePhoto } from '@/components/DisposalPhotoSlot'
 import AddressAutocomplete from '@/components/AddressAutocomplete'
+import DefaultedNumberInput from '@/components/DefaultedNumberInput'
+import RecordSummaryTable from '@/components/RecordSummaryTable'
 import { formatCoordLabel, timeFromTakenAt, type GalleryPlaceContext, type PhotoExif } from '@/lib/photoExif'
 import { browserGeocodeAddress } from '@/lib/geocodeBrowser'
 import {
@@ -23,10 +25,8 @@ import {
   applyJobSiteToCapture,
   applyJobSiteToLoad,
   applyQuoteTipToCapture,
-  effectiveCostPerM3,
   quoteDisposalLink,
-  computeDisposalTotals,
-  disposalPriceLines,
+  disposalRecordSummary,
   contentsLabel,
   disposalManifestEqual,
   distanceFromSiteKm,
@@ -35,10 +35,8 @@ import {
   emptyDisposalLoad,
   emptyDisposalVehicle,
   loadFromTripDefaults,
-  formatAud,
   formatKg,
   formatM3,
-  loadHasSkipVehicle,
   loadOriginLatLng,
   loadSkipOnly,
   loadVolumeM3,
@@ -72,17 +70,7 @@ const INPUT: CSSProperties = {
   color: 'var(--text)',
 }
 
-const QUOTE_LINK_BUTTON: CSSProperties = {
-  marginTop: 6,
-  padding: 0,
-  border: 'none',
-  background: 'none',
-  color: 'var(--accent)',
-  fontSize: 12,
-  fontWeight: 700,
-  cursor: 'pointer',
-  textAlign: 'left',
-}
+type ChargeKey = 'cost_per_m3' | 'labour_days' | 'rate_per_labour_day' | 'mobilisation_fee'
 
 const LABEL: CSSProperties = {
   display: 'block',
@@ -416,13 +404,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
     void ensureDefaultsDistance(d)
   }, [capture.defaults, job.site_lat, job.site_lng, job.site_address])
 
-  const totals = useMemo(() => computeDisposalTotals(capture.loads), [capture.loads])
-  const ratePerM3 = effectiveCostPerM3(capture, quoteLink)
-  const rateFromQuote = capture.cost_per_m3 == null && quoteLink?.rate_per_m3 != null
-  const prices = useMemo(
-    () => disposalPriceLines(capture.loads, ratePerM3, capture.prepaid_m3),
-    [capture.loads, ratePerM3, capture.prepaid_m3],
-  )
+  const record = useMemo(() => disposalRecordSummary(capture, quoteLink), [capture, quoteLink])
 
   function touch() {
     setSavedFlash(false)
@@ -1174,6 +1156,24 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
     || looksLikeMillimetres(capture.defaults.width_m)
     || looksLikeMillimetres(capture.defaults.height_m)
 
+  function chargeField(key: ChargeKey, label: string, step: string, fallback: number | null) {
+    return (
+      <div>
+        <label style={LABEL}>{label}</label>
+        <DefaultedNumberInput
+          value={capture[key]}
+          fallback={fallback}
+          step={step}
+          onChange={next => {
+            setCapture(prev => ({ ...prev, [key]: next }))
+            touch()
+          }}
+          style={INPUT}
+        />
+      </div>
+    )
+  }
+
   async function saveAndCompose() {
     const ok = await save()
     if (ok) router.push(`/jobs/${job.id}/docs/waste_disposal_manifest?compose=1`)
@@ -1191,7 +1191,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
       `}</style>
       <p style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.55, marginBottom: 16 }}>
         Set the trailer, its dimensions, the origin, and the tip once. Kilometres are worked out from
-        that route and filled onto every load. Photos, weight, and price are entered on each load.
+        that route and filled onto every load. Photos and weight are entered on each load.
         You can still change the shared details on a load that is different.
       </p>
 
@@ -1211,71 +1211,12 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
           Fills each load that still matches. A load you edit keeps its own trailer, route, or kilometres.
         </p>
         <div style={{ display: 'grid', gap: 12 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            <div>
-              <label style={LABEL}>
-                Cost per m³ (ex GST) ($)
-                <MetaChip show={rateFromQuote} label="From CCQ" />
-              </label>
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                value={capture.cost_per_m3 ?? ''}
-                onChange={e => {
-                  const raw = e.target.value
-                  setCapture(prev => ({ ...prev, cost_per_m3: raw === '' ? null : Number(raw) }))
-                  touch()
-                }}
-                placeholder={quoteLink?.rate_per_m3 != null ? quoteLink.rate_per_m3.toFixed(2) : '0.00'}
-                style={INPUT}
-              />
-              {quoteLink?.rate_per_m3 != null && capture.cost_per_m3 != null && capture.cost_per_m3 !== quoteLink.rate_per_m3 && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCapture(prev => ({ ...prev, cost_per_m3: null }))
-                    touch()
-                  }}
-                  style={QUOTE_LINK_BUTTON}
-                >
-                  Use CCQ rate {formatAud(quoteLink.rate_per_m3)}
-                </button>
-              )}
-            </div>
-            <div>
-              <label style={LABEL}>m³ already prepaid</label>
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                value={capture.prepaid_m3 ?? ''}
-                onChange={e => {
-                  const raw = e.target.value
-                  setCapture(prev => ({ ...prev, prepaid_m3: raw === '' ? null : Number(raw) }))
-                  touch()
-                }}
-                placeholder="0"
-                style={INPUT}
-              />
-              {quoteLink?.quoted_m3 != null && capture.prepaid_m3 !== quoteLink.quoted_m3 && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCapture(prev => ({ ...prev, prepaid_m3: quoteLink.quoted_m3 }))
-                    touch()
-                  }}
-                  style={QUOTE_LINK_BUTTON}
-                >
-                  Prepaid the quoted {formatM3(quoteLink.quoted_m3)}
-                </button>
-              )}
-            </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8 }}>
+            {chargeField('cost_per_m3', 'Rate per m³ (ex GST) ($)', '0.01', quoteLink?.rate_per_m3 ?? null)}
+            {chargeField('labour_days', 'Labour days', '0.5', quoteLink?.charges.labour_days ?? null)}
+            {chargeField('rate_per_labour_day', 'Rate per labour day (ex GST) ($)', '0.01', quoteLink?.charges.rate_per_labour_day ?? null)}
+            {chargeField('mobilisation_fee', 'Call-out fee (ex GST) ($)', '0.01', quoteLink?.charges.mobilisation_fee ?? null)}
           </div>
-          <p style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.45, margin: 0 }}>
-            Each vehicle starts from this rate times its volume, before GST. Skip hire and council dump fees are entered including GST and passed through. Prepaid cubic metres come off the waste line.
-            {quoteLink && ' A blank rate and tip follow the Contents Clearance Quote. Type a rate to override it.'}
-          </p>
           <div>
             <label style={LABEL}>Vehicle</label>
             <select
@@ -1468,18 +1409,11 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
         const vol = loadVolumeM3(load)
         const volRecorded = vol != null
         const skipOnly = loadSkipOnly(load)
-        const hasSkip = loadHasSkipVehicle(load)
-        const skipCostSum = load.vehicles.reduce(
-          (n, v) => n + (v.type === 'skip' && v.skip_cost != null ? v.skip_cost : 0),
-          0,
-        )
-        const skipCostRecorded = load.vehicles.some(v => v.type === 'skip' && v.skip_cost != null && v.skip_cost > 0)
         const titleBits = [
           typeBits.length ? typeBits.join(' + ') : null,
           contentsLabel(load) || null,
           volRecorded ? formatM3(vol) : null,
           load.weight_kg != null ? formatKg(load.weight_kg) : null,
-          skipCostRecorded ? formatAud(Math.round(skipCostSum * 100) / 100) : null,
         ].filter(Boolean)
         const docketOpen = anyVehicleReady(load)
         return (
@@ -1671,11 +1605,6 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                   const volM3 = vehicleVolumeM3(vehicle)
                   const singleVehicle = load.vehicles.length === 1
                   const shownSqm = vehicle.waste_sqm ?? (singleVehicle ? load.waste_sqm : null) ?? volM3
-                  const shownPrice = vehicle.waste_price
-                    ?? (singleVehicle ? load.waste_price : null)
-                    ?? (shownSqm != null && ratePerM3 != null
-                      ? Math.round(shownSqm * ratePerM3 * 100) / 100
-                      : null)
                   const dimsM = dimensionTrioToMetres(vehicle.length_m, vehicle.width_m, vehicle.height_m)
                   const tapeHint = looksLikeMillimetres(vehicle.length_m) || looksLikeMillimetres(vehicle.width_m) || looksLikeMillimetres(vehicle.height_m)
                   return (
@@ -1692,35 +1621,19 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                       <div style={{ ...LABEL, marginTop: 0 }}>
                         {vehicleTypeLabel(vehicle.type) || `Vehicle ${vIndex + 1}`}
                       </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-                        <div>
-                          <label style={LABEL}>Billed m³</label>
-                          <input
-                            type="number"
-                            min={0}
-                            step="0.01"
-                            value={shownSqm ?? ''}
-                            onChange={e => patchVehicle(load.id, vehicle.id, {
-                              waste_sqm: e.target.value === '' ? null : Number(e.target.value),
-                            })}
-                            placeholder="0"
-                            style={INPUT}
-                          />
-                        </div>
-                        <div>
-                          <label style={LABEL}>Price (ex GST) ($)</label>
-                          <input
-                            type="number"
-                            min={0}
-                            step="0.01"
-                            value={shownPrice ?? ''}
-                            onChange={e => patchVehicle(load.id, vehicle.id, {
-                              waste_price: e.target.value === '' ? null : Number(e.target.value),
-                            })}
-                            placeholder="0.00"
-                            style={INPUT}
-                          />
-                        </div>
+                      <div style={{ marginBottom: 12 }}>
+                        <label style={LABEL}>Counted m³</label>
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={shownSqm ?? ''}
+                          onChange={e => patchVehicle(load.id, vehicle.id, {
+                            waste_sqm: e.target.value === '' ? null : Number(e.target.value),
+                          })}
+                          placeholder="0"
+                          style={INPUT}
+                        />
                       </div>
                       <div>
                         <label style={LABEL}>Type</label>
@@ -1812,24 +1725,6 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                             style={INPUT}
                           />
                         </div>
-                        {vehicle.type === 'skip' && (
-                          <div>
-                            <label style={LABEL}>Price of skip (inc GST) ($)</label>
-                            <input
-                              type="number"
-                              min={0}
-                              step="0.01"
-                              value={vehicle.skip_cost ?? ''}
-                              onChange={e =>
-                                patchVehicle(load.id, vehicle.id, {
-                                  skip_cost: e.target.value === '' ? null : Number(e.target.value),
-                                })
-                              }
-                              placeholder="0.00"
-                              style={INPUT}
-                            />
-                          </div>
-                        )}
                         <div>
                           <label style={LABEL}>Load measurements (metres)</label>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
@@ -2239,47 +2134,22 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
                         />
                       </div>
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: skipOnly ? '1fr' : '1fr 1fr', gap: 10 }}>
-                      <div>
-                        <label style={LABEL}>Weight (kg)</label>
-                        <input
-                          type="number"
-                          min={0}
-                          step="0.1"
-                          value={load.weight_kg ?? ''}
-                          onChange={e =>
-                            patchLoad(load.id, {
-                              weight_kg: e.target.value === '' ? null : Number(e.target.value),
-                            })
-                          }
-                          placeholder="kg"
-                          style={INPUT}
-                        />
-                      </div>
-                      {!skipOnly && (
-                      <div>
-                        <label style={LABEL}>Dump fee (inc GST) ($)</label>
-                        <input
-                          type="number"
-                          min={0}
-                          step="0.01"
-                          value={load.dump_fee ?? ''}
-                          onChange={e =>
-                            patchLoad(load.id, {
-                              dump_fee: e.target.value === '' ? null : Number(e.target.value),
-                            })
-                          }
-                          placeholder="0.00"
-                          style={INPUT}
-                        />
-                      </div>
-                      )}
+                    <div>
+                      <label style={LABEL}>Weight (kg)</label>
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.1"
+                        value={load.weight_kg ?? ''}
+                        onChange={e =>
+                          patchLoad(load.id, {
+                            weight_kg: e.target.value === '' ? null : Number(e.target.value),
+                          })
+                        }
+                        placeholder="kg"
+                        style={INPUT}
+                      />
                     </div>
-                    {hasSkip && !skipOnly && (
-                      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                        Skip hire is entered on the skip vehicle as Price of skip.
-                      </div>
-                    )}
                     <div>
                       <label style={LABEL}>Notes</label>
                       <textarea
@@ -2336,115 +2206,15 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
         }}
       >
         <div style={{ fontWeight: 800, fontSize: 13, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 12, color: '#E2E8F0' }}>
-          Disposal totals
+          Summary
         </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-          <span style={{ color: 'var(--text-muted)' }}>Loads</span>
-          <span>{totals.load_count}</span>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
-          <span style={{ color: 'var(--text-muted)' }}>Volume</span>
-          <span>{totals.volume_recorded ? formatM3(totals.volume_m3) : '—'}</span>
-        </div>
-        <div style={{ color: 'var(--text-muted)', fontSize: 11, marginBottom: 8 }}>Close estimate</div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
-          <span style={{ color: 'var(--text-muted)' }}>Weight</span>
-          <span>{totals.weight_recorded ? formatKg(totals.weight_kg) : '—'}</span>
-        </div>
-        <div style={{ color: 'var(--text-muted)', fontSize: 11, marginBottom: 8 }}>Based on weights on dockets</div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
-          <span style={{ color: 'var(--text-muted)' }}>Distance</span>
-          <span>{totals.distance_recorded ? `${totals.distance_km} km return` : '—'}</span>
-        </div>
-        <div style={{ color: 'var(--text-muted)', fontSize: 11, marginBottom: 8 }}>Return (round-trip) total</div>
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '1.4fr 1fr 1fr',
-            gap: 8,
-            marginBottom: 8,
-            fontSize: 11,
-            fontWeight: 700,
-            letterSpacing: '0.06em',
-            textTransform: 'uppercase',
-            color: '#E2E8F0',
-          }}
-        >
-          <span>Item</span>
-          <span style={{ textAlign: 'right' }}>Before GST</span>
-          <span style={{ textAlign: 'right' }}>Amount</span>
-        </div>
-        {prices.skip_waste_ex > 0 && prices.skip_hire_inc > 0 ? (
-          <>
-            <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr', gap: 8, marginBottom: 6 }}>
-              <span style={{ color: 'var(--text-muted)' }}>Skips (waste)</span>
-              <span style={{ textAlign: 'right' }}>{formatAud(prices.skip_waste_ex)}</span>
-              <span style={{ textAlign: 'right' }}>{formatAud(prices.skip_waste_inc)}</span>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr', gap: 8, marginBottom: 6 }}>
-              <span style={{ color: 'var(--text-muted)' }}>Skip hire</span>
-              <span style={{ textAlign: 'right' }}>{formatAud(prices.skip_hire_ex)}</span>
-              <span style={{ textAlign: 'right' }}>{formatAud(prices.skip_hire_inc)}</span>
-            </div>
-          </>
-        ) : (
-          prices.skips_inc > 0 && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr', gap: 8, marginBottom: 6 }}>
-              <span style={{ color: 'var(--text-muted)' }}>Skips</span>
-              <span style={{ textAlign: 'right' }}>{formatAud(prices.skips_ex)}</span>
-              <span style={{ textAlign: 'right' }}>{formatAud(prices.skips_inc)}</span>
-            </div>
-          )
-        )}
-        {prices.trailers_ex > 0 && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr', gap: 8, marginBottom: 6 }}>
-            <span style={{ color: 'var(--text-muted)' }}>Trailers</span>
-            <span style={{ textAlign: 'right' }}>{formatAud(prices.trailers_ex)}</span>
-            <span style={{ textAlign: 'right' }}>{formatAud(prices.trailers_inc)}</span>
-          </div>
-        )}
-        {prices.utes_ex > 0 && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr', gap: 8, marginBottom: 6 }}>
-            <span style={{ color: 'var(--text-muted)' }}>Utes</span>
-            <span style={{ textAlign: 'right' }}>{formatAud(prices.utes_ex)}</span>
-            <span style={{ textAlign: 'right' }}>{formatAud(prices.utes_inc)}</span>
-          </div>
-        )}
-        {prices.others_ex > 0 && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr', gap: 8, marginBottom: 6 }}>
-            <span style={{ color: 'var(--text-muted)' }}>Other</span>
-            <span style={{ textAlign: 'right' }}>{formatAud(prices.others_ex)}</span>
-            <span style={{ textAlign: 'right' }}>{formatAud(prices.others_inc)}</span>
-          </div>
-        )}
-        {prices.dump_fees_inc > 0 && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr', gap: 8, marginBottom: 6 }}>
-            <span style={{ color: 'var(--text-muted)' }}>Dump fees</span>
-            <span style={{ textAlign: 'right' }}>{formatAud(prices.dump_fees_ex)}</span>
-            <span style={{ textAlign: 'right' }}>{formatAud(prices.dump_fees_inc)}</span>
-          </div>
-        )}
-        {prices.prepaid_ex > 0 && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr', gap: 8, marginBottom: 6 }}>
-            <span style={{ color: 'var(--text-muted)' }}>Prepaid</span>
-            <span style={{ textAlign: 'right' }}>−{formatAud(prices.prepaid_ex)}</span>
-            <span style={{ textAlign: 'right' }}>−{formatAud(prices.prepaid_inc)}</span>
-          </div>
-        )}
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '1.4fr 1fr 1fr',
-            gap: 8,
-            borderTop: '1px solid var(--border)',
-            paddingTop: 8,
-            marginTop: 6,
-          }}
-        >
-          <strong>Total</strong>
-          <strong style={{ textAlign: 'right' }}>{formatAud(prices.total_ex)}</strong>
-          <strong style={{ textAlign: 'right' }}>{formatAud(prices.total_inc)}</strong>
-        </div>
+        <RecordSummaryTable
+          quantityLabel="Contents removal"
+          quantity={record.volume_m3 == null ? '' : formatM3(record.volume_m3)}
+          rate={record.rate_per_m3}
+          charges={record.charges}
+          summary={record.summary}
+        />
       </div>
 
       <div

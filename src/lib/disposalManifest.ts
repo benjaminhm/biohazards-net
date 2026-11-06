@@ -9,7 +9,8 @@ import type {
   DisposalVehicle,
   DisposalVehicleTypeId,
 } from '@/lib/types'
-import { normalizeContentsClearanceCapture } from '@/lib/contentsClearanceQuote'
+import { contentsClearanceCaptureFigures, normalizeContentsClearanceCapture } from '@/lib/contentsClearanceQuote'
+import { fixedCharges, recordSummary, type FixedChargeDefaults, type FixedCharges, type RecordSummary } from '@/lib/fixedCharges'
 
 export const DISPOSAL_CONTENTS_TYPES = [
   { id: 'clinical', label: 'Clinical / biomedical' },
@@ -124,7 +125,15 @@ export function emptyTripDefaults(): DisposalTripDefaults {
 }
 
 export function emptyDisposalManifestCapture(): DisposalManifestCapture {
-  return { defaults: emptyTripDefaults(), loads: [emptyDisposalLoad()], cost_per_m3: null, prepaid_m3: null }
+  return {
+    defaults: emptyTripDefaults(),
+    loads: [emptyDisposalLoad()],
+    cost_per_m3: null,
+    prepaid_m3: null,
+    labour_days: null,
+    rate_per_labour_day: null,
+    mobilisation_fee: null,
+  }
 }
 
 export function mergedDisposalManifestCapture(ad: AssessmentData | null | undefined): DisposalManifestCapture {
@@ -139,6 +148,9 @@ export function mergedDisposalManifestCapture(ad: AssessmentData | null | undefi
     loads: loads.length ? loads : [emptyDisposalLoad()],
     cost_per_m3: nonNegativeOrNull(rawRecord.cost_per_m3),
     prepaid_m3: nonNegativeOrNull(rawRecord.prepaid_m3),
+    labour_days: nonNegativeOrNull(rawRecord.labour_days),
+    rate_per_labour_day: nonNegativeOrNull(rawRecord.rate_per_labour_day),
+    mobilisation_fee: nonNegativeOrNull(rawRecord.mobilisation_fee),
   }
 }
 
@@ -146,11 +158,13 @@ export function mergedDisposalManifestCapture(ad: AssessmentData | null | undefi
 export interface QuoteDisposalLink {
   /** Ex GST rate per cubic metre on the quote. Null when the quote has no rate. */
   rate_per_m3: number | null
-  /** Cubic metres on the quote. Offered as the prepaid volume, never applied on its own. */
+  /** Cubic metres on the quote. Never applied on its own. */
   quoted_m3: number | null
   tip_address: string
   tip_lat: number | null
   tip_lng: number | null
+  /** Labour and call-out fee for blank record fields. A waived call-out is 0. */
+  charges: FixedChargeDefaults
 }
 
 export function quoteDisposalLink(ad: AssessmentData | null | undefined): QuoteDisposalLink | null {
@@ -159,8 +173,35 @@ export function quoteDisposalLink(ad: AssessmentData | null | undefined): QuoteD
   const rate = quote.rate_per_m3 != null && quote.rate_per_m3 > 0 ? quote.rate_per_m3 : null
   const m3 = quote.estimated_m3 != null && quote.estimated_m3 > 0 ? quote.estimated_m3 : null
   const tip = quote.tip_address.trim()
-  if (rate == null && m3 == null && !tip) return null
-  return { rate_per_m3: rate, quoted_m3: m3, tip_address: tip, tip_lat: quote.tip_lat, tip_lng: quote.tip_lng }
+  const figures = contentsClearanceCaptureFigures(quote)
+  const charges: FixedChargeDefaults = {
+    labour_days: figures.labour_days,
+    rate_per_labour_day: figures.rate_per_labour_day,
+    mobilisation_fee: quote.mobilisation_waived ? 0 : figures.mobilisation_fee,
+  }
+  const hasCharges = charges.labour_days > 0 || charges.mobilisation_fee > 0
+  if (rate == null && m3 == null && !tip && !hasCharges) return null
+  return { rate_per_m3: rate, quoted_m3: m3, tip_address: tip, tip_lat: quote.tip_lat, tip_lng: quote.tip_lng, charges }
+}
+
+export interface DisposalRecordSummary {
+  /** Counted cubic metres across loads. Null until a volume is recorded. */
+  volume_m3: number | null
+  rate_per_m3: number | null
+  charges: FixedCharges
+  summary: RecordSummary
+}
+
+/** Counted volume at the rate per m³, plus labour and the call-out fee. Skip, trailer, ute and tip dollars are not part of it. */
+export function disposalRecordSummary(
+  capture: Pick<DisposalManifestCapture, 'loads' | 'cost_per_m3' | 'labour_days' | 'rate_per_labour_day' | 'mobilisation_fee'>,
+  link: QuoteDisposalLink | null,
+): DisposalRecordSummary {
+  const totals = computeDisposalTotals(capture.loads)
+  const volume_m3 = totals.volume_recorded > 0 ? totals.volume_m3 : null
+  const rate_per_m3 = effectiveCostPerM3(capture, link)
+  const charges = fixedCharges(capture, link?.charges ?? null)
+  return { volume_m3, rate_per_m3, charges, summary: recordSummary(volume_m3, rate_per_m3, charges) }
 }
 
 /** A blank disposal rate follows the quote. A typed rate stays. */
@@ -1285,13 +1326,9 @@ export function formatWasteDisposalNarrative(capture: DisposalManifestCapture): 
         vol != null ? formatM3(vol) : null,
       ].filter(Boolean).join(' ')
     }).filter(Boolean)
-    const skipFee = loadSkipFeeForTotals(l)
-    const dumpFee = loadDumpFeeForTotals(l)
     const bits = [
       vehicleBits.join('; ') || contentsLabel(l) || 'Waste',
       l.weight_kg != null ? formatKg(l.weight_kg) : null,
-      skipFee != null ? `${formatAud(skipFee)} skip` : null,
-      dumpFee != null ? formatAud(dumpFee) : null,
       formatDistanceLegs(l.distance_out_km, l.distance_return_km)
         ?? (l.distance_km != null ? `${l.distance_km} km` : null),
       l.dump_date.trim()
@@ -1308,21 +1345,11 @@ export function formatWasteDisposalNarrative(capture: DisposalManifestCapture): 
     return `${i + 1}. ${bits.join(' · ')}`
   })
   const volumeBit = totals.volume_recorded ? `${formatM3(totals.volume_m3)}, ` : ''
-  const feeBits = [
-    totals.fees_recorded ? `${formatAud(totals.dump_fees)} dump fees` : null,
-    totals.skip_fees_recorded ? `${formatAud(totals.skip_fees)} skip costs` : null,
-  ].filter(Boolean)
-  const waste = disposalWasteCharge(loads, capture.cost_per_m3, capture.prepaid_m3)
-  const wasteBit = waste.gross == null
-    ? ''
-    : waste.prepaid_value != null
-      ? ` Waste ${formatM3(totals.volume_m3)} × ${formatAud(waste.cost_per_m3 ?? 0)} = ${formatAud(waste.gross)}. Prepaid ${formatM3(waste.prepaid_m3 ?? 0)} (${formatAud(waste.prepaid_value)}). To bill ${formatAud(waste.balance ?? 0)}.`
-      : ` Waste ${formatM3(totals.volume_m3)} × ${formatAud(waste.cost_per_m3 ?? 0)} = ${formatAud(waste.gross)}.`
   return [
     `Disposal loads (${totals.load_count})`,
     '',
     ...lines,
     '',
-    `Totals — ${volumeBit}${formatKg(totals.weight_kg)}, ${totals.distance_km} km return${feeBits.length ? `, ${feeBits.join(', ')}` : ''}.${wasteBit} Volume is a close estimate. Weight is from docket weights.`,
+    `Totals — ${volumeBit}${formatKg(totals.weight_kg)}, ${totals.distance_km} km return. Volume is a close estimate. Weight is from docket weights.`,
   ].join('\n')
 }

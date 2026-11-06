@@ -65,7 +65,6 @@ import {
   disposalWasteCharge,
   contentsLabel,
   dimensionTrioToMetres,
-  formatAud,
   formatDistanceLegs,
   formatM3,
   loadHasContent,
@@ -74,7 +73,9 @@ import {
   loadSkipOnly,
   loadVolumeM3,
   disposalCaptureWithQuote,
+  disposalRecordSummary,
   photoInCompose,
+  quoteDisposalLink,
   vehicleBilledM3,
   vehicleContentsLabel,
   vehicleTypeLabel,
@@ -910,6 +911,7 @@ function composeWdm(job: Job): ComposeDocumentResult {
   const capture = applyJobSiteToCapture(disposalCaptureWithQuote(job.assessment_data), job)
   const loads = capture.loads.filter(loadHasContent)
   const totals = computeDisposalTotals(loads)
+  const recordSummary = disposalRecordSummary({ ...capture, loads }, quoteDisposalLink(job.assessment_data))
   const waste = disposalWasteCharge(loads, capture.cost_per_m3, capture.prepaid_m3)
   const prices = disposalPriceLines(loads, capture.cost_per_m3, capture.prepaid_m3)
   const dates = loads.map(l => l.date).filter(Boolean).sort()
@@ -936,9 +938,9 @@ function composeWdm(job: Job): ComposeDocumentResult {
       unit: l.weight_kg != null ? 'kg' : '',
       disposal_method: l.recycling
         ? `Recycling${l.recycling_type.trim() ? ` — ${l.recycling_type.trim()}` : ''}`
-        : skipFee != null
-          ? `Skip ${formatAud(skipFee)}`
-          : l.dump_fee != null ? `Weighbridge / dump fee ${formatAud(l.dump_fee)}` : 'Licensed facility',
+        : skipFee != null || loadSkipOnly(l)
+          ? 'Skip'
+          : l.dump_fee != null ? 'Weighbridge' : 'Licensed facility',
       facility: (l.facility || l.dump_location).trim() || '—',
     }
   })
@@ -1055,6 +1057,7 @@ function composeWdm(job: Job): ComposeDocumentResult {
       skip_waste_ex: prices.skip_waste_ex,
       skip_waste_inc: prices.skip_waste_inc,
     },
+    summary: recordSummary,
     transport_details: transport || '—',
     declaration:
       'This record is proof of contents removed from the site: what was taken, where it went, and the disposal costs incurred.',
@@ -1219,7 +1222,7 @@ function composeHouseSurvey(job: Job): ComposeDocumentResult {
       job.site_address || '',
       refPrefix('house_survey', job.id),
       houseSurveyWithQuote(job.assessment_data),
-      quoteSurveyLink(job.assessment_data),
+      quoteSurveyLink(job.assessment_data)?.charges ?? null,
     ) as unknown as Record<string, unknown>,
     source: 'assessment_capture',
   }

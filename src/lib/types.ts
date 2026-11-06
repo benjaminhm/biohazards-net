@@ -14,6 +14,8 @@
  * - AssessmentData is stored as a JSON column on the jobs table.
  */
 
+import type { FixedCharges, RecordSummary } from '@/lib/fixedCharges'
+
 export type JobStatus =
   | 'lead'
   | 'assessed'
@@ -1898,6 +1900,11 @@ export interface DisposalManifestCapture {
   cost_per_m3: number | null
   /** Cubic metres the client has already paid for. */
   prepaid_m3: number | null
+  /** Fixed charges. Null follows the Contents Clearance Quote. */
+  labour_days?: number | null
+  rate_per_labour_day?: number | null
+  /** Call-out fee, ex GST. */
+  mobilisation_fee?: number | null
 }
 
 export interface DisposalManifestTotals {
@@ -2316,6 +2323,13 @@ export interface WasteDisposalManifestContent {
     skip_hire_inc?: number | null
     skip_waste_ex?: number | null
     skip_waste_inc?: number | null
+  }
+  /** Contents removal (m³ × rate), labour, call-out fee, and GST. Absent on records composed before it was added. */
+  summary?: {
+    volume_m3: number | null
+    rate_per_m3: number | null
+    charges: FixedCharges
+    summary: RecordSummary
   }
 }
 
