@@ -20,6 +20,8 @@ export const houseSurveyAgent: DocAgentDef = {
 - areas is a list: patching it replaces the whole list, so send every area.
 - price_per_m2 only when staff give it.
 - Generating needs at least one area with a measured wall.`,
+  unique: true,
+  requiredFields: ['price_per_m2'],
   generateNeeds: [],
   generate: inputs => {
     const raw = inputs.job.assessment_data?.house_survey

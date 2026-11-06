@@ -14,8 +14,9 @@ import { emptyBiohazardCleaningCapture } from '@/lib/biohazardCleaningQuote'
 import { emptyContentsClearanceCapture } from '@/lib/contentsClearanceQuote'
 import { emptySurfaceAreaCleaningCapture } from '@/lib/surfaceAreaCleaningQuote'
 import type { JobStatus } from '@/lib/types'
-import { canDraftCapture, docAgent, parseGenerateTarget } from './subagents/registry'
-import { isDocAgentType } from './subagents/types'
+import { docAgent, parseGenerateTarget } from './subagents/registry'
+import { checkPatch } from './patchCheck'
+import { createFlag, isFlagSeverity } from './flags'
 import { checkGenerate } from './subagents/generate'
 import { DOC_AGENT_LABEL } from './subagents/labels'
 import { generateUniqueJobCode } from '@/lib/jobCode'
@@ -27,7 +28,6 @@ import {
   PatchError,
   applyPatch,
   describePatch,
-  isCaptureKey,
   mergePatchDrafts,
   parseTarget,
   patchIsCurrent,
@@ -37,7 +37,7 @@ import {
 
 type Supabase = ReturnType<typeof createServiceClient>
 
-export type DraftKind = 'field' | 'note' | 'status' | 'document' | 'new_job'
+export type DraftKind = 'field' | 'note' | 'status' | 'document' | 'new_job' | 'flag'
 
 export interface DraftRow {
   id: string
@@ -293,27 +293,24 @@ export async function upsertPatchDraft(
 async function applyPatchDraft(supabase: Supabase, who: Approver, draft: DraftRow & { job_id: string }, jobRow: Record<string, unknown>) {
   const target = parseTarget(draft.target_path)
   if (!target) throw new DraftError('Unknown change')
-  const owner = draftAgent(draft)
-  if (owner !== 'file_agent' && target.type === 'capture') {
-    const type = owner.slice('doc_agent:'.length)
-    if (!isDocAgentType(type) || !canDraftCapture(docAgent(type), target.ref)) {
-      throw new DraftError(`The ${type.replace(/_/g, ' ')} agent may only change its own document.`)
-    }
-  }
   const before = (draft.before ?? {}) as Record<string, unknown>
   const proposed = (draft.proposed ?? {}) as Record<string, unknown>
-  const stale = async (what: string) => {
-    await markStale(supabase, draft.id)
-    throw new DraftError(`${what} changed since the agent drafted this. Ask it again if you still want it.`)
-  }
   const note = `Approved by ${who.firstName || who.userId}`
   const now = new Date().toISOString()
+  const ensure = async (current: unknown, what: string, documentType?: string | null) => {
+    const c = checkPatch({ target_path: draft.target_path, created_by: draft.created_by, before, proposed, current, documentType })
+    if (c.ok) return
+    if (c.stale) {
+      await markStale(supabase, draft.id)
+      throw new DraftError(`${what} changed since the agent drafted this. Ask it again if you still want it.`)
+    }
+    throw new DraftError(c.reasons.join(' '))
+  }
 
   if (target.type === 'capture') {
     const key = target.ref
-    if (!isCaptureKey(key)) throw new DraftError('Unknown capture')
     const ad = (jobRow.assessment_data ?? {}) as Record<string, unknown>
-    if (!patchIsCurrent(ad[key] ?? null, before)) await stale(captureLabel(key))
+    await ensure(ad[key] ?? null, captureLabel(key))
     const next = applyPatch(ad[key] ?? null, proposed, CAPTURE_BASE[key])
     const { error } = await supabase
       .from('jobs')
@@ -331,12 +328,12 @@ async function applyPatchDraft(supabase: Supabase, who: Approver, draft: DraftRo
   if (target.type === 'doc') {
     const { data: doc } = await supabase
       .from('documents')
-      .select('id, content')
+      .select('id, type, content')
       .eq('id', target.ref)
       .eq('job_id', draft.job_id)
       .maybeSingle()
     if (!doc) throw new DraftError('Document not found on this job')
-    if (!patchIsCurrent(doc.content ?? null, before)) await stale('The document')
+    await ensure(doc.content ?? null, 'The document', doc.type as string)
     const next = applyPatch(doc.content ?? null, proposed)
     const { error } = await supabase.from('documents').update({ content: next }).eq('id', doc.id).eq('job_id', draft.job_id)
     if (error) throw error
@@ -361,7 +358,7 @@ async function applyPatchDraft(supabase: Supabase, who: Approver, draft: DraftRo
     .eq('job_id', draft.job_id)
     .maybeSingle()
   if (!photo) throw new DraftError('Photo not found on this job')
-  if (!patchIsCurrent(photo, before)) await stale('The photo')
+  await ensure(photo, 'The photo')
   const { error } = await supabase.from('photos').update(cols).eq('id', target.ref).eq('job_id', draft.job_id)
   if (error) throw error
   await logAgentAction(supabase, {
@@ -522,6 +519,18 @@ export async function approveDraft(
       await logAgentAction(supabase, {
         org_id: who.orgId, job_id: draft.job_id, agent: draftAgent(draft), trigger, action: 'add_progress_note',
         target_table: 'progress_notes', target_id: note.id as string, after: { body }, note: `Approved by ${who.firstName || who.userId}`,
+      })
+    } else if (draft.kind === 'flag') {
+      const p = (draft.proposed ?? {}) as { severity?: unknown; message?: unknown }
+      const message = typeof p.message === 'string' ? p.message.trim() : ''
+      if (!message || !isFlagSeverity(p.severity)) throw new DraftError('Flag needs a severity and a message')
+      const flagId = await createFlag(supabase, {
+        orgId: who.orgId, jobId, severity: p.severity, message, source: 'agent', createdBy: draft.created_by ?? 'file_agent',
+      })
+      await logAgentAction(supabase, {
+        org_id: who.orgId, job_id: jobId, agent: draftAgent(draft), trigger, action: 'pin_flag',
+        target_table: 'job_flags', target_id: flagId ?? undefined, after: { severity: p.severity, message },
+        note: `Approved by ${who.firstName || who.userId}`,
       })
     } else if (draft.kind === 'document' && parseGenerateTarget(draft.target_path)) {
       await generateFromDraft(supabase, who, { ...draft, job_id: jobId })

@@ -20,6 +20,7 @@ export const surfaceAreaCleaningQuoteAgent: DocAgentDef = {
   rules: `- ${PRICE_RULE}
 - estimated_m2 and rooms may come from the House Survey when staff ask.
 - Generating needs labour_days.`,
+  requiredFields: ['labour_days'],
   generateNeeds: ['company'],
   generate: inputs => {
     const raw = inputs.job.assessment_data?.surface_area_cleaning_quote

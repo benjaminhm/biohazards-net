@@ -21,6 +21,8 @@ export const wasteDisposalManifestAgent: DocAgentDef = {
 - loads is a list: patching it replaces the whole list, so send every load with its existing ids.
 - Dollars (cost_per_m3, dump_fee, skip_cost, waste_price) only when staff give them.
 - Generating needs at least one load with something on it.`,
+  unique: true,
+  requiredFields: [],
   generateNeeds: [],
   patchProblem: patch => (JSON.stringify(patch ?? null).match(/"(photo_id|photo_url|docket_photo_id|docket_photo_url|docket_pdf_url)"\s*:\s*"[^"]/) ? 'Photos and dockets are attached in the app, not by the agent.' : null),
   generate: inputs => {

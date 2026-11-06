@@ -12,7 +12,7 @@ import { getOrgId } from '@/lib/org'
 const FULL_ACCESS_ROLES = new Set(['admin', 'owner', 'manager', 'team_lead'])
 
 export type FullAccessResult =
-  | { ok: true; userId: string; orgId: string; supabase: ReturnType<typeof createServiceClient> }
+  | { ok: true; userId: string; orgId: string; role: string; supabase: ReturnType<typeof createServiceClient> }
   | { ok: false; response: NextResponse }
 
 export async function guardFullAccessStaff(req: Request): Promise<FullAccessResult> {
@@ -24,8 +24,9 @@ export async function guardFullAccessStaff(req: Request): Promise<FullAccessResu
   }
   const supabase = createServiceClient()
   const { data } = await supabase.from('org_users').select('role').eq('clerk_user_id', userId).eq('org_id', orgId).maybeSingle()
-  if (!FULL_ACCESS_ROLES.has((data as { role?: string } | null)?.role ?? '')) {
+  const role = (data as { role?: string } | null)?.role ?? ''
+  if (!FULL_ACCESS_ROLES.has(role)) {
     return { ok: false, response: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
   }
-  return { ok: true, userId, orgId, supabase }
+  return { ok: true, userId, orgId, role, supabase }
 }

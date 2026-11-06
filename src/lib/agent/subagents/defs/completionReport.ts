@@ -16,6 +16,8 @@ export const completionReportAgent: DocAgentDef = {
   rules: `- Write from the progress notes, scope of work, quotes, PRE and CDR only. Neutral, factual, client-facing. No made-up products, volumes or dates.
 - photo_record describes the photo set in plain words; no app metadata (categories, ids, upload times).
 - Generating needs something in the report capture. The document is composed with the job's report photos and notes.`,
+  unique: true,
+  requiredFields: [],
   generateNeeds: ['company', 'report_media'],
   generate: inputs => {
     if (!completionReportCaptureHasContent(mergedCompletionReportCapture(inputs.job.assessment_data))) {

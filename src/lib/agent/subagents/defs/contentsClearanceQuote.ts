@@ -21,6 +21,7 @@ export const contentsClearanceQuoteAgent: DocAgentDef = {
   rules: `- ${PRICE_RULE}
 - estimated_m3 comes from what staff or the caller said, or the CDR when staff ask. Say when the CDR volume differs from the quoted estimate.
 - Generating needs labour days, and the clause check must pass (clauses must not contradict the figures). draft_generate tells you what fails.`,
+  requiredFields: ['maximum_man_days'],
   generateNeeds: ['company'],
   generate: inputs => {
     const raw = inputs.job.assessment_data?.contents_clearance_quote

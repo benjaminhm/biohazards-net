@@ -16,7 +16,7 @@ import { draftedByLabel } from '@/lib/agent/subagents/labels'
 export interface DraftView {
   id: string
   job_id: string | null
-  kind: 'field' | 'note' | 'status' | 'document' | 'new_job'
+  kind: 'field' | 'note' | 'status' | 'document' | 'new_job' | 'flag'
   target_path: string
   before: unknown
   proposed: unknown

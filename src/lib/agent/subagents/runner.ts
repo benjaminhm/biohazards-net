@@ -12,7 +12,8 @@ import type { createServiceClient } from '@/lib/supabase'
 import type { AssessmentData } from '@/lib/types'
 import { runLoop, str, ToolError, type AgentTool, type Input } from '../loop'
 import { blocked } from '../permissions'
-import { buildPatchDraft, TARGET, type PatchDraft } from '../patchDraft'
+import { buildPatchDraft, mergePatchDrafts, PatchError, TARGET, type PatchDraft } from '../patchDraft'
+import { checkPatch } from '../patchCheck'
 import { captureLabel, listPendingDrafts, upsertDraft, upsertPatchDraft } from '../drafts'
 import { capped, readAcceptances, readCalls, readDocument, readDocumentList, readPhotos, readProgressNotes, readXeroInvoice } from '../jobReads'
 import { canDraftCapture, canDraftDocument, DOC_AGENTS, docAgent, docAgentId, generateTarget, readableCaptures, readableDocumentTypes } from './registry'
@@ -42,43 +43,73 @@ async function assessment(ctx: SubCtx): Promise<AssessmentData | null> {
   return (data.assessment_data ?? null) as AssessmentData | null
 }
 
-function patchArg(input: Input): unknown {
-  const p = input.patch
-  if (typeof p !== 'string') return p
-  try {
-    return JSON.parse(p)
-  } catch {
-    throw new ToolError('patch must be a JSON object')
-  }
-}
-
 function otherAgentFor(key: string): string {
   const owner = Object.values(DOC_AGENTS).find(d => d.captureKey === key || d.documentType === key)
   return owner ? owner.label : 'the file agent or staff'
 }
 
-/** Draft a patch to the sub-agent's own capture. Any other key is refused. */
-export async function draftOwnCapture(ctx: SubCtx, key: string, patch: unknown, summary?: string): Promise<{ draft_id?: string; skipped?: string; paths?: string[] }> {
-  const { def } = ctx
-  if (!canDraftCapture(def, key)) {
+export interface PatchChange { key?: unknown; patch?: unknown; summary?: unknown }
+
+export type PreparedPatches =
+  | { ok: true; drafts: { key: string; draft: PatchDraft; summary?: string }[]; unchanged: string[] }
+  | { ok: false; reasons: string[] }
+
+function parsePatch(p: unknown): unknown {
+  if (typeof p !== 'string') return p
+  try {
+    return JSON.parse(p)
+  } catch {
+    throw new PatchError('patch must be a JSON object')
+  }
+}
+
+/**
+ * Check every change first (ownership, the document's own checks, the same
+ * checkPatch approval runs); nothing is drafted unless all pass. Changes to
+ * the same capture merge into one draft.
+ */
+export function preparePatches(def: DocAgentDef, assessment: Record<string, unknown>, changes: PatchChange[]): PreparedPatches {
+  if (!changes.length) return { ok: false, reasons: ['No changes given'] }
+  const foreign = changes.map(c => str(c.key) || def.captureKey).find(k => !canDraftCapture(def, k))
+  if (foreign) {
     blocked({
-      blocked_action: `draft_patch:${key}`,
-      required_permission: `write:${key}`,
-      handled_by: otherAgentFor(key),
-      message: `The ${def.label} may only change ${def.captureKey}.`,
+      blocked_action: `draft_patch:${foreign}`,
+      required_permission: `write:${foreign}`,
+      handled_by: otherAgentFor(foreign),
+      message: `The ${def.label} may only change ${def.captureKey}. Nothing was drafted.`,
     })
   }
-  const problem = def.patchProblem?.(patch)
-  if (problem) throw new ToolError(problem)
-  const ad = ((await assessment(ctx)) ?? {}) as Record<string, unknown>
-  let draft: PatchDraft
-  try {
-    draft = buildPatchDraft(ad[key] ?? null, patch)
-  } catch (err) {
-    throw new ToolError(err instanceof Error ? err.message : 'Invalid patch')
-  }
-  if (!Object.keys(draft.proposed).length) return { skipped: 'already those values' }
-  return recordPatch(ctx, draft, summary)
+  const reasons: string[] = []
+  const byKey = new Map<string, { draft: PatchDraft; summary?: string }>()
+  const unchanged: string[] = []
+  changes.forEach((c, i) => {
+    const key = str(c.key) || def.captureKey
+    const label = changes.length > 1 ? `Change ${i + 1}: ` : ''
+    let patch: unknown
+    let draft: PatchDraft
+    try {
+      patch = parsePatch(c.patch)
+      draft = buildPatchDraft(assessment[key] ?? null, patch)
+    } catch (err) {
+      reasons.push(`${label}${err instanceof Error ? err.message : 'Invalid patch'}`)
+      return
+    }
+    if (!Object.keys(draft.proposed).length) { unchanged.push(key); return }
+    const check = checkPatch({
+      target_path: TARGET.capture(key), created_by: docAgentId(def.type), before: draft.before, proposed: draft.proposed, current: assessment[key] ?? null,
+    })
+    if (!check.ok) { reasons.push(...check.reasons.map(r => `${label}${r}`)); return }
+    const prev = byKey.get(key)
+    byKey.set(key, { draft: prev ? mergePatchDrafts(prev.draft, draft) : draft, summary: str(c.summary) || prev?.summary })
+  })
+  if (reasons.length) return { ok: false, reasons }
+  return { ok: true, drafts: [...byKey].map(([key, v]) => ({ key, ...v })), unchanged }
+}
+
+function changesArg(input: Input): PatchChange[] {
+  if (Array.isArray(input.changes)) return input.changes as PatchChange[]
+  if (input.patch !== undefined) return [{ key: input.key, patch: input.patch, summary: input.summary }]
+  return []
 }
 
 async function recordPatch(ctx: SubCtx, draft: PatchDraft, summary?: string) {
@@ -153,17 +184,62 @@ function baseTools(def: DocAgentDef): AgentTool<SubCtx>[] {
     },
     {
       name: 'draft_patch',
-      description: `Draft changes to ${def.captureKey} (your document). patch is merged in: nested objects are walked; lists, text and numbers replace the value. Ids cannot change. One pending card per capture; later patches add to it. Any other key is refused.`,
+      description: `Draft changes to ${def.captureKey} (your document). changes is a list of {key, patch, summary}; key is always ${def.captureKey}. Each patch is merged in: nested objects are walked; lists, text and numbers replace the value. Ids cannot change. Every change is checked first (the same checks as approval) and nothing is drafted unless all pass. One card per capture; later patches add to it.`,
       input_schema: {
         type: 'object',
         properties: {
-          key: { type: 'string', enum: [def.captureKey], description: 'Always your own capture key.' },
-          patch: { type: 'object' },
-          summary: { type: 'string', description: 'One line for the change card.' },
+          changes: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                key: { type: 'string', enum: [def.captureKey] },
+                patch: { type: 'object' },
+                summary: { type: 'string', description: 'One line for the change card.' },
+              },
+              required: ['patch'],
+            },
+          },
         },
-        required: ['patch'],
+        required: ['changes'],
       },
-      run: (ctx, input) => draftOwnCapture(ctx, str(input.key) || def.captureKey, patchArg(input), str(input.summary) || undefined),
+      async run(ctx, input) {
+        const ad = ((await assessment(ctx)) ?? {}) as Record<string, unknown>
+        const prepared = preparePatches(def, ad, changesArg(input))
+        if (!prepared.ok) return { drafted: false, reasons: prepared.reasons, note: 'Nothing was drafted. Fix these and try again.' }
+        const out = []
+        for (const d of prepared.drafts) out.push(await recordPatch(ctx, d.draft, d.summary))
+        return { drafted: out, ...(prepared.unchanged.length ? { already_those_values: prepared.unchanged } : {}) }
+      },
+    },
+    {
+      name: 'validate_patch',
+      description: 'Check changes without drafting anything: the same checks staff approval runs (allowed capture, unchanged since read, safe paths, types, this document\'s own rules). Pass changes like draft_patch, or document_id with patch for a saved document. Returns {ok, reasons}.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          changes: { type: 'array', items: { type: 'object', properties: { key: { type: 'string' }, patch: { type: 'object' } }, required: ['patch'] } },
+          document_id: { type: 'string' },
+          patch: { type: 'object' },
+        },
+      },
+      async run(ctx, input) {
+        try {
+          if (str(input.document_id)) {
+            const doc = await readDocument(ctx.supabase, ctx.orgId, ctx.jobId, str(input.document_id))
+            if (!doc) return { ok: false, reasons: ['Document not found on this job'] }
+            const draft = buildPatchDraft(doc.content ?? null, parsePatch(input.patch))
+            const c = checkPatch({ target_path: TARGET.doc(doc.id as string), created_by: docAgentId(def.type), before: draft.before, proposed: draft.proposed, current: doc.content ?? null, documentType: doc.type as string })
+            return { ok: c.ok, reasons: c.reasons }
+          }
+          const ad = ((await assessment(ctx)) ?? {}) as Record<string, unknown>
+          const prepared = preparePatches(def, ad, changesArg(input))
+          return prepared.ok ? { ok: true, reasons: [] } : { ok: false, reasons: prepared.reasons }
+        } catch (err) {
+          if (err instanceof ToolError) return { ok: false, reasons: [err.message] }
+          return { ok: false, reasons: [err instanceof Error ? err.message : 'Invalid patch'] }
+        }
+      },
     },
     {
       name: 'draft_document_patch',
@@ -177,11 +253,13 @@ function baseTools(def: DocAgentDef): AgentTool<SubCtx>[] {
         }
         let draft: PatchDraft
         try {
-          draft = buildPatchDraft(doc.content ?? null, patchArg(input))
+          draft = buildPatchDraft(doc.content ?? null, parsePatch(input.patch))
         } catch (err) {
           throw new ToolError(err instanceof Error ? err.message : 'Invalid patch')
         }
         if (!Object.keys(draft.proposed).length) return { skipped: 'already those values' }
+        const check = checkPatch({ target_path: TARGET.doc(doc.id as string), created_by: docAgentId(def.type), before: draft.before, proposed: draft.proposed, current: doc.content ?? null, documentType: doc.type as string })
+        if (!check.ok) return { drafted: false, reasons: check.reasons }
         const c = (doc.content ?? {}) as Record<string, unknown>
         const label = `${def.docLabel} ${str(c.reference) || str(c.title)}`.trim()
         const id = await upsertPatchDraft(ctx.supabase, {
@@ -244,7 +322,7 @@ ${def.shape}
 
 YOU CAN
 - Read your own capture and these inputs only: captures ${def.readCaptures.join(', ') || '(none)'}; saved documents ${readableDocumentTypes(def).join(', ')}${def.extraReads.length ? `; ${def.extraReads.join(', ')}` : ''}.
-- Draft changes to ${def.captureKey} only (draft_patch), patch saved ${def.documentType} documents (draft_document_patch), and queue generating it (draft_generate). Every write is a card staff approve; nothing changes until then.
+- Draft changes to ${def.captureKey} only (draft_patch, several changes in one call), patch saved ${def.documentType} documents (draft_document_patch), and queue generating it (draft_generate). validate_patch checks changes without drafting. Every write is a card staff approve; nothing changes until then.
 
 YOU NEVER: send email or SMS, share links, release to the client portal, send payment reminders, touch Xero, delete anything, or change any other document.
 
@@ -288,7 +366,12 @@ export async function runDocAgent(
     .map(d => ({ kind: d.kind, target_path: d.target_path, summary: d.summary }))
   const api: SubAgentApi = {
     readAssessment: () => assessment(ctx),
-    draftOwnPatch: async (draft: PatchDraft, summary?: string) => (await recordPatch(ctx, draft, summary)).draft_id,
+    draftOwnPatch: async (draft: PatchDraft, summary?: string) => {
+      const ad = ((await assessment(ctx)) ?? {}) as Record<string, unknown>
+      const check = checkPatch({ target_path: TARGET.capture(def.captureKey), created_by: docAgentId(type), before: draft.before, proposed: draft.proposed, current: ad[def.captureKey] ?? null })
+      if (!check.ok) throw new ToolError(check.reasons.join(' '))
+      return (await recordPatch(ctx, draft, summary)).draft_id
+    },
   }
   const messages: Anthropic.MessageParam[] = [
     { role: 'user', content: inputsMessage(def, (ad ?? {}) as Record<string, unknown>, docs, mine, instruction, notes) },

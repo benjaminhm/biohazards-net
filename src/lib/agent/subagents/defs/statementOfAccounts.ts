@@ -22,6 +22,8 @@ export const statementOfAccountsAgent: DocAgentDef = {
   rules: `- Quantities from the survey and CDR: use fill_quantities_from_survey_and_cdr. It never fills dollars. Report which CDR facts have no statement field (loads, vehicles, weight, distance).
 - Dollar and text fields: only values the staff member states, or tells you to take from the CDR dollar figures listed by survey_and_cdr_figures. Plain numbers, inc GST when charges_gst.
 - Generate only when breakdowns add up and reasons are present; draft_generate runs the same checks and tells you what fails.`,
+  unique: true,
+  requiredFields: ['invoice1_amount'],
   generateNeeds: ['documents'],
   patchProblem: statementPatchProblem,
   generate: ({ job, documents }) => composeStatementForJob(job, documents),

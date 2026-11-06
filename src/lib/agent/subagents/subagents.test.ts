@@ -71,17 +71,19 @@ test('orchestrator: the file agent has no document write tools', async () => {
   }
   assert.ok(names.includes('delegate_to_document_agent'))
   assert.ok(names.includes('get_job_health'))
-  for (const job of ['draft_field_changes', 'draft_note', 'draft_status', 'draft_photo_changes']) assert.ok(names.includes(job))
+  for (const job of ['draft_field_changes', 'draft_note', 'draft_status', 'draft_photo_changes', 'draft_staff_flag', 'get_job_snapshot', 'get_job_changes_since']) assert.ok(names.includes(job))
+  assert.equal(names.includes('get_job_file'), false)
 })
 
 test('sub-agent tools: own writes, generate and report; extra reads only when declared', () => {
   for (const def of Object.values(DOC_AGENTS)) {
     const names = subAgentTools(def).map(t => t.name)
-    for (const n of ['read_capture', 'read_document', 'draft_patch', 'draft_document_patch', 'draft_generate', 'report']) assert.ok(names.includes(n))
+    for (const n of ['read_capture', 'read_document', 'draft_patch', 'validate_patch', 'draft_document_patch', 'draft_generate', 'report']) assert.ok(names.includes(n))
     assert.equal(names.includes('read_calls'), def.extraReads.includes('calls'))
     assert.equal(names.includes('delegate_to_document_agent'), false)
     const patch = subAgentTools(def).find(t => t.name === 'draft_patch')!
-    const keyEnum = ((patch.input_schema.properties as Record<string, { enum?: string[] }>).key.enum) ?? []
+    const changes = (patch.input_schema.properties as Record<string, { items?: { properties?: Record<string, { enum?: string[] }> } }>).changes
+    const keyEnum = changes.items?.properties?.key.enum ?? []
     assert.deepEqual(keyEnum, [def.captureKey])
   }
 })

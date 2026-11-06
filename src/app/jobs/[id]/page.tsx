@@ -73,6 +73,7 @@ import JobDocsDashboardTab, { type DocDashboardTarget } from '@/components/tabs/
 import TradingNameModal from '@/components/TradingNameModal'
 import AgentDrawer from '@/components/agent/AgentDrawer'
 import AgentDraftsBanner from '@/components/workspace/AgentDraftsBanner'
+import JobFlags from '@/components/workspace/JobFlags'
 import ViewToggle from '@/components/workspace/ViewToggle'
 import { isTradingNameId, type TradingNameId } from '@/lib/tradingNames'
 import { useUser } from '@/lib/userContext'
@@ -978,6 +979,8 @@ export default function JobPage() {
     }
   }
 
+  const [flagsKey, setFlagsKey] = useState(0)
+
   async function refreshJobQuietly() {
     const res = await fetch(`/api/jobs/${id}`)
     if (!res.ok) return
@@ -1373,7 +1376,8 @@ export default function JobPage() {
         </div>
       </div>
 
-      <AgentDraftsBanner jobId={id} onApplied={refreshJobQuietly} />
+      <JobFlags jobId={id} reloadKey={flagsKey} />
+      <AgentDraftsBanner jobId={id} onApplied={() => { setFlagsKey(k => k + 1); void refreshJobQuietly() }} />
 
       {/* Tab content */}
       <div data-devid="P2-E4" className="container" style={{ paddingTop: 24 }}>

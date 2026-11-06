@@ -21,8 +21,6 @@ import type { createServiceClient } from '@/lib/supabase'
 import { getAgentTool, type AgentContext } from '@/lib/agent/tools'
 import {
   JOB_STATUSES,
-  QUOTE_DOC_KEYS,
-  QUOTE_DOC_LABELS,
   createNewJobDraft,
   describeFieldDraft,
   listNewJobDrafts,
@@ -44,8 +42,19 @@ import {
 import { surveyAndDisposalSummary } from './statementDraft'
 import { runLoop, str, ToolError, type AgentTool, type Input } from './loop'
 import { capped, readAcceptances, readCalls, readDocument, readProgressNotes, readXeroInvoice } from './jobReads'
-import { jobHealth } from './jobHealth'
-import { staffOnlyBlock, STAFF_ONLY_ACTIONS } from './permissions'
+import { blocked, staffOnlyBlock, STAFF_ONLY_ACTIONS } from './permissions'
+import { checkStatus } from './statusRules'
+import { FLAG_SEVERITIES, isFlagSeverity } from './flags'
+import {
+  changesSince,
+  hashOf,
+  jobSnapshotFor,
+  loadSnapshotRaw,
+  seesFinancials,
+  touchedCapturesSince,
+  type JobSnapshot,
+  type SnapshotHashes,
+} from './jobSnapshot'
 import { DOC_AGENTS } from './subagents/registry'
 import { runDocAgent } from './subagents/runner'
 import { DOC_AGENT_TYPES, isDocAgentType } from './subagents/types'
@@ -67,7 +76,7 @@ import {
   type NewJobProposal,
   type PossibleDuplicate,
 } from './newJobDraft'
-import type { AssessmentData } from '@/lib/types'
+import type { AssessmentData, JobStatus } from '@/lib/types'
 
 type Supabase = ReturnType<typeof createServiceClient>
 
@@ -80,6 +89,9 @@ export interface WsContext extends AgentContext {
   draftIds: string[]
   handover: { job_id: string; job_code: string | null; brief: string } | null
   anthropic?: Anthropic
+  /** org_users.role of the staff member: owner, admin, manager or team_lead. */
+  role: string | null
+  snapshot?: StoredSnapshot
 }
 
 type WsTool = AgentTool<WsContext>
@@ -95,63 +107,57 @@ function activeJob(ctx: WsContext): string {
   return ctx.jobId
 }
 
-// ── Job file snapshot ─────────────────────────────────────────────────────────
+// ── Job snapshot and changes ──────────────────────────────────────────────────
 
-export async function jobFileSnapshot(supabase: Supabase, orgId: string, jobId: string) {
-  const [jobRes, docsRes, notesRes, callsRes, drafts] = await Promise.all([
-    supabase.from('jobs').select(JOB_FIELDS).eq('id', jobId).eq('org_id', orgId).maybeSingle(),
-    supabase.from('documents').select('id, type, content, created_at').eq('job_id', jobId).order('created_at', { ascending: false }).limit(20),
-    supabase
-      .from('progress_notes')
-      .select('room, body, created_by_first_name, created_at')
-      .eq('job_id', jobId)
-      .is('deleted_at', null)
-      .order('created_at', { ascending: false })
-      .limit(10),
-    supabase
-      .from('inbound_calls')
-      .select('created_at, provider, caller_number, status, extraction')
-      .eq('job_id', jobId)
-      .eq('org_id', orgId)
-      .order('created_at', { ascending: false })
-      .limit(5),
-    listPendingDrafts(supabase, orgId, jobId),
-  ])
-  if (!jobRes.data) return null
-  const { assessment_data, ...job } = jobRes.data as unknown as Record<string, unknown> & { assessment_data: Record<string, unknown> | null }
-  const ad = assessment_data ?? {}
-  return {
-    job,
-    quotes_started: QUOTE_DOC_KEYS.filter(k => ad[k] != null).map(k => QUOTE_DOC_LABELS[k]),
-    quotes_required: (ad.quotes_required as unknown[] | undefined) ?? [],
-    documents: (docsRes.data ?? []).map(d => {
-      const c = (d.content ?? {}) as Record<string, unknown>
-      return { id: d.id, type: d.type, title: str(c.title), reference: str(c.reference), created_at: d.created_at }
-    }),
-    recent_notes: (notesRes.data ?? []).map(n => ({
-      room: n.room, by: n.created_by_first_name, at: n.created_at, body: String(n.body ?? '').slice(0, 600),
-    })),
-    calls_and_enquiries: (callsRes.data ?? []).map(c => ({
-      at: c.created_at,
-      kind: c.provider === 'netlify_form' ? 'website enquiry' : 'phone call',
-      from: c.caller_number,
-      status: c.status,
-      summary: str((c.extraction as { summary?: string } | null)?.summary),
-    })),
-    pending_drafts: drafts.map(d => ({ id: d.id, kind: d.kind, summary: d.summary })),
+interface StoredSnapshot { at: string; hashes: SnapshotHashes }
+
+/** The latest snapshot hashes the file agent stored for this staff member on this job, at or before a time. */
+async function storedSnapshot(supabase: Supabase, orgId: string, userId: string, jobId: string, atOrBefore?: string): Promise<StoredSnapshot | null> {
+  const { data } = await supabase
+    .from('agent_messages')
+    .select('content, created_at')
+    .eq('org_id', orgId)
+    .eq('job_id', jobId)
+    .eq('thread_id', userId)
+    .eq('speaker', 'file_agent')
+    .order('created_at', { ascending: false })
+    .limit(40)
+  for (const row of data ?? []) {
+    const snap = (row.content as { snapshot?: StoredSnapshot } | null)?.snapshot
+    if (snap?.at && snap.hashes && (!atOrBefore || snap.at <= atOrBefore)) return snap
   }
+  return null
 }
 
-// ── File agent tools ──────────────────────────────────────────────────────────
-
-const getJobFile: WsTool = {
-  name: 'get_job_file',
-  description: 'Re-read the open job file: details, quotes started, documents, recent notes, calls and enquiries, and your pending drafts.',
+const getJobSnapshot: WsTool = {
+  name: 'get_job_snapshot',
+  description:
+    'The whole job file in one call: job fields, every capture, every saved document with content and prices, photo metadata, progress notes, calls and enquiries (cleaned transcript, extraction summary), Xero status, pending drafts, open flags, conflicts, health and server_time. Long values are cut with a [truncated] marker; read the full one with get_capture or get_document.',
   input_schema: { type: 'object', properties: {} },
   async run(ctx) {
-    const snap = await jobFileSnapshot(ctx.supabase, ctx.orgId, activeJob(ctx))
-    if (!snap) throw new ToolError('Job not found')
-    return snap
+    const r = await jobSnapshotFor(ctx.supabase, ctx.orgId, activeJob(ctx), ctx.role)
+    if (!r) throw new ToolError('Job not found')
+    ctx.snapshot = { at: r.serverTime, hashes: r.hashes }
+    return r.snapshot
+  },
+}
+
+const getJobChangesSince: WsTool = {
+  name: 'get_job_changes_since',
+  description:
+    'Only what changed on this job after a time (ISO, usually the server_time of your last snapshot): job fields, captures, documents, notes, photos, calls, drafts and flags. precision "exact" compares against your stored snapshot; "coarse" means no snapshot was stored and it compared timestamps.',
+  input_schema: { type: 'object', properties: { since: { type: 'string', description: 'ISO date-time' } }, required: ['since'] },
+  async run(ctx, input) {
+    const since = str(input.since)
+    if (!since || Number.isNaN(Date.parse(since))) throw new ToolError('since must be an ISO date-time')
+    const jobId = activeJob(ctx)
+    const [raw, previous, touched] = await Promise.all([
+      loadSnapshotRaw(ctx.supabase, ctx.orgId, jobId),
+      storedSnapshot(ctx.supabase, ctx.orgId, ctx.userId, jobId, since),
+      touchedCapturesSince(ctx.supabase, ctx.orgId, jobId, since),
+    ])
+    if (!raw) throw new ToolError('Job not found')
+    return changesSince({ since: previous?.at ?? since, raw, previous: previous?.hashes ?? null, touchedCaptures: touched, role: ctx.role })
   },
 }
 
@@ -235,7 +241,8 @@ const draftNote: WsTool = {
 
 const draftStatus: WsTool = {
   name: 'draft_status',
-  description: "Draft a change to the open job's pipeline status. Does not notify the client.",
+  description:
+    "Draft a change to the open job's pipeline status. Checks what that status expects on file (quote, acceptance, completion report, statement) and returns warnings you must tell staff; they show on the card too. Marking paid with no Statement of Accounts and no Xero invoice is refused. Does not notify the client.",
   input_schema: {
     type: 'object',
     properties: { status: { type: 'string', enum: JOB_STATUSES } },
@@ -245,15 +252,32 @@ const draftStatus: WsTool = {
     const jobId = activeJob(ctx)
     const status = str(input.status)
     if (!JOB_STATUSES.includes(status as (typeof JOB_STATUSES)[number])) throw new ToolError('Unknown status')
-    const { data: job } = await ctx.supabase.from('jobs').select('status').eq('id', jobId).eq('org_id', ctx.orgId).maybeSingle()
+    const [jobRes, docsRes, acceptances, xero] = await Promise.all([
+      ctx.supabase.from('jobs').select('status').eq('id', jobId).eq('org_id', ctx.orgId).maybeSingle(),
+      ctx.supabase.from('documents').select('type').eq('job_id', jobId).eq('org_id', ctx.orgId),
+      readAcceptances(ctx.supabase, jobId),
+      readXeroInvoice(ctx.supabase, ctx.orgId, jobId),
+    ])
+    const job = jobRes.data
     if (!job) throw new ToolError('Job not found')
     if (job.status === status) return { skipped: 'already that status' }
+    const check = checkStatus(status as JobStatus, {
+      documentTypes: new Set((docsRes.data ?? []).map(d => d.type as string)),
+      acceptances: acceptances.length,
+      xeroInvoice: Boolean(xero),
+    })
+    if (check.blocked) {
+      blocked({ blocked_action: `draft_status:${status}`, required_permission: 'statement_or_xero_invoice', handled_by: 'staff', message: check.blocked })
+    }
+    const warnings = check.missing.map(m => `No ${m} on file`)
     const id = await upsertDraft(ctx.supabase, {
       orgId: ctx.orgId, jobId, kind: 'status', target_path: 'status', before: job.status, proposed: status,
-      summary: `status: ${job.status} → ${status}`, createdBy: 'file_agent',
+      summary: `status: ${job.status} → ${status}${warnings.length ? ` · ⚠ ${warnings.join('; ')}` : ''}`, createdBy: 'file_agent',
     })
     ctx.draftIds.push(id)
-    return { draft_id: id, note: 'Pending staff approval.' }
+    return warnings.length
+      ? { draft_id: id, warnings, must_tell_staff: 'Tell staff these warnings plainly; they decide whether to approve.' }
+      : { draft_id: id, note: 'Pending staff approval.' }
   },
 }
 
@@ -324,30 +348,43 @@ const getXeroInvoice: WsTool = {
   run: async ctx => (await readXeroInvoice(ctx.supabase, ctx.orgId, activeJob(ctx))) ?? { invoice: null, note: 'No Xero invoice for this job yet.' },
 }
 
-export async function loadJobHealth(supabase: Supabase, orgId: string, jobId: string) {
-  const [jobRes, docsRes, acceptances] = await Promise.all([
-    supabase.from('jobs').select('status, assessment_data').eq('id', jobId).eq('org_id', orgId).maybeSingle(),
-    supabase.from('documents').select('id, type, content, created_at').eq('job_id', jobId).eq('org_id', orgId),
-    readAcceptances(supabase, jobId),
-  ])
-  if (!jobRes.data) return null
-  return jobHealth({
-    status: jobRes.data.status as string,
-    assessment: (jobRes.data.assessment_data ?? null) as AssessmentData | null,
-    documents: (docsRes.data ?? []) as { id: string; type: string; content: unknown; created_at: string }[],
-    acceptances,
-  })
-}
-
 const getJobHealth: WsTool = {
   name: 'get_job_health',
   description:
-    'What on this job is missing, out of date or needs action: captures not generated, statement quantities behind the survey/CDR, CDR volume vs the clearance quote estimate, quotes edited after the client accepted. Each issue names the document sub-agent that can fix it.',
+    'What on this job is missing, incomplete, out of date or in conflict: captures missing required fields, documents expected for the current status, what blocks the next status, captures not generated, statement quantities behind the survey/CDR, CDR volume vs the clearance estimate, quotes edited after acceptance, duplicate references or two of a one-per-job document. Each issue names the document agent that can fix it. New conflicts are flagged on the job automatically.',
   input_schema: { type: 'object', properties: {} },
   async run(ctx) {
-    const issues = await loadJobHealth(ctx.supabase, ctx.orgId, activeJob(ctx))
-    if (!issues) throw new ToolError('Job not found')
-    return { issues }
+    const r = await jobSnapshotFor(ctx.supabase, ctx.orgId, activeJob(ctx), ctx.role)
+    if (!r) throw new ToolError('Job not found')
+    return { status: r.snapshot.job.status, issues: r.snapshot.health, conflicts: r.snapshot.conflicts, open_flags: r.snapshot.flags }
+  },
+}
+
+const draftStaffFlag: WsTool = {
+  name: 'draft_staff_flag',
+  description:
+    'Draft a flag to pin at the top of this job for staff (info, warning or urgent) until someone resolves it. Staff approve the card first. Use for things staff must not miss; keep it to one short sentence.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      severity: { type: 'string', enum: [...FLAG_SEVERITIES] },
+      message: { type: 'string' },
+    },
+    required: ['severity', 'message'],
+  },
+  async run(ctx, input) {
+    const jobId = activeJob(ctx)
+    const severity = str(input.severity)
+    const message = str(input.message)
+    if (!isFlagSeverity(severity)) throw new ToolError('severity must be info, warning or urgent')
+    if (!message) throw new ToolError('Flag needs a message')
+    if (message.length > 300) throw new ToolError('Keep the flag under 300 characters')
+    const id = await upsertDraft(ctx.supabase, {
+      orgId: ctx.orgId, jobId, kind: 'flag', target_path: `flag:${hashOf(message)}`, before: null, proposed: { severity, message },
+      summary: `Pin ${severity} flag: "${message}"`, createdBy: 'file_agent',
+    })
+    ctx.draftIds.push(id)
+    return { draft_id: id, note: 'Pinned on the job once staff approve.' }
   },
 }
 
@@ -447,7 +484,8 @@ const draftPhotoChanges: WsTool = {
 }
 
 export const FILE_TOOLS: WsTool[] = [
-  getJobFile,
+  getJobSnapshot,
+  getJobChangesSince,
   getJobHealth,
   getCapture,
   getSurveyAndDisposal,
@@ -461,6 +499,7 @@ export const FILE_TOOLS: WsTool[] = [
   draftNote,
   draftStatus,
   draftPhotoChanges,
+  draftStaffFlag,
   delegateToDocumentAgent,
   staffOnly,
 ]
@@ -654,8 +693,8 @@ const COMMON_RULES = `- You cannot email, SMS or otherwise contact clients. Staf
 - Lines starting with [Log] are things staff did (edits, approvals). They are context, not requests.
 - Australian English. Short, plain replies. No markdown headings.`
 
-function headPrompt(firstName: string) {
-  return `You are the head agent in the Agent workspace of an Australian biohazard remediation company. You talk with ${firstName || 'a staff member'} across all jobs. Today is ${today()}.
+function headPrompt(firstName: string, role: string | null) {
+  return `You are the head agent in the Agent workspace of an Australian biohazard remediation company. You talk with ${staffLine(firstName, role)} across all jobs. Today is ${today()}.
 
 RULES:
 - You never change an existing job. You find, summarise and route; the job's file agent makes changes.
@@ -668,31 +707,56 @@ RULES:
 ${COMMON_RULES}`
 }
 
-function filePrompt(firstName: string, snapshot: unknown, jobCode: string | null) {
+type FileContext =
+  | { kind: 'full'; snapshot: JobSnapshot }
+  | { kind: 'diff'; header: ReturnType<typeof compactSnapshot>; changes: ReturnType<typeof changesSince> }
+
+function staffLine(firstName: string, role: string | null): string {
+  const name = firstName || 'a staff member'
+  return role ? `${name} (${role.replace(/_/g, ' ')})` : name
+}
+
+function roleRules(role: string | null): string {
+  if (seesFinancials(role)) return `- ${role ? `As ${role.replace(/_/g, ' ')}, they` : 'They'} see prices, totals and invoices.`
+  return '- They are a team lead: put site, schedule, crew and safety first. Do not state dollar figures (prices, totals, invoice amounts, deposits) — your file leaves them out. If they ask for one, say an admin or manager can see it in the job file.'
+}
+
+function filePrompt(firstName: string, role: string | null, file: FileContext, jobCode: string | null) {
   const agents = DOC_AGENT_TYPES.map(t => `${t} = ${DOC_AGENTS[t].docLabel} (${DOC_AGENTS[t].label})`).join('; ')
-  return `You are the file agent for job ${jobCode ? `#${jobCode}` : ''} in the Agent workspace of an Australian biohazard remediation company. You work on this one job only, with ${firstName || 'a staff member'}. Today is ${today()}.
+  const fileText = file.kind === 'full'
+    ? `FIRST LOOK AT THIS JOB IN THIS CONVERSATION. Start your reply with any health warnings, conflicts or open flags below in a line or two (skip info items unless relevant), then deal with what was asked.
+
+JOB SNAPSHOT (server_time ${file.snapshot.server_time}):
+${JSON.stringify(file.snapshot)}`
+    : `You have seen this job before in this conversation. Below is a short header and ONLY what changed since your last look (${file.changes.since}). Mention changes that matter to the request. For anything else call get_job_snapshot, get_capture or get_document.
+
+HEADER: ${JSON.stringify(file.header)}
+
+CHANGES SINCE ${file.changes.since}: ${JSON.stringify(file.changes)}`
+  return `You are the file agent for job ${jobCode ? `#${jobCode}` : ''} in the Agent workspace of an Australian biohazard remediation company. You work on this one job only, with ${staffLine(firstName, role)}. Today is ${today()}.
 
 YOUR JOB: know this file, answer questions about it, spot what is missing, out of date or needs action, make job-level changes, and hand document work to the right document agent.
 
-READ: everything. Job details (below and get_job_file), get_job_health (what is missing or out of date, and which document agent fixes it), every capture in full (get_capture), survey/CDR/statement figures (get_survey_and_disposal), saved documents with prices (list_job_documents, get_document), calls and enquiries (get_job_calls), progress notes (get_progress_notes), photos (list_job_photos), Xero status (get_xero_invoice, read only).
+READ: get_job_snapshot (the whole file at once), get_job_changes_since (only what changed after a time), get_job_health (missing, incomplete, expected for the status, blocking the next status, conflicts), get_capture and get_document for one item in full, get_survey_and_disposal, list_job_documents, get_job_calls, get_progress_notes, list_job_photos, get_xero_invoice (read only).
 
-WRITE (job level, as drafts staff approve): job fields (draft_field_changes), status (draft_status), progress notes (draft_note), photo caption/area/category/phase/report inclusion (draft_photo_changes).
+WRITE (job level, as drafts staff approve): job fields (draft_field_changes), status (draft_status), progress notes (draft_note), photo caption/area/category/phase/report inclusion (draft_photo_changes), and flags pinned on the job (draft_staff_flag).
 
-DOCUMENTS: you do not edit documents yourself. For any change to a quote, survey, CDR, statement or completion report — filling it, correcting it, starting it, or generating the document — call delegate_to_document_agent with the doc_type and a plain instruction including any exact figures the staff member gave. Document agents: ${agents}. Each drafts only its own document and reports back; its cards appear under its own line ("File agent > Statement agent"). Then tell staff in one or two sentences what it drafted, anything it needs from them (needs_from_staff), and its warnings. If it hit errors, say so plainly. Several documents → one call each.
+DOCUMENTS: you do not edit documents yourself. For any change to a quote, survey, CDR, statement or completion report — filling it, correcting it, starting it, or generating it — call delegate_to_document_agent with the doc_type and a plain instruction including any exact figures the staff member gave. Document agents: ${agents}. Each drafts only its own document, checks its changes the same way approval does, and reports back; its cards appear under its own line ("File agent > Statement agent"). Then tell staff in one or two sentences what it drafted, anything it needs from them (needs_from_staff), and its warnings. If it hit errors, say so plainly. Several documents → one call each.
 
-WHAT NOBODY HERE DOES (no tools for it): send email or SMS, release documents to the client portal, share links, send payment reminders, trigger or change Xero, delete anything. If asked, call staff_only_action and pass on who does it. A generated document is only saved to the job.
+WHAT NOBODY HERE DOES (no tools for it): send email or SMS, release documents to the client portal, share links, send payment reminders, trigger or change Xero, delete anything. If asked, call staff_only_action and pass on who does it. If a tool result is {blocked_action, required_permission, handled_by, message}, tell staff the message and who handles it.
 
 RULES:
 - Every write is a draft staff approve on screen; nothing changes until they do. Call the draft tools directly; do not ask "shall I?" first.
-- At the start of a conversation on this job (or after a handover), call get_job_health and mention any warnings briefly, then deal with what was asked.
+- draft_status returns warnings when the job lacks what that status expects. Always tell staff those warnings.
+- Conflicts (same reference on two documents, two of a one-per-job document) are flagged on the job automatically; mention them and suggest which to keep, but do not delete.
 - Only draft what the staff member asked for or what clearly follows. Never invent names, numbers, emails, addresses or prices. If something is unclear (two addresses, which room), ask.
 - Dollar amounts only when the staff member gives or explicitly asks for them; pass them to the document agent exactly.
+${roleRules(role)}
 - If a [Log] line shows a staff edit that makes a pending draft or a document out of date, mention it briefly and offer to update it.
 - The job description is neutral and factual.
 ${COMMON_RULES}
 
-JOB FILE (as of this message):
-${JSON.stringify(snapshot)}`
+${fileText}`
 }
 
 async function loadRows(supabase: Supabase, orgId: string, filter: { threadId?: string; jobId?: string | null }): Promise<ChatRow[]> {
@@ -716,6 +780,8 @@ export interface ChatTurnInput {
   apiKey: string
   text: string
   activeJobId: string | null
+  /** org_users.role. Members (technicians) never reach the workspace. */
+  role: string | null
 }
 
 /** One staff message in, saved agent replies out. Returns the job now in focus. */
@@ -750,13 +816,13 @@ export async function handleChatTurn(input: ChatTurnInput): Promise<{ active_job
   await postMessage(supabase, { org_id: orgId, thread_id: userId, job_id: jobId, speaker: 'user', author: firstName, content: { text } })
 
   const anthropic = new Anthropic({ apiKey: input.apiKey })
-  const base: WsContext = { userId, orgId, supabase, staffFirstName: firstName, jobId, draftIds: [], handover: null }
+  const base: WsContext = { userId, orgId, supabase, staffFirstName: firstName, jobId, draftIds: [], handover: null, role: input.role }
 
   if (!jobId) {
     const rows = await loadRows(supabase, orgId, { threadId: userId, jobId: null })
     const messages = rebuildHistory(rows)
     if (!messages.length) return { active_job_id: null }
-    const reply = await runLoop(anthropic, headPrompt(firstName), HEAD_TOOLS, messages, base, { maxSteps: MAX_STEPS, stopWhen: () => base.handover !== null })
+    const reply = await runLoop(anthropic, headPrompt(firstName, input.role), HEAD_TOOLS, messages, base, { maxSteps: MAX_STEPS, stopWhen: () => base.handover !== null })
     const h = base.handover as WsContext['handover']
     const draftIds = [...new Set(base.draftIds)]
     const messageId = await postMessage(supabase, {
@@ -779,15 +845,40 @@ export async function handleChatTurn(input: ChatTurnInput): Promise<{ active_job
   return { active_job_id: jobId }
 }
 
+/** Small always-present header for turns that get a diff instead of the whole file. */
+function compactSnapshot(snap: JobSnapshot) {
+  return {
+    server_time: snap.server_time,
+    job: snap.job,
+    captures_on_file: Object.keys(snap.captures),
+    documents: snap.documents.map(d => ({ id: d.id, type: d.type, reference: d.reference, created_at: d.created_at, released_to_portal_at: d.released_to_portal_at })),
+    pending_drafts: snap.pending_drafts,
+    flags: snap.flags,
+    health: snap.health,
+  }
+}
+
 async function runFileAgent(anthropic: Anthropic, ctx: WsContext, handoverText: string | null) {
   const jobId = ctx.jobId as string
   const { supabase, orgId, userId } = ctx
-  const snapshot = await jobFileSnapshot(supabase, orgId, jobId)
-  if (!snapshot) {
+  const [current, previous] = await Promise.all([
+    jobSnapshotFor(supabase, orgId, jobId, ctx.role),
+    handoverText ? Promise.resolve(null) : storedSnapshot(supabase, orgId, userId, jobId),
+  ])
+  if (!current) {
     await postMessage(supabase, { org_id: orgId, thread_id: userId, job_id: jobId, speaker: 'file_agent', content: { text: 'I cannot find that job.' } })
     return
   }
   ctx.anthropic = anthropic
+  ctx.snapshot = { at: current.serverTime, hashes: current.hashes }
+  let fileContext: FileContext
+  if (previous) {
+    const touched = await touchedCapturesSince(supabase, orgId, jobId, previous.at)
+    const diff = changesSince({ since: previous.at, raw: current.raw, previous: previous.hashes, touchedCaptures: touched, role: ctx.role, serverTime: current.serverTime })
+    fileContext = { kind: 'diff', header: compactSnapshot(current.snapshot), changes: diff }
+  } else {
+    fileContext = { kind: 'full', snapshot: current.snapshot }
+  }
   const rows = await loadRows(supabase, orgId, { jobId })
   if (handoverText) {
     rows.push({
@@ -797,12 +888,16 @@ async function runFileAgent(anthropic: Anthropic, ctx: WsContext, handoverText: 
   }
   const messages = rebuildHistory(rows)
   if (!messages.length) return
-  const jobCode = (snapshot.job as { job_code?: string | null }).job_code ?? null
-  const reply = await runLoop(anthropic, filePrompt(ctx.staffFirstName, snapshot, jobCode), FILE_TOOLS, messages, ctx, { maxSteps: MAX_STEPS })
+  const jobCode = (current.snapshot.job.job_code as string | null) ?? null
+  const reply = await runLoop(anthropic, filePrompt(ctx.staffFirstName, ctx.role, fileContext, jobCode), FILE_TOOLS, messages, ctx, { maxSteps: MAX_STEPS })
   const draftIds = [...new Set(ctx.draftIds)]
   const messageId = await postMessage(supabase, {
     org_id: orgId, thread_id: userId, job_id: jobId, speaker: 'file_agent',
-    content: { text: reply || (draftIds.length ? 'Drafted. Check the changes below.' : 'Done.'), ...(draftIds.length ? { draft_ids: draftIds } : {}) },
+    content: {
+      text: reply || (draftIds.length ? 'Drafted. Check the changes below.' : 'Done.'),
+      ...(draftIds.length ? { draft_ids: draftIds } : {}),
+      snapshot: ctx.snapshot,
+    },
   })
   if (messageId && draftIds.length) {
     await supabase.from('agent_drafts').update({ message_id: messageId }).in('id', draftIds).eq('org_id', orgId)
@@ -811,6 +906,15 @@ async function runFileAgent(anthropic: Anthropic, ctx: WsContext, handoverText: 
 }
 
 // ── Chat view ─────────────────────────────────────────────────────────────────
+
+/** Snapshot hashes on file agent lines are for the agent only; keep them out of the browser. */
+function withoutSnapshot(r: ChatRow): ChatRow {
+  const c = r.content as (ChatRow['content'] & { snapshot?: unknown }) | null
+  if (!c?.snapshot) return r
+  const { snapshot: _omit, ...rest } = c
+  void _omit
+  return { ...r, content: rest }
+}
 
 export interface ChatView {
   rows: ChatRow[]
@@ -845,6 +949,7 @@ export async function loadChatView(supabase: Supabase, orgId: string, userId: st
   const rows = [...((threadRes.data ?? []) as ChatRow[]), ...((jobRes?.data ?? []) as ChatRow[])]
     .filter(r => (seen.has(r.id) ? false : (seen.add(r.id), true)))
     .sort((a, b) => a.created_at.localeCompare(b.created_at))
+    .map(withoutSnapshot)
 
   const draftIds = [...new Set(rows.flatMap(r => r.content?.draft_ids ?? []))]
   const [referenced, pending] = await Promise.all([

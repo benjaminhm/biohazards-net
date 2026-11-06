@@ -67,8 +67,12 @@ export interface DocAgentDef {
   /** Document-specific rules, for its prompt. */
   rules: string
   generateNeeds: GenerateNeed[]
-  /** Rejects a patch to its capture before drafting. Null when fine. */
+  /** Rejects a patch to its capture before drafting and on approval. Null when fine. */
   patchProblem?: (patch: unknown) => string | null
+  /** At most one saved document of this type per job (more is a conflict). */
+  unique?: boolean
+  /** Capture paths that must be filled before the document is complete (job health). */
+  requiredFields?: string[]
   /** Same compose and checks as staff pressing Generate. Pure. */
   generate: (inputs: GenerateInputs) => GenerateCheck
   extraTools?: (api: SubAgentApi) => AgentTool<unknown>[]

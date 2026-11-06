@@ -56,6 +56,7 @@ export async function POST(req: Request) {
       apiKey,
       text,
       activeJobId,
+      role: g.role,
     })
     const view = await loadChatView(g.supabase, g.orgId, g.userId, active_job_id)
     return NextResponse.json({ active_job_id, ...view })

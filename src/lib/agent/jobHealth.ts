@@ -5,8 +5,11 @@
  * is saved (pure, no database). The file agent reads this to know what to
  * raise with staff and which document sub-agent to hand work to.
  */
-import type { AssessmentData } from '@/lib/types'
+import type { AssessmentData, JobStatus } from '@/lib/types'
 import { buildStatementDraft, cdrVolumeM3 } from './statementDraft'
+import { documentConflicts } from './conflicts'
+import { getPath, isEmptyLeaf } from './patchDraft'
+import { checkStatus, nextStatus } from './statusRules'
 import { DOC_AGENTS } from './subagents/registry'
 import type { DocAgentType } from './subagents/types'
 
@@ -38,6 +41,7 @@ export interface HealthInput {
   assessment: AssessmentData | null
   documents: HealthDocument[]
   acceptances: HealthAcceptance[]
+  xeroInvoice?: boolean
 }
 
 function num(v: unknown): number | null {
@@ -112,12 +116,58 @@ function editedAfterAcceptance(docs: HealthDocument[], acceptances: HealthAccept
   return out
 }
 
+/** Started captures missing the fields the registry marks required. */
+function incompleteCaptures(ad: Record<string, unknown>): HealthIssue[] {
+  const out: HealthIssue[] = []
+  for (const def of Object.values(DOC_AGENTS)) {
+    const cap = ad[def.captureKey]
+    if (cap == null || !def.requiredFields?.length) continue
+    const missing = def.requiredFields.filter(f => isEmptyLeaf(getPath(cap, f)))
+    if (!missing.length) continue
+    out.push({
+      code: `incomplete:${def.type}`,
+      severity: 'info',
+      message: `${def.docLabel} is missing ${missing.map(f => f.replace(/_/g, ' ')).join(', ')}.`,
+      doc_agent: def.type,
+    })
+  }
+  return out
+}
+
+function statusIssues(input: HealthInput): HealthIssue[] {
+  const facts = {
+    documentTypes: new Set(input.documents.map(d => d.type)),
+    acceptances: input.acceptances.length,
+    xeroInvoice: Boolean(input.xeroInvoice),
+  }
+  const out: HealthIssue[] = []
+  const now = checkStatus(input.status as JobStatus, facts)
+  if (now.missing.length) {
+    out.push({ code: `status_expects:${input.status}`, severity: 'warning', message: `Status is ${input.status.replace(/_/g, ' ')} but there is no ${now.missing.join(', no ')} on file.` })
+  }
+  const next = nextStatus(input.status)
+  if (next) {
+    const ahead = checkStatus(next, facts)
+    const extra = ahead.missing.filter(m => !now.missing.includes(m))
+    if (ahead.blocked) out.push({ code: `blocks_next:${next}`, severity: 'info', message: `Before ${next.replace(/_/g, ' ')}: ${ahead.blocked}` })
+    else if (extra.length) out.push({ code: `blocks_next:${next}`, severity: 'info', message: `Before ${next.replace(/_/g, ' ')}: needs ${extra.join(', ')}.` })
+  }
+  return out
+}
+
+function conflictIssues(docs: HealthDocument[]): HealthIssue[] {
+  return documentConflicts(docs).map(c => ({ code: `conflict:${c.code}`, severity: 'warning' as const, message: c.message }))
+}
+
 export function jobHealth(input: HealthInput): HealthIssue[] {
   const ad = (input.assessment ?? {}) as Record<string, unknown>
   return [
+    ...conflictIssues(input.documents),
+    ...statusIssues(input),
     ...editedAfterAcceptance(input.documents, input.acceptances),
     ...statementChecks(input.assessment),
     ...cdrVsClearanceQuote(input.assessment),
+    ...incompleteCaptures(ad),
     ...capturedNotGenerated(ad, input.documents),
   ]
 }

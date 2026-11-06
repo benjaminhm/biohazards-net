@@ -16,6 +16,7 @@ import DocumentsTab from '@/components/tabs/DocumentsTab'
 import PhotosTab from '@/components/tabs/PhotosTab'
 import ProgressNotesTab from '@/components/tabs/ProgressNotesTab'
 import DraftList, { type DraftView } from './DraftList'
+import JobFlags from './JobFlags'
 import { STATUS_LABELS } from './JobListPanel'
 
 type Tab = 'details' | 'documents' | 'photos' | 'calls' | 'notes'
@@ -109,6 +110,9 @@ export default function JobPanel({
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: 14 }}>
+        <div style={{ marginBottom: 10 }}>
+          <JobFlags jobId={job.id} reloadKey={version} compact />
+        </div>
         {pending.length > 0 && (
           <div style={{ marginBottom: 14 }}>
             <DraftList drafts={pending} onDecided={onDraftsDecided} />

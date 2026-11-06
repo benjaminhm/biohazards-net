@@ -23,6 +23,7 @@ export const biohazardCleaningQuoteAgent: DocAgentDef = {
 - Use the assessment, survey and calls for wording and m² only; neutral, factual words.
 - Generating needs labour_days, and the quote check must pass (scope stages, assessed areas and hazards covered, required fields). draft_generate tells you what fails; staff can accept flags from the quote tab themselves.
 - Never touch check_override.`,
+  requiredFields: ['labour_days'],
   generateNeeds: ['company'],
   patchProblem: patch => (patch && typeof patch === 'object' && 'check_override' in patch ? 'check_override is set by staff in the quote tab.' : null),
   generate: inputs => {
