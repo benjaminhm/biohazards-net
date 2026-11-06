@@ -11,6 +11,7 @@ import { useState } from 'react'
 import { isOverwrite } from '@/lib/agent/workspaceText'
 import { parseTarget, patchLines } from '@/lib/agent/patchDraft'
 import { newJobLines, type NewJobProposal, type PossibleDuplicate } from '@/lib/agent/newJobDraft'
+import { draftedByLabel } from '@/lib/agent/subagents/labels'
 
 export interface DraftView {
   id: string
@@ -21,6 +22,7 @@ export interface DraftView {
   proposed: unknown
   summary: string
   status: 'pending' | 'approved' | 'rejected' | 'stale'
+  created_by?: string
 }
 
 const STATUS_TEXT: Record<DraftView['status'], string> = {
@@ -123,6 +125,9 @@ export default function DraftList({
             onClick={() => onFocus?.(d)}
             style={{ flex: 1, textAlign: 'left', background: 'none', border: 'none', padding: 0, color: 'var(--text)', fontSize: 13, cursor: onFocus ? 'pointer' : 'default', opacity: d.status === 'pending' ? 1 : 0.55 }}
           >
+            {draftedByLabel(d.created_by) && (
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 2 }}>{draftedByLabel(d.created_by)}</div>
+            )}
             {d.summary}
             {d.status === 'pending' && d.kind === 'field' && isOverwrite(d.before) && (
               <span style={warnStyle}>⚠ changes what&apos;s on file</span>

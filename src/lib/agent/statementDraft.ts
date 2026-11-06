@@ -9,7 +9,7 @@
  * are the only quantity fields the statement has: the invoice 2 breakdown
  * (skips, trailers, utes, tip receipts, prepaid) is dollars. CDR facts with no
  * home on the statement are reported back instead. Dollar fields are only
- * drafted when staff ask for them, through draft_capture_patch.
+ * drafted when staff ask for them, as a patch from the Statement agent.
  */
 import type { AssessmentData } from '@/lib/types'
 import {
@@ -98,7 +98,7 @@ export function cdrDollarFigures(ad: AssessmentData | null | undefined) {
 }
 
 /**
- * Checks a draft_capture_patch on statement_of_accounts: known fields only,
+ * Checks a patch on statement_of_accounts: known fields only,
  * dollar fields as plain numbers (manual_adjustment may be negative), flags as
  * true/false, invoice numbers, links and reasons as text. Null when it is fine.
  */
@@ -194,6 +194,6 @@ export function surveyAndDisposalSummary(ad: AssessmentData | null | undefined) 
           manual_adjustment: s.manual_adjustment,
         }
       : { started: false },
-    note: 'draft_statement fills survey_areas and invoice2_m3, the only quantity fields on the statement. not_on_statement has no statement field. Every other statement field is dollars or text: draft them with draft_capture_patch only with values the staff member states or tells you to take from dollar_figures_staff_can_use.',
+    note: 'survey_areas and invoice2_m3 are the only quantity fields on the statement (the Statement agent fills them from the survey and CDR). not_on_statement has no statement field. Every other statement field is dollars or text, drafted only with values the staff member states or tells you to take from dollar_figures_staff_can_use.',
   }
 }

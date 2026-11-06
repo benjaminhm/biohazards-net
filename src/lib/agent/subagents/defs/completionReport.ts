@@ -1,0 +1,28 @@
+import { completionReportCaptureHasContent, mergedCompletionReportCapture } from '@/lib/completionReportCapture'
+import { compose } from '../common'
+import { DOC_AGENT_LABEL } from '../labels'
+import type { DocAgentDef } from '../types'
+
+export const completionReportAgent: DocAgentDef = {
+  type: 'completion_report',
+  label: DOC_AGENT_LABEL.completion_report.agent,
+  docLabel: DOC_AGENT_LABEL.completion_report.doc,
+  captureKey: 'completion_report_capture',
+  documentType: 'report',
+  readCaptures: ['sow_capture', 'areas', 'biohazard_cleaning_quote', 'surface_area_cleaning_quote', 'contents_clearance_quote', 'post_remediation_evaluations', 'pre_multi_part', 'disposal_manifest_capture'],
+  readDocumentTypes: ['sow', 'biohazard_cleaning_quote', 'surface_area_cleaning_quote', 'contents_clearance_quote', 'quote', 'waste_disposal_manifest'],
+  extraReads: ['progress_notes', 'photos'],
+  shape: `completion_report_capture (all text): executive_summary, site_conditions, works_carried_out, methodology, products_used, waste_disposal, photo_record, outcome, technician_signoff.`,
+  rules: `- Write from the progress notes, scope of work, quotes, PRE and CDR only. Neutral, factual, client-facing. No made-up products, volumes or dates.
+- photo_record describes the photo set in plain words; no app metadata (categories, ids, upload times).
+- Generating needs something in the report capture. The document is composed with the job's report photos and notes.`,
+  generateNeeds: ['company', 'report_media'],
+  generate: inputs => {
+    if (!completionReportCaptureHasContent(mergedCompletionReportCapture(inputs.job.assessment_data))) {
+      return { ok: false, reason: 'The completion report has nothing written yet.' }
+    }
+    return compose('report', inputs, {
+      report: { photos: inputs.photos, progressNotes: inputs.progressNotes, progressRoomNotes: inputs.progressRoomNotes },
+    })
+  },
+}

@@ -16,7 +16,7 @@ import { getAnthropicApiKey } from '@/lib/loadAnthropicEnvFallback'
 import { getStaffFirstName } from '@/lib/clerkDisplayName'
 import { handleChatTurn, loadChatView, markJobRead } from '@/lib/agent/workspaceAgent'
 
-export const maxDuration = 120
+export const maxDuration = 300
 
 const UUID = /^[0-9a-f-]{36}$/i
 

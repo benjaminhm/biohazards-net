@@ -24,7 +24,7 @@ export interface ChatRow {
  * editable column except identity and tenancy (id, org_id, job_code,
  * inbound_email_token, created_at, updated_at, archived_*, client_account_id,
  * trading_name). status has its own draft; assessment_data is drafted per
- * capture with draft_capture_patch.
+ * capture by the document sub-agents (lib/agent/subagents).
  */
 export const DRAFTABLE_FIELDS = {
   client_name: 'client name',
@@ -134,7 +134,9 @@ export function rebuildHistory(rows: ChatRow[]): Anthropic.MessageParam[] {
     const role = r.speaker === 'head_agent' || r.speaker === 'file_agent' ? 'assistant' : 'user'
     const line = r.speaker === 'system'
       ? `[${LABEL.system}${r.author ? ` · ${r.author}` : ''}] ${text}`
-      : text
+      : r.speaker === 'file_agent' && r.author?.startsWith('File agent >')
+        ? `[${r.author}] ${text}`
+        : text
     const prev = turns[turns.length - 1]
     if (prev && prev.role === role) prev.text = `${prev.text}\n\n${line}`
     else turns.push({ role, text: line })

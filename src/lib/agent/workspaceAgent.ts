@@ -6,33 +6,31 @@
  *   Head agent — sees every job, never changes one. Answers cross-job
  *   questions ("what needs me?"), hands a job over to its file agent with
  *   open_job and a short brief, and can propose a new empty job (Create card).
- *   File agent — one job only. Reads the job file and records proposals as
- *   agent_drafts; staff approve them on screen.
+ *   File agent — one job only. Reads everything on the job, works out what is
+ *   missing or out of date, drafts job-level changes (fields, notes, status,
+ *   photos) and hands document work to a per-document sub-agent
+ *   (lib/agent/subagents) with delegate_to_document_agent. Every write is an
+ *   agent_draft staff approve on screen.
  *
  * Chat is saved one visible line per row (agent_messages). Tool calls only live
  * inside a single request. No tool contacts clients
  * (docs/ai-product-principles.md).
  */
 import Anthropic from '@anthropic-ai/sdk'
-import { CLAUDE_SONNET_MODEL } from '@/lib/anthropicModels'
 import type { createServiceClient } from '@/lib/supabase'
 import { getAgentTool, type AgentContext } from '@/lib/agent/tools'
 import {
   JOB_STATUSES,
   QUOTE_DOC_KEYS,
   QUOTE_DOC_LABELS,
-  captureLabel,
   createNewJobDraft,
   describeFieldDraft,
   listNewJobDrafts,
-  loadJobAndDocuments,
   upsertPatchDraft,
-  emptyQuoteCapture,
   listPendingDrafts,
   postMessage,
   upsertDraft,
   type DraftRow,
-  type QuoteDocKey,
 } from './drafts'
 import {
   DRAFTABLE_FIELDS,
@@ -43,8 +41,14 @@ import {
   rebuildHistory,
   type ChatRow,
 } from './workspaceText'
-import { buildStatementDraft, statementPatchProblem, surveyAndDisposalSummary } from './statementDraft'
-import { GENERATE_STATEMENT_TARGET, composeStatementForJob } from './statementGenerate'
+import { surveyAndDisposalSummary } from './statementDraft'
+import { runLoop, str, ToolError, type AgentTool, type Input } from './loop'
+import { capped, readAcceptances, readCalls, readDocument, readProgressNotes, readXeroInvoice } from './jobReads'
+import { jobHealth } from './jobHealth'
+import { staffOnlyBlock, STAFF_ONLY_ACTIONS } from './permissions'
+import { DOC_AGENTS } from './subagents/registry'
+import { runDocAgent } from './subagents/runner'
+import { DOC_AGENT_TYPES, isDocAgentType } from './subagents/types'
 import {
   CAPTURE_KEYS,
   PHOTO_FIELDS,
@@ -66,31 +70,19 @@ import {
 import type { AssessmentData } from '@/lib/types'
 
 type Supabase = ReturnType<typeof createServiceClient>
-type Input = Record<string, unknown>
 
 const MAX_STEPS = 10
 const HISTORY_ROWS = 40
 const JOB_FIELDS = `id, job_code, status, ${Object.keys(DRAFTABLE_FIELDS).join(', ')}, assessment_data`
-const READ_CAP = 60_000
 
 export interface WsContext extends AgentContext {
   jobId: string | null
   draftIds: string[]
   handover: { job_id: string; job_code: string | null; brief: string } | null
+  anthropic?: Anthropic
 }
 
-interface WsTool {
-  name: string
-  description: string
-  input_schema: Anthropic.Tool.InputSchema
-  run: (ctx: WsContext, input: Input) => Promise<unknown>
-}
-
-class ToolError extends Error {}
-
-function str(v: unknown): string {
-  return typeof v === 'string' ? v.trim() : ''
-}
+type WsTool = AgentTool<WsContext>
 
 function reuse(name: string): WsTool {
   const t = getAgentTool(name)
@@ -265,39 +257,6 @@ const draftStatus: WsTool = {
   },
 }
 
-const draftDocument: WsTool = {
-  name: 'draft_document',
-  description:
-    'Start a quote on the open job (Biohazard Cleaning, Contents Clearance or Surface Area Cleaning) with wording only and every price blank. Only when that quote is not already started. Staff price and send it themselves.',
-  input_schema: {
-    type: 'object',
-    properties: {
-      quote_type: { type: 'string', enum: [...QUOTE_DOC_KEYS] },
-      description: { type: 'string', description: 'What needs doing, in neutral words from the staff member. Used as the BCQ description or SACQ scope of work.' },
-      estimated_m3: { type: 'number', description: 'Contents Clearance only: estimated cubic metres if the staff member gave one.' },
-    },
-    required: ['quote_type'],
-  },
-  async run(ctx, input) {
-    const jobId = activeJob(ctx)
-    const key = str(input.quote_type) as QuoteDocKey
-    if (!QUOTE_DOC_KEYS.includes(key)) throw new ToolError('Unknown quote type')
-    const { data: job } = await ctx.supabase.from('jobs').select('assessment_data').eq('id', jobId).eq('org_id', ctx.orgId).maybeSingle()
-    if (!job) throw new ToolError('Job not found')
-    if (((job.assessment_data ?? {}) as Record<string, unknown>)[key] != null) {
-      throw new ToolError(`A ${QUOTE_DOC_LABELS[key]} is already started on this job. Staff can edit it in the job file.`)
-    }
-    const m3 = typeof input.estimated_m3 === 'number' && input.estimated_m3 > 0 ? input.estimated_m3 : null
-    const capture = emptyQuoteCapture(key, { description: str(input.description), estimated_m3: m3 })
-    const id = await upsertDraft(ctx.supabase, {
-      orgId: ctx.orgId, jobId, kind: 'document', target_path: key, before: null, proposed: capture,
-      summary: `New ${QUOTE_DOC_LABELS[key]} draft (prices blank)`, createdBy: 'file_agent',
-    })
-    ctx.draftIds.push(id)
-    return { draft_id: id, note: 'Pending staff approval. Prices are left for staff.' }
-  },
-}
-
 async function jobAssessment(ctx: WsContext, jobId: string): Promise<AssessmentData | null> {
   const { data: job } = await ctx.supabase.from('jobs').select('assessment_data').eq('id', jobId).eq('org_id', ctx.orgId).maybeSingle()
   if (!job) throw new ToolError('Job not found')
@@ -312,61 +271,6 @@ const getSurveyAndDisposal: WsTool = {
   async run(ctx) {
     return surveyAndDisposalSummary(await jobAssessment(ctx, activeJob(ctx)))
   },
-}
-
-const draftStatement: WsTool = {
-  name: 'draft_statement',
-  description:
-    'Draft the Statement of Accounts quantities from the House Survey and the CDR: survey rooms with m² (and their survey-rate prices) and the CDR cubic metres for invoice 2 — the only quantity fields the statement has. Returns the CDR facts (loads, vehicles, weight, distance) that have no statement field. Never fills dollar amounts. Replaces your earlier statement draft.',
-  input_schema: { type: 'object', properties: {} },
-  async run(ctx) {
-    const jobId = activeJob(ctx)
-    const r = buildStatementDraft(await jobAssessment(ctx, jobId))
-    if (!r.ok) return { skipped: r.reason, cdr_not_on_statement: r.not_on_statement }
-    const id = await upsertPatchDraft(ctx.supabase, {
-      orgId: ctx.orgId, jobId, target_path: TARGET.capture('statement_of_accounts'), label: captureLabel('statement_of_accounts'),
-      draft: { before: r.before, proposed: r.proposed as Record<string, unknown> }, summary: r.summary, createdBy: 'file_agent',
-    })
-    ctx.draftIds.push(id)
-    return {
-      draft_id: id,
-      drafted: r.proposed,
-      cdr_not_on_statement: r.not_on_statement,
-      note: 'Pending staff approval. Survey rooms and CDR m³ are the only quantity fields on the statement. Tell staff which CDR facts have no statement field. Dollar amounts stay with staff unless they give them.',
-    }
-  },
-}
-
-const draftGenerateStatement: WsTool = {
-  name: 'draft_generate_statement',
-  description:
-    'Queue generating the Statement of Accounts document from the statement as saved (the same as staff pressing Generate). Staff approve the card; on approval the same checks run (breakdown lines must add up to the invoice amounts, adjustment reasons present) and the document is saved to the job. It is not sent, shared or released to the client.',
-  input_schema: { type: 'object', properties: {} },
-  async run(ctx) {
-    const jobId = activeJob(ctx)
-    const loaded = await loadJobAndDocuments(ctx.supabase, ctx.orgId, jobId)
-    if (!loaded) throw new ToolError('Job not found')
-    const check = composeStatementForJob(loaded.job, loaded.documents)
-    const pending = await listPendingDrafts(ctx.supabase, ctx.orgId, jobId)
-    const statementChangesWaiting = pending.some(d => d.target_path === TARGET.capture('statement_of_accounts'))
-    if (!check.ok && !statementChangesWaiting) {
-      return { drafted: false, cannot_generate_yet: check.reason }
-    }
-    const id = await upsertDraft(ctx.supabase, {
-      orgId: ctx.orgId, jobId, kind: 'document', target_path: GENERATE_STATEMENT_TARGET,
-      before: null, proposed: { type: 'statement_of_accounts' },
-      summary: 'Generate the Statement of Accounts document (saved to the job, not sent)', createdBy: 'file_agent',
-    })
-    ctx.draftIds.push(id)
-    return check.ok
-      ? { drafted: true, draft_id: id }
-      : { drafted: true, draft_id: id, note: `Approve the pending statement changes first. As saved now it would fail: ${check.reason}` }
-  },
-}
-
-function capped(value: unknown): unknown {
-  const s = JSON.stringify(value ?? null)
-  return s.length <= READ_CAP ? value : { truncated: true, first_part: s.slice(0, READ_CAP) }
 }
 
 const getCapture: WsTool = {
@@ -393,14 +297,9 @@ const getDocument: WsTool = {
   description: 'Read one saved document on the open job in full, including prices. Get ids from list_job_documents.',
   input_schema: { type: 'object', properties: { document_id: { type: 'string' } }, required: ['document_id'] },
   async run(ctx, input) {
-    const { data } = await ctx.supabase
-      .from('documents')
-      .select('id, type, content, created_at, released_to_portal_at')
-      .eq('id', str(input.document_id))
-      .eq('job_id', activeJob(ctx))
-      .maybeSingle()
-    if (!data) throw new ToolError('Document not found on this job')
-    return { ...data, content: capped(data.content) }
+    const doc = await readDocument(ctx.supabase, ctx.orgId, activeJob(ctx), str(input.document_id))
+    if (!doc) throw new ToolError('Document not found on this job')
+    return { ...doc, content: capped(doc.content) }
   },
 }
 
@@ -408,54 +307,91 @@ const getJobCalls: WsTool = {
   name: 'get_job_calls',
   description: 'Read the phone calls and website enquiries filed into the open job: cleaned transcript or enquiry text, and what was extracted.',
   input_schema: { type: 'object', properties: {} },
-  async run(ctx) {
-    const { data } = await ctx.supabase
-      .from('inbound_calls')
-      .select('id, created_at, provider, caller_number, status, transcript_clean, transcript_raw, extraction')
-      .eq('job_id', activeJob(ctx))
-      .eq('org_id', ctx.orgId)
-      .order('created_at', { ascending: false })
-      .limit(10)
-    return {
-      calls: (data ?? []).map(c => ({
-        id: c.id, at: c.created_at, kind: c.provider === 'netlify_form' ? 'website enquiry' : 'phone call',
-        from: c.caller_number, status: c.status,
-        transcript: String(c.transcript_clean ?? c.transcript_raw ?? '').slice(0, 20_000),
-        extraction: c.extraction,
-      })),
-    }
-  },
+  run: async ctx => ({ calls: await readCalls(ctx.supabase, ctx.orgId, activeJob(ctx)) }),
 }
 
 const getProgressNotes: WsTool = {
   name: 'get_progress_notes',
   description: 'Read every progress note on the open job in full, oldest first.',
   input_schema: { type: 'object', properties: {} },
-  async run(ctx) {
-    const { data } = await ctx.supabase
-      .from('progress_notes')
-      .select('id, room, body, created_by_first_name, created_at')
-      .eq('job_id', activeJob(ctx))
-      .is('deleted_at', null)
-      .order('created_at', { ascending: true })
-      .limit(200)
-    return { notes: data ?? [] }
-  },
+  run: async ctx => ({ notes: await readProgressNotes(ctx.supabase, activeJob(ctx)) }),
 }
 
 const getXeroInvoice: WsTool = {
   name: 'get_xero_invoice',
   description: "Read the open job's Xero invoice status (read only): invoice number, Xero status, total, last sync and any error. You cannot sync or change Xero.",
   input_schema: { type: 'object', properties: {} },
+  run: async ctx => (await readXeroInvoice(ctx.supabase, ctx.orgId, activeJob(ctx))) ?? { invoice: null, note: 'No Xero invoice for this job yet.' },
+}
+
+export async function loadJobHealth(supabase: Supabase, orgId: string, jobId: string) {
+  const [jobRes, docsRes, acceptances] = await Promise.all([
+    supabase.from('jobs').select('status, assessment_data').eq('id', jobId).eq('org_id', orgId).maybeSingle(),
+    supabase.from('documents').select('id, type, content, created_at').eq('job_id', jobId).eq('org_id', orgId),
+    readAcceptances(supabase, jobId),
+  ])
+  if (!jobRes.data) return null
+  return jobHealth({
+    status: jobRes.data.status as string,
+    assessment: (jobRes.data.assessment_data ?? null) as AssessmentData | null,
+    documents: (docsRes.data ?? []) as { id: string; type: string; content: unknown; created_at: string }[],
+    acceptances,
+  })
+}
+
+const getJobHealth: WsTool = {
+  name: 'get_job_health',
+  description:
+    'What on this job is missing, out of date or needs action: captures not generated, statement quantities behind the survey/CDR, CDR volume vs the clearance quote estimate, quotes edited after the client accepted. Each issue names the document sub-agent that can fix it.',
+  input_schema: { type: 'object', properties: {} },
   async run(ctx) {
-    const { data } = await ctx.supabase
-      .from('xero_job_invoices')
-      .select('xero_invoice_number, xero_status, total, document_ids, last_synced_at, last_error')
-      .eq('job_id', activeJob(ctx))
-      .eq('org_id', ctx.orgId)
-      .maybeSingle()
-    return data ?? { invoice: null, note: 'No Xero invoice for this job yet.' }
+    const issues = await loadJobHealth(ctx.supabase, ctx.orgId, activeJob(ctx))
+    if (!issues) throw new ToolError('Job not found')
+    return { issues }
   },
+}
+
+const delegateToDocumentAgent: WsTool = {
+  name: 'delegate_to_document_agent',
+  description: `Hand document work to that document's sub-agent: ${DOC_AGENT_TYPES.map(t => `${t} (${DOC_AGENTS[t].docLabel})`).join(', ')}. It reads its own inputs, drafts changes to that document only (cards staff approve), and can queue generating it after the same checks staff hit. Returns {doc_type, drafts_created, errors, needs_from_staff, warnings, message}. One document per call.`,
+  input_schema: {
+    type: 'object',
+    properties: {
+      doc_type: { type: 'string', enum: [...DOC_AGENT_TYPES] },
+      instruction: { type: 'string', description: 'What to do, in plain words, including any figures the staff member gave (exact values).' },
+      context_notes: { type: 'string', description: 'Anything else it needs from the conversation. Optional.' },
+    },
+    required: ['doc_type', 'instruction'],
+  },
+  async run(ctx, input) {
+    const type = str(input.doc_type)
+    if (!isDocAgentType(type)) throw new ToolError('Unknown document type')
+    if (!ctx.anthropic) throw new ToolError('Document agents are not available right now')
+    const jobId = activeJob(ctx)
+    const report = await runDocAgent(
+      ctx.anthropic,
+      { supabase: ctx.supabase, orgId: ctx.orgId, userId: ctx.userId, jobId, staffFirstName: ctx.staffFirstName },
+      type,
+      str(input.instruction),
+      str(input.context_notes),
+    )
+    const ids = report.drafts_created.map(d => d.id)
+    const messageId = await postMessage(ctx.supabase, {
+      org_id: ctx.orgId, thread_id: ctx.userId, job_id: jobId, speaker: 'file_agent', author: `File agent > ${report.agent}`,
+      content: { text: report.message, ...(ids.length ? { draft_ids: ids } : {}) },
+    })
+    if (messageId && ids.length) {
+      await ctx.supabase.from('agent_drafts').update({ message_id: messageId }).in('id', ids).eq('org_id', ctx.orgId)
+    }
+    return { ...report, note: 'The cards are already shown under the sub-agent line. Summarise in one or two sentences; do not repeat them.' }
+  },
+}
+
+const staffOnly: WsTool = {
+  name: 'staff_only_action',
+  description: `Call this when asked to do something only staff can do (${Object.keys(STAFF_ONLY_ACTIONS).join(', ')}, or anything else that reaches a client). It returns who does it instead; tell the staff member.`,
+  input_schema: { type: 'object', properties: { action: { type: 'string', description: 'e.g. send_email, release_to_portal' } }, required: ['action'] },
+  run: async (_ctx, input) => ({ blocked: staffOnlyBlock(str(input.action) || 'unknown') }),
 }
 
 function patchInput(input: Input): unknown {
@@ -468,71 +404,6 @@ function patchInput(input: Input): unknown {
     }
   }
   return p
-}
-
-const draftCapturePatch: WsTool = {
-  name: 'draft_capture_patch',
-  description:
-    'Draft a change to any capture on the open job (assessment_data.<key>). patch is merged in: nested objects are walked, while arrays, text and numbers replace the value at that path. Read the capture with get_capture first. Ids cannot be changed. Becomes one pending change per capture; a later patch to the same capture adds to it.',
-  input_schema: {
-    type: 'object',
-    properties: {
-      key: { type: 'string', enum: [...CAPTURE_KEYS] },
-      patch: { type: 'object', description: 'Fields to set, e.g. {"invoice1_amount": 1650} or {"objective": "..."}.' },
-    },
-    required: ['key', 'patch'],
-  },
-  async run(ctx, input) {
-    const jobId = activeJob(ctx)
-    const key = str(input.key)
-    if (!isCaptureKey(key)) throw new ToolError('Unknown capture key')
-    const patch = patchInput(input)
-    if (key === 'statement_of_accounts') {
-      const problem = statementPatchProblem(patch)
-      if (problem) throw new ToolError(problem)
-    }
-    const ad = ((await jobAssessment(ctx, jobId)) ?? {}) as Record<string, unknown>
-    const draft = buildPatchDraft(ad[key] ?? null, patch)
-    if (!Object.keys(draft.proposed).length) return { skipped: 'already those values' }
-    const id = await upsertPatchDraft(ctx.supabase, {
-      orgId: ctx.orgId, jobId, target_path: TARGET.capture(key), label: captureLabel(key), draft, createdBy: 'file_agent',
-    })
-    ctx.draftIds.push(id)
-    return { draft_id: id, paths: Object.keys(draft.proposed), note: 'Pending staff approval.' }
-  },
-}
-
-const draftDocumentPatch: WsTool = {
-  name: 'draft_document_patch',
-  description:
-    "Draft a change to a saved document's content on the open job (same merge rules as draft_capture_patch). Read it with get_document first. Staff approve it; it does not release or send the document.",
-  input_schema: {
-    type: 'object',
-    properties: {
-      document_id: { type: 'string' },
-      patch: { type: 'object' },
-    },
-    required: ['document_id', 'patch'],
-  },
-  async run(ctx, input) {
-    const jobId = activeJob(ctx)
-    const { data: doc } = await ctx.supabase
-      .from('documents')
-      .select('id, type, content')
-      .eq('id', str(input.document_id))
-      .eq('job_id', jobId)
-      .maybeSingle()
-    if (!doc) throw new ToolError('Document not found on this job')
-    const draft = buildPatchDraft(doc.content ?? null, patchInput(input))
-    if (!Object.keys(draft.proposed).length) return { skipped: 'already those values' }
-    const c = (doc.content ?? {}) as Record<string, unknown>
-    const label = str(c.reference) || str(c.title) || String(doc.type).replace(/_/g, ' ')
-    const id = await upsertPatchDraft(ctx.supabase, {
-      orgId: ctx.orgId, jobId, target_path: TARGET.doc(doc.id as string), label: `Document ${label}`, draft, createdBy: 'file_agent',
-    })
-    ctx.draftIds.push(id)
-    return { draft_id: id, paths: Object.keys(draft.proposed), note: 'Pending staff approval.' }
-  },
 }
 
 const draftPhotoChanges: WsTool = {
@@ -575,8 +446,9 @@ const draftPhotoChanges: WsTool = {
   },
 }
 
-const FILE_TOOLS: WsTool[] = [
+export const FILE_TOOLS: WsTool[] = [
   getJobFile,
+  getJobHealth,
   getCapture,
   getSurveyAndDisposal,
   reuse('list_job_documents'),
@@ -588,12 +460,9 @@ const FILE_TOOLS: WsTool[] = [
   draftFieldChanges,
   draftNote,
   draftStatus,
-  draftDocument,
-  draftStatement,
-  draftGenerateStatement,
-  draftCapturePatch,
-  draftDocumentPatch,
   draftPhotoChanges,
+  delegateToDocumentAgent,
+  staffOnly,
 ]
 
 // ── Head agent tools ──────────────────────────────────────────────────────────
@@ -800,77 +669,30 @@ ${COMMON_RULES}`
 }
 
 function filePrompt(firstName: string, snapshot: unknown, jobCode: string | null) {
+  const agents = DOC_AGENT_TYPES.map(t => `${t} = ${DOC_AGENTS[t].docLabel} (${DOC_AGENTS[t].label})`).join('; ')
   return `You are the file agent for job ${jobCode ? `#${jobCode}` : ''} in the Agent workspace of an Australian biohazard remediation company. You work on this one job only, with ${firstName || 'a staff member'}. Today is ${today()}.
 
-WHAT YOU CAN DO ON THIS JOB:
-- Read everything: job details (in the file below and get_job_file), every capture in full with get_capture (House Survey, Contents Disposal Record (CDR), Statement of Accounts, BCQ/CCQ/SACQ quotes, scope of work, PRE checklist, assessment areas, completion report and the rest), saved documents in full including prices (list_job_documents, get_document), call and website enquiry transcripts and extractions (get_job_calls), every progress note (get_progress_notes), photos (list_job_photos) and the job's Xero invoice status (get_xero_invoice, read only).
-- Write anything on this job as a draft: job fields (draft_field_changes), status (draft_status), progress notes (draft_note), any capture (draft_capture_patch), a saved document's content (draft_document_patch), photo caption, area, category, phase and report inclusion (draft_photo_changes), a new BCQ/CCQ/SACQ (draft_document), the statement quantities from the survey and CDR (draft_statement), and generating the Statement of Accounts document (draft_generate_statement).
-- Every write is a draft that staff approve on screen; nothing changes until they do. Call the draft tools directly; do not ask "shall I?" first. You cannot delete anything.
+YOUR JOB: know this file, answer questions about it, spot what is missing, out of date or needs action, make job-level changes, and hand document work to the right document agent.
 
-WHAT YOU NEVER DO (you have no tools for it): send email or SMS, release documents to the client portal, share links, send payment reminders, trigger or change Xero, or anything else that reaches a client. A generated statement is only saved to the job. If asked, say staff do that themselves from the job file.
+READ: everything. Job details (below and get_job_file), get_job_health (what is missing or out of date, and which document agent fixes it), every capture in full (get_capture), survey/CDR/statement figures (get_survey_and_disposal), saved documents with prices (list_job_documents, get_document), calls and enquiries (get_job_calls), progress notes (get_progress_notes), photos (list_job_photos), Xero status (get_xero_invoice, read only).
+
+WRITE (job level, as drafts staff approve): job fields (draft_field_changes), status (draft_status), progress notes (draft_note), photo caption/area/category/phase/report inclusion (draft_photo_changes).
+
+DOCUMENTS: you do not edit documents yourself. For any change to a quote, survey, CDR, statement or completion report — filling it, correcting it, starting it, or generating the document — call delegate_to_document_agent with the doc_type and a plain instruction including any exact figures the staff member gave. Document agents: ${agents}. Each drafts only its own document and reports back; its cards appear under its own line ("File agent > Statement agent"). Then tell staff in one or two sentences what it drafted, anything it needs from them (needs_from_staff), and its warnings. If it hit errors, say so plainly. Several documents → one call each.
+
+WHAT NOBODY HERE DOES (no tools for it): send email or SMS, release documents to the client portal, share links, send payment reminders, trigger or change Xero, delete anything. If asked, call staff_only_action and pass on who does it. A generated document is only saved to the job.
 
 RULES:
-- Read before you patch: get_capture or get_document first, so your patch fits the existing shape. Patch only the fields you mean to change.
-- After drafting, say in one or two sentences what you drafted. The change card shows the detail. Say plainly when a draft would overwrite something already on file.
-- Only draft what the staff member asked for or what clearly follows from what they told you. Never invent names, numbers, emails, addresses or prices. If something is unclear (two addresses, which room), ask.
-- Prices and dollar amounts: only draft them when the staff member gives or explicitly asks for them. draft_document starts quotes with prices blank.
-- Statement of Accounts quantities: read get_survey_and_disposal, then draft_statement. It fills survey rooms (m² and survey-rate prices) and the CDR m³ — the only quantity fields on the statement. Tell staff plainly which CDR facts have no statement field (cdr_not_on_statement: loads, vehicles, weight, distance).
-- Statement dollars and text (invoice1_amount, invoice2_amount, the invoice 1 breakdown invoice1_callout/contents/cleaning, the invoice 2 breakdown invoice2_skips/trailers/utes/tip_receipts/prepaid, deposit_taken/deposit_amount/deposit_date, invoice1_adjusted_amount with adjustment_reason, manual_adjustment with manual_adjustment_reason, original/new invoice numbers and urls): draft with draft_capture_patch on statement_of_accounts only with values the staff member states, or tells you to take from the CDR dollar figures get_survey_and_disposal lists. Plain numbers, inc GST when the statement charges GST. Never invent or calculate an amount they did not give.
-- Generating the statement: draft_generate_statement once the figures are in. On approval it runs the same checks as the Generate button (breakdowns must add up to each invoice; adjustments need a reason). If it reports a problem, explain it and offer to draft the fix. Generating saves the document only; staff send it.
-- If a [Log] line shows a staff edit that makes one of your pending drafts or a document out of date, mention it briefly and offer to update it.
+- Every write is a draft staff approve on screen; nothing changes until they do. Call the draft tools directly; do not ask "shall I?" first.
+- At the start of a conversation on this job (or after a handover), call get_job_health and mention any warnings briefly, then deal with what was asked.
+- Only draft what the staff member asked for or what clearly follows. Never invent names, numbers, emails, addresses or prices. If something is unclear (two addresses, which room), ask.
+- Dollar amounts only when the staff member gives or explicitly asks for them; pass them to the document agent exactly.
+- If a [Log] line shows a staff edit that makes a pending draft or a document out of date, mention it briefly and offer to update it.
 - The job description is neutral and factual.
 ${COMMON_RULES}
 
 JOB FILE (as of this message):
 ${JSON.stringify(snapshot)}`
-}
-
-// ── Loop ──────────────────────────────────────────────────────────────────────
-
-async function runLoop(
-  anthropic: Anthropic,
-  system: string,
-  tools: WsTool[],
-  messages: Anthropic.MessageParam[],
-  ctx: WsContext,
-  stopWhen: () => boolean,
-): Promise<string> {
-  const defs = tools.map(t => ({ name: t.name, description: t.description, input_schema: t.input_schema }))
-  const texts: string[] = []
-  for (let step = 0; step < MAX_STEPS; step++) {
-    const res = await anthropic.messages.create({
-      model: CLAUDE_SONNET_MODEL,
-      max_tokens: 1500,
-      system,
-      tools: defs,
-      tool_choice: { type: 'auto', disable_parallel_tool_use: true },
-      messages,
-    })
-    messages.push({ role: 'assistant', content: res.content })
-    const text = res.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map(b => b.text.trim()).filter(Boolean).join('\n\n')
-    if (text) texts.push(text)
-    const use = res.content.find((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use')
-    if (res.stop_reason !== 'tool_use' || !use) return texts.join('\n\n')
-
-    const tool = tools.find(t => t.name === use.name)
-    let content: string
-    let isError = false
-    if (!tool) {
-      content = `Unknown tool: ${use.name}`
-      isError = true
-    } else {
-      try {
-        content = JSON.stringify(await tool.run(ctx, (use.input ?? {}) as Input))
-      } catch (err) {
-        content = err instanceof Error ? err.message : 'Tool failed'
-        isError = true
-      }
-    }
-    messages.push({ role: 'user', content: [{ type: 'tool_result', tool_use_id: use.id, content, is_error: isError }] })
-    if (stopWhen()) return texts.join('\n\n')
-  }
-  texts.push('That took more steps than I allow in one go. Tell me what to do next.')
-  return texts.join('\n\n')
 }
 
 async function loadRows(supabase: Supabase, orgId: string, filter: { threadId?: string; jobId?: string | null }): Promise<ChatRow[]> {
@@ -934,7 +756,7 @@ export async function handleChatTurn(input: ChatTurnInput): Promise<{ active_job
     const rows = await loadRows(supabase, orgId, { threadId: userId, jobId: null })
     const messages = rebuildHistory(rows)
     if (!messages.length) return { active_job_id: null }
-    const reply = await runLoop(anthropic, headPrompt(firstName), HEAD_TOOLS, messages, base, () => base.handover !== null)
+    const reply = await runLoop(anthropic, headPrompt(firstName), HEAD_TOOLS, messages, base, { maxSteps: MAX_STEPS, stopWhen: () => base.handover !== null })
     const h = base.handover as WsContext['handover']
     const draftIds = [...new Set(base.draftIds)]
     const messageId = await postMessage(supabase, {
@@ -965,6 +787,7 @@ async function runFileAgent(anthropic: Anthropic, ctx: WsContext, handoverText: 
     await postMessage(supabase, { org_id: orgId, thread_id: userId, job_id: jobId, speaker: 'file_agent', content: { text: 'I cannot find that job.' } })
     return
   }
+  ctx.anthropic = anthropic
   const rows = await loadRows(supabase, orgId, { jobId })
   if (handoverText) {
     rows.push({
@@ -975,7 +798,7 @@ async function runFileAgent(anthropic: Anthropic, ctx: WsContext, handoverText: 
   const messages = rebuildHistory(rows)
   if (!messages.length) return
   const jobCode = (snapshot.job as { job_code?: string | null }).job_code ?? null
-  const reply = await runLoop(anthropic, filePrompt(ctx.staffFirstName, snapshot, jobCode), FILE_TOOLS, messages, ctx, () => false)
+  const reply = await runLoop(anthropic, filePrompt(ctx.staffFirstName, snapshot, jobCode), FILE_TOOLS, messages, ctx, { maxSteps: MAX_STEPS })
   const draftIds = [...new Set(ctx.draftIds)]
   const messageId = await postMessage(supabase, {
     org_id: orgId, thread_id: userId, job_id: jobId, speaker: 'file_agent',

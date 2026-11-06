@@ -13,8 +13,11 @@ import { normalizeOptionalPhoneField } from '@/lib/phone'
 import { emptyBiohazardCleaningCapture } from '@/lib/biohazardCleaningQuote'
 import { emptyContentsClearanceCapture } from '@/lib/contentsClearanceQuote'
 import { emptySurfaceAreaCleaningCapture } from '@/lib/surfaceAreaCleaningQuote'
-import type { Document, Job, JobStatus } from '@/lib/types'
-import { GENERATE_STATEMENT_TARGET, composeStatementForJob } from './statementGenerate'
+import type { JobStatus } from '@/lib/types'
+import { canDraftCapture, docAgent, parseGenerateTarget } from './subagents/registry'
+import { isDocAgentType } from './subagents/types'
+import { checkGenerate } from './subagents/generate'
+import { DOC_AGENT_LABEL } from './subagents/labels'
 import { generateUniqueJobCode } from '@/lib/jobCode'
 import { ensureJobInboundEmailToken } from '@/lib/jobInboundEmail'
 import { newJobRow, normalizeNewJob, type NewJobProposal, type PossibleDuplicate } from './newJobDraft'
@@ -48,6 +51,8 @@ export interface DraftRow {
   proposed: unknown
   summary: string
   status: 'pending' | 'approved' | 'rejected' | 'stale'
+  /** 'file_agent', 'head_agent', a staff id, or doc_agent:<type> for a document sub-agent. */
+  created_by?: string
   created_at: string
 }
 
@@ -135,15 +140,6 @@ export async function upsertDraft(
     .single()
   if (error) throw error
   return data.id as string
-}
-
-export async function loadJobAndDocuments(supabase: Supabase, orgId: string, jobId: string): Promise<{ job: Job; documents: Document[] } | null> {
-  const [jobRes, docsRes] = await Promise.all([
-    supabase.from('jobs').select('*').eq('id', jobId).eq('org_id', orgId).maybeSingle(),
-    supabase.from('documents').select('*').eq('job_id', jobId).eq('org_id', orgId).order('created_at', { ascending: false }),
-  ])
-  if (!jobRes.data) return null
-  return { job: jobRes.data as Job, documents: (docsRes.data ?? []) as Document[] }
 }
 
 export const NEW_JOB_TARGET = 'new_job'
@@ -297,6 +293,13 @@ export async function upsertPatchDraft(
 async function applyPatchDraft(supabase: Supabase, who: Approver, draft: DraftRow & { job_id: string }, jobRow: Record<string, unknown>) {
   const target = parseTarget(draft.target_path)
   if (!target) throw new DraftError('Unknown change')
+  const owner = draftAgent(draft)
+  if (owner !== 'file_agent' && target.type === 'capture') {
+    const type = owner.slice('doc_agent:'.length)
+    if (!isDocAgentType(type) || !canDraftCapture(docAgent(type), target.ref)) {
+      throw new DraftError(`The ${type.replace(/_/g, ' ')} agent may only change its own document.`)
+    }
+  }
   const before = (draft.before ?? {}) as Record<string, unknown>
   const proposed = (draft.proposed ?? {}) as Record<string, unknown>
   const stale = async (what: string) => {
@@ -319,7 +322,7 @@ async function applyPatchDraft(supabase: Supabase, who: Approver, draft: DraftRo
       .eq('org_id', who.orgId)
     if (error) throw error
     await logAgentAction(supabase, {
-      org_id: who.orgId, job_id: draft.job_id, agent: 'file_agent', trigger: 'workspace_chat', action: 'patch_capture',
+      org_id: who.orgId, job_id: draft.job_id, agent: draftAgent(draft), trigger: 'workspace_chat', action: 'patch_capture',
       target_table: 'jobs', target_id: draft.job_id, target_path: `assessment_data.${key}`, before, after: proposed, note,
     })
     return
@@ -338,7 +341,7 @@ async function applyPatchDraft(supabase: Supabase, who: Approver, draft: DraftRo
     const { error } = await supabase.from('documents').update({ content: next }).eq('id', doc.id).eq('job_id', draft.job_id)
     if (error) throw error
     await logAgentAction(supabase, {
-      org_id: who.orgId, job_id: draft.job_id, agent: 'file_agent', trigger: 'workspace_chat', action: 'patch_document',
+      org_id: who.orgId, job_id: draft.job_id, agent: draftAgent(draft), trigger: 'workspace_chat', action: 'patch_document',
       target_table: 'documents', target_id: doc.id as string, before, after: proposed, note,
     })
     return
@@ -362,7 +365,7 @@ async function applyPatchDraft(supabase: Supabase, who: Approver, draft: DraftRo
   const { error } = await supabase.from('photos').update(cols).eq('id', target.ref).eq('job_id', draft.job_id)
   if (error) throw error
   await logAgentAction(supabase, {
-    org_id: who.orgId, job_id: draft.job_id, agent: 'file_agent', trigger: 'workspace_chat', action: 'patch_photo',
+    org_id: who.orgId, job_id: draft.job_id, agent: draftAgent(draft), trigger: 'workspace_chat', action: 'patch_photo',
     target_table: 'photos', target_id: target.ref, before, after: cols, note,
   })
 }
@@ -373,32 +376,44 @@ export interface Approver {
   firstName: string
 }
 
+/** Which agent drafted this: a document sub-agent (doc_agent:<type>) or the file agent. */
+export function draftAgent(draft: Pick<DraftRow, 'created_by'>): 'file_agent' | `doc_agent:${string}` {
+  return draft.created_by?.startsWith('doc_agent:') ? (draft.created_by as `doc_agent:${string}`) : 'file_agent'
+}
+
 /**
- * Approved draft_generate_statement: compose and check exactly as the Generate
- * button does, then save the document. A failed check is posted on the job and
- * the draft stays pending so staff can fix the figures and approve again.
+ * Approved generate draft (target generate:<doc type>): compose and check
+ * exactly as the Generate button does, then save the document. A failed check
+ * is posted on the job and the draft stays pending so staff can fix the
+ * figures and approve again. Saving only; nothing is sent or released.
  */
-async function generateStatementFromDraft(supabase: Supabase, who: Approver, jobId: string) {
-  const loaded = await loadJobAndDocuments(supabase, who.orgId, jobId)
-  if (!loaded) throw new DraftError('Job not found')
-  const r = composeStatementForJob(loaded.job, loaded.documents)
+function docTypeFor(type: Parameters<typeof docAgent>[0]) {
+  return docAgent(type).documentType
+}
+
+async function generateFromDraft(supabase: Supabase, who: Approver, draft: DraftRow & { job_id: string }) {
+  const type = parseGenerateTarget(draft.target_path)
+  if (!type) throw new DraftError('Unknown document to generate')
+  const label = DOC_AGENT_LABEL[type].doc
+  const r = await checkGenerate(supabase, who.orgId, draft.job_id, type)
   if (!r.ok) {
     await postMessage(supabase, {
-      org_id: who.orgId, thread_id: who.userId, job_id: jobId, speaker: 'system', author: who.firstName,
-      content: { text: `Statement of Accounts not generated: ${r.reason}` },
+      org_id: who.orgId, thread_id: who.userId, job_id: draft.job_id, speaker: 'system', author: who.firstName,
+      content: { text: `${label} not generated: ${r.reason}` },
     })
     throw new DraftError(`Not generated: ${r.reason}`)
   }
+  const docType = docTypeFor(type)
   const { data, error } = await supabase
     .from('documents')
-    .insert({ job_id: jobId, org_id: who.orgId, type: 'statement_of_accounts', content: r.content, file_url: null })
+    .insert({ job_id: draft.job_id, org_id: who.orgId, type: docType, content: r.content, file_url: null })
     .select('id')
     .single()
   if (error) throw error
   await logAgentAction(supabase, {
-    org_id: who.orgId, job_id: jobId, agent: 'file_agent', trigger: 'workspace_chat', action: 'generate_document',
-    target_table: 'documents', target_id: data.id as string, after: { type: 'statement_of_accounts', reference: r.content.reference ?? null },
-    note: `Statement of Accounts generated. Approved by ${who.firstName || who.userId}`,
+    org_id: who.orgId, job_id: draft.job_id, agent: draftAgent(draft), trigger: 'workspace_chat', action: 'generate_document',
+    target_table: 'documents', target_id: data.id as string, after: { type: docType, reference: r.content.reference ?? null },
+    note: `${label} generated. Approved by ${who.firstName || who.userId}`,
   })
 }
 
@@ -467,7 +482,7 @@ export async function approveDraft(
         .eq('org_id', who.orgId)
       if (error) throw error
       await logAgentAction(supabase, {
-        org_id: who.orgId, job_id: draft.job_id, agent: 'file_agent', trigger, action: 'set_job_field',
+        org_id: who.orgId, job_id: draft.job_id, agent: draftAgent(draft), trigger, action: 'set_job_field',
         target_table: 'jobs', target_id: jobId, target_path: field,
         before: current ?? null, after: value, note: `Approved by ${who.firstName || who.userId}`,
       })
@@ -481,7 +496,7 @@ export async function approveDraft(
         .eq('org_id', who.orgId)
       if (error) throw error
       await logAgentAction(supabase, {
-        org_id: who.orgId, job_id: draft.job_id, agent: 'file_agent', trigger, action: 'update_job_status',
+        org_id: who.orgId, job_id: draft.job_id, agent: draftAgent(draft), trigger, action: 'update_job_status',
         target_table: 'jobs', target_id: jobId, target_path: 'status',
         before: jobRow.status, after: status, note: `Approved by ${who.firstName || who.userId}`,
       })
@@ -505,11 +520,11 @@ export async function approveDraft(
         .single()
       if (error) throw error
       await logAgentAction(supabase, {
-        org_id: who.orgId, job_id: draft.job_id, agent: 'file_agent', trigger, action: 'add_progress_note',
+        org_id: who.orgId, job_id: draft.job_id, agent: draftAgent(draft), trigger, action: 'add_progress_note',
         target_table: 'progress_notes', target_id: note.id as string, after: { body }, note: `Approved by ${who.firstName || who.userId}`,
       })
-    } else if (draft.kind === 'document' && draft.target_path === GENERATE_STATEMENT_TARGET) {
-      await generateStatementFromDraft(supabase, who, jobId)
+    } else if (draft.kind === 'document' && parseGenerateTarget(draft.target_path)) {
+      await generateFromDraft(supabase, who, { ...draft, job_id: jobId })
     } else if (draft.kind === 'document' && parseTarget(draft.target_path)) {
       await applyPatchDraft(supabase, who, { ...draft, job_id: jobId }, jobRow)
     } else if (draft.kind === 'document') {
@@ -528,7 +543,7 @@ export async function approveDraft(
         .eq('org_id', who.orgId)
       if (error) throw error
       await logAgentAction(supabase, {
-        org_id: who.orgId, job_id: draft.job_id, agent: 'file_agent', trigger, action: 'draft_quote',
+        org_id: who.orgId, job_id: draft.job_id, agent: draftAgent(draft), trigger, action: 'draft_quote',
         target_table: 'jobs', target_id: jobId, target_path: `assessment_data.${key}`,
         before: null, after: draft.proposed, note: `Prices left blank. Approved by ${who.firstName || who.userId}`,
       })
@@ -551,7 +566,7 @@ export async function approveDraft(
     const msg = err instanceof Error ? err.message : 'Could not apply this change'
     if (!(err instanceof DraftError)) {
       await logAgentAction(supabase, {
-        org_id: who.orgId, job_id: draft.job_id, agent: 'file_agent', trigger, action: `apply_${draft.kind}_draft`,
+        org_id: who.orgId, job_id: draft.job_id, agent: draftAgent(draft), trigger, action: `apply_${draft.kind}_draft`,
         target_table: 'agent_drafts', target_id: draft.id, status: 'failed', note: msg,
       })
     }
