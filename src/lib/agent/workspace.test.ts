@@ -240,7 +240,7 @@ test('file agent survey and disposal: summaries only, no waste charges', () => {
   const view = surveyAndDisposalSummary(ad)
   assert.equal(view.cdr_summary.total_ex_gst, 900)
   assert.deepEqual(view.statement.lines_ex_gst, [{ label: 'Contents removal', amount_ex: 900 }])
-  for (const marker of ['skip_cost', 'dump_fee', 'prepaid', 'invoice2']) assert.ok(!JSON.stringify(view).includes(marker), marker)
+  for (const marker of ['skip_cost', 'dump_fee', 'prepaid', 'invoice2_amount', 'invoice2_m3']) assert.ok(!JSON.stringify(view).includes(marker), marker)
 })
 
 test('statement patches: the staff inputs only, checked for shape', () => {

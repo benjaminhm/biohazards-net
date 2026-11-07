@@ -214,7 +214,7 @@ test('statement agent figures come from the three summaries, never skip, tip, pr
     ['Contents removal', 1600],
     ['Biohazard cleaning', 320],
   ])
-  assert.ok(!/skips|trailers|utes|tip_receipts|invoice2/.test(JSON.stringify(figures)))
+  assert.ok(!/skips|trailers|utes|tip_receipts|invoice2_(amount|m3|prepaid)/.test(JSON.stringify(figures)))
 })
 
 test('other agents keep their reads of the survey and CDR', () => {

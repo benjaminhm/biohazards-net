@@ -1205,6 +1205,8 @@ export interface AssessmentData {
     model_version?: number
     invoice_number?: string
     invoice_url?: string
+    invoice2_number?: string
+    invoice2_url?: string
     deposit_taken: boolean
     deposit_amount: number | null
     deposit_includes_gst: boolean
@@ -2368,6 +2370,11 @@ export interface StatementOfAccountsV2Content {
   balance: number
   invoice_number: string
   invoice_url: string
+  /** Invoice 2 or credit note for the difference between actual and estimate. Absent on statements issued before it. */
+  invoice2_number?: string
+  invoice2_url?: string
+  /** Sum of the quotes in the statement's GST basis, as invoiced on invoice 1. Null without quotes. */
+  estimate_total?: number | null
   /** Why the statement cannot be issued. Printing is refused while any remain. */
   problems: string[]
   payment_terms?: string

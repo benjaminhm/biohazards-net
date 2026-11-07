@@ -3255,15 +3255,28 @@ function buildStatementV2Mid(c: StatementOfAccountsV2Content, view: StatementV2P
   const invoice = c.invoice_number.trim() ? `<p class="body-text"><strong>Invoice:</strong> ${esc(c.invoice_number.trim())}</p>` : ''
   const note = view.estimatesNote ? `<p class="body-text soa-note">${esc(view.estimatesNote)}</p>` : ''
   const pay = view.payHref && view.payLabel ? `<a class="soa-pay" href="${esc(view.payHref)}">${esc(view.payLabel)}</a>` : ''
+  const split = view.invoices.length === 0 ? '' : `
+    <div class="soa-inv-title">How the balance is paid</div>
+    <p class="body-text soa-note">${esc(view.invoicesNote)}</p>
+    <table>
+      <thead><tr><th>Invoice</th><th class="r">Amount</th></tr></thead>
+      <tbody>${view.invoices.map(inv => `
+        <tr>
+          <td><strong>${esc(inv.heading)}</strong><br><span class="soa-note">${esc(inv.detail)}</span></td>
+          <td class="r"><strong>${esc(inv.amountLabel)} ${statementMoney(Math.abs(inv.amount))}</strong></td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+    ${view.invoices.map(inv => inv.payHref && inv.payLabel ? `<a class="soa-pay" href="${esc(inv.payHref)}">${esc(inv.heading.split(' · ')[0])}: ${esc(inv.payLabel)}</a>` : '').join('')}`
   return `
     <p class="body-text"><strong>Property:</strong> ${esc(c.site_address || '—')}</p>
-    ${invoice}
+    ${view.invoices.length === 0 ? invoice : ''}
     ${note}
     <table>
       <thead><tr><th>Item</th><th class="r">Amount</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
-    ${pay}`
+    ${pay}${split}`
 }
 
 function loadStatementV2View(c: StatementOfAccountsV2Content): StatementV2Presentation | string {

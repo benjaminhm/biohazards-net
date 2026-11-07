@@ -12,6 +12,7 @@ import {
   statementReminderLines,
   statementV2Content,
   statementV2Figures,
+  statementV2Invoices,
   statementV2Rows,
   StatementReconciliationError,
   type StatementOfAccountsCapture,
@@ -392,9 +393,49 @@ test('model 2 prints the summary, the estimates paragraph and the pay link', () 
   assert.match(html, /Less deposit paid \(2 November 2026\)<\/td><td class="r">\(\$1,000\.00\)/)
   assert.match(html, /Balance owing<\/td><td class="r" style="font-weight:700">\$1,970\.00/)
   assert.match(html, /href="https:\/\/pay\.example\.com\/inv-9"/)
-  assert.equal(html.includes('Invoice 1'), false)
-  assert.equal(presentStatementV2(content).payLabel, 'Pay $1,970.00 online')
+  assert.match(html, /How the balance is paid/)
+  assert.match(html, /Invoice 1 INV-9 · estimate/)
+  assert.equal(presentStatementV2(content).payLabel, null)
   assert.ok(cdrSummary(v2Job()).exists === false)
+})
+
+test('model 2 splits the balance into invoice 1 (estimate less deposit) and invoice 2 (actual less estimate)', () => {
+  const f = statementV2Figures(v2Job({
+    deposit_amount: 1000, deposit_date: '2026-11-02',
+    invoice_number: 'INV-9', invoice_url: 'https://pay.example.com/inv-9',
+    invoice2_number: 'INV-10', invoice2_url: 'https://pay.example.com/inv-10',
+  }))
+  const estimate = f.estimate_total ?? 0
+  assert.ok(estimate > 0)
+  const [one, two] = statementV2Invoices(f)
+  assert.equal(one.heading, 'Invoice 1 INV-9 · estimate')
+  assert.equal(one.amount, Math.round((estimate - 1000) * 100) / 100)
+  assert.equal(Math.round((one.amount + two.amount) * 100) / 100, f.balance)
+  const expected2 = Math.round((2970 - estimate) * 100) / 100
+  assert.equal(two.amount, expected2)
+  assert.equal(two.heading, `${expected2 < 0 ? 'Credit note' : 'Invoice 2'} INV-10 · adjustment to actual`)
+  assert.equal(two.payHref, expected2 > 0 ? 'https://pay.example.com/inv-10' : null)
+
+  const adjusted = statementV2Figures(v2Job({ deposit_amount: 1000, deposit_date: '2026-11-02', manual_adjustment: -70, manual_adjustment_reason: 'goodwill' }))
+  const split = statementV2Invoices(adjusted)
+  assert.equal(Math.round(split.reduce((sum, inv) => sum + inv.amount, 0) * 100) / 100, adjusted.balance)
+  assert.match(split[1].detail, /less goodwill \$70\.00\.$/)
+
+  const fixedOnly = statementV2Figures({ house_survey: { areas: [], labour_days: 1, rate_per_labour_day: 100 }, statement_of_accounts: {} } as unknown as AssessmentData)
+  assert.deepEqual(statementV2Invoices(fixedOnly), [])
+})
+
+test('a model 2 statement issued before the invoice split prints as it did', () => {
+  const content = statementV2Content(
+    statementV2Figures(v2Job({ deposit_amount: 1000, deposit_date: '2026-11-02', invoice_number: 'INV-9', invoice_url: 'https://pay.example.com/inv-9' })),
+    'SOA-1',
+    '1 Example Street',
+  )
+  const issued = { ...content, estimate_total: undefined, invoice2_number: undefined, invoice2_url: undefined }
+  const view = presentStatementV2(issued)
+  assert.deepEqual(view.invoices, [])
+  assert.equal(view.payLabel, 'Pay $1,970.00 online')
+  assert.equal(statementHtml(issued).includes('How the balance is paid'), false)
 })
 
 test('a model 1 capture in progress becomes model 2 inputs without losing its stored fields', () => {

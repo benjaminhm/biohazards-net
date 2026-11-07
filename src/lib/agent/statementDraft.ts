@@ -9,7 +9,7 @@
  */
 import type { AssessmentData } from '@/lib/types'
 import { formatAud } from '@/lib/disposalManifest'
-import { normalizeStatementCapture, STATEMENT_MODEL_VERSION, statementV2Figures } from '@/lib/statementOfAccounts'
+import { normalizeStatementCapture, STATEMENT_MODEL_VERSION, statementV2Figures, statementV2Invoices } from '@/lib/statementOfAccounts'
 import { bcqRecordSummary, cdrSummary, surveySummary } from './recordSummaries'
 import { buildPatchDraft, type PatchDraft } from './patchDraft'
 
@@ -20,7 +20,7 @@ export function cdrVolumeM3(ad: AssessmentData | null | undefined): number | nul
 }
 
 const NUMBER_INPUTS = ['deposit_amount', 'manual_adjustment'] as const
-const TEXT_INPUTS = ['deposit_date', 'manual_adjustment_reason', 'invoice_number', 'invoice_url'] as const
+const TEXT_INPUTS = ['deposit_date', 'manual_adjustment_reason', 'invoice_number', 'invoice_url', 'invoice2_number', 'invoice2_url'] as const
 export const STATEMENT_INPUTS = [...NUMBER_INPUTS, ...TEXT_INPUTS] as const
 export type StatementInputs = Partial<Record<(typeof NUMBER_INPUTS)[number], number | null> & Record<(typeof TEXT_INPUTS)[number], string>>
 
@@ -95,10 +95,13 @@ function statementView(ad: AssessmentData | null | undefined) {
     balance: f.balance,
     invoice_number: f.invoice_number,
     invoice_url: f.invoice_url,
+    invoice2_number: f.invoice2_number,
+    invoice2_url: f.invoice2_url,
+    invoices: statementV2Invoices(f).map(({ heading, detail, amount }) => ({ heading, detail, amount })),
   }
 }
 
-const NOTE = 'The statement calculates itself: surface cleaning (survey_summary), contents removal (cdr_summary) and biohazard cleaning (bcq_record_summary, or the quote total when the BCQ is fixed price), GST once, less the deposit, plus an optional adjustment with a reason. Quotes are estimates and never part of the sum. Staff inputs are only deposit_amount, deposit_date, manual_adjustment + manual_adjustment_reason, invoice_number and invoice_url; amounts are inc GST when charges_gst.'
+const NOTE = 'The statement calculates itself: surface cleaning (survey_summary), contents removal (cdr_summary) and biohazard cleaning (bcq_record_summary, or the quote total when the BCQ is fixed price), GST once, less the deposit, plus an optional adjustment with a reason. Quotes are estimates and never part of the sum. Staff inputs are only deposit_amount, deposit_date, manual_adjustment + manual_adjustment_reason, invoice_number and invoice_url (invoice 1, the estimate), invoice2_number and invoice2_url (invoice 2 or credit note for actual less estimate); amounts are inc GST when charges_gst. "invoices" shows how the balance splits across them.'
 
 /** What the Statement agent reads: the three record summaries, the statement as it stands, and its flags. */
 export function statementAgentFigures(ad: AssessmentData | null | undefined) {

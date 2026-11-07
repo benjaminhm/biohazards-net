@@ -9,7 +9,9 @@ import { formatAud } from '@/lib/disposalManifest'
 import { formatLongDate } from '@/lib/paymentOverdue'
 import {
   normalizeStatementCapture,
+  STATEMENT_INVOICES_NOTE,
   statementV2Figures,
+  statementV2Invoices,
   statementV2Rows,
   type StatementOfAccountsCapture,
 } from '@/lib/statementOfAccounts'
@@ -60,6 +62,8 @@ function capturesEqual(a: StatementOfAccountsCapture, b: StatementOfAccountsCapt
     && a.manual_adjustment_reason === b.manual_adjustment_reason
     && a.invoice_number === b.invoice_number
     && a.invoice_url === b.invoice_url
+    && a.invoice2_number === b.invoice2_number
+    && a.invoice2_url === b.invoice2_url
     && a.charges_gst === b.charges_gst
 }
 
@@ -107,6 +111,7 @@ export default function StatementOfAccountsTab({ job, onJobUpdate }: Props) {
     [job.assessment_data, capture],
   )
   const rows = useMemo(() => statementV2Rows(figures), [figures])
+  const invoices = useMemo(() => statementV2Invoices(figures), [figures])
   const xeroDiffers = xeroPaid != null
     && (capture.deposit_amount !== xeroPaid.amount_paid || (xeroPaid.paid_on != null && capture.deposit_date !== xeroPaid.paid_on))
 
@@ -180,6 +185,22 @@ export default function StatementOfAccountsTab({ job, onJobUpdate }: Props) {
         )}
       </section>
 
+      {invoices.length > 0 && (
+        <section style={{ ...CARD, fontSize: 14 }}>
+          <div style={HEADING}>How the balance is paid</div>
+          <p style={{ color: 'var(--text-muted)', lineHeight: 1.55, margin: '0 0 12px' }}>{STATEMENT_INVOICES_NOTE}</p>
+          {invoices.map(invoice => (
+            <div key={invoice.heading} style={{ borderTop: '1px solid var(--border)', padding: '10px 0' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontWeight: 700 }}>
+                <span>{invoice.heading}</span>
+                <span>{invoice.amountLabel} {formatAud(Math.abs(invoice.amount))}</span>
+              </div>
+              <div style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 4 }}>{invoice.detail}</div>
+            </div>
+          ))}
+        </section>
+      )}
+
       <section style={CARD}>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 700, marginBottom: 16 }}>
           <input type="checkbox" checked={capture.charges_gst} onChange={e => patch({ charges_gst: e.target.checked })} />
@@ -250,15 +271,30 @@ export default function StatementOfAccountsTab({ job, onJobUpdate }: Props) {
       </section>
 
       <section style={CARD}>
-        <div style={HEADING}>Invoice</div>
+        <div style={HEADING}>Invoices</div>
         <div style={{ display: 'grid', gap: 12 }}>
-          <div>
-            <label style={LABEL}>Invoice number</label>
-            <input type="text" value={capture.invoice_number} onChange={e => patch({ invoice_number: e.target.value })} placeholder="INV-1001" style={INPUT} />
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
+            <div>
+              <label style={LABEL}>Invoice 1 number (estimate)</label>
+              <input type="text" value={capture.invoice_number} onChange={e => patch({ invoice_number: e.target.value })} placeholder="INV-1001" style={INPUT} />
+            </div>
+            <div>
+              <label style={LABEL}>Invoice 1 payment link</label>
+              <input type="url" value={capture.invoice_url} onChange={e => patch({ invoice_url: e.target.value })} placeholder="https://" style={INPUT} />
+            </div>
           </div>
-          <div>
-            <label style={LABEL}>Payment link</label>
-            <input type="url" value={capture.invoice_url} onChange={e => patch({ invoice_url: e.target.value })} placeholder="https://" style={INPUT} />
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
+            <div>
+              <label style={LABEL}>Invoice 2 or credit note number</label>
+              <input type="text" value={capture.invoice2_number} onChange={e => patch({ invoice2_number: e.target.value })} placeholder="INV-1002" style={INPUT} />
+            </div>
+            <div>
+              <label style={LABEL}>Invoice 2 payment link</label>
+              <input type="url" value={capture.invoice2_url} onChange={e => patch({ invoice2_url: e.target.value })} placeholder="https://" style={INPUT} />
+            </div>
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+            Create invoice 2 (or a credit note) in Xero for the difference shown above, then enter its number and link here.
           </div>
         </div>
       </section>

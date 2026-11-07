@@ -17,14 +17,17 @@ interface StatementSurveyArea {
 
 /**
  * Model 2 reads deposit_amount, deposit_date, manual_adjustment (+ reason),
- * invoice_number / invoice_url and charges_gst. The other fields are model 1
- * and are kept so saving does not drop them.
+ * invoice_number / invoice_url, invoice2_number / invoice2_url and charges_gst.
+ * The other fields are model 1 and are kept so saving does not drop them.
  */
 export interface StatementOfAccountsCapture {
   model_version: number
-  /** The one invoice for the job. */
+  /** Invoice 1: the estimate invoice the deposit was paid against. */
   invoice_number: string
   invoice_url: string
+  /** Invoice 2 (or credit note): the difference between the actual total and the estimate. */
+  invoice2_number: string
+  invoice2_url: string
   deposit_taken: boolean
   /** Dollars received. Includes GST when the statement charges GST. */
   deposit_amount: number | null
@@ -76,6 +79,8 @@ export function emptyStatementCapture(): StatementOfAccountsCapture {
     model_version: STATEMENT_MODEL_VERSION,
     invoice_number: '',
     invoice_url: '',
+    invoice2_number: '',
+    invoice2_url: '',
     deposit_taken: false,
     deposit_amount: null,
     deposit_includes_gst: true,
@@ -118,6 +123,8 @@ export function normalizeStatementCapture(raw: unknown): StatementOfAccountsCapt
     invoice_url: v2
       ? textField(o.invoice_url)
       : (originalNumber ? textField(o.original_invoice_url) : textField(o.new_invoice_url) || textField(o.original_invoice_url)),
+    invoice2_number: v2 ? textField(o.invoice2_number) : (originalNumber ? newNumber : ''),
+    invoice2_url: v2 ? textField(o.invoice2_url) : (originalNumber ? textField(o.new_invoice_url) : ''),
     deposit_taken: v2 ? (amount ?? 0) > 0 : o.deposit_taken === true,
     deposit_amount: v2 || o.deposit_taken === true ? amount : null,
     deposit_includes_gst: o.deposit_includes_gst !== false,
@@ -706,6 +713,9 @@ export function statementV2Figures(
     balance: round2(total_inc - deposit + (adjustment ?? 0)),
     invoice_number: capture.invoice_number.trim(),
     invoice_url: capture.invoice_url.trim(),
+    invoice2_number: capture.invoice2_number.trim(),
+    invoice2_url: capture.invoice2_url.trim(),
+    estimate_total: estimates.length > 0 ? round2(quoted) : null,
     problems,
     estimates,
     suggested_deposit: estimates.length > 0 ? round2(quoted / 2) : null,
@@ -731,6 +741,9 @@ export function statementV2Content(f: StatementV2Figures, reference: string, sit
     balance: f.balance,
     invoice_number: f.invoice_number,
     invoice_url: f.invoice_url,
+    invoice2_number: f.invoice2_number,
+    invoice2_url: f.invoice2_url,
+    estimate_total: f.estimate_total,
     problems: f.problems,
   }
 }
@@ -752,6 +765,62 @@ export interface StatementV2Presentation {
   payHref: string | null
   payLabel: string | null
   estimatesNote: string
+  /** How the balance is split across the Xero invoices. Empty without an estimate. */
+  invoices: StatementV2Invoice[]
+  invoicesNote: string
+}
+
+export interface StatementV2Invoice {
+  heading: string
+  detail: string
+  /** Positive is still to pay on this invoice. Negative is a credit. */
+  amount: number
+  amountLabel: string
+  payHref: string | null
+  payLabel: string | null
+}
+
+type StatementV2Split = Pick<StatementOfAccountsV2Content,
+  'total_inc' | 'deposit' | 'adjustment' | 'adjustment_reason' | 'invoice_number' | 'invoice_url' | 'invoice2_number' | 'invoice2_url' | 'estimate_total'>
+
+export const STATEMENT_INVOICES_NOTE =
+  'The original estimate was invoiced on invoice 1 and the deposit was paid against it. Invoice 2 covers the difference between the final figures and the estimate, or is a credit note when the final figures came in lower. Together they make up the balance.'
+
+/**
+ * The balance as it is billed in Xero: invoice 1 is the estimate less the
+ * deposit; invoice 2 (or a credit note) is the actual total less the estimate,
+ * plus any adjustment. The two always add up to the balance.
+ */
+export function statementV2Invoices(c: StatementV2Split): StatementV2Invoice[] {
+  const estimate = c.estimate_total
+  if (estimate == null || estimate <= 0.004) return []
+  const title = (name: string, number: string | undefined) => number?.trim() ? `${name} ${number.trim()}` : name
+  const pay = (url: string | undefined, amount: number) => {
+    const payHref = amount > 0.004 ? statementPayHref(url ?? '') : null
+    return { payHref, payLabel: payHref ? `Pay ${moneyLabel(amount)} online` : null }
+  }
+  const invoice1 = round2(estimate - c.deposit)
+  const invoices: StatementV2Invoice[] = [{
+    heading: `${title('Invoice 1', c.invoice_number)} · estimate`,
+    detail: `Original estimate ${formatAud(estimate)}${c.deposit > 0.004 ? ` less deposit paid ${formatAud(c.deposit)}` : ''}.`,
+    amount: invoice1,
+    amountLabel: invoice1 > 0.004 ? 'Still to pay' : invoice1 < -0.004 ? 'Overpaid' : 'Paid',
+    ...pay(c.invoice_url, invoice1),
+  }]
+  const invoice2 = round2(c.total_inc - estimate + (c.adjustment ?? 0))
+  if (Math.abs(invoice2) > 0.004 || c.invoice2_number?.trim()) {
+    const adjustment = c.adjustment == null
+      ? ''
+      : `, ${c.adjustment < 0 ? 'less' : 'plus'} ${c.adjustment_reason.trim() || 'adjustment'} ${formatAud(Math.abs(c.adjustment))}`
+    invoices.push({
+      heading: `${title(invoice2 < -0.004 ? 'Credit note' : 'Invoice 2', c.invoice2_number)} · adjustment to actual`,
+      detail: `Actual job total ${formatAud(c.total_inc)} less the original estimate ${formatAud(estimate)}${adjustment}.`,
+      amount: invoice2,
+      amountLabel: invoice2 > 0.004 ? 'To pay' : invoice2 < -0.004 ? 'Credit' : 'Nil',
+      ...pay(c.invoice2_url, invoice2),
+    })
+  }
+  return invoices
 }
 
 type StatementV2Totals = Pick<StatementOfAccountsV2Content,
@@ -779,8 +848,11 @@ export function statementV2Rows(c: StatementV2Totals): StatementV2Row[] {
 /** Throws when the statement cannot be issued, so the page and print refuse it with the reason. */
 export function presentStatementV2(c: StatementOfAccountsV2Content): StatementV2Presentation {
   if (c.problems.length > 0) throw new StatementReconciliationError(c.problems.join(' '))
-  const payHref = c.balance > 0.004 ? statementPayHref(c.invoice_url) : null
+  const invoices = statementV2Invoices(c)
+  const payHref = invoices.length === 0 && c.balance > 0.004 ? statementPayHref(c.invoice_url) : null
   return {
+    invoices,
+    invoicesNote: invoices.length > 0 ? STATEMENT_INVOICES_NOTE : '',
     rows: statementV2Rows(c),
     jobTotal: c.total_inc,
     paid: c.deposit,

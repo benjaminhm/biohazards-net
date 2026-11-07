@@ -23,7 +23,8 @@ export const statementOfAccountsAgent: DocAgentDef = {
   shape: `statement_of_accounts (model_version 2). Staff inputs only:
 - deposit_amount + deposit_date (YYYY-MM-DD; required with a deposit).
 - manual_adjustment (signed dollars, optional) + manual_adjustment_reason (required with an adjustment).
-- invoice_number, invoice_url (the job's one invoice and its payment link).
+- invoice_number, invoice_url: invoice 1, the estimate invoice the deposit was paid against, and its payment link.
+- invoice2_number, invoice2_url: invoice 2 (or credit note) staff raise in Xero for actual total less the estimate (plus any adjustment), and its payment link.
 - charges_gst: one GST setting for the statement; inputs are inc GST when it is true.
 Everything else is calculated, never typed: Surface cleaning (survey_summary total), Contents removal (cdr_summary total), Biohazard cleaning (bcq_record_summary total, or the BCQ total when the BCQ is fixed price), Job total ex GST, GST, Job total inc GST, Less deposit paid, Adjustment, Balance owing (or Credit). The quotes appear only as an "original estimates" paragraph.
 survey_summary, cdr_summary and bcq_record_summary are computed from the House Survey, the Contents Disposal Record and the Biohazard Cleaning Record (read only; you never see the records themselves).`,
@@ -45,7 +46,7 @@ survey_summary, cdr_summary and bcq_record_summary are computed from the House S
     },
     {
       name: 'draft_statement_inputs',
-      description: 'Draft the staff inputs: deposit_amount, deposit_date, manual_adjustment, manual_adjustment_reason, invoice_number, invoice_url. Only the ones given change. Plain numbers, inc GST when the statement charges GST.',
+      description: 'Draft the staff inputs: deposit_amount, deposit_date, manual_adjustment, manual_adjustment_reason, invoice_number, invoice_url, invoice2_number, invoice2_url. Only the ones given change. Plain numbers, inc GST when the statement charges GST.',
       input_schema: {
         type: 'object',
         properties: {
@@ -55,6 +56,8 @@ survey_summary, cdr_summary and bcq_record_summary are computed from the House S
           manual_adjustment_reason: { type: 'string' },
           invoice_number: { type: 'string' },
           invoice_url: { type: 'string' },
+          invoice2_number: { type: 'string' },
+          invoice2_url: { type: 'string' },
           summary: { type: 'string', description: 'One line for the change card.' },
         },
       },
