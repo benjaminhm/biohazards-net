@@ -2187,6 +2187,10 @@ export interface PostRemediationEvaluationV2 {
   technician_signoff?: string
   unsigned_copy?: boolean
   report_image_ids?: string[]
+  /** Job photos printed under Before Remediation, in order. With after_photo_ids, replaces the image appendix. */
+  before_photo_ids?: string[]
+  /** Job photos printed under After Remediation, in order. */
+  after_photo_ids?: string[]
   created_at: string
   updated_at: string
 }
@@ -2250,6 +2254,10 @@ export interface PostRemediationEvaluationContent {
   include_photos?: boolean
   /** Manual order of report images. Absent means upload order, oldest first. */
   report_image_ids?: string[]
+  /** Multi-part only: photos printed under Before Remediation. When either list is set, the image appendix is not printed. */
+  before_photo_ids?: string[]
+  /** Multi-part only: photos printed under After Remediation. */
+  after_photo_ids?: string[]
 }
 
 /** A PRE scope line with the quoted text context snapshot baked in for printing. */

@@ -880,6 +880,8 @@ export function composePreV2(job: Job, pre: PostRemediationEvaluationV2): Compos
     unsigned_copy: pre.unsigned_copy === true,
     include_photos: true,
     report_image_ids: pre.report_image_ids?.length ? pre.report_image_ids : undefined,
+    before_photo_ids: pre.before_photo_ids?.length ? pre.before_photo_ids : undefined,
+    after_photo_ids: pre.after_photo_ids?.length ? pre.after_photo_ids : undefined,
   }
   return { content: { ...c }, source: 'assessment_capture' }
 }

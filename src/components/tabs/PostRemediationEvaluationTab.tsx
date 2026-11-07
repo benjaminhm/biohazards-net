@@ -15,6 +15,8 @@ import type {
   Document,
   Job,
   Photo,
+  PhotoCapturePhase,
+  PhotoCategory,
   PostRemediationEvaluation,
   PreProductRow,
   PreWorksRow,
@@ -189,6 +191,42 @@ async function takenAtIso(file: File): Promise<string | null> {
   return Number.isNaN(t.getTime()) ? null : t.toISOString()
 }
 
+/** Uploads images as job photos in the order they were taken. Stops at the first failure; earlier uploads are kept. */
+export async function uploadJobPhotos(
+  jobId: string,
+  files: File[],
+  tags: { category: PhotoCategory; capture_phase: PhotoCapturePhase },
+): Promise<{ added: Photo[]; error?: string }> {
+  const added: Photo[] = []
+  try {
+    const picked = await Promise.all(files.map(async (file, index) => ({ file, index, takenAt: await takenAtIso(file) })))
+    picked.sort((a, b) => {
+      if (a.takenAt && b.takenAt && a.takenAt !== b.takenAt) return a.takenAt < b.takenAt ? -1 : 1
+      if (a.takenAt && !b.takenAt) return -1
+      if (!a.takenAt && b.takenAt) return 1
+      return a.index - b.index
+    })
+    for (const { file, takenAt } of picked) {
+      const compressed = await compressImage(file)
+      const body = new FormData()
+      body.append('job_id', jobId)
+      body.append('file', compressed, 'upload.jpg')
+      body.append('caption', '')
+      body.append('area_ref', '')
+      body.append('category', tags.category)
+      body.append('capture_phase', tags.capture_phase)
+      if (takenAt) body.append('taken_at', takenAt)
+      const res = await fetch('/api/photos/upload', { method: 'POST', body })
+      const data = (await res.json()) as { photo?: Photo; error?: string }
+      if (!res.ok || !data.photo) throw new Error(data.error || 'Upload failed')
+      added.push(data.photo)
+    }
+    return { added }
+  } catch (err) {
+    return { added, error: err instanceof Error ? err.message : 'Upload failed' }
+  }
+}
+
 function formatTakenAt(iso: string): string {
   const t = new Date(iso)
   if (Number.isNaN(t.getTime())) return 'No time'
@@ -226,34 +264,13 @@ export function ReportImages({
     if (!files.length || uploading) return
     setUploading(true)
     setError('')
-    const added: Photo[] = []
     try {
-      const picked = await Promise.all(files.map(async (file, index) => ({ file, index, takenAt: await takenAtIso(file) })))
-      picked.sort((a, b) => {
-        if (a.takenAt && b.takenAt && a.takenAt !== b.takenAt) return a.takenAt < b.takenAt ? -1 : 1
-        if (a.takenAt && !b.takenAt) return -1
-        if (!a.takenAt && b.takenAt) return 1
-        return a.index - b.index
-      })
-      for (const { file, takenAt } of picked) {
-        const compressed = await compressImage(file)
-        const body = new FormData()
-        body.append('job_id', jobId)
-        body.append('file', compressed, 'upload.jpg')
-        body.append('caption', '')
-        body.append('area_ref', '')
-        body.append('category', 'after')
-        body.append('capture_phase', 'progress')
-        if (takenAt) body.append('taken_at', takenAt)
-        const res = await fetch('/api/photos/upload', { method: 'POST', body })
-        const data = (await res.json()) as { photo?: Photo; error?: string }
-        if (!res.ok || !data.photo) throw new Error(data.error || 'Upload failed')
-        added.push(data.photo)
-      }
+      const { added, error: uploadError } = await uploadJobPhotos(jobId, files, { category: 'after', capture_phase: 'progress' })
       if (added.length) {
         onPhotosUpdate([...photos, ...added])
         if (orderedIds?.length) await onReorder(insertPhotosByTimeTaken(loaded, added).map(photo => photo.id))
       }
+      if (uploadError) setError(uploadError)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed')
     } finally {

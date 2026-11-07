@@ -46,6 +46,7 @@ import {
   sectionHeading,
   textInput,
 } from '@/components/tabs/PostRemediationEvaluationTab'
+import PreReportPhotoLoader from '@/components/tabs/PreReportPhotoLoader'
 
 interface Props {
   job: Job
@@ -54,6 +55,8 @@ interface Props {
   onJobUpdate: (job: Job) => void
   onPhotosUpdate: (photos: Photo[]) => void
 }
+
+type PhotoIdsField = 'report_image_ids' | 'before_photo_ids' | 'after_photo_ids'
 
 type PartDraft = Pick<PrePart, 'works_rows' | 'methodology' | 'products_rows' | 'waste' | 'outcome_verification'>
 
@@ -404,18 +407,18 @@ export default function PostRemediationEvaluationV2Tab({ job, photos, documents,
     }
   }
 
-  function persistImageOrder(ids: string[]): Promise<void> {
+  /** Photo lists save straight away (the photos themselves already have), on top of the last saved report. */
+  function persistPhotoIds(patch: Pick<Partial<PostRemediationEvaluationV2>, PhotoIdsField>): Promise<void> {
+    if (preRef.current) {
+      const next = { ...preRef.current, ...patch }
+      preRef.current = next
+      setPre(next)
+    }
     const run = orderWrite.current.catch(() => undefined).then(async () => {
       if (!preRef.current) return
-      setPre(prev => {
-        if (!prev) return prev
-        const next = { ...prev, report_image_ids: ids }
-        preRef.current = next
-        return next
-      })
       const snap = snapshotRef.current
       if (!snap) return
-      const nextSaved = { ...(JSON.parse(snap) as PostRemediationEvaluationV2), report_image_ids: ids }
+      const nextSaved = { ...(JSON.parse(snap) as PostRemediationEvaluationV2), ...patch }
       const jobNow = jobRef.current
       const base = mergeAssessmentData(jobNow.assessment_data)
       const merged: AssessmentData = { ...base, pre_multi_part: upsertPreV2(jobNow.assessment_data, nextSaved) }
@@ -425,7 +428,7 @@ export default function PostRemediationEvaluationV2Tab({ job, photos, documents,
         body: JSON.stringify({ assessment_data: merged }),
       })
       const data = (await res.json()) as { job?: Job; error?: string }
-      if (!res.ok) throw new Error(data.error || 'Could not save the new order')
+      if (!res.ok) throw new Error(data.error || 'Could not save the photos')
       if (data.job) onJobUpdate(data.job)
       const nextSnap = JSON.stringify(nextSaved)
       snapshotRef.current = nextSnap
@@ -660,6 +663,28 @@ export default function PostRemediationEvaluationV2Tab({ job, photos, documents,
         )
       })}
 
+      <div style={{ ...card, marginTop: 24 }}>
+        <span style={{ fontSize: 16, fontWeight: 700 }}>Before &amp; after photos</span>
+        <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '6px 0 0', lineHeight: 1.5 }}>
+          Printed as Before Remediation and After Remediation, after the sections above, in the order shown here. Uploads
+          are saved to the job&apos;s photos. Choosing any photos here replaces the Images section at the end of the report.
+        </p>
+        {(['before', 'after'] as const).map(stage => {
+          const field = stage === 'before' ? 'before_photo_ids' : 'after_photo_ids'
+          return (
+            <PreReportPhotoLoader
+              key={stage}
+              jobId={job.id}
+              stage={stage}
+              photos={photos}
+              ids={pre[field]}
+              onChange={ids => persistPhotoIds({ [field]: ids.length ? ids : undefined })}
+              onPhotosUpdate={onPhotosUpdate}
+            />
+          )
+        })}
+      </div>
+
       <div style={sectionHeading}>Recommendations</div>
       <BulletEditor
         items={pre.recommendations ?? []}
@@ -680,13 +705,15 @@ export default function PostRemediationEvaluationV2Tab({ job, photos, documents,
         hint="Scope of Work exclusions, areas not accessed, and the testing disclaimer."
       />
 
-      <ReportImages
-        jobId={job.id}
-        photos={photos}
-        orderedIds={pre.report_image_ids}
-        onPhotosUpdate={onPhotosUpdate}
-        onReorder={persistImageOrder}
-      />
+      {!(pre.before_photo_ids?.length || pre.after_photo_ids?.length) && (
+        <ReportImages
+          jobId={job.id}
+          photos={photos}
+          orderedIds={pre.report_image_ids}
+          onPhotosUpdate={onPhotosUpdate}
+          onReorder={ids => persistPhotoIds({ report_image_ids: ids })}
+        />
+      )}
 
       <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginTop: 8 }}>
         <input

@@ -4,7 +4,8 @@
  * Heading numbers for the multi-part completion report, shared by the print
  * HTML and the PDF. Whole-job sections and each section printed from a part
  * are numbered 01, 02, … in print order; a part's sub-sections are 3.1, 3.2, …
- * over only those present. Only sections that print get a number.
+ * over only those present. Before / After Remediation photos come after the
+ * parts. Only sections that print get a number.
  */
 import type { PostRemediationEvaluationContent, PrePartResolved, PreRecordRow } from '@/lib/types'
 
@@ -28,6 +29,8 @@ export interface PartsReportOutline {
   executive_summary?: string
   site_conditions?: string
   parts: PrePartOutline[]
+  before_photos?: string
+  after_photos?: string
   recommendations?: string
   compliance?: string
   limitations?: string
@@ -53,7 +56,24 @@ export function prePartProductsRows(p: PrePartResolved) {
   return (p.products_rows ?? []).filter(r => filled(r.item_name) || filled(r.usage_note))
 }
 
-export function partsReportOutline(c: PostRemediationEvaluationContent): PartsReportOutline {
+export const PRE_PHOTO_SECTIONS = [
+  { key: 'before_photos', ids: 'before_photo_ids', title: 'Before Remediation' },
+  { key: 'after_photos', ids: 'after_photo_ids', title: 'After Remediation' },
+] as const
+
+/** Photos for a Before / After Remediation section in the chosen order; ids no longer on the job are skipped. */
+export function preSelectedPhotos<T extends { id: string }>(ids: string[] | undefined, photos: readonly T[]): T[] {
+  const byId = new Map(photos.map(p => [p.id, p]))
+  return [...new Set(ids ?? [])].map(id => byId.get(id)).filter((p): p is T => !!p)
+}
+
+/** Before / After Remediation selections replace the end-of-report image appendix. */
+export function preHasBeforeAfterSelection(c: Pick<PostRemediationEvaluationContent, 'before_photo_ids' | 'after_photo_ids'>): boolean {
+  return !!(c.before_photo_ids?.length || c.after_photo_ids?.length)
+}
+
+/** `photos` are the job's photos; a photo section is numbered only when one of its photos is found. */
+export function partsReportOutline(c: PostRemediationEvaluationContent, photos: readonly { id: string }[] = []): PartsReportOutline {
   let n = 0
   const next = () => String(++n).padStart(2, '0')
   const out: PartsReportOutline = { parts: [] }
@@ -75,6 +95,9 @@ export function partsReportOutline(c: PostRemediationEvaluationContent): PartsRe
       part,
       subs: PRE_PART_SUBS.filter(s => present[s.key]).map(s => ({ ...s, n: `${Number(num)}.${++sub}` })),
     })
+  }
+  if (c.include_photos !== false) {
+    for (const s of PRE_PHOTO_SECTIONS) if (preSelectedPhotos(c[s.ids], photos).length) out[s.key] = next()
   }
   if ((c.recommendations ?? []).some(filled)) out.recommendations = next()
   if (filled(c.compliance)) out.compliance = next()

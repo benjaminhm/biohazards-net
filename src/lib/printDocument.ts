@@ -31,7 +31,16 @@ import type {
   PreWorksRow, PreProductRow, PreWasteBlock, PreRecordRow,
 } from './types'
 import { DOC_TYPE_LABELS } from './types'
-import { partsReportOutline, prePartProductsRows, prePartWasteRows, prePartWorksRows, type PrePartSubKey } from '@/lib/preReportOutline'
+import {
+  PRE_PHOTO_SECTIONS,
+  partsReportOutline,
+  preHasBeforeAfterSelection,
+  prePartProductsRows,
+  prePartWasteRows,
+  prePartWorksRows,
+  preSelectedPhotos,
+  type PrePartSubKey,
+} from '@/lib/preReportOutline'
 import type { HouseSurveyDocumentContent, SurveySketch } from './houseSurvey'
 import type { BiohazardRecordSummary } from './biohazardCleaningRecord'
 import { fixedCharges, labourDaysText, recordSummary, type FixedCharges, type RecordSummary } from '@/lib/fixedCharges'
@@ -2664,10 +2673,8 @@ function preProseBlock(text?: string): string {
 }
 
 /** Progress (during/after) photos rendered as an end-of-report appendix grid. */
-function preCompletionPhotoAppendix(photos: Photo[], orderedIds?: string[]): string {
-  const progress = orderReportAppendixPhotos(photos, orderedIds)
-  if (!progress.length) return ''
-  const cards = progress
+function prePhotoGrid(photos: Photo[]): string {
+  const cards = photos
     .map(p => {
       const cap = (p.caption || p.area_ref || '').trim()
       return `
@@ -2677,9 +2684,15 @@ function preCompletionPhotoAppendix(photos: Photo[], orderedIds?: string[]): str
         </div>`
     })
     .join('')
+  return `<div class="photos-grid" style="margin-top:8px">${cards}</div>`
+}
+
+function preCompletionPhotoAppendix(photos: Photo[], orderedIds?: string[]): string {
+  const progress = orderReportAppendixPhotos(photos, orderedIds)
+  if (!progress.length) return ''
   return `
     <div class="label" style="margin-top:22px;color:#0a1f44">Photo Documentation</div>
-    <div class="photos-grid" style="margin-top:8px">${cards}</div>`
+    ${prePhotoGrid(progress)}`
 }
 
 const preNavyHeading = (n: string, title: string) =>
@@ -2761,8 +2774,8 @@ function buildCompletionReportMid(c: PostRemediationEvaluationContent, photos: P
 }
 
 /** Multi-part completion report: whole-job sections around the record-backed sections, numbered in print order. */
-function buildPartsReportMid(c: PostRemediationEvaluationContent, photos: Photo[]): string {
-  const o = partsReportOutline(c)
+function buildPartsReportMid(c: PostRemediationEvaluationContent, photos: Photo[], allPhotos: Photo[]): string {
+  const o = partsReportOutline(c, allPhotos)
   const recordTable = (rows?: PreRecordRow[]) => preTwoColTable((rows ?? []).map(r => [r.label, r.value]), '40%')
 
   const partHtml = o.parts
@@ -2789,17 +2802,22 @@ function buildPartsReportMid(c: PostRemediationEvaluationContent, photos: Photo[
     ${o.site_conditions ? `${preNavyHeading(o.site_conditions, 'Site Conditions on Attendance')}<div class="body-text" style="margin:6px 0 0">On arrival, the following was observed before any work began:</div>${preBullets(c.site_conditions)}` : ''}
     ${partHtml}
     <div style="margin-top:28px;border-top:2px solid #0a1f44"></div>
+    ${PRE_PHOTO_SECTIONS.map(s => {
+      const n = o[s.key]
+      return n ? `${preNavyHeading(n, s.title)}${prePhotoGrid(preSelectedPhotos(c[s.ids], allPhotos))}` : ''
+    }).join('')}
     ${o.recommendations ? `${preNavyHeading(o.recommendations, 'Recommendations')}<div class="body-text" style="margin:6px 0 0">The following was noted on site and is outside the cleaning scope. It is flagged here for the client to action:</div>${preBullets(c.recommendations)}` : ''}
     ${o.compliance ? `${preNavyHeading(o.compliance, 'Compliance')}${preProseBlock(c.compliance)}` : ''}
     ${o.limitations ? `${preNavyHeading(o.limitations, 'Limitations & Scope Notice')}${preProseBlock(c.limitations)}` : ''}
     ${c.technician_signoff ? `<div class="label" style="margin-top:22px;color:#0a1f44">Sign-off</div><div class="body-text">${esc(c.technician_signoff)}</div>` : ''}
-    ${c.include_photos !== false ? preCompletionPhotoAppendix(photos, c.report_image_ids) : ''}
+    ${c.include_photos !== false && !preHasBeforeAfterSelection(c) ? preCompletionPhotoAppendix(photos, c.report_image_ids) : ''}
   `
 }
 
-function buildPreMid(c: PostRemediationEvaluationContent, photos: Photo[]): string {
+/** `allPhotos` includes photos hidden from composed reports: a Before / After selection prints them anyway. */
+function buildPreMid(c: PostRemediationEvaluationContent, photos: Photo[], allPhotos: Photo[] = photos): string {
   if (c.report_format === 'completion_v2') return buildCompletionReportMid(c, photos)
-  if (c.report_format === 'parts_v1') return buildPartsReportMid(c, photos)
+  if (c.report_format === 'parts_v1') return buildPartsReportMid(c, photos, allPhotos)
 
   const byId = new Map((c.include_photos === false ? [] : photos).map(p => [p.id, p]))
 
@@ -2887,11 +2905,12 @@ function buildPreMid(c: PostRemediationEvaluationContent, photos: Photo[]): stri
 function buildPreHTML(
   c: PostRemediationEvaluationContent,
   photos: Photo[],
+  allPhotos: Photo[],
   company: CompanyProfile | null,
   client: ClientInfo | undefined,
   screenActionBar: boolean,
 ): string {
-  const mid = buildPreMid(c, photos)
+  const mid = buildPreMid(c, photos, allPhotos)
   return wrapBranded(
     mid,
     c.title,
@@ -4358,6 +4377,7 @@ export function buildPrintHTML(
   options?: BuildPrintHTMLOptions,
 ): string {
   const c = content as Record<string, unknown>
+  const allPhotos = photos
   photos = photosForComposedReports(photos)
   const groups = groupPhotosByRoomAndStage(photos, areas)
   const screenActionBar = options?.screenActionBar !== false
@@ -4368,7 +4388,7 @@ export function buildPrintHTML(
     case 'authority_to_proceed':       return buildATPHTML(c as unknown as AuthorityToProceedContent, company, client, screenActionBar)
     case 'engagement_agreement':       return buildEngagementHTML(c as unknown as EngagementAgreementContent, company, client, screenActionBar)
     case 'report':                     return isPreContent(c)
-                                         ? buildPreHTML(c as unknown as PostRemediationEvaluationContent, photos, company, client, screenActionBar)
+                                         ? buildPreHTML(c as unknown as PostRemediationEvaluationContent, photos, allPhotos, company, client, screenActionBar)
                                          : buildReportHTML(c as unknown as ReportContent, photos, areas, company, client, screenActionBar)
     case 'certificate_of_decontamination': return buildCODHTML(c as unknown as CertificateOfDecontaminationContent, company, client, screenActionBar)
     case 'waste_disposal_manifest':    return buildWDMHTML(c as unknown as WasteDisposalManifestContent, company, client, screenActionBar)

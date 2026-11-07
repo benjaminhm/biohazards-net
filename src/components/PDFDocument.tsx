@@ -42,7 +42,16 @@ import type {
 import { filterGroupedStages, groupPhotosByRoomAndStage, isDocumentAppendixPhoto, isQuoteAppendixPhoto } from '@/lib/photoGroups'
 import { photosForComposedReports } from '@/lib/photosForComposedReports'
 import { effectiveAreaDimensions } from '@/lib/areaSubzones'
-import { partsReportOutline, prePartProductsRows, prePartWasteRows, prePartWorksRows, type PrePartSubKey } from '@/lib/preReportOutline'
+import {
+  PRE_PHOTO_SECTIONS,
+  partsReportOutline,
+  preHasBeforeAfterSelection,
+  prePartProductsRows,
+  prePartWasteRows,
+  prePartWorksRows,
+  preSelectedPhotos,
+  type PrePartSubKey,
+} from '@/lib/preReportOutline'
 
 const ORANGE = '#FF6B35'
 const BLACK = '#111111'
@@ -586,14 +595,14 @@ function PhotoSection({
   singleColumn = false,
 }: {
   photos: PhotoWithData[]
-  label: string
+  label: string | React.ReactNode
   showAppMetadata?: boolean
   singleColumn?: boolean
 }) {
   if (photos.length === 0) return null
   return (
     <View style={styles.section} break={photos.length > 4}>
-      <Text style={styles.sectionLabel}>{label}</Text>
+      {typeof label === 'string' ? <Text style={styles.sectionLabel}>{label}</Text> : label}
       <View style={styles.photoGrid}>
         {photos.map((p, i) => (
           <View key={i} style={singleColumn ? styles.photoItemFull : styles.photoItem}>
@@ -1172,18 +1181,20 @@ function CompletionReportPDF({
 function PartsReportPDF({
   content,
   photos,
+  allPhotos,
   company,
 }: {
   content: PostRemediationEvaluationContent
   photos: PhotoWithData[]
+  allPhotos: PhotoWithData[]
   company: CompanyProfile | null
 }) {
   const c = content
   const today = new Date().toLocaleDateString('en-AU', { day: '2-digit', month: 'long', year: 'numeric' })
-  const o = partsReportOutline(c)
+  const o = partsReportOutline(c, allPhotos)
   const conditions = (c.site_conditions ?? []).filter(Boolean)
   const recs = (c.recommendations ?? []).filter(Boolean)
-  const appendixPhotos = (c.include_photos === false ? [] : photos).filter(
+  const appendixPhotos = (c.include_photos === false || preHasBeforeAfterSelection(c) ? [] : photos).filter(
     p => p.capture_phase === 'progress' || (p.capture_phase !== 'assessment' && (p.category === 'during' || p.category === 'after')),
   )
 
@@ -1238,6 +1249,18 @@ function PartsReportPDF({
         )
       })}
 
+      {PRE_PHOTO_SECTIONS.map(s => {
+        const n = o[s.key]
+        return n ? (
+          <PhotoSection
+            key={s.key}
+            photos={preSelectedPhotos(c[s.ids], allPhotos)}
+            label={<PreNavyHeading>{`${n} · ${s.title}`}</PreNavyHeading>}
+            showAppMetadata={false}
+          />
+        ) : null
+      })}
+
       {o.recommendations ? (
         <View style={styles.section}>
           <PreNavyHeading>{`${o.recommendations} · Recommendations`}</PreNavyHeading>
@@ -1270,17 +1293,19 @@ function PartsReportPDF({
 function PrePDF({
   content,
   photos,
+  allPhotos,
   company,
 }: {
   content: PostRemediationEvaluationContent
   photos: PhotoWithData[]
+  allPhotos: PhotoWithData[]
   company: CompanyProfile | null
 }) {
   if (content.report_format === 'completion_v2') {
     return <CompletionReportPDF content={content} photos={photos} company={company} />
   }
   if (content.report_format === 'parts_v1') {
-    return <PartsReportPDF content={content} photos={photos} company={company} />
+    return <PartsReportPDF content={content} photos={photos} allPhotos={allPhotos} company={company} />
   }
 
   const today = new Date().toLocaleDateString('en-AU', { day: '2-digit', month: 'long', year: 'numeric' })
@@ -1411,6 +1436,7 @@ interface JobPDFDocumentProps {
 }
 
 export function JobPDFDocument({ type, content, photos, company, areas = [], siteAddress }: JobPDFDocumentProps) {
+  const allPhotos = photos
   photos = photosForComposedReports(photos)
   const name = company?.name || 'Brisbane Biohazard Cleaning'
   return (
@@ -1426,7 +1452,7 @@ export function JobPDFDocument({ type, content, photos, company, areas = [], sit
           siteAddress={siteAddress}
         />
       ) : type === 'report' && isPreContent(content) ? (
-        <PrePDF content={content as PostRemediationEvaluationContent} photos={photos} company={company} />
+        <PrePDF content={content as PostRemediationEvaluationContent} photos={photos} allPhotos={allPhotos} company={company} />
       ) : (
         <SOWOrReportPDF content={content as SOWContent | ReportContent} type={type} photos={photos} company={company} areas={areas} />
       )}
