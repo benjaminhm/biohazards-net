@@ -90,10 +90,11 @@ test('printed multi-part report shows parts in A then C order with their section
   const html = buildPrintHTML('report', content as unknown as Record<string, unknown>, [], [], null, 'job', 'http://localhost', undefined, {
     screenActionBar: false,
   })
-  const a = html.indexOf('Part A · Biohazard Cleaning')
-  const c = html.indexOf('Part C · Surface Area Cleaning')
+  const a = html.indexOf('>A · Biohazard Cleaning<')
+  const c = html.indexOf('>C · Surface Area Cleaning<')
   assert.ok(a > 0 && c > a)
-  assert.equal(html.includes('Part B'), false)
+  assert.equal(html.includes('Contents Clearance'), false)
+  assert.equal(/\bPart [ABC]\b/.test(html), false)
   assert.match(html, /A2 · Methodology/)
   assert.match(html, /C1 · Works Undertaken/)
   assert.match(html, /Whole job summary/)

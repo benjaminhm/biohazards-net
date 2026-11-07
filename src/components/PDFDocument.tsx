@@ -1184,7 +1184,7 @@ function PartsReportPDF({
   const recs = (c.recommendations ?? []).filter(Boolean)
   const quoteLine = parts
     .filter(p => p.source_quote_label || p.source_quote_reference)
-    .map(p => `Part ${p.letter}: ${[p.source_quote_label, p.source_quote_reference].filter(Boolean).join(' · ')}`)
+    .map(p => `${p.letter}: ${[p.source_quote_label, p.source_quote_reference].filter(Boolean).join(' · ')}`)
     .join('   |   ')
   const appendixPhotos = (c.include_photos === false ? [] : photos).filter(
     p => p.capture_phase === 'progress' || (p.capture_phase !== 'assessment' && (p.category === 'during' || p.category === 'after')),
@@ -1235,7 +1235,7 @@ function PartsReportPDF({
         const source = [p.source_quote_label, p.source_quote_reference].filter(Boolean).join(' · ')
         return (
           <View key={p.key} style={{ marginTop: 14, paddingTop: 6, borderTopWidth: 2, borderTopColor: PRE_NAVY }}>
-            <Text style={{ fontSize: 13, fontFamily: 'Helvetica-Bold', color: PRE_NAVY }}>Part {L} · {p.title}</Text>
+            <Text style={{ fontSize: 13, fontFamily: 'Helvetica-Bold', color: PRE_NAVY }}>{L} · {p.title}</Text>
             {source ? <Text style={[styles.body, { color: MUTED }]}>Reporting against: {source}</Text> : null}
             {works.length ? <View style={styles.section}><PreNavyHeading>{`${L}1 · Works Undertaken`}</PreNavyHeading>{table(works, '30%')}</View> : null}
             {p.methodology ? <View style={styles.section}><PreNavyHeading>{`${L}2 · Methodology`}</PreNavyHeading><PreProse text={p.methodology} /></View> : null}

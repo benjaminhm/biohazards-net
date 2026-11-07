@@ -2767,7 +2767,7 @@ function buildPartsReportMid(c: PostRemediationEvaluationContent, photos: Photo[
   const parts = c.parts ?? []
   const quoteLines = parts
     .filter(p => p.source_quote_label || p.source_quote_reference)
-    .map(p => `Part ${esc(p.letter)}: ${esc([p.source_quote_label, p.source_quote_reference].filter(Boolean).join(' · '))}`)
+    .map(p => `${esc(p.letter)}: ${esc([p.source_quote_label, p.source_quote_reference].filter(Boolean).join(' · '))}`)
   const header = [
     quoteLines.length ? `<div class="body-text" style="font-size:9pt;color:#555;margin:-6px 0 6px">Linked quotes — ${quoteLines.join(' &nbsp;|&nbsp; ')}</div>` : '',
     c.attendance ? `<div class="body-text" style="font-size:9pt;color:#555;margin:0 0 8px">Attendance: ${esc(c.attendance)}</div>` : '',
@@ -2784,7 +2784,7 @@ function buildPartsReportMid(c: PostRemediationEvaluationContent, photos: Photo[
       const waste = preWasteTable(p.waste, volumeRows)
       return `
         <div style="margin-top:28px;padding-top:10px;border-top:2px solid #0a1f44">
-          <div style="font-size:13pt;font-weight:800;color:#0a1f44">Part ${esc(L)} · ${esc(p.title)}</div>
+          <div style="font-size:13pt;font-weight:800;color:#0a1f44">${esc(L)} · ${esc(p.title)}</div>
           ${p.source_quote_label || p.source_quote_reference ? `<div class="body-text" style="font-size:9pt;color:#555;margin:2px 0 0">Reporting against: ${esc([p.source_quote_label, p.source_quote_reference].filter(Boolean).join(' · '))}</div>` : ''}
         </div>
         ${works ? `${preNavyHeading(`${L}1`, 'Works Undertaken')}${works}` : ''}

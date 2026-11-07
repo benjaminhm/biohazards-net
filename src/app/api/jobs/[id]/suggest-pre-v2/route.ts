@@ -37,6 +37,7 @@ RULES:
 - Part B (Contents Clearance): cover what was removed, volume, containment, transport, and the tip/disposal facility when given.
 - Part C (Surface Area Cleaning): describe works room by room using the quoted rooms when given.
 - Part A (Biohazard Cleaning): cover zone setup, contamination removal, treatment, and biohazard waste containment.
+- In the written text never use the word "Part". Refer to a section by its letter and title, e.g. "B · Contents Clearance", or just by its title.
 - When a part has has_linked_quote false, never mention a quote for that part; take its scope from the briefs and Scope of Work.
 - Ground every statement in the provided data. Do NOT invent incidents, clearance/lab results, quantities, dates, products, or commitments.
 - NEVER include money, prices, rates, totals, or variance figures.
