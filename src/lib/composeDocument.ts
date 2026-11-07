@@ -35,7 +35,6 @@ import type {
   PostRemediationEvaluation,
   PostRemediationEvaluationContent,
   PostRemediationEvaluationV2,
-  PrePartKey,
   PreScopeLineResolved,
   PreAreaNoteResolved,
 } from '@/lib/types'
@@ -131,8 +130,6 @@ export interface ComposeDocumentOptions {
     sourceQuoteContent?: Partial<QuoteContent>
     /** When set, compose this multi-part PRE (assessment_data.pre_multi_part). */
     preV2Id?: string
-    /** Linked quote content per multi-part PRE part (Part B's quoted m³). */
-    prePartQuoteContents?: Partial<Record<PrePartKey, Record<string, unknown> | undefined>>
   }
   /** Org equipment catalogue so we can resolve used_equipment_catalogue_ids → named rows. */
   equipmentCatalogue?: EquipmentCatalogueItem[] | null
@@ -859,12 +856,8 @@ function composePre(
   return { content: { ...c }, source: 'assessment_capture' }
 }
 
-/** Compose a multi-part PRE (Part A BCQ / B CCQ / C SACQ). NON-FINANCIAL. */
-export function composePreV2(
-  job: Job,
-  pre: PostRemediationEvaluationV2,
-  quoteContents?: Partial<Record<PrePartKey, Record<string, unknown> | undefined>>,
-): ComposeDocumentResult {
+/** Compose a multi-part PRE. Section figures come from the job's records, never quotes. NON-FINANCIAL. */
+export function composePreV2(job: Job, pre: PostRemediationEvaluationV2): ComposeDocumentResult {
   const cleanStr = (s?: string) => (s ?? '').trim() || undefined
   const cleanList = (xs?: string[]) => (xs ?? []).map(x => x.trim()).filter(Boolean)
   const signoff = cleanStr(pre.technician_signoff)
@@ -877,7 +870,7 @@ export function composePreV2(
     service_type: cleanStr(job.job_type),
     executive_summary: cleanStr(pre.executive_summary),
     site_conditions: cleanList(pre.site_conditions),
-    parts: resolvePreV2Parts(pre, quoteContents),
+    parts: resolvePreV2Parts(pre, job.assessment_data),
     recommendations: cleanList(pre.recommendations),
     compliance: cleanStr(pre.compliance),
     limitations: cleanStr(pre.limitations),
@@ -1278,7 +1271,7 @@ export function composeDocumentContent(type: DocType, job: Job, options?: Compos
       const preV2Id = options?.report?.preV2Id
       if (preV2Id) {
         const preV2 = (job.assessment_data?.pre_multi_part ?? []).find(p => p.id === preV2Id)
-        if (preV2) return composePreV2(job, preV2, options?.report?.prePartQuoteContents)
+        if (preV2) return composePreV2(job, preV2)
       }
       const preId = options?.report?.preId
       if (preId) {

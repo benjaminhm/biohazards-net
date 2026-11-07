@@ -1,11 +1,13 @@
 /*
  * Verify → Post Remediation Evaluation, multi-part.
  *
- * One report covering up to three quotes: Part A (Biohazard Cleaning Quote),
- * Part B (Contents Clearance Quote), Part C (Surface Area Cleaning Quote).
- * Letters are fixed — a job without a CCQ prints Part A and Part C. Whole-job
- * sections (summary, site conditions, recommendations, compliance, limitations)
- * sit around the parts. NON-FINANCIAL. Persists to assessment_data.pre_multi_part[].
+ * One report that states what was done: Part A Biohazard Cleaning (Biohazard
+ * Cleaning Record), Part B Contents Clearance (Contents Disposal Record), Part
+ * C Surface Area Cleaning (House Survey). A part is available when its record
+ * exists, and its figures are read from the record, never a quote. Part A on a
+ * fixed-price BCQ has no record and keeps its quote link. Letters are for this
+ * editor only; the printed report numbers sections in order. NON-FINANCIAL.
+ * Persists to assessment_data.pre_multi_part[].
  */
 'use client'
 
@@ -20,8 +22,10 @@ import type {
   PrePart,
   PrePartKey,
   PreProductRow,
+  PreRecordRow,
   PreWorksRow,
 } from '@/lib/types'
+import { preMeasuredRows, prePartSources, preVerifiedRecords, preWasteRecordRows } from '@/lib/preVerifiedRecords'
 import { mergeAssessmentData } from '@/lib/riskDerivation'
 import {
   PRE_PART_DEFS,
@@ -235,6 +239,27 @@ function ProductsEditor({ rows, onChange }: { rows: PreProductRow[]; onChange: (
   )
 }
 
+const RECORD_NAME: Record<PrePartKey, string> = {
+  a: 'Biohazard Cleaning Record',
+  b: 'Contents Disposal Record',
+  c: 'House Survey',
+}
+
+function RecordRows({ rows, from }: { rows: PreRecordRow[]; from: string }) {
+  if (!rows.length) return null
+  return (
+    <div style={{ ...card, background: 'var(--surface-2)', marginBottom: 10 }}>
+      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>From the {from} (printed as is)</div>
+      {rows.map((r, i) => (
+        <div key={i} style={{ display: 'flex', gap: 12, fontSize: 13, padding: '3px 0' }}>
+          <span style={{ flex: '0 0 40%', fontWeight: 600 }}>{r.label}</span>
+          <span>{r.value}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function applyPartDraft(part: PrePart, draft: PartDraft | undefined): PrePart {
   if (!draft) return part
   return {
@@ -248,16 +273,15 @@ function applyPartDraft(part: PrePart, draft: PartDraft | undefined): PrePart {
 }
 
 export default function PostRemediationEvaluationV2Tab({ job, photos, documents, onJobUpdate, onPhotosUpdate }: Props) {
-  const quoteDocsByPart = useMemo(() => {
-    const out = {} as Record<PrePartKey, Document[]>
-    for (const key of PRE_PART_KEYS) {
-      out[key] = documents
-        .filter(d => d.type === PRE_PART_DEFS[key].docType)
-        .slice()
-        .sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at))
-    }
-    return out
-  }, [documents])
+  const bcqDocs = useMemo(
+    () => documents
+      .filter(d => d.type === PRE_PART_DEFS.a.docType)
+      .slice()
+      .sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at)),
+    [documents],
+  )
+  const records = useMemo(() => preVerifiedRecords(job.assessment_data), [job.assessment_data])
+  const sources = useMemo(() => prePartSources(job.assessment_data, records), [job.assessment_data, records])
 
   const [pre, setPre] = useState<PostRemediationEvaluationV2 | null>(null)
   const [persistedSnapshot, setPersistedSnapshot] = useState('')
@@ -301,7 +325,7 @@ export default function PostRemediationEvaluationV2Tab({ job, photos, documents,
   }
 
   function startNew() {
-    setPre(makeBlankPreV2(documents))
+    setPre(makeBlankPreV2(documents, job.assessment_data))
     setPersistedSnapshot('')
     setSavedFlash(false)
     setSaveError(null)
@@ -309,14 +333,14 @@ export default function PostRemediationEvaluationV2Tab({ job, photos, documents,
 
   async function regenerate(only?: PrePartKey) {
     if (!pre) return
-    const enabled = PRE_PART_KEYS.filter(k => pre.parts[k].enabled)
-    if (only ? !pre.parts[only].enabled : enabled.length === 0) {
-      setAiError('Switch on at least one part first.')
+    const enabled = PRE_PART_KEYS.filter(k => pre.parts[k].enabled && sources[k])
+    if (only ? !enabled.includes(only) : enabled.length === 0) {
+      setAiError('Switch on at least one part that has its record first.')
       return
     }
     const message = only
-      ? `Replace the drafted Part ${PRE_PART_DEFS[only].letter} sections with a fresh draft? Its note and quote link are kept.`
-      : 'Replace all drafted sections with a fresh draft? Your notes, quote links, attendance, and photos are kept.'
+      ? `Replace the drafted Part ${PRE_PART_DEFS[only].letter} sections with a fresh draft? Its note is kept.`
+      : 'Replace all drafted sections with a fresh draft? Your notes, attendance, and photos are kept.'
     if (preHasDraft(pre, only) && !window.confirm(message)) return
     setAiBusy(only ?? 'all')
     setAiError(null)
@@ -419,8 +443,9 @@ export default function PostRemediationEvaluationV2Tab({ job, photos, documents,
     return (
       <div style={{ maxWidth: 720, paddingBottom: 32 }}>
         <p style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.55, margin: '0 0 16px' }}>
-          One report in parts: Part A for the Biohazard Cleaning Quote, Part B for the Contents Clearance Quote, and
-          Part C for the Surface Area Cleaning Quote. Parts you switch off are left out.
+          One report of what was done: Part A Biohazard Cleaning from the Biohazard Cleaning Record, Part B Contents
+          Clearance from the Contents Disposal Record, and Part C Surface Area Cleaning from the House Survey. A part
+          prints when its record exists; parts you switch off are left out.
         </p>
         {existing.map(p => (
           <button
@@ -461,7 +486,7 @@ export default function PostRemediationEvaluationV2Tab({ job, photos, documents,
             return (
               <div key={k}>
                 Part {def.letter} · {def.title}:{' '}
-                {!part.enabled ? 'off' : part.source_quote_reference || part.source_quote_label || 'no linked quote'}
+                {!sources[k] ? `no ${RECORD_NAME[k]}` : !part.enabled ? 'off' : sources[k] === 'record' ? RECORD_NAME[k] : 'fixed-price quote, no record'}
               </div>
             )
           })}
@@ -515,61 +540,69 @@ export default function PostRemediationEvaluationV2Tab({ job, photos, documents,
       {PRE_PART_KEYS.map(key => {
         const part = pre.parts[key]
         const def = PRE_PART_DEFS[key]
-        const docs = quoteDocsByPart[key]
-        const linkedDoc = docs.find(d => d.id === part.source_quote_document_id)
-        const quotedM3 = key === 'b' && linkedDoc ? Number((linkedDoc.content as Record<string, unknown>).estimated_m3) || 0 : 0
+        const source = sources[key]
+        const fixedPrice = source === 'fixed_price'
+        const wasteRecordRows = preWasteRecordRows(key, records)
         return (
-          <div key={key} style={{ ...card, marginTop: 24, borderColor: part.enabled ? 'var(--accent)' : 'var(--border)' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+          <div key={key} style={{ ...card, marginTop: 24, borderColor: part.enabled && source ? 'var(--accent)' : 'var(--border)' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: source || part.enabled ? 'pointer' : 'default' }}>
               <input
                 type="checkbox"
                 checked={part.enabled}
+                disabled={!source && !part.enabled}
                 onChange={e => patchPart(key, p => ({ ...p, enabled: e.target.checked }))}
               />
               <span style={{ fontSize: 16, fontWeight: 700 }}>
                 Part {def.letter} · {def.title}
               </span>
             </label>
-            {!part.enabled ? (
+            {!source ? (
+              <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '8px 0 0' }}>
+                No {RECORD_NAME[key]} on this job yet — left out of the report.
+              </p>
+            ) : !part.enabled ? (
               <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '8px 0 0' }}>
                 Off — left out of the report.
               </p>
             ) : (
               <>
-                <div style={{ ...sectionHeading, marginTop: 16 }}>Reporting against ({def.quoteLabel})</div>
-                <select
-                  value={part.source_quote_document_id ?? ''}
-                  onChange={e => {
-                    const doc = docs.find(d => d.id === e.target.value) ?? null
-                    patchPart(key, p => linkPartToQuote(p, doc))
-                  }}
-                  style={textInput}
-                >
-                  <option value="">No linked quote</option>
-                  {docs.map(d => {
-                    const meta = quoteDocMeta(d)
-                    return (
-                      <option key={d.id} value={d.id}>
-                        {meta.label}{meta.reference ? ` · ${meta.reference}` : ''} · {meta.date}
-                      </option>
-                    )
-                  })}
-                </select>
-                {docs.length === 0 && (
-                  <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '6px 0 0' }}>
-                    No saved {def.quoteLabel} on this job. The part can still be written from your notes.
-                  </p>
+                {fixedPrice && (
+                  <>
+                    <div style={{ ...sectionHeading, marginTop: 16 }}>Fixed-price {def.quoteLabel} (no record)</div>
+                    <select
+                      value={part.source_quote_document_id ?? ''}
+                      onChange={e => {
+                        const doc = bcqDocs.find(d => d.id === e.target.value) ?? null
+                        patchPart(key, p => linkPartToQuote(p, doc))
+                      }}
+                      style={textInput}
+                    >
+                      <option value="">No linked quote</option>
+                      {bcqDocs.map(d => {
+                        const meta = quoteDocMeta(d)
+                        return (
+                          <option key={d.id} value={d.id}>
+                            {meta.label}{meta.reference ? ` · ${meta.reference}` : ''} · {meta.date}
+                          </option>
+                        )
+                      })}
+                    </select>
+                    <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '6px 0 0' }}>
+                      Used only to draft what the job covered. Its figures and the quote are never printed.
+                    </p>
+                  </>
                 )}
 
                 <div style={sectionHeading}>Technician note — Part {def.letter}</div>
                 <textarea
                   value={part.generation_brief ?? ''}
                   onChange={e => patchPart(key, p => ({ ...p, generation_brief: e.target.value }))}
-                  placeholder="What actually happened for this part — followed as quoted, complexities, changes."
+                  placeholder="What actually happened for this part — complexities, changes, anything not in the record."
                   style={{ ...textInput, minHeight: 80, resize: 'vertical', lineHeight: 1.5 }}
                 />
 
                 <div style={sectionHeading}>{def.letter}1 · Works Undertaken</div>
+                <RecordRows rows={preMeasuredRows(key, records)} from={RECORD_NAME[key]} />
                 <WorksStagesEditor
                   key={`${pre.id}-${key}`}
                   rows={part.works_rows ?? []}
@@ -589,29 +622,13 @@ export default function PostRemediationEvaluationV2Tab({ job, photos, documents,
                 />
 
                 <div style={sectionHeading}>{def.letter}4 · Waste Management &amp; Disposal</div>
-                {key === 'b' && (
-                  <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', marginBottom: 10 }}>
-                    <div style={{ flex: 1 }}>
-                      <label style={fieldLabel}>Quoted volume</label>
-                      <div style={{ ...textInput, color: 'var(--text-muted)' }}>{quotedM3 ? `${quotedM3} m³` : '—'}</div>
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <label style={fieldLabel}>Actual volume removed</label>
-                      <input
-                        value={part.actual_volume_m3 ?? ''}
-                        onChange={e => patchPart(key, p => ({ ...p, actual_volume_m3: e.target.value }))}
-                        placeholder="e.g. 14 m³"
-                        style={textInput}
-                      />
-                    </div>
-                  </div>
-                )}
+                <RecordRows rows={wasteRecordRows} from={RECORD_NAME[key]} />
                 {([
                   ['waste_type', 'Waste type'],
                   ['volume', 'Volume'],
                   ['containment', 'Containment'],
                   ['disposal', 'Disposal'],
-                ] as const).map(([field, label]) => (
+                ] as const).filter(([field]) => !(field === 'volume' && wasteRecordRows.length)).map(([field, label]) => (
                   <div key={field} style={{ marginBottom: 8 }}>
                     <label style={fieldLabel}>{label}</label>
                     <input
@@ -660,7 +677,7 @@ export default function PostRemediationEvaluationV2Tab({ job, photos, documents,
         label="Limitations & Scope Notice"
         value={pre.limitations}
         onChange={v => patchPre(p => ({ ...p, limitations: v }))}
-        hint="Scope boundaries and exclusions across all parts."
+        hint="Scope of Work exclusions, areas not accessed, and the testing disclaimer."
       />
 
       <ReportImages
@@ -701,8 +718,9 @@ export default function PostRemediationEvaluationV2Tab({ job, photos, documents,
       )}
 
       <p style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5, margin: '20px 0 8px' }}>
-        Regenerate all drafts every section from the linked quotes and your notes, replacing drafted content. Notes,
-        quote links, attendance, and photos are kept. Review, then save.
+        Regenerate all drafts every section from the records (House Survey, Contents Disposal Record, Biohazard
+        Cleaning Record) and your notes, replacing drafted content. Notes, attendance, and photos are kept. Review,
+        then save.
       </p>
       <div style={{ display: 'flex', gap: 12 }}>
         <button

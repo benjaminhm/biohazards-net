@@ -23,6 +23,7 @@ import type {
   PreScopeLine,
   QuoteContent,
 } from '@/lib/types'
+import { preMeasuredRows, prePartSources, preVerifiedRecords, preWasteRecordRows } from '@/lib/preVerifiedRecords'
 
 /** Saved document types a PRE can report against. */
 export const PRE_SOURCE_DOC_TYPES: readonly DocType[] = [
@@ -330,7 +331,7 @@ export function upsertPre(
 
 export const PRE_PART_KEYS: readonly PrePartKey[] = ['a', 'b', 'c']
 
-/** Fixed part letters and the quote type each part reports against. */
+/** Editor letters and titles. docType / quoteLabel serve only Part A on a fixed-price BCQ. */
 export const PRE_PART_DEFS: Record<PrePartKey, { letter: string; title: string; docType: DocType; quoteLabel: string }> = {
   a: { letter: 'A', title: 'Biohazard Cleaning', docType: 'biohazard_cleaning_quote', quoteLabel: 'BCQ' },
   b: { letter: 'B', title: 'Contents Clearance', docType: 'contents_clearance_quote', quoteLabel: 'CCQ' },
@@ -365,15 +366,25 @@ export function linkPartToQuote(part: PrePart, doc: Pick<Document, 'id' | 'conte
 }
 
 /**
- * Fresh multi-part PRE. A part is switched on and linked when the job has
- * exactly one saved quote of that part's type; otherwise it starts off.
+ * Fresh multi-part PRE. A section starts on when its record exists. Part A on
+ * a fixed-price BCQ has no record: it starts on when the job has a saved BCQ
+ * and is linked when there is exactly one.
  */
-export function makeBlankPreV2(documents: Pick<Document, 'id' | 'type' | 'content' | 'created_at'>[]): PostRemediationEvaluationV2 {
+export function makeBlankPreV2(
+  documents: Pick<Document, 'id' | 'type' | 'content' | 'created_at'>[],
+  ad: AssessmentData | null | undefined,
+): PostRemediationEvaluationV2 {
   const now = new Date().toISOString()
+  const sources = prePartSources(ad)
   const parts = {} as Record<PrePartKey, PrePart>
   for (const key of PRE_PART_KEYS) {
+    const blank: PrePart = { enabled: sources[key] === 'record', works_rows: [], products_rows: [], waste: {} }
+    if (sources[key] !== 'fixed_price') {
+      parts[key] = blank
+      continue
+    }
     const matches = documents.filter(d => d.type === PRE_PART_DEFS[key].docType)
-    const blank: PrePart = { enabled: matches.length > 0, works_rows: [], products_rows: [], waste: {} }
+    blank.enabled = matches.length > 0
     parts[key] = matches.length === 1 ? linkPartToQuote(blank, matches[0]) : blank
   }
   return {
@@ -399,7 +410,6 @@ export function prePartHasContent(part: PrePart): boolean {
   return (
     hasProse(part.methodology) ||
     hasProse(part.outcome_verification) ||
-    hasProse(part.actual_volume_m3) ||
     (part.works_rows ?? []).some(r => r.stage_name.trim() || r.description.trim()) ||
     (part.products_rows ?? []).some(r => r.item_name.trim() || r.usage_note.trim()) ||
     !!(w && (w.waste_type || w.volume || w.containment || w.disposal))
@@ -420,30 +430,30 @@ export function preV2HasContent(pre: PostRemediationEvaluationV2): boolean {
 }
 
 /**
- * Enabled parts with printable content, in A/B/C order, frozen for printing.
- * Letters are fixed, never re-lettered. `quoteContents` holds each part's
- * linked quote content (only Part B's estimated m³ is read).
+ * Sections to print, in A/B/C order, frozen for printing: switched on, with a
+ * record behind them (or Part A on a fixed-price BCQ), and something to show.
+ * Figures come from the records; quotes are never read.
  */
 export function resolvePreV2Parts(
   pre: PostRemediationEvaluationV2,
-  quoteContents?: Partial<Record<PrePartKey, Record<string, unknown> | undefined>>,
+  ad: AssessmentData | null | undefined,
 ): PrePartResolved[] {
   const clean = (s?: string) => (s ?? '').trim() || undefined
+  const records = preVerifiedRecords(ad)
+  const sources = prePartSources(ad, records)
   const out: PrePartResolved[] = []
   for (const key of PRE_PART_KEYS) {
     const part = pre.parts[key]
-    if (!part?.enabled || !prePartHasContent(part)) continue
-    const def = PRE_PART_DEFS[key]
+    if (!part?.enabled || !sources[key]) continue
+    const measured = preMeasuredRows(key, records)
+    const wasteRows = preWasteRecordRows(key, records)
+    if (!prePartHasContent(part) && !measured.length && !wasteRows.length) continue
     const w = part.waste
-    const quotedM3 = key === 'b' ? Number(quoteContents?.b?.estimated_m3) || 0 : 0
     out.push({
       key,
-      letter: def.letter,
-      title: def.title,
-      source_quote_label: part.source_quote_document_id ? part.source_quote_label : undefined,
-      source_quote_reference: part.source_quote_document_id ? part.source_quote_reference : undefined,
-      quoted_volume_m3: quotedM3 > 0 ? quotedM3 : undefined,
-      actual_volume_m3: key === 'b' ? clean(part.actual_volume_m3) : undefined,
+      title: PRE_PART_DEFS[key].title,
+      measured_rows: measured.length ? measured : undefined,
+      waste_rows: wasteRows.length ? wasteRows : undefined,
       works_rows: (part.works_rows ?? []).filter(r => r.stage_name.trim() || r.description.trim()),
       methodology: clean(part.methodology),
       products_rows: (part.products_rows ?? []).filter(r => r.item_name.trim() || r.usage_note.trim()),

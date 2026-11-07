@@ -238,27 +238,13 @@ function DocViewerInner() {
               }
             }
           }
-          // Multi-part PRE: Part B prints the CCQ's quoted m³ beside the actual volume.
-          let prePartQuoteContents: { b?: Record<string, unknown> } | undefined
-          if (preV2Id) {
-            const preV2 = (j.assessment_data?.pre_multi_part ?? []).find(p => p.id === preV2Id)
-            const ccqId = preV2?.parts.b?.enabled ? preV2.parts.b.source_quote_document_id : undefined
-            if (ccqId) {
-              try {
-                const srcDoc = await fetch(`/api/documents/${ccqId}`).then(r => r.json())
-                prePartQuoteContents = { b: (srcDoc?.document?.content ?? srcDoc?.content) as Record<string, unknown> | undefined }
-              } catch {
-                prePartQuoteContents = undefined
-              }
-            }
-          }
           composeOpts = {
             report: {
               photos: ph as Photo[],
               progressNotes: (pnRes.notes ?? []) as ProgressNote[],
               progressRoomNotes: (prnRes.notes ?? []) as ProgressRoomNote[],
               ...(preId ? { preId, sourceQuoteContent } : {}),
-              ...(preV2Id ? { preV2Id, prePartQuoteContents } : {}),
+              ...(preV2Id ? { preV2Id } : {}),
             },
           }
         }

@@ -28,9 +28,10 @@ import type {
   WorkStep, RiskRow, WasteItem, OutcomeQuoteRow,
   PathophysiologyRow,
   PostRemediationEvaluationContent, PreScopeLineResolved,
-  PreWorksRow, PreProductRow, PreWasteBlock,
+  PreWorksRow, PreProductRow, PreWasteBlock, PreRecordRow,
 } from './types'
 import { DOC_TYPE_LABELS } from './types'
+import { partsReportOutline, prePartProductsRows, prePartWasteRows, prePartWorksRows, type PrePartSubKey } from '@/lib/preReportOutline'
 import type { HouseSurveyDocumentContent, SurveySketch } from './houseSurvey'
 import type { BiohazardRecordSummary } from './biohazardCleaningRecord'
 import { fixedCharges, labourDaysText, recordSummary, type FixedCharges, type RecordSummary } from '@/lib/fixedCharges'
@@ -2722,13 +2723,10 @@ function preProductsTable(rows?: PreProductRow[]): string {
   )
 }
 
-function preWasteTable(w?: PreWasteBlock, extra: [string, string][] = []): string {
-  const rows: [string, string][] = [
-    ...extra,
-    ...([['Waste type', w?.waste_type], ['Volume', w?.volume], ['Containment', w?.containment], ['Disposal', w?.disposal]] as const)
-      .filter(([, v]) => (v ?? '').trim())
-      .map(([k, v]) => [k, v ?? ''] as [string, string]),
-  ]
+function preWasteTable(w?: PreWasteBlock): string {
+  const rows = ([['Waste type', w?.waste_type], ['Volume', w?.volume], ['Containment', w?.containment], ['Disposal', w?.disposal]] as const)
+    .filter(([, v]) => (v ?? '').trim())
+    .map(([k, v]) => [k, v ?? ''] as [string, string])
   return preTwoColTable(rows, '28%')
 }
 
@@ -2762,50 +2760,38 @@ function buildCompletionReportMid(c: PostRemediationEvaluationContent, photos: P
   `
 }
 
-/** Multi-part completion report: whole-job sections around Part A/B/C (fixed letters). */
+/** Multi-part completion report: whole-job sections around the record-backed sections, numbered in print order. */
 function buildPartsReportMid(c: PostRemediationEvaluationContent, photos: Photo[]): string {
-  const parts = c.parts ?? []
-  const quoteLines = parts
-    .filter(p => p.source_quote_label || p.source_quote_reference)
-    .map(p => `${esc(p.letter)}: ${esc([p.source_quote_label, p.source_quote_reference].filter(Boolean).join(' · '))}`)
-  const header = [
-    quoteLines.length ? `<div class="body-text" style="font-size:9pt;color:#555;margin:-6px 0 6px">Linked quotes — ${quoteLines.join(' &nbsp;|&nbsp; ')}</div>` : '',
-    c.attendance ? `<div class="body-text" style="font-size:9pt;color:#555;margin:0 0 8px">Attendance: ${esc(c.attendance)}</div>` : '',
-  ].join('')
+  const o = partsReportOutline(c)
+  const recordTable = (rows?: PreRecordRow[]) => preTwoColTable((rows ?? []).map(r => [r.label, r.value]), '40%')
 
-  const partHtml = parts
-    .map(p => {
-      const L = p.letter
-      const volumeRows: [string, string][] = []
-      if (p.quoted_volume_m3) volumeRows.push(['Quoted volume', `${p.quoted_volume_m3} m³`])
-      if (p.actual_volume_m3) volumeRows.push(['Actual volume removed', p.actual_volume_m3])
-      const works = preWorksTable(p.works_rows)
-      const products = preProductsTable(p.products_rows)
-      const waste = preWasteTable(p.waste, volumeRows)
+  const partHtml = o.parts
+    .map(({ n, part: p, subs }) => {
+      const body: Record<PrePartSubKey, string> = {
+        works: `${recordTable(p.measured_rows)}${preWorksTable(prePartWorksRows(p))}`,
+        methodology: preProseBlock(p.methodology),
+        products: preProductsTable(prePartProductsRows(p)),
+        waste: recordTable(prePartWasteRows(p)),
+        outcome: preProseBlock(p.outcome_verification),
+      }
       return `
         <div style="margin-top:28px;padding-top:10px;border-top:2px solid #0a1f44">
-          <div style="font-size:13pt;font-weight:800;color:#0a1f44">${esc(L)} · ${esc(p.title)}</div>
-          ${p.source_quote_label || p.source_quote_reference ? `<div class="body-text" style="font-size:9pt;color:#555;margin:2px 0 0">Reporting against: ${esc([p.source_quote_label, p.source_quote_reference].filter(Boolean).join(' · '))}</div>` : ''}
+          <div style="font-size:13pt;font-weight:800;color:#0a1f44">${esc(n)} · ${esc(p.title)}</div>
         </div>
-        ${works ? `${preNavyHeading(`${L}1`, 'Works Undertaken')}${works}` : ''}
-        ${p.methodology ? `${preNavyHeading(`${L}2`, 'Methodology')}${preProseBlock(p.methodology)}` : ''}
-        ${products ? `${preNavyHeading(`${L}3`, 'Products & Equipment Used')}${products}` : ''}
-        ${waste ? `${preNavyHeading(`${L}4`, 'Waste Management & Disposal')}${waste}` : ''}
-        ${p.outcome_verification ? `${preNavyHeading(`${L}5`, 'Outcome & Verification')}${preProseBlock(p.outcome_verification)}` : ''}
+        ${subs.map(s => `${preNavyHeading(s.n, s.title)}${body[s.key]}`).join('')}
       `
     })
     .join('')
 
-  const hasRecs = (c.recommendations ?? []).filter(Boolean).length > 0
   return `
-    ${header}
-    ${c.executive_summary ? `${preNavyHeading('01', 'Executive Summary')}${preProseBlock(c.executive_summary)}` : ''}
-    ${(c.site_conditions ?? []).filter(Boolean).length ? `${preNavyHeading('02', 'Site Conditions on Attendance')}<div class="body-text" style="margin:6px 0 0">On arrival, the following was observed before any work began:</div>${preBullets(c.site_conditions)}` : ''}
+    ${c.attendance ? `<div class="body-text" style="font-size:9pt;color:#555;margin:0 0 8px">Attendance: ${esc(c.attendance)}</div>` : ''}
+    ${o.executive_summary ? `${preNavyHeading(o.executive_summary, 'Executive Summary')}${preProseBlock(c.executive_summary)}` : ''}
+    ${o.site_conditions ? `${preNavyHeading(o.site_conditions, 'Site Conditions on Attendance')}<div class="body-text" style="margin:6px 0 0">On arrival, the following was observed before any work began:</div>${preBullets(c.site_conditions)}` : ''}
     ${partHtml}
     <div style="margin-top:28px;border-top:2px solid #0a1f44"></div>
-    ${hasRecs ? `${preNavyHeading('03', 'Recommendations')}<div class="body-text" style="margin:6px 0 0">The following was noted on site and is outside the cleaning scope. It is flagged here for the client to action:</div>${preBullets(c.recommendations)}` : ''}
-    ${c.compliance ? `${preNavyHeading('04', 'Compliance')}${preProseBlock(c.compliance)}` : ''}
-    ${c.limitations ? `${preNavyHeading('—', 'Limitations & Scope Notice')}${preProseBlock(c.limitations)}` : ''}
+    ${o.recommendations ? `${preNavyHeading(o.recommendations, 'Recommendations')}<div class="body-text" style="margin:6px 0 0">The following was noted on site and is outside the cleaning scope. It is flagged here for the client to action:</div>${preBullets(c.recommendations)}` : ''}
+    ${o.compliance ? `${preNavyHeading(o.compliance, 'Compliance')}${preProseBlock(c.compliance)}` : ''}
+    ${o.limitations ? `${preNavyHeading(o.limitations, 'Limitations & Scope Notice')}${preProseBlock(c.limitations)}` : ''}
     ${c.technician_signoff ? `<div class="label" style="margin-top:22px;color:#0a1f44">Sign-off</div><div class="body-text">${esc(c.technician_signoff)}</div>` : ''}
     ${c.include_photos !== false ? preCompletionPhotoAppendix(photos, c.report_image_ids) : ''}
   `

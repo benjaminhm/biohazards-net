@@ -2147,13 +2147,13 @@ export interface PostRemediationEvaluation {
   last_suggested_at?: string
 }
 
-/** Multi-part PRE part key. Letters are fixed: a = BCQ, b = CCQ, c = SACQ. */
+/** Multi-part PRE part key: a = Biohazard Cleaning, b = Contents Clearance, c = Surface Area Cleaning. */
 export type PrePartKey = 'a' | 'b' | 'c'
 
-/** One part of a multi-part PRE, reporting against one quote type. */
+/** One section of a multi-part PRE. Its facts come from the job's records, never quotes. */
 export interface PrePart {
   enabled: boolean
-  /** Saved quote document of this part's type. Absent = part has no linked quote. */
+  /** Part A on a fixed-price BCQ only (no Biohazard Cleaning Record): the BCQ it drafts from. Never printed. */
   source_quote_document_id?: string
   source_quote_label?: string
   source_quote_reference?: string
@@ -2163,9 +2163,13 @@ export interface PrePart {
   methodology?: string
   products_rows?: PreProductRow[]
   waste?: PreWasteBlock
-  /** Part B: actual volume removed, printed beside the quoted m³. Not a price. */
-  actual_volume_m3?: string
   outcome_verification?: string
+}
+
+/** A label and value read from a record (House Survey, CDR, Biohazard Cleaning Record). */
+export interface PreRecordRow {
+  label: string
+  value: string
 }
 
 /** Multi-part PRE: shared whole-job sections plus Part A/B/C. Saved as DocType `report`. */
@@ -2187,17 +2191,14 @@ export interface PostRemediationEvaluationV2 {
   updated_at: string
 }
 
-/** A multi-part PRE part frozen for printing. */
+/** A multi-part PRE part frozen for printing. Numbered by position when printed. */
 export interface PrePartResolved {
   key: PrePartKey
-  /** 'A' | 'B' | 'C' — fixed, never re-lettered. */
-  letter: string
   title: string
-  source_quote_label?: string
-  source_quote_reference?: string
-  /** Part B: quoted volume snapshot from the linked CCQ. */
-  quoted_volume_m3?: number
-  actual_volume_m3?: string
+  /** Rooms or zones and their measured m², tests done. Printed under Works Undertaken. */
+  measured_rows?: PreRecordRow[]
+  /** Volume removed, loads and disposal facility from the CDR. Printed under Waste Management. */
+  waste_rows?: PreRecordRow[]
   works_rows?: PreWorksRow[]
   methodology?: string
   products_rows?: PreProductRow[]
