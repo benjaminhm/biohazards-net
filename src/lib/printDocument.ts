@@ -60,7 +60,7 @@ import type { CustomPricingRow, SectionTerms, VolumeDisposalFeeMode, VolumePrici
 const DEFAULT_PRINT_ORG_NAME = 'Brisbane Biohazard Cleaning'
 import { proseHasPrintableContent, richBodyHtmlForPrint } from '@/lib/richTextPrint'
 import type { CompanyLetterheadContent } from '@/lib/companyLetterhead'
-import { isStatementV2Content, presentStatementDocument, presentStatementV2, statementClientLines, statementPhone, StatementReconciliationError, type StatementPresentation, type StatementV2Presentation } from '@/lib/statementOfAccounts'
+import { breakdownTotal, isStatementV2Content, presentStatementDocument, presentStatementV2, statementClientLines, statementPhone, StatementReconciliationError, type StatementPresentation, type StatementV2Presentation } from '@/lib/statementOfAccounts'
 import type { ContentsClearanceQuoteContent } from '@/lib/contentsClearanceQuote'
 import { fillBiohazardCleaningEngagement, fillContentsClearanceEngagement, fillSurfaceAreaCleaningEngagement } from '@/lib/quoteEngagement'
 import { SURFACE_AREA_ESTIMATE_NOTE, SURFACE_AREA_LABOUR_NOTE, type SurfaceAreaCleaningQuoteContent } from '@/lib/surfaceAreaCleaningQuote'
@@ -3272,6 +3272,20 @@ function buildStatementV2Mid(c: StatementOfAccountsV2Content, view: StatementV2P
         </tr>`).join('')}
       </tbody>
     </table>
+    ${view.invoices.filter(inv => inv.breakdown.length > 0).map(inv => {
+      const signed = (n: number) => n < -0.004 ? `(${statementMoney(-n)})` : statementMoney(n)
+      const plain = (n: number | null) => n == null ? '' : statementMoney(n)
+      const rows = [...inv.breakdown, breakdownTotal(inv)].map((row, i, all) => {
+        const weight = i === all.length - 1 ? ' style="font-weight:700"' : ''
+        return `<tr${weight}><td>${esc(row.label)}</td><td class="r">${plain(row.actual_ex)}</td><td class="r">${plain(row.estimate_ex)}</td><td class="r">${signed(row.difference_ex)}</td><td class="r">${signed(row.gst)}</td><td class="r">${signed(row.difference_inc)}</td></tr>`
+      }).join('')
+      return `
+    <div class="soa-inv-title">${esc(inv.heading.split(' · ')[0])}: adjustment by quote</div>
+    <table>
+      <thead><tr><th>Quote</th><th class="r">Actual</th><th class="r">Estimate</th><th class="r">Ex GST</th><th class="r">GST</th><th class="r">Inc GST</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`
+    }).join('')}
     ${view.invoices.map(inv => inv.payHref && inv.payLabel ? `<a class="soa-pay" href="${esc(inv.payHref)}">${esc(inv.heading.split(' · ')[0])}: ${esc(inv.payLabel)}</a>` : '').join('')}`
   return `
     <p class="body-text"><strong>Property:</strong> ${esc(c.site_address || '—')}</p>

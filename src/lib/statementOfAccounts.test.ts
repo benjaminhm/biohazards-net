@@ -14,6 +14,7 @@ import {
   statementV2Figures,
   statementV2Invoices,
   statementV2Rows,
+  breakdownTotal,
   StatementReconciliationError,
   type StatementOfAccountsCapture,
 } from '@/lib/statementOfAccounts'
@@ -419,7 +420,16 @@ test('model 2 splits the balance into invoice 1 (estimate less deposit) and invo
   const adjusted = statementV2Figures(v2Job({ deposit_amount: 1000, deposit_date: '2026-11-02', manual_adjustment: -70, manual_adjustment_reason: 'goodwill' }))
   const split = statementV2Invoices(adjusted)
   assert.equal(Math.round(split.reduce((sum, inv) => sum + inv.amount, 0) * 100) / 100, adjusted.balance)
-  assert.match(split[1].detail, /less goodwill \$70\.00\.$/)
+  assert.match(split[1].detail, /less goodwill \$70\.00 inc GST\.$/)
+  assert.deepEqual(split[1].breakdown.at(-1), { label: 'Adjustment (goodwill)', actual_ex: null, estimate_ex: null, difference_ex: -63.64, gst: -6.36, difference_inc: -70 })
+
+  assert.deepEqual(f.adjustment_lines?.map(line => line.label), ['Surface area cleaning (SACQ)', 'Biohazard cleaning (BCQ)'])
+  const surfaceRow = two.breakdown[0]
+  assert.equal(surfaceRow.actual_ex, 600)
+  assert.equal(surfaceRow.difference_ex, Math.round((600 - surfaceAreaCaptureFigures(sacq).subtotal) * 100) / 100)
+  assert.equal(surfaceRow.difference_inc, Math.round((surfaceRow.difference_ex + surfaceRow.gst) * 100) / 100)
+  assert.equal(breakdownTotal(two).difference_inc, two.amount)
+  assert.match(two.detail, / inc GST\.$/)
 
   const fixedOnly = statementV2Figures({ house_survey: { areas: [], labour_days: 1, rate_per_labour_day: 100 }, statement_of_accounts: {} } as unknown as AssessmentData)
   assert.deepEqual(statementV2Invoices(fixedOnly), [])

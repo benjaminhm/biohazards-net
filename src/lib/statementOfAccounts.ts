@@ -607,6 +607,12 @@ const LINE_LABELS: Record<StatementLineKey, string> = {
   biohazard: 'Biohazard cleaning',
 }
 
+const ADJUSTMENT_LABELS: Record<StatementLineKey, string> = {
+  surface: 'Surface area cleaning (SACQ)',
+  contents: 'Contents clearance (CCQ)',
+  biohazard: 'Biohazard cleaning (BCQ)',
+}
+
 const ESTIMATE_LABELS: Record<StatementLineKey, string> = {
   surface: 'Surface area cleaning',
   contents: 'Contents clearance',
@@ -658,8 +664,11 @@ export function statementV2Figures(
   const quotes = quoteTotals(ad)
   const problems: string[] = []
   const lines: StatementOfAccountsV2Content['lines'] = []
+  const actual: Partial<Record<StatementLineKey, number>> = {}
   const add = (key: StatementLineKey, ex: number | null | undefined) => {
-    if (ex != null && ex > 0.004) lines.push({ label: LINE_LABELS[key], amount_ex: round2(ex) })
+    if (ex == null || ex <= 0.004) return
+    actual[key] = round2(ex)
+    lines.push({ label: LINE_LABELS[key], amount_ex: round2(ex) })
   }
 
   const survey = surveySummary(ad)
@@ -699,7 +708,13 @@ export function statementV2Figures(
     return ex == null ? [] : [{ key, label: ESTIMATE_LABELS[key], amount: basis(ex) }]
   })
   const quoted = estimates.reduce((sum, e) => sum + e.amount, 0)
+  const adjustment_lines = estimates.length === 0 ? [] : (Object.keys(ADJUSTMENT_LABELS) as StatementLineKey[]).flatMap(key => {
+    const actual_ex = actual[key] ?? 0
+    const estimate_ex = round2(quotes[key] ?? 0)
+    return Math.abs(actual_ex - estimate_ex) > 0.004 ? [{ label: ADJUSTMENT_LABELS[key], actual_ex, estimate_ex }] : []
+  })
   return {
+    adjustment_lines,
     charges_gst,
     estimates_note: estimatesNote(estimates),
     lines,
@@ -744,6 +759,7 @@ export function statementV2Content(f: StatementV2Figures, reference: string, sit
     invoice2_number: f.invoice2_number,
     invoice2_url: f.invoice2_url,
     estimate_total: f.estimate_total,
+    adjustment_lines: f.adjustment_lines,
     problems: f.problems,
   }
 }
@@ -778,10 +794,28 @@ export interface StatementV2Invoice {
   amountLabel: string
   payHref: string | null
   payLabel: string | null
+  /** Invoice 2 only: each quote's actual against its estimate, then any adjustment. */
+  breakdown: StatementV2AdjustmentRow[]
+}
+
+export interface StatementV2AdjustmentRow {
+  label: string
+  /** Ex GST. Null on the manual adjustment row. */
+  actual_ex: number | null
+  estimate_ex: number | null
+  difference_ex: number
+  gst: number
+  difference_inc: number
+}
+
+/** The invoice 2 total row: inc GST is the invoice amount, so per-line rounding never changes what is billed. */
+export function breakdownTotal(invoice: Pick<StatementV2Invoice, 'amount' | 'breakdown'>): StatementV2AdjustmentRow {
+  const difference_ex = round2(invoice.breakdown.reduce((sum, row) => sum + row.difference_ex, 0))
+  return { label: invoice.amount < -0.004 ? 'Credit note total' : 'Invoice 2 total', actual_ex: null, estimate_ex: null, difference_ex, gst: round2(invoice.amount - difference_ex), difference_inc: invoice.amount }
 }
 
 type StatementV2Split = Pick<StatementOfAccountsV2Content,
-  'total_inc' | 'deposit' | 'adjustment' | 'adjustment_reason' | 'invoice_number' | 'invoice_url' | 'invoice2_number' | 'invoice2_url' | 'estimate_total'>
+  'charges_gst' | 'total_inc' | 'deposit' | 'adjustment' | 'adjustment_reason' | 'invoice_number' | 'invoice_url' | 'invoice2_number' | 'invoice2_url' | 'estimate_total' | 'adjustment_lines'>
 
 export const STATEMENT_INVOICES_NOTE =
   'The original estimate was invoiced on invoice 1 and the deposit was paid against it. Invoice 2 covers the difference between the final figures and the estimate, or is a credit note when the final figures came in lower. Together they make up the balance.'
@@ -799,14 +833,33 @@ export function statementV2Invoices(c: StatementV2Split): StatementV2Invoice[] {
     const payHref = amount > 0.004 ? statementPayHref(url ?? '') : null
     return { payHref, payLabel: payHref ? `Pay ${moneyLabel(amount)} online` : null }
   }
+  const gstNote = c.charges_gst ? ' inc GST' : ''
   const invoice1 = round2(estimate - c.deposit)
   const invoices: StatementV2Invoice[] = [{
     heading: `${title('Invoice 1', c.invoice_number)} · estimate`,
-    detail: `Original estimate ${formatAud(estimate)}${c.deposit > 0.004 ? ` less deposit paid ${formatAud(c.deposit)}` : ''}.`,
+    detail: `Original estimate ${formatAud(estimate)}${c.deposit > 0.004 ? ` less deposit paid ${formatAud(c.deposit)}` : ''}${gstNote}.`,
     amount: invoice1,
     amountLabel: invoice1 > 0.004 ? 'Still to pay' : invoice1 < -0.004 ? 'Overpaid' : 'Paid',
     ...pay(c.invoice_url, invoice1),
+    breakdown: [],
   }]
+  const basis = (ex: number) => c.charges_gst ? round2(ex * 1.1) : round2(ex)
+  const breakdown: StatementV2AdjustmentRow[] = (c.adjustment_lines ?? []).map(line => {
+    const difference_ex = round2(line.actual_ex - line.estimate_ex)
+    const difference_inc = round2(basis(line.actual_ex) - basis(line.estimate_ex))
+    return { label: line.label, actual_ex: line.actual_ex, estimate_ex: line.estimate_ex, difference_ex, gst: round2(difference_inc - difference_ex), difference_inc }
+  })
+  if (c.adjustment != null) {
+    const difference_ex = c.charges_gst ? round2(c.adjustment / 1.1) : c.adjustment
+    breakdown.push({
+      label: `Adjustment (${c.adjustment_reason.trim() || 'adjustment'})`,
+      actual_ex: null,
+      estimate_ex: null,
+      difference_ex,
+      gst: round2(c.adjustment - difference_ex),
+      difference_inc: c.adjustment,
+    })
+  }
   const invoice2 = round2(c.total_inc - estimate + (c.adjustment ?? 0))
   if (Math.abs(invoice2) > 0.004 || c.invoice2_number?.trim()) {
     const adjustment = c.adjustment == null
@@ -814,10 +867,11 @@ export function statementV2Invoices(c: StatementV2Split): StatementV2Invoice[] {
       : `, ${c.adjustment < 0 ? 'less' : 'plus'} ${c.adjustment_reason.trim() || 'adjustment'} ${formatAud(Math.abs(c.adjustment))}`
     invoices.push({
       heading: `${title(invoice2 < -0.004 ? 'Credit note' : 'Invoice 2', c.invoice2_number)} · adjustment to actual`,
-      detail: `Actual job total ${formatAud(c.total_inc)} less the original estimate ${formatAud(estimate)}${adjustment}.`,
+      detail: `Actual job total ${formatAud(c.total_inc)} less the original estimate ${formatAud(estimate)}${adjustment}${gstNote}.`,
       amount: invoice2,
       amountLabel: invoice2 > 0.004 ? 'To pay' : invoice2 < -0.004 ? 'Credit' : 'Nil',
       ...pay(c.invoice2_url, invoice2),
+      breakdown,
     })
   }
   return invoices

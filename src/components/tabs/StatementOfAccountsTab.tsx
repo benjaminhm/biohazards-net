@@ -10,6 +10,7 @@ import { formatLongDate } from '@/lib/paymentOverdue'
 import {
   normalizeStatementCapture,
   STATEMENT_INVOICES_NOTE,
+  breakdownTotal,
   statementV2Figures,
   statementV2Invoices,
   statementV2Rows,
@@ -65,6 +66,10 @@ function capturesEqual(a: StatementOfAccountsCapture, b: StatementOfAccountsCapt
     && a.invoice2_number === b.invoice2_number
     && a.invoice2_url === b.invoice2_url
     && a.charges_gst === b.charges_gst
+}
+
+function signedAud(n: number): string {
+  return n < -0.004 ? `(${formatAud(-n)})` : formatAud(n)
 }
 
 function numberInput(raw: string): number | null {
@@ -196,6 +201,34 @@ export default function StatementOfAccountsTab({ job, onJobUpdate }: Props) {
                 <span>{invoice.amountLabel} {formatAud(Math.abs(invoice.amount))}</span>
               </div>
               <div style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 4 }}>{invoice.detail}</div>
+              {invoice.breakdown.length > 0 && (
+                <div style={{ overflowX: 'auto', marginTop: 8 }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ color: 'var(--text-muted)', textAlign: 'right' }}>
+                        <th style={{ textAlign: 'left', fontWeight: 600, padding: '4px 6px 4px 0' }}>Quote</th>
+                        <th style={{ fontWeight: 600, padding: 4 }}>Actual</th>
+                        <th style={{ fontWeight: 600, padding: 4 }}>Estimate</th>
+                        <th style={{ fontWeight: 600, padding: 4 }}>Ex GST</th>
+                        <th style={{ fontWeight: 600, padding: 4 }}>GST</th>
+                        <th style={{ fontWeight: 600, padding: '4px 0 4px 4px' }}>Inc GST</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[...invoice.breakdown, breakdownTotal(invoice)].map((row, index, all) => (
+                        <tr key={`${row.label}-${index}`} style={{ textAlign: 'right', borderTop: '1px solid var(--border)', fontWeight: index === all.length - 1 ? 700 : 400 }}>
+                          <td style={{ textAlign: 'left', padding: '4px 6px 4px 0' }}>{row.label}</td>
+                          <td style={{ padding: 4 }}>{row.actual_ex == null ? '' : formatAud(row.actual_ex)}</td>
+                          <td style={{ padding: 4 }}>{row.estimate_ex == null ? '' : formatAud(row.estimate_ex)}</td>
+                          <td style={{ padding: 4 }}>{signedAud(row.difference_ex)}</td>
+                          <td style={{ padding: 4 }}>{signedAud(row.gst)}</td>
+                          <td style={{ padding: '4px 0 4px 4px' }}>{signedAud(row.difference_inc)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           ))}
         </section>

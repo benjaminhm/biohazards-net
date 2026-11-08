@@ -2384,6 +2384,8 @@ export interface StatementOfAccountsV2Content {
   invoice2_url?: string
   /** Sum of the quotes in the statement's GST basis, as invoiced on invoice 1. Null without quotes. */
   estimate_total?: number | null
+  /** Actual against estimate per quote, ex GST, where they differ. Invoice 2 is made of these. */
+  adjustment_lines?: { label: string; actual_ex: number; estimate_ex: number }[]
   /** Why the statement cannot be issued. Printing is refused while any remain. */
   problems: string[]
   payment_terms?: string
