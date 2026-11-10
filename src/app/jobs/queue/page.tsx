@@ -316,8 +316,20 @@ function JobViewer({
     return () => window.removeEventListener('message', onMessage)
   }, [])
 
+  /** A generated document opens outside the job page, where no bridge listens, so reload the job page at the section. */
   function openSection(next: HomeSection) {
-    iframeRef.current?.contentWindow?.postMessage({ type: JOB_EMBED_MSG.openSection, section: next }, window.location.origin)
+    const win = iframeRef.current?.contentWindow
+    let bridged = false
+    try {
+      bridged = win?.location.pathname === base
+        && new URLSearchParams(win.location.search).get(FILE_MENU_PARAM) === 'parent'
+    } catch {}
+    if (win && !bridged) {
+      const qs = new URLSearchParams({ [FILE_MENU_PARAM]: 'parent', tab: 'home', section: next })
+      win.location.assign(`${base}?${qs}`)
+      return
+    }
+    win?.postMessage({ type: JOB_EMBED_MSG.openSection, section: next }, window.location.origin)
   }
 
   function refreshFrame() {
