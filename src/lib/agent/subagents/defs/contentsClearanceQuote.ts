@@ -20,7 +20,8 @@ export const contentsClearanceQuoteAgent: DocAgentDef = {
 - Fees: mobilisation_fee, mobilisation_waived, mobilisation_reason.`,
   rules: `- ${PRICE_RULE}
 - estimated_m3 comes from what staff or the caller said, or the CDR when staff ask. Say when the CDR volume differs from the quoted estimate.
-- Generating needs labour days, and the clause check must pass (clauses must not contradict the figures). draft_generate tells you what fails.`,
+- Generating needs labour days, and the clause check must pass (clauses must not contradict the figures). draft_generate tells you what fails.
+- The client document shows labour as one fixed amount. Labour days, the rate per person per day, and how many people attend are for staff. In wording meant for the client, give the labour amount only.`,
   requiredFields: ['maximum_man_days'],
   generateNeeds: ['company'],
   generate: inputs => {

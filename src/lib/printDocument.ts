@@ -1794,7 +1794,7 @@ function wdmRecordSummary(c: WasteDisposalManifestContent): string {
   const rate = saved ? saved.rate_per_m3 : (c.totals?.cost_per_m3 ?? null)
   const charges = saved?.charges ?? fixedCharges({}, null)
   const summary = saved?.summary ?? recordSummary(volume, rate, charges)
-  return recordSummaryHtml('Contents removal', volume == null ? '' : formatM3(volume), rate, charges, summary)
+  return recordSummaryHtml('Contents removal', volume == null ? '' : formatM3(volume), rate, charges, summary, false)
 }
 
 // ── 1. Quote ──────────────────────────────────────────────────────────────────
@@ -3460,11 +3460,14 @@ function biohazardRecordHtml(r: BiohazardRecordSummary | undefined): string {
     </div>`
 }
 
-/** Quantity × rate, labour, call-out fee, then totals and GST. Same six lines on the survey and the disposal record. */
-function recordSummaryHtml(quantityLabel: string, quantity: string, rate: number | null, charges: FixedCharges, s: RecordSummary): string {
+/**
+ * Quantity × rate, labour, call-out fee, then totals and GST. Same six lines on the survey and the disposal record.
+ * The disposal record follows the Contents Clearance Quote, so its labour is the amount only.
+ */
+function recordSummaryHtml(quantityLabel: string, quantity: string, rate: number | null, charges: FixedCharges, s: RecordSummary, labourBreakdown = true): string {
   const money = (n: number | null) => (n == null ? '—' : esc(formatAud(n)))
   const quantityDetail = quantity && rate != null ? ` (${esc(`${quantity} × ${formatAud(rate)}`)})` : ''
-  const labourDetail = ` (${esc(`${labourDaysText(charges.labour_days)} × ${formatAud(charges.rate_per_labour_day)}`)})`
+  const labourDetail = labourBreakdown ? ` (${esc(`${labourDaysText(charges.labour_days)} × ${formatAud(charges.rate_per_labour_day)}`)})` : ''
   return `
     <div class="sow-sec">
       <div class="sow-sec-title">Summary</div>
@@ -3888,8 +3891,7 @@ function buildContentsClearanceMid(
   }
   fixed.push({
     label: 'Labour',
-    quantity: clearanceQty(c.labour_days, c.labour_days === 1 ? 'labour day' : 'labour days'),
-    note: 'A labour day = 1 person onsite for 1 day. (It does not = estimate days onsite. It does not = number of people onsite per day).',
+    quantity: '',
     rate: 'Fixed',
     amount: c.labour_amount,
   })

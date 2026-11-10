@@ -21,7 +21,8 @@ export const wasteDisposalManifestAgent: DocAgentDef = {
   rules: `- Loads, weights, dimensions and fees only as staff give them or as read from a docket staff describe. Never invent a load.
 - loads is a list: patching it replaces the whole list, so send every load with its existing ids.
 - Dollars (cost_per_m3, labour_days, rate_per_labour_day, mobilisation_fee, dump_fee, skip_cost, waste_price) only when staff give them.
-- Generating needs at least one load with something on it.`,
+- Generating needs at least one load with something on it.
+- The printed record shows labour as one amount. Labour days and the rate per person per day are for staff. In wording meant for the client, give the labour amount only.`,
   unique: true,
   requiredFields: [],
   generateNeeds: [],

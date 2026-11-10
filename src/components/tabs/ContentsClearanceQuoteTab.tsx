@@ -704,7 +704,7 @@ export default function ContentsClearanceQuoteTab({ job, photos, onJobUpdate, on
           />
         </div>
         <div>
-          <label style={LABEL}>Labour days</label>
+          <label style={LABEL}>Labour</label>
           <input
             type="number"
             min={1}
@@ -714,6 +714,7 @@ export default function ContentsClearanceQuoteTab({ job, photos, onJobUpdate, on
               const raw = e.target.value
               patch({ maximum_man_days: raw === '' ? null : Number(raw) })
             }}
+            placeholder="Labour days"
             style={INPUT}
           />
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
@@ -836,7 +837,7 @@ export default function ContentsClearanceQuoteTab({ job, photos, onJobUpdate, on
         <div>
           <div style={LABEL}>Engagement agreement</div>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
-            Saved for this company. The next contents clearance quote and surface cleaning quote start from this text. Brackets such as [name], [volume], [rate per m3], [labour amount], [deposit], and [total] are filled when the document is printed. A surface-cleaning line is left out. The signature lines stay blank for signing.
+            Saved for this company. The next contents clearance quote and surface cleaning quote start from this text. Brackets such as [name], [volume], [rate per m3], [labour amount], [deposit], and [total] are filled when the document is printed. A surface-cleaning line is left out. Labour prints as the amount only; [labour days] is left off this quote. The signature lines stay blank for signing.
           </div>
           {standardsReady && (
             <RichTextEditor

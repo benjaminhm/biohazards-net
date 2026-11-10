@@ -24,16 +24,16 @@ export const CONTENTS_CLEARANCE_SCHEMA = {
   inclusions: [
     'Contents clearance of the estimated volume at the rate per cubic metre on this quote.',
     'Travel at the rate per kilometre on this quote.',
-    'Labour for the labour days on this quote, as a fixed amount.',
+    'Labour for this clearance, as the fixed amount on this quote.',
   ],
   exclusions: [
     'Surface cleaning, sanitising, and remediation.',
     'Repairs, rebuilding, and restoration of contents.',
-    'Work other than contents clearance, travel, and the labour days on this quote.',
+    'Work other than contents clearance, travel, and the labour on this quote.',
   ],
   assumptions: [
     'Cubic metres are an estimate of the pile. The measured volume replaces that estimate, at the rate per cubic metre on this quote.',
-    'The labour days on this quote are the labour for this clearance.',
+    'Labour is the fixed amount on this quote for this clearance.',
     'Kilometres are an estimate of the travel for this clearance.',
     'The technician decides on site how the contents leave the property.',
   ],
@@ -267,9 +267,14 @@ function clauseLinesJoined(lines: readonly string[]): string {
   return lines.join('\n')
 }
 
-/** Earlier defaults that tied labour days to the volume. A saved copy of these is replaced. Edited clauses stay. */
+/** Earlier defaults that tied labour days to the volume or named the labour days. A saved copy of these is replaced. Edited clauses stay. */
 const LEGACY_CONTENTS_CLEARANCE_CLAUSES: Partial<Record<keyof ContentsClearanceStandards, readonly string[]>> = {
   inclusions: [
+    clauseLinesJoined([
+      'Contents clearance of the estimated volume at the rate per cubic metre on this quote.',
+      'Travel at the rate per kilometre on this quote.',
+      'Labour for the labour days on this quote, as a fixed amount.',
+    ]),
     clauseLinesJoined([
       'Contents clearance of the estimated volume at the rate per cubic metre on this quote.',
       'Travel at the rate per kilometre on this quote.',
@@ -297,8 +302,19 @@ const LEGACY_CONTENTS_CLEARANCE_CLAUSES: Partial<Record<keyof ContentsClearanceS
       'Repairs, rebuilding, and restoration of contents.',
       'Work beyond the quantities on this quote.',
     ]),
+    clauseLinesJoined([
+      'Surface cleaning, sanitising, and remediation.',
+      'Repairs, rebuilding, and restoration of contents.',
+      'Work other than contents clearance, travel, and the labour days on this quote.',
+    ]),
   ],
   assumptions: [
+    clauseLinesJoined([
+      'Cubic metres are an estimate of the pile. The measured volume replaces that estimate, at the rate per cubic metre on this quote.',
+      'The labour days on this quote are the labour for this clearance.',
+      'Kilometres are an estimate of the travel for this clearance.',
+      'The technician decides on site how the contents leave the property.',
+    ]),
     clauseLinesJoined([
       'Cubic metres are an estimate. The measured volume replaces the estimate, and labour days are that volume divided by 6, rounded to a whole day.',
       'Kilometres are an estimate of the travel for this clearance.',

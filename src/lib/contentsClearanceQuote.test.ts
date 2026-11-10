@@ -243,13 +243,12 @@ test('the quote prints quantities, then clauses, terms, authority, and acceptanc
   assert.ok(html.indexOf('Fixed Rate Quotations') < html.indexOf('>Labour<'))
   assert.doesNotMatch(html, /5 days with 1 person or 1 day with 5 persons/)
   assert.doesNotMatch(html, /days with 1 person/)
-  assert.match(html, /3 labour days/)
   assert.match(html, />Fixed</)
-  assert.doesNotMatch(html, /\/ labour day/)
-  assert.doesNotMatch(html, /rate per person per day/)
-  assert.match(html, /A labour day = 1 person onsite for 1 day/)
-  assert.match(html, /It does not = estimate days onsite/)
-  assert.match(html, /It does not = number of people onsite per day/)
+  assert.doesNotMatch(html, /labour days?/i)
+  assert.doesNotMatch(html, /man days?/i)
+  assert.doesNotMatch(html, /per person/i)
+  assert.doesNotMatch(html, /onsite/i)
+  assert.doesNotMatch(html, /\$500\.00/)
   assert.match(html, /The client engages the contractor for this clearance\./)
   assert.match(html, /Acme Pty Ltd/)
   assert.match(html, /1 Example Street/)
@@ -278,7 +277,7 @@ test('the quote prints quantities, then clauses, terms, authority, and acceptanc
   assert.match(html, /\$3,656\.40/)
   assert.match(html, /18 m³/)
   assert.match(html, /The measured volume replaces that estimate/)
-  assert.match(html, /The labour days on this quote are the labour for this clearance/)
+  assert.match(html, /Labour is the fixed amount on this quote for this clearance/)
   assert.doesNotMatch(html, /divided by/)
   assert.doesNotMatch(html, /for every 6/)
   assert.equal(content.title, 'Contents Clearance')
@@ -327,6 +326,22 @@ test('a saved copy of the old labour-follows-volume clauses is replaced, and an 
   assert.equal(refreshed.payment_terms, current.payment_terms)
   assert.equal(refreshed.exclusions, current.exclusions)
   assert.equal(refreshed.engagement_agreement, 'Kept.')
+  const namedDays = normalizeContentsClearanceStandards({
+    inclusions: [
+      'Contents clearance of the estimated volume at the rate per cubic metre on this quote.',
+      'Travel at the rate per kilometre on this quote.',
+      'Labour for the labour days on this quote, as a fixed amount.',
+    ].join('\n'),
+    assumptions: [
+      'Cubic metres are an estimate of the pile. The measured volume replaces that estimate, at the rate per cubic metre on this quote.',
+      'The labour days on this quote are the labour for this clearance.',
+      'Kilometres are an estimate of the travel for this clearance.',
+      'The technician decides on site how the contents leave the property.',
+    ].join('\n'),
+  })
+  assert.equal(namedDays.inclusions, current.inclusions)
+  assert.equal(namedDays.assumptions, current.assumptions)
+  assert.doesNotMatch([current.inclusions, current.exclusions, current.assumptions, current.payment_terms].join('\n'), /labour days?/i)
   const edited = normalizeContentsClearanceStandards({
     inclusions: 'Contents clearance of the garage only.',
   })
@@ -401,7 +416,8 @@ test('engagement brackets are filled on the contents clearance document', () => 
     undefined,
     { screenActionBar: false },
   )
-  assert.match(html, /For Acme Pty Ltd at 1 Example Street, 18 m³, 3 labour days, total \$3,630\.00\./)
+  assert.match(html, /For Acme Pty Ltd at 1 Example Street, 18 m³, total \$3,630\.00\./)
+  assert.doesNotMatch(html, /labour days?/i)
   assert.doesNotMatch(html, /\[surface\]/)
   assert.match(content.engagement_agreement, /\[name\]/)
 })
@@ -450,7 +466,9 @@ test('the unfilled estate agreement is replaced, and the quote prices are printe
   assert.match(html, /Estimated contents: 18 m³/)
   assert.match(html, /Contents rate: \$100\.00 ex GST/)
   assert.match(html, /Contents amount: \$1,800\.00 ex GST/)
-  assert.match(html, /Labour: 3 labour days for the fixed amount of \$1,500\.00 ex GST/)
+  assert.match(html, /Labour: \$1,500\.00 ex GST\./)
+  assert.doesNotMatch(html, /labour days?/i)
+  assert.doesNotMatch(html, /\$500\.00/)
   assert.match(html, /Deposit: \$1,815\.00/)
   assert.match(html, /Balance: \$1,815\.00/)
   assert.match(html, /0400 000 000/)

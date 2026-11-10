@@ -12,6 +12,7 @@ import {
   mergedDisposalManifestCapture,
   quoteDisposalLink,
 } from '@/lib/disposalManifest'
+import { buildPrintHTML } from '@/lib/printDocument'
 
 const quote = {
   estimated_m3: 24,
@@ -70,6 +71,22 @@ test('the record summary is counted volume at the rate, plus labour and the call
 
   const typed = disposalRecordSummary({ ...mergedDisposalManifestCapture(ad), labour_days: 1, mobilisation_fee: 0 }, link)
   assert.equal(typed.summary.total_ex, 1450)
+
+  const html = buildPrintHTML(
+    'waste_disposal_manifest',
+    { title: 'Contents Disposal Record', reference: 'CDR-TEST', loads: [], summary: record } as unknown as Record<string, unknown>,
+    [],
+    [],
+    null,
+    'job',
+    'http://localhost',
+    undefined,
+    { screenActionBar: false },
+  )
+  assert.match(html, /<td>Labour<\/td>/)
+  assert.match(html, /\$1,200\.00/)
+  assert.doesNotMatch(html, /labour days?/i)
+  assert.doesNotMatch(html, /\$600\.00/)
 
   const waived = quoteDisposalLink({
     contents_clearance_quote: { ...quote, mobilisation_fee: 150, mobilisation_waived: true },

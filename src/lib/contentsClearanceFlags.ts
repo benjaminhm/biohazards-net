@@ -44,7 +44,7 @@ export const CLEARANCE_FLAG_CLAUSE_LABEL: Record<ClearanceFlagClause, string> = 
 /** Fixed staff copy. The model is not allowed to supply this text. */
 export const CLEARANCE_FLAG_TEXT: Record<ClearanceFlagCode, string> = {
   labour_tracks_volume: 'This clause says the labour days follow the measured volume. The labour days on the quote are the number typed on this page.',
-  man_day_wording: 'This clause says man day. The quote says labour days.',
+  man_day_wording: 'This clause says man day. The client quote shows labour as one amount.',
   rate_mismatch: 'This clause states a rate that is not a rate on the quote.',
   deposit_mismatch: 'This clause states a deposit that is not 50% of the total.',
   gst_mismatch: 'This clause states GST at a rate other than 10%.',
