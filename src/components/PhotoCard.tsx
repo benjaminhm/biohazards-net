@@ -15,6 +15,7 @@ const CATEGORIES: { value: PhotoCategory; label: string; color: string }[] = [
   { value: 'assessment', label: 'Assessment', color: '#60A5FA' },
   { value: 'during', label: 'During', color: '#FBBF24' },
   { value: 'after', label: 'After', color: '#4ADE80' },
+  { value: 'untagged', label: 'Untagged', color: '#9CA3AF' },
 ]
 
 const CATEGORY_COLORS: Record<PhotoCategory, string> = {
@@ -22,6 +23,7 @@ const CATEGORY_COLORS: Record<PhotoCategory, string> = {
   during: '#FBBF24',
   after: '#4ADE80',
   assessment: '#60A5FA',
+  untagged: '#9CA3AF',
 }
 
 function hasPersistedPhotoId(id: string | undefined): id is string {

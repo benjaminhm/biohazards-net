@@ -135,16 +135,18 @@ export async function POST(req: Request) {
   const supabase = createServiceClient()
   const { jobId, jobCode } = await resolveJobForCode(supabase, person.org_id, rawJobCode, rawJobId)
 
-  const tagCategory: 'before' | 'during' | 'after' | 'assessment' =
+  const tagCategory: 'before' | 'during' | 'after' | 'assessment' | 'untagged' =
     rawTag === 'before'
       ? 'before'
       : rawTag === 'after'
         ? 'after'
         : rawTag === 'assessment'
           ? 'assessment'
-          : 'during'
+          : rawTag === 'during' || rawTag.startsWith('cdr_')
+            ? 'during'
+            : 'untagged'
   const tagPhase: 'assessment' | 'progress' =
-    tagCategory === 'before' || tagCategory === 'assessment' ? 'assessment' : 'progress'
+    tagCategory === 'during' || tagCategory === 'after' ? 'progress' : 'assessment'
   const tagAreaRef =
     rawTag === 'cdr_load'
       ? 'CDR Load'

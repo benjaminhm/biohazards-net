@@ -13,7 +13,7 @@ import { getOrgId } from '@/lib/org'
 import { shouldRetryPhotoInsertWithoutCapturePhase } from '@/lib/photoRowInsert'
 import { inferCapturePhaseFromCategory } from '@/lib/photoCapturePhase'
 
-const PHOTO_CATEGORIES = ['before', 'during', 'after', 'assessment'] as const
+const PHOTO_CATEGORIES = ['before', 'during', 'after', 'assessment', 'untagged'] as const
 
 /** Loose UUID check — avoids bad dynamic segment values (e.g. literal "undefined"). */
 function normalizePhotoId(raw: string | undefined): string | null {
@@ -176,6 +176,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         )
       }
       patch.category = body.category
+      // Untagged photos are kept out of 'progress' so documents that include every progress photo skip them.
+      if (body.category === 'untagged' && existing.capture_phase === 'progress') patch.capture_phase = 'assessment'
+      if (existing.category === 'untagged' && (body.category === 'during' || body.category === 'after')) patch.capture_phase = 'progress'
     }
     if (Object.keys(patch).length === 0) {
       return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })

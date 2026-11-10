@@ -51,7 +51,7 @@ export function groupPhotosByRoomAndStage(photos: Photo[], areas: Area[] = []): 
         room,
         note: area.note ?? '',
         photos: [],
-        stages: { assessment: [], before: [], during: [], after: [] },
+        stages: { assessment: [], before: [], during: [], after: [], untagged: [] },
       })
     } else {
       roomMap.get(room)!.note = area.note ?? roomMap.get(room)!.note
@@ -66,7 +66,7 @@ export function groupPhotosByRoomAndStage(photos: Photo[], areas: Area[] = []): 
         room,
         note: '',
         photos: [],
-        stages: { assessment: [], before: [], during: [], after: [] },
+        stages: { assessment: [], before: [], during: [], after: [], untagged: [] },
       })
     }
     const group = roomMap.get(room)!
@@ -98,6 +98,7 @@ export function filterGroupedStages(groups: RoomPhotoGroup[], stages: PhotoCateg
         before: stages.includes('before') ? group.stages.before : [],
         during: stages.includes('during') ? group.stages.during : [],
         after: stages.includes('after') ? group.stages.after : [],
+        untagged: stages.includes('untagged') ? group.stages.untagged : [],
       },
     }))
     .filter(group => group.photos.length > 0)

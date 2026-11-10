@@ -148,7 +148,7 @@ const listJobPhotos: AgentTool = {
       job_id: { type: 'string' },
       area_contains: { type: 'string', description: 'Room/area text, e.g. "kitchen".' },
       caption_contains: { type: 'string' },
-      category: { type: 'string', enum: ['before', 'during', 'after', 'assessment'] },
+      category: { type: 'string', enum: ['before', 'during', 'after', 'assessment', 'untagged'] },
       capture_phase: { type: 'string', enum: ['assessment', 'progress'] },
       taken_after: { type: 'string', description: 'ISO date/time.' },
       taken_before: { type: 'string', description: 'ISO date/time.' },

@@ -3,8 +3,9 @@
  *
  * PIN → job code → drop in many photos. Each photo is compressed in the
  * browser (keeping the camera time and GPS read from the original), uploaded a
- * few at a time, and saved as an ordinary job photo with the chosen tag, so it
- * shows in the job's Photos tab and the report photo pickers.
+ * few at a time, and saved as an ordinary job photo with the chosen tag
+ * (Untagged by default), so it shows in the job's Photos tab and the report
+ * photo browser.
  */
 'use client'
 
@@ -15,8 +16,9 @@ import { readPhotoExif } from '@/lib/photoExif'
 interface Person { person_id: string; name: string; person_code: string }
 interface BulkJob { id: string; job_code: string; client_name: string; site_address: string }
 
-type Category = 'before' | 'during' | 'after' | 'assessment'
+type Category = 'untagged' | 'before' | 'during' | 'after' | 'assessment'
 const CATEGORIES: { id: Category; label: string; color: string }[] = [
+  { id: 'untagged', label: 'Untagged', color: '#9CA3AF' },
   { id: 'before', label: 'Before', color: '#F87171' },
   { id: 'during', label: 'During', color: '#FBBF24' },
   { id: 'after', label: 'After', color: '#4ADE80' },
@@ -241,7 +243,7 @@ function Loader({ person, job, onChangeJob, onSignOut, onSignedOut }: {
   onSignedOut: () => void
 }) {
   const [items, setItems] = useState<Item[]>([])
-  const [category, setCategory] = useState<Category>('before')
+  const [category, setCategory] = useState<Category>('untagged')
   const [running, setRunning] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -406,6 +408,12 @@ function Loader({ person, job, onChangeJob, onSignOut, onSignedOut }: {
           />
         </div>
 
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <PickButton label="Photo library" accept="image/*" onFiles={addFiles} />
+          <PickButton label="Files / Drive / Dropbox" accept={FILE_ACCEPT} onFiles={addFiles} />
+          <PickButton label="Whole folder" folder onFiles={addFiles} />
+        </div>
+
         {total > 0 && (
           <div style={{ display: 'grid', gap: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -445,6 +453,36 @@ function Loader({ person, job, onChangeJob, onSignOut, onSignedOut }: {
         )}
       </div>
     </div>
+  )
+}
+
+/** Extensions rather than image/* so iOS offers the Files app instead of only the Photos library. */
+const FILE_ACCEPT = '.jpg,.jpeg,.png,.webp,.heic,.heif'
+
+function PickButton({ label, accept, folder, onFiles }: {
+  label: string
+  accept?: string
+  folder?: boolean
+  onFiles: (files: FileList) => void
+}) {
+  const ref = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (folder) ref.current?.setAttribute('webkitdirectory', '')
+  }, [folder])
+  return (
+    <>
+      <button type="button" className="btn btn-secondary" onClick={() => ref.current?.click()} style={{ flex: '1 1 160px', fontWeight: 700 }}>
+        {label}
+      </button>
+      <input
+        ref={ref}
+        type="file"
+        accept={accept}
+        multiple
+        onChange={e => { if (e.target.files) onFiles(e.target.files); e.target.value = '' }}
+        style={{ display: 'none' }}
+      />
+    </>
   )
 }
 

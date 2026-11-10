@@ -1479,6 +1479,7 @@ const REPORT_APPENDIX_PHASE_LABEL: Record<PhotoCategory, string> = {
   before: 'Before',
   during: 'During',
   after: 'After',
+  untagged: 'Untagged',
 }
 
 function completionReportAppendixPhotoCard(p: Photo): string {

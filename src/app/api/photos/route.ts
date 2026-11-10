@@ -16,7 +16,7 @@ import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import { insertPhotoRow } from '@/lib/photoRowInsert'
 
-const PHOTO_CATEGORIES = ['before', 'during', 'after', 'assessment'] as const
+const PHOTO_CATEGORIES = ['before', 'during', 'after', 'assessment', 'untagged'] as const
 const PHOTO_PHASES = ['assessment', 'progress'] as const
 
 export async function POST(req: Request) {
@@ -32,7 +32,9 @@ export async function POST(req: Request) {
     const nextCategory = (typeof category === 'string' && (PHOTO_CATEGORIES as readonly string[]).includes(category))
       ? category
       : 'before'
-    const nextPhase = (typeof capture_phase === 'string' && (PHOTO_PHASES as readonly string[]).includes(capture_phase))
+    const nextPhase = nextCategory === 'untagged'
+      ? 'assessment'
+      : (typeof capture_phase === 'string' && (PHOTO_PHASES as readonly string[]).includes(capture_phase))
       ? capture_phase
       : ((nextCategory === 'during' || nextCategory === 'after') ? 'progress' : 'assessment')
 

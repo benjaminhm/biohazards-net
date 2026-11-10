@@ -12,7 +12,7 @@ import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import { insertPhotoRow } from '@/lib/photoRowInsert'
 
-const PHOTO_CATEGORIES = ['before', 'during', 'after', 'assessment'] as const
+const PHOTO_CATEGORIES = ['before', 'during', 'after', 'assessment', 'untagged'] as const
 const PHOTO_PHASES = ['assessment', 'progress'] as const
 
 function optionalText(value: FormDataEntryValue | null): string | null {
@@ -93,11 +93,13 @@ export async function POST(req: Request) {
     const nextCategory = (PHOTO_CATEGORIES as readonly string[]).includes(categoryRaw)
       ? categoryRaw
       : 'before'
-    const nextPhase = (PHOTO_PHASES as readonly string[]).includes(capturePhaseRaw)
-      ? capturePhaseRaw
-      : nextCategory === 'during' || nextCategory === 'after'
-        ? 'progress'
-        : 'assessment'
+    const nextPhase = nextCategory === 'untagged'
+      ? 'assessment'
+      : (PHOTO_PHASES as readonly string[]).includes(capturePhaseRaw)
+        ? capturePhaseRaw
+        : nextCategory === 'during' || nextCategory === 'after'
+          ? 'progress'
+          : 'assessment'
 
     if (nextPhase === 'progress' && (nextCategory === 'before' || nextCategory === 'assessment')) {
       return NextResponse.json(

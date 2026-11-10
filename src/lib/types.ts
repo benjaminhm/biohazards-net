@@ -39,7 +39,8 @@ export type JobType =
   | 'flood'
   | 'other'
 
-export type PhotoCategory = 'before' | 'during' | 'after' | 'assessment'
+/** 'untagged' is a neutral bucket: never pulled into documents by category, only when picked into a section. */
+export type PhotoCategory = 'before' | 'during' | 'after' | 'assessment' | 'untagged'
 export type PhotoCapturePhase = 'assessment' | 'progress'
 
 export type DocType =

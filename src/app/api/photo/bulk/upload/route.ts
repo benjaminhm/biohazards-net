@@ -3,14 +3,14 @@
  * ordinary job photo credited to the signed-in person.
  *
  * Multipart fields: file (JPEG, compressed in the browser), job_id, category
- * (before | during | after | assessment), optional taken_at, lat, lng.
+ * (untagged | before | during | after | assessment), optional taken_at, lat, lng.
  */
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import { insertPhotoRow } from '@/lib/photoRowInsert'
 import { photoBulkPerson } from '@/lib/photoBulkSession'
 
-const CATEGORIES = ['before', 'during', 'after', 'assessment'] as const
+const CATEGORIES = ['untagged', 'before', 'during', 'after', 'assessment'] as const
 type Category = (typeof CATEGORIES)[number]
 const MAX_BYTES = 4 * 1024 * 1024
 
@@ -37,7 +37,7 @@ export async function POST(req: Request) {
 
   const jobId = String(form.get('job_id') ?? '').trim()
   const rawCategory = String(form.get('category') ?? '').trim()
-  const category: Category = (CATEGORIES as readonly string[]).includes(rawCategory) ? (rawCategory as Category) : 'during'
+  const category: Category = (CATEGORIES as readonly string[]).includes(rawCategory) ? (rawCategory as Category) : 'untagged'
 
   const supabase = createServiceClient()
   const { data: job } = await supabase
@@ -66,7 +66,7 @@ export async function POST(req: Request) {
     caption: '',
     area_ref: '',
     category,
-    capture_phase: category === 'before' || category === 'assessment' ? 'assessment' : 'progress',
+    capture_phase: category === 'during' || category === 'after' ? 'progress' : 'assessment',
     uploaded_by_person_id: person.person_id,
     uploaded_by_name: `${person.name} (${person.person_code})`,
     taken_at: optionalIso(form.get('taken_at')),

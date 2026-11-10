@@ -28,10 +28,11 @@ const CATEGORIES: { value: PhotoCategory; label: string; color: string }[] = [
   { value: 'assessment', label: 'Assessment', color: '#60A5FA' },
   { value: 'during',     label: 'During',     color: '#FBBF24' },
   { value: 'after',      label: 'After',      color: '#4ADE80' },
+  { value: 'untagged',   label: 'Untagged',   color: '#9CA3AF' },
 ]
 
 const CATEGORY_COLORS: Record<PhotoCategory, string> = {
-  before: '#F87171', during: '#FBBF24', after: '#4ADE80', assessment: '#60A5FA',
+  before: '#F87171', during: '#FBBF24', after: '#4ADE80', assessment: '#60A5FA', untagged: '#9CA3AF',
 }
 
 // ─── Main component ────────────────────────────────────────────────────────────
@@ -104,6 +105,7 @@ export default function PhotosTab({ jobId, photos, assessmentData = null, onAsse
         before: roomPhotos.filter(p => p.category === 'before'),
         during: roomPhotos.filter(p => p.category === 'during'),
         after: roomPhotos.filter(p => p.category === 'after'),
+        untagged: roomPhotos.filter(p => p.category === 'untagged'),
       }
       return { name, note: roomNotesDraft[name] ?? '', photos: roomPhotos, stages: staged }
     })
@@ -259,7 +261,7 @@ export default function PhotosTab({ jobId, photos, assessmentData = null, onAsse
                   </div>
                 </div>
               )}
-              {(['assessment', 'before', 'during', 'after'] as const).map(stage => (
+              {(['untagged', 'assessment', 'before', 'during', 'after'] as const).map(stage => (
                 room.stages[stage].length > 0 ? (
                   <div key={stage} style={{ marginBottom: 12 }}>
                     <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: CATEGORY_COLORS[stage], marginBottom: 8 }}>

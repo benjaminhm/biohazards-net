@@ -11,7 +11,7 @@ import { getOrgId } from '@/lib/org'
 import { insertPhotoRow } from '@/lib/photoRowInsert'
 import { type OrgUserAccessRow, resolveFieldAccess } from '@/lib/fieldJobs'
 
-const PHOTO_CATEGORIES = ['before', 'during', 'after', 'assessment'] as const
+const PHOTO_CATEGORIES = ['before', 'during', 'after', 'assessment', 'untagged'] as const
 const PHOTO_PHASES = ['assessment', 'progress'] as const
 
 interface FieldPhotoBody {
@@ -128,7 +128,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const nextCategory = (typeof body.category === 'string' && (PHOTO_CATEGORIES as readonly string[]).includes(body.category))
       ? body.category
       : 'during'
-    const nextPhase = (typeof body.capture_phase === 'string' && (PHOTO_PHASES as readonly string[]).includes(body.capture_phase))
+    const nextPhase = nextCategory === 'untagged'
+      ? 'assessment'
+      : (typeof body.capture_phase === 'string' && (PHOTO_PHASES as readonly string[]).includes(body.capture_phase))
       ? body.capture_phase
       : 'progress'
 

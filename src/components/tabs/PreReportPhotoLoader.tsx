@@ -1,15 +1,16 @@
 /*
  * Before / After Remediation photo loader for the multi-part PRE. Uploads are
  * saved as ordinary job photos (Before: before/assessment, After:
- * after/progress); the report keeps only the chosen ids, in order.
+ * after/progress); the report keeps only the chosen ids, in order. "Choose
+ * photos" opens PhotoBrowserModal over every job photo, including Untagged.
  */
 'use client'
 
 import { useRef, useState, type ChangeEvent } from 'react'
 import type { Photo } from '@/lib/types'
 import { preSelectedPhotos } from '@/lib/preReportOutline'
-import { sortPhotosByTimeTaken } from '@/lib/postRemediationEvaluations'
 import { sectionHeading, textInput, uploadJobPhotos } from '@/components/tabs/PostRemediationEvaluationTab'
+import PhotoBrowserModal from '@/components/PhotoBrowserModal'
 
 const STAGES = {
   before: { title: 'Before remediation', tags: { category: 'before', capture_phase: 'assessment' } },
@@ -62,9 +63,6 @@ export default function PreReportPhotoLoader({
 
   const chosen = preSelectedPhotos(ids, photos)
   const chosenIds = new Set(chosen.map(p => p.id))
-  const others = sortPhotosByTimeTaken(photos.filter(p => !chosenIds.has(p.id) && !/\.pdf($|\?)/i.test(p.file_url)))
-  const suggested = others.filter(p => p.category === stage)
-  const rest = others.filter(p => p.category !== stage)
 
   function save(next: string[]) {
     setError('')
@@ -123,24 +121,6 @@ export default function PreReportPhotoLoader({
     }
   }
 
-  const pickGrid = (list: Photo[]) => (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(84px, 1fr))', gap: 8, marginTop: 6 }}>
-      {list.map(photo => (
-        <button
-          key={photo.id}
-          type="button"
-          onClick={() => save([...chosen.map(p => p.id), photo.id])}
-          title={photo.caption || 'Add to the report'}
-          style={{ padding: 0, border: '1px solid var(--border)', borderRadius: 8, background: 'transparent', cursor: 'pointer', position: 'relative' }}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={photo.file_url} alt={photo.caption || 'Job photo'} style={{ ...thumb, height: 84 }} />
-          <span style={{ ...removeBtn, background: 'var(--accent)', pointerEvents: 'none' }}>+</span>
-        </button>
-      ))}
-    </div>
-  )
-
   return (
     <div>
       <div style={sectionHeading}>{title}</div>
@@ -165,16 +145,14 @@ export default function PreReportPhotoLoader({
         >
           Take photo
         </button>
-        {others.length > 0 && (
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={() => setChoosing(v => !v)}
-            style={{ padding: '12px 16px', fontWeight: 700 }}
-          >
-            {choosing ? 'Done choosing' : 'Choose from job photos'}
-          </button>
-        )}
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={() => setChoosing(true)}
+          style={{ padding: '12px 16px', fontWeight: 700 }}
+        >
+          Choose photos
+        </button>
       </div>
       {error && <div style={{ color: '#F87171', fontSize: 13, marginTop: 8 }} role="alert">{error}</div>}
 
@@ -244,20 +222,18 @@ export default function PreReportPhotoLoader({
       )}
 
       {choosing && (
-        <div style={{ marginTop: 12 }}>
-          {suggested.length > 0 && (
-            <>
-              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)' }}>Tagged {stage}</div>
-              {pickGrid(suggested)}
-            </>
-          )}
-          {rest.length > 0 && (
-            <>
-              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginTop: suggested.length ? 12 : 0 }}>Other job photos</div>
-              {pickGrid(rest)}
-            </>
-          )}
-        </div>
+        <PhotoBrowserModal
+          jobId={jobId}
+          title={title}
+          photos={photos}
+          alreadyIds={chosenIds}
+          onPhotosUpdate={onPhotosUpdate}
+          onClose={() => setChoosing(false)}
+          onAdd={added => {
+            setChoosing(false)
+            save([...chosen.map(p => p.id), ...added])
+          }}
+        />
       )}
     </div>
   )

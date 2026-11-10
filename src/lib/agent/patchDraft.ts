@@ -36,7 +36,7 @@ export function isCaptureKey(k: unknown): k is CaptureKey {
 
 /** Photo columns the agent may draft, and their allowed values. */
 export const PHOTO_FIELDS = ['caption', 'area_ref', 'category', 'capture_phase', 'include_in_composed_reports'] as const
-const PHOTO_CATEGORIES: PhotoCategory[] = ['before', 'during', 'after', 'assessment']
+const PHOTO_CATEGORIES: PhotoCategory[] = ['before', 'during', 'after', 'assessment', 'untagged']
 const PHOTO_PHASES: PhotoCapturePhase[] = ['assessment', 'progress']
 
 /** Draft targets share kind 'document' and are told apart by prefix. */
@@ -189,7 +189,7 @@ export function photoPatch(patch: unknown): Record<string, unknown> {
   const out: Record<string, unknown> = {}
   for (const [k, v] of Object.entries(patch)) {
     if (!(PHOTO_FIELDS as readonly string[]).includes(k)) throw new PatchError(`photo field "${k}" cannot be changed`)
-    if (k === 'category' && !PHOTO_CATEGORIES.includes(v as PhotoCategory)) throw new PatchError('category must be before, during, after or assessment')
+    if (k === 'category' && !PHOTO_CATEGORIES.includes(v as PhotoCategory)) throw new PatchError('category must be before, during, after, assessment or untagged')
     if (k === 'capture_phase' && !PHOTO_PHASES.includes(v as PhotoCapturePhase)) throw new PatchError('capture_phase must be assessment or progress')
     if (k === 'include_in_composed_reports' && typeof v !== 'boolean') throw new PatchError('include_in_composed_reports must be true or false')
     if ((k === 'caption' || k === 'area_ref') && typeof v !== 'string') throw new PatchError(`${k} must be text`)
