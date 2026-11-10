@@ -57,7 +57,7 @@ export const SURFACE_AREA_ESTIMATE_NOTE =
 const PREVIOUS_SURFACE_AREA_ASSUMPTIONS =
   'Square metres are an estimate of the area. The measured area replaces that estimate, at the rate per square metre on this quote.\nThe labour days on this quote are the labour for this cleaning.'
 
-/** Typical sizes for rooms not yet seen. Ticking one, or giving a count when `multiple`, adds rooms at these sizes. Height is 2.4 m except the garage. */
+/** Typical sizes for rooms not yet seen. Ticking one, or giving a count when `multiple`, adds rooms at these sizes. Height is 2.4 m except the garages. */
 export const SURFACE_AREA_ROOM_PRESETS = [
   { id: 'bedroom', name: 'Bedroom', length_m: 3.5, width_m: 3, height_m: 2.4, multiple: true },
   { id: 'main_bedroom', name: 'Main bedroom', length_m: 4, width_m: 3.6, height_m: 2.4, multiple: false },
@@ -69,7 +69,8 @@ export const SURFACE_AREA_ROOM_PRESETS = [
   { id: 'toilet', name: 'Toilet', length_m: 1.8, width_m: 0.9, height_m: 2.4, multiple: true },
   { id: 'laundry', name: 'Laundry', length_m: 2.2, width_m: 1.8, height_m: 2.4, multiple: false },
   { id: 'hall', name: 'Hall', length_m: 6, width_m: 1.2, height_m: 2.4, multiple: false },
-  { id: 'garage', name: 'Garage', length_m: 6, width_m: 3, height_m: 2.7, multiple: false },
+  { id: 'garage', name: 'Single garage', length_m: 6, width_m: 3, height_m: 2.7, multiple: false },
+  { id: 'double_garage', name: 'Double garage', length_m: 6, width_m: 6, height_m: 2.7, multiple: false },
 ] as const
 
 export type SurfaceAreaRoomPreset = (typeof SURFACE_AREA_ROOM_PRESETS)[number]
