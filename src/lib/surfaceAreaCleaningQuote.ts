@@ -13,6 +13,7 @@ import {
   type HygienistServices,
 } from '@/lib/hygienistServices'
 import { DEFAULT_ENGAGEMENT_AGREEMENT, storedEngagementAgreement } from '@/lib/quoteEngagement'
+import { emptyJobOnlyClauses, normalizeJobOnlyClauses, withJobOnlyLines, type JobOnlyClauses } from '@/lib/quoteJobClauses'
 
 export const SURFACE_AREA_CLIENT_TITLES = [
   { id: 'surface', title: 'Surface Area Cleaning' },
@@ -106,7 +107,7 @@ export interface SurfaceAreaOtherLine {
   price: number | null
 }
 
-export interface SurfaceAreaCleaningCapture extends HygienistServices {
+export interface SurfaceAreaCleaningCapture extends HygienistServices, JobOnlyClauses {
   cleaning_kind: SurfaceAreaCleaningKind
   /** Printed when the title is Custom. */
   custom_title: string
@@ -265,6 +266,7 @@ export function emptySurfaceAreaCleaningCapture(): SurfaceAreaCleaningCapture {
     scope_of_work: '',
     other_lines: [],
     ...emptyHygienistServices(),
+    ...emptyJobOnlyClauses(),
   }
 }
 
@@ -386,6 +388,7 @@ export function normalizeSurfaceAreaCleaningCapture(raw: unknown): SurfaceAreaCl
     scope_of_work: typeof o.scope_of_work === 'string' ? o.scope_of_work : '',
     other_lines: otherLines,
     ...normalizeHygienistServices(o, qty),
+    ...normalizeJobOnlyClauses(o),
   }
 }
 
@@ -554,7 +557,7 @@ export function surfaceAreaCleaningQuoteContent(input: {
       area_m2: measure.total,
     }]
   })
-  const exclusions = surfaceAreaClauseLines(standards.exclusions)
+  const exclusions = surfaceAreaClauseLines(withJobOnlyLines(standards.exclusions, capture.job_exclusions))
   if (ceilingExcluded && !exclusions.some(line => /ceiling/i.test(line))) {
     exclusions.push('The ceiling.')
   }
@@ -593,9 +596,9 @@ export function surfaceAreaCleaningQuoteContent(input: {
     subtotal: figures.subtotal,
     gst: figures.gst,
     total: figures.total,
-    inclusions: surfaceAreaClauseLines(biohazardInclusionsWithServices(standards.inclusions, capture)),
+    inclusions: surfaceAreaClauseLines(withJobOnlyLines(biohazardInclusionsWithServices(standards.inclusions, capture), capture.job_inclusions)),
     exclusions,
-    assumptions: surfaceAreaClauseLines(standards.assumptions),
+    assumptions: surfaceAreaClauseLines(withJobOnlyLines(standards.assumptions, capture.job_assumptions)),
     terms: standards.payment_terms.trim(),
     engagement_agreement: standards.engagement_agreement.trim(),
     authority: SURFACE_AREA_SCHEMA.authority,

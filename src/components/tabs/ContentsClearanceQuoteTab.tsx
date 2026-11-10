@@ -76,17 +76,22 @@ function ClickToEditText({
   value,
   onChange,
   asList,
+  hint,
+  emptyText = 'Click to edit',
 }: {
   label: string
   value: string
   onChange: (value: string) => void
   asList?: boolean
+  hint?: string
+  emptyText?: string
 }) {
   const [editing, setEditing] = useState(false)
   const items = clauseLines(value)
   return (
     <div>
       <div style={LABEL}>{label}</div>
+      {hint && <div style={{ fontSize: 12, color: 'var(--text-muted)', margin: '-2px 0 6px' }}>{hint}</div>}
       {editing ? (
         <textarea
           autoFocus
@@ -119,7 +124,7 @@ function ClickToEditText({
               {items.map(item => <li key={item}>{item}</li>)}
             </ul>
           ) : (
-            <span style={{ fontSize: 14, whiteSpace: 'pre-wrap' }}>{value.trim() || 'Click to edit'}</span>
+            <span style={{ fontSize: 14, whiteSpace: 'pre-wrap', color: value.trim() ? undefined : 'var(--text-muted)' }}>{value.trim() || emptyText}</span>
           )}
         </button>
       )}
@@ -183,6 +188,9 @@ export default function ContentsClearanceQuoteTab({ job, photos, onJobUpdate, on
     || capture.mobilisation_fee !== saved.mobilisation_fee
     || capture.mobilisation_waived !== saved.mobilisation_waived
     || capture.mobilisation_reason !== saved.mobilisation_reason
+    || capture.job_inclusions !== saved.job_inclusions
+    || capture.job_exclusions !== saved.job_exclusions
+    || capture.job_assumptions !== saved.job_assumptions
   useRegisterUnsavedChanges('contents-clearance-quote', isDirty)
 
   const figures = useMemo(
@@ -830,9 +838,29 @@ export default function ContentsClearanceQuoteTab({ job, photos, onJobUpdate, on
         )}
       </div>
       <div style={{ marginTop: 18, display: 'grid', gap: 14 }}>
-        <ClickToEditText label="Inclusions" asList value={standards.inclusions} onChange={inclusions => editStandards({ inclusions })} />
-        <ClickToEditText label="Exclusions" asList value={standards.exclusions} onChange={exclusions => editStandards({ exclusions })} />
-        <ClickToEditText label="Assumptions" asList value={standards.assumptions} onChange={assumptions => editStandards({ assumptions })} />
+        {([
+          ['inclusions', 'job_inclusions', 'Inclusions'],
+          ['exclusions', 'job_exclusions', 'Exclusions'],
+          ['assumptions', 'job_assumptions', 'Assumptions'],
+        ] as const).map(([key, jobKey, label]) => (
+          <div key={key} style={{ display: 'grid', gap: 8 }}>
+            <ClickToEditText
+              label={label}
+              hint="Standard. Saved for this company and used on every new job."
+              asList
+              value={standards[key]}
+              onChange={value => editStandards({ [key]: value })}
+            />
+            <ClickToEditText
+              label={`${label} for this job only`}
+              hint="Unusual or one-off items. Printed after the standard ones, not carried to new jobs."
+              asList
+              emptyText="None. Click to add."
+              value={capture[jobKey]}
+              onChange={value => patch({ [jobKey]: value })}
+            />
+          </div>
+        ))}
         <ClickToEditText label="Payment terms" value={standards.payment_terms} onChange={payment_terms => editStandards({ payment_terms })} />
         <div>
           <div style={LABEL}>Engagement agreement</div>

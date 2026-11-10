@@ -8,6 +8,7 @@
 
 import type { Job, JobType } from '@/lib/types'
 import { DEFAULT_ENGAGEMENT_AGREEMENT, storedEngagementAgreement } from '@/lib/quoteEngagement'
+import { emptyJobOnlyClauses, normalizeJobOnlyClauses, withJobOnlyLines, type JobOnlyClauses } from '@/lib/quoteJobClauses'
 import { mergedSowCapture } from '@/lib/sowCapture'
 import {
   biohazardInclusionsWithServices,
@@ -157,7 +158,7 @@ export interface BiohazardExtraLine {
   rate: number | null
 }
 
-export interface BiohazardCleaningCapture {
+export interface BiohazardCleaningCapture extends JobOnlyClauses {
   /** Null follows the job type. */
   cleaning_kind: BiohazardCleaningKind | null
   /** Null follows the assessment, then the job type. Joined, they fill [biohazard type]. */
@@ -468,6 +469,7 @@ export function emptyBiohazardCleaningCapture(): BiohazardCleaningCapture {
     clauses: null,
     clauses_from_kind: null,
     check_override: null,
+    ...emptyJobOnlyClauses(),
   }
 }
 
@@ -664,6 +666,7 @@ export function normalizeBiohazardCleaningCapture(raw: unknown): BiohazardCleani
           codes: Array.isArray(override.codes) ? override.codes.filter((c): c is string => typeof c === 'string') : [],
         }
       : null,
+    ...normalizeJobOnlyClauses(o),
   }
 }
 
@@ -946,9 +949,9 @@ export function biohazardCleaningQuoteContent(input: {
     subtotal: figures.subtotal,
     gst: figures.gst,
     total: figures.total,
-    inclusions: lines(biohazardInclusionsWithServices(clauses.inclusions, capture)),
-    exclusions: lines(clauses.exclusions),
-    assumptions: lines(clauses.assumptions),
+    inclusions: lines(withJobOnlyLines(biohazardInclusionsWithServices(clauses.inclusions, capture), capture.job_inclusions)),
+    exclusions: lines(withJobOnlyLines(clauses.exclusions, capture.job_exclusions)),
+    assumptions: lines(withJobOnlyLines(clauses.assumptions, capture.job_assumptions)),
     terms: fill(clauses.payment_terms).trim(),
     engagement_agreement: clauses.engagement_agreement.trim(),
     authority: BIOHAZARD_CLEANING_SCHEMA.authority,

@@ -6,6 +6,7 @@
  */
 
 import { DEFAULT_ENGAGEMENT_AGREEMENT, storedEngagementAgreement } from '@/lib/quoteEngagement'
+import { emptyJobOnlyClauses, normalizeJobOnlyClauses, withJobOnlyLines, type JobOnlyClauses } from '@/lib/quoteJobClauses'
 
 const M3_PER_LABOUR_DAY = 6
 
@@ -70,7 +71,7 @@ export function contentsClearanceDocumentTitle(kind: string | null | undefined):
     ?? CONTENTS_CLEARANCE_CLIENT_TITLES[0].title
 }
 
-export interface ContentsClearanceCapture {
+export interface ContentsClearanceCapture extends JobOnlyClauses {
   /** Which client-facing title to print. The page itself stays Contents Clearance. */
   clearance_kind: ContentsClearanceKind
   estimated_m3: number | null
@@ -246,6 +247,7 @@ export function emptyContentsClearanceCapture(): ContentsClearanceCapture {
     mobilisation_fee: null,
     mobilisation_waived: false,
     mobilisation_reason: '',
+    ...emptyJobOnlyClauses(),
   }
 }
 
@@ -400,6 +402,7 @@ export function normalizeContentsClearanceCapture(raw: unknown): ContentsClearan
     mobilisation_fee: qty(o.mobilisation_fee),
     mobilisation_waived: o.mobilisation_waived === true,
     mobilisation_reason: typeof o.mobilisation_reason === 'string' ? o.mobilisation_reason : '',
+    ...normalizeJobOnlyClauses(o),
   }
 }
 
@@ -578,9 +581,9 @@ export function contentsClearanceQuoteContent(input: {
     subtotal: figures.subtotal,
     gst: figures.gst,
     total: figures.total,
-    inclusions: clauseLines(standards.inclusions),
-    exclusions: clauseLines(standards.exclusions),
-    assumptions: clauseLines(standards.assumptions),
+    inclusions: clauseLines(withJobOnlyLines(standards.inclusions, capture.job_inclusions)),
+    exclusions: clauseLines(withJobOnlyLines(standards.exclusions, capture.job_exclusions)),
+    assumptions: clauseLines(withJobOnlyLines(standards.assumptions, capture.job_assumptions)),
     terms: standards.payment_terms.trim(),
     engagement_agreement: standards.engagement_agreement.trim(),
     authority: CONTENTS_CLEARANCE_SCHEMA.authority,

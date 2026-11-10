@@ -152,11 +152,13 @@ function ClickToEditText({
   onChange,
   asList,
   numbered,
+  emptyText = 'Click to edit',
 }: {
   value: string
   onChange: (value: string) => void
   asList?: boolean
   numbered?: boolean
+  emptyText?: string
 }) {
   const [editing, setEditing] = useState(false)
   const items = biohazardClauseLines(value)
@@ -193,7 +195,7 @@ function ClickToEditText({
           {items.map((item, i) => <li key={`${i}:${item}`}>{item}</li>)}
         </List>
       ) : (
-        <span style={{ fontSize: 14, whiteSpace: 'pre-wrap' }}>{value.trim() || 'Click to edit'}</span>
+        <span style={{ fontSize: 14, whiteSpace: 'pre-wrap', color: value.trim() ? undefined : 'var(--text-muted)' }}>{value.trim() || emptyText}</span>
       )}
     </button>
   )
@@ -847,6 +849,10 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
   function clauseBlock(key: BiohazardClauseKey, label: string, kindOf: 'list' | 'numbered' | 'text') {
     if (!clauses) return null
     const differs = template != null && !sameText(clauses[key], template[key])
+    const jobKey = key === 'inclusions' ? 'job_inclusions'
+      : key === 'exclusions' ? 'job_exclusions'
+        : key === 'assumptions' ? 'job_assumptions'
+          : null
     return (
       <div>
         <ClauseHeader
@@ -898,6 +904,20 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
           asList={kindOf !== 'text'}
           numbered={kindOf === 'numbered'}
         />
+        {jobKey && (
+          <div style={{ marginTop: 8 }}>
+            <div style={LABEL}>{label} for this job only</div>
+            <div style={{ ...HINT, marginTop: -2, marginBottom: 6 }}>
+              Unusual or one-off items. Printed after the ones above, not remembered for the next quote.
+            </div>
+            <ClickToEditText
+              value={capture[jobKey]}
+              onChange={value => patch({ [jobKey]: value })}
+              asList
+              emptyText="None. Click to add."
+            />
+          </div>
+        )}
       </div>
     )
   }
