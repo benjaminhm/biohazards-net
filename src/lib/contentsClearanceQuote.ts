@@ -60,6 +60,7 @@ export interface ContentsClearanceStandards {
 /** Internal work is always a contents clearance. The client document uses one of these titles. */
 export const CONTENTS_CLEARANCE_CLIENT_TITLES = [
   { id: 'contents', title: 'Contents Clearance' },
+  { id: 'contaminated', title: 'Contaminated Contents Clearance' },
   { id: 'hoarding', title: 'Hoarding Clearance' },
   { id: 'estate', title: 'Estate Clearance' },
 ] as const

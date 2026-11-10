@@ -1112,7 +1112,7 @@ export interface AssessmentData {
   /** Contents Clearance Quote — estimated cubic metres and kilometres. Rates and clauses are schema. */
   contents_clearance_quote?: {
     /** contents | hoarding | estate. Printed as the client document title. */
-    clearance_kind?: 'contents' | 'hoarding' | 'estate'
+    clearance_kind?: 'contents' | 'contaminated' | 'hoarding' | 'estate'
     estimated_m3: number | null
     /** Cubic metres one person clears in a day. Kept for quotes saved before the labour ceiling. */
     m3_per_labour_day?: number | null
