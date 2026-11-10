@@ -3,9 +3,9 @@
  *
  * POST /api/photos — record a photo after it has been uploaded to Storage.
  *
- * The upload itself uses a signed URL from /api/photos/upload-url.
- * Once the upload completes, the client calls this endpoint with the
- * resulting public URL to create the database record.
+ * The client uploads to Storage first, then calls this endpoint with the
+ * resulting public URL to create the database record. Most uploads now go
+ * through /api/photos/upload, which does both.
  *
  * Photos belong to a job (job_id) and optionally an area (area_ref).
  * category must be one of: before | assessment | during | after

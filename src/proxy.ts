@@ -9,6 +9,10 @@
  *
  *   platform.biohazards.net  — legacy host; redirects to app.biohazards.net.
  *
+ *   photo.biohazards.net     — PIN photo apps, no staff session. / is the camera
+ *                              (/photo), /bulk the bulk loader (/photo/bulk).
+ *                              Only /photo and /api/photo are reachable.
+ *
  *   [slug].biohazards.net    — public company website (no auth).
  *                              Sets x-org-slug and rewrites to /site/*.
  *
@@ -102,9 +106,9 @@ export async function proxy(request: NextRequest) {
     if (isSharedAsset(pathname)) {
       return NextResponse.next({ request: { headers: requestHeaders } })
     }
-    if (pathname === '/') {
+    if (pathname === '/' || pathname === '/bulk') {
       const url = request.nextUrl.clone()
-      url.pathname = '/photo'
+      url.pathname = pathname === '/bulk' ? '/photo/bulk' : '/photo'
       return NextResponse.rewrite(url, { request: { headers: requestHeaders } })
     }
     if (!isPhotoPath) {

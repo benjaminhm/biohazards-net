@@ -531,6 +531,21 @@ export default function StandalonePhotoPage() {
               </span>
             </div>
           </div>
+          <a
+            href="/photo/bulk"
+            style={{
+              marginLeft: 'auto',
+              padding: '7px 11px',
+              borderRadius: 10,
+              border: '1px solid var(--border)',
+              color: 'var(--text-muted)',
+              fontWeight: 700,
+              fontSize: 12,
+              textDecoration: 'none',
+            }}
+          >
+            Bulk upload
+          </a>
           <button
             type="button"
             onClick={switchPerson}
