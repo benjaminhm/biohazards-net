@@ -3,7 +3,7 @@
  * ordinary job photo credited to the signed-in person.
  *
  * Multipart fields: file (JPEG, compressed in the browser), job_id, category
- * (untagged | before | during | after | assessment), optional taken_at, lat, lng.
+ * (untagged | before | during | after | assessment), optional caption, taken_at, lat, lng.
  */
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
@@ -13,6 +13,7 @@ import { photoBulkPerson } from '@/lib/photoBulkSession'
 const CATEGORIES = ['untagged', 'before', 'during', 'after', 'assessment'] as const
 type Category = (typeof CATEGORIES)[number]
 const MAX_BYTES = 4 * 1024 * 1024
+const MAX_CAPTION = 2000
 
 function optionalNumber(v: FormDataEntryValue | null): number | null {
   if (typeof v !== 'string' || v.trim() === '') return null
@@ -63,7 +64,7 @@ export async function POST(req: Request) {
     job_id: jobId,
     org_id: person.org_id,
     file_url: fileUrl,
-    caption: '',
+    caption: String(form.get('caption') ?? '').trim().slice(0, MAX_CAPTION),
     area_ref: '',
     category,
     capture_phase: category === 'during' || category === 'after' ? 'progress' : 'assessment',
@@ -78,5 +79,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: error?.message ?? 'Could not save photo.' }, { status: 500 })
   }
 
-  return NextResponse.json({ photo: { id: photo.id as string } })
+  return NextResponse.json({
+    photo: {
+      id: photo.id as string,
+      file_url: photo.file_url as string,
+      caption: (photo.caption as string | null) ?? '',
+      taken_at: (photo.taken_at as string | null) ?? null,
+      uploaded_at: photo.uploaded_at as string,
+    },
+  })
 }

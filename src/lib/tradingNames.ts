@@ -90,6 +90,11 @@ export function isPhotoCaptureHost(host: string | null | undefined): boolean {
   return TRADING_NAME_OPTIONS.some(o => o.photoHost?.toLowerCase() === normalised)
 }
 
+/** True when the request host is the job notepad (notes.biohazards.net). */
+export function isNotesCaptureHost(host: string | null | undefined): boolean {
+  return (host ?? '').split(':')[0].trim().toLowerCase() === 'notes.biohazards.net'
+}
+
 /** Absolute base URL of a brand's accounts portal, for links in emails. */
 export function accountsPortalBaseUrl(id: TradingNameId | null | undefined): string | null {
   const host = tradingNameOption(id)?.accountsHost

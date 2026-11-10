@@ -10,8 +10,12 @@
  *   platform.biohazards.net  — legacy host; redirects to app.biohazards.net.
  *
  *   photo.biohazards.net     — PIN photo apps, no staff session. / is the camera
- *                              (/photo), /bulk the bulk loader (/photo/bulk).
+ *                              (/photo), /bulk the bulk loader (/photo/bulk),
+ *                              /notes the job notepad (/photo/notes).
  *                              Only /photo and /api/photo are reachable.
+ *
+ *   notes.biohazards.net     — the job notepad on its own host. / is /photo/notes;
+ *                              same PIN session and path limits as photo.
  *
  *   [slug].biohazards.net    — public company website (no auth).
  *                              Sets x-org-slug and rewrites to /site/*.
@@ -34,7 +38,7 @@
  */
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
-import { accountsHostTradingName, isPhotoCaptureHost } from '@/lib/tradingNames'
+import { accountsHostTradingName, isNotesCaptureHost, isPhotoCaptureHost } from '@/lib/tradingNames'
 import {
   STAFF_COOKIE,
   STAFF_SESSION_MAX_AGE,
@@ -70,7 +74,7 @@ function isPublicPath(pathname: string): boolean {
   return false
 }
 
-const RESERVED_SUBDOMAINS = new Set(['www', 'app', 'login', 'platform', 'admin', 'accounts', 'photo'])
+const RESERVED_SUBDOMAINS = new Set(['www', 'app', 'login', 'platform', 'admin', 'accounts', 'photo', 'notes'])
 
 function isSharedAsset(pathname: string): boolean {
   return (
@@ -101,14 +105,18 @@ export async function proxy(request: NextRequest) {
   const isPhotoPath =
     pathname === '/photo' || pathname.startsWith('/photo/') || pathname === '/api/photo' || pathname.startsWith('/api/photo/')
 
-  if (isPhotoCaptureHost(host)) {
+  const notesHost = isNotesCaptureHost(host)
+  if (notesHost || isPhotoCaptureHost(host)) {
     requestHeaders.set('x-subdomain', 'photo')
     if (isSharedAsset(pathname)) {
       return NextResponse.next({ request: { headers: requestHeaders } })
     }
-    if (pathname === '/' || pathname === '/bulk') {
+    const shortPaths: Record<string, string> = notesHost
+      ? { '/': '/photo/notes' }
+      : { '/': '/photo', '/bulk': '/photo/bulk', '/notes': '/photo/notes' }
+    if (shortPaths[pathname]) {
       const url = request.nextUrl.clone()
-      url.pathname = pathname === '/bulk' ? '/photo/bulk' : '/photo'
+      url.pathname = shortPaths[pathname]
       return NextResponse.rewrite(url, { request: { headers: requestHeaders } })
     }
     if (!isPhotoPath) {

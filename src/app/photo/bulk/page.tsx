@@ -9,12 +9,21 @@
  */
 'use client'
 
-import { useEffect, useRef, useState, type CSSProperties, type DragEvent } from 'react'
+import { useEffect, useRef, useState, type DragEvent } from 'react'
+import {
+  JobStep,
+  PinStep,
+  SignedInBar,
+  captureColumn as column,
+  captureShell as shell,
+  useCaptureSession,
+  type CaptureJob as BulkJob,
+  type CapturePerson as Person,
+} from '@/components/photoApp/CaptureSignIn'
 import { compressImage } from '@/lib/compressImage'
 import { readPhotoExif } from '@/lib/photoExif'
 
-interface Person { person_id: string; name: string; person_code: string }
-interface BulkJob { id: string; job_code: string; client_name: string; site_address: string }
+const APP = 'Bulk photo loader'
 
 type Category = 'untagged' | 'before' | 'during' | 'after' | 'assessment'
 const CATEGORIES: { id: Category; label: string; color: string }[] = [
@@ -66,29 +75,20 @@ async function uploadOne(file: File, jobId: string, category: Category): Promise
 }
 
 export default function BulkPhotoLoaderPage() {
-  const [booting, setBooting] = useState(true)
-  const [person, setPerson] = useState<Person | null>(null)
+  const session = useCaptureSession()
+  const { booting, person, setPerson } = session
   const [job, setJob] = useState<BulkJob | null>(null)
 
-  useEffect(() => {
-    fetch('/api/photo/bulk/session', { cache: 'no-store' })
-      .then(r => (r.ok ? r.json() : null))
-      .then(d => setPerson(d?.person ?? null))
-      .catch(() => {})
-      .finally(() => setBooting(false))
-  }, [])
-
   async function signOut() {
-    await fetch('/api/photo/bulk/session', { method: 'DELETE' }).catch(() => {})
-    setPerson(null)
+    await session.signOut()
     setJob(null)
   }
 
   if (booting) {
     return <div style={shell}><div style={{ margin: 'auto', fontWeight: 800 }}>Loading…</div></div>
   }
-  if (!person) return <PinStep onSignedIn={setPerson} />
-  if (!job) return <JobStep person={person} onJob={setJob} onSignOut={() => void signOut()} />
+  if (!person) return <PinStep app={APP} onSignedIn={setPerson} />
+  if (!job) return <JobStep app={APP} person={person} actionLabel="Load photos to this job" onJob={setJob} onSignOut={() => void signOut()} />
   return (
     <Loader
       person={person}
@@ -97,141 +97,6 @@ export default function BulkPhotoLoaderPage() {
       onSignOut={() => void signOut()}
       onSignedOut={() => { setPerson(null); setJob(null) }}
     />
-  )
-}
-
-function Brand({ title, subtitle }: { title: string; subtitle?: string }) {
-  return (
-    <div>
-      <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#FF6B35' }}>
-        Bulk photo loader
-      </div>
-      <h1 style={{ margin: '4px 0 6px', fontSize: 26, fontWeight: 900 }}>{title}</h1>
-      {subtitle && <p style={{ margin: 0, fontSize: 14, color: 'var(--text-muted)' }}>{subtitle}</p>}
-    </div>
-  )
-}
-
-function PinStep({ onSignedIn }: { onSignedIn: (p: Person) => void }) {
-  const [pin, setPin] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-
-  async function submit() {
-    if (!/^\d{4}$/.test(pin) || busy) return
-    setBusy(true)
-    setError('')
-    try {
-      const res = await fetch('/api/photo/bulk/session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pin }),
-      })
-      const data = (await res.json().catch(() => ({}))) as { person?: Person; error?: string }
-      if (!res.ok || !data.person) throw new Error(data.error ?? 'Could not sign in.')
-      onSignedIn(data.person)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not sign in.')
-      setPin('')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <div style={shell}>
-      <form
-        onSubmit={e => { e.preventDefault(); void submit() }}
-        style={{ ...column, maxWidth: 380 }}
-      >
-        <Brand title="Enter your PIN" subtitle="Your photo PIN, the same one used on the camera." />
-        <input
-          autoFocus
-          type="password"
-          inputMode="numeric"
-          autoComplete="one-time-code"
-          maxLength={4}
-          value={pin}
-          onChange={e => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
-          placeholder="••••"
-          aria-label="Photo PIN"
-          style={{ ...bigInput, letterSpacing: '0.6em', textAlign: 'center' }}
-        />
-        {error && <div style={errorBox}>{error}</div>}
-        <button type="submit" className="btn btn-primary" disabled={pin.length !== 4 || busy} style={bigButton}>
-          {busy ? 'Checking…' : 'Continue'}
-        </button>
-      </form>
-    </div>
-  )
-}
-
-function JobStep({ person, onJob, onSignOut }: { person: Person; onJob: (j: BulkJob) => void; onSignOut: () => void }) {
-  const [code, setCode] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  const [found, setFound] = useState<BulkJob | null>(null)
-
-  async function find() {
-    if (!code.trim() || busy) return
-    setBusy(true)
-    setError('')
-    setFound(null)
-    try {
-      const res = await fetch(`/api/photo/bulk/job?code=${encodeURIComponent(code.trim())}`, { cache: 'no-store' })
-      const data = (await res.json().catch(() => ({}))) as { job?: BulkJob; error?: string }
-      if (!res.ok || !data.job) throw new Error(data.error ?? 'Job not found.')
-      setFound(data.job)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Job not found.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <div style={shell}>
-      <div style={{ ...column, maxWidth: 420 }}>
-        <SignedInBar person={person} onSignOut={onSignOut} />
-        <Brand title="Which job?" subtitle="Type the job code, e.g. 3456." />
-        <form onSubmit={e => { e.preventDefault(); void find() }} style={{ display: 'flex', gap: 8 }}>
-          <input
-            autoFocus
-            value={code}
-            onChange={e => { setCode(e.target.value.toUpperCase().slice(0, 32)); setFound(null) }}
-            placeholder="Job code"
-            aria-label="Job code"
-            inputMode="numeric"
-            style={{ ...bigInput, flex: 1, minWidth: 0, fontFamily: 'ui-monospace, Menlo, monospace' }}
-          />
-          <button type="submit" className="btn btn-secondary" disabled={!code.trim() || busy} style={{ padding: '0 18px', fontWeight: 800 }}>
-            {busy ? '…' : 'Find'}
-          </button>
-        </form>
-        {error && <div style={errorBox}>{error}</div>}
-        {found && (
-          <div style={{ border: '2px solid #FF6B35', borderRadius: 14, padding: 14, background: 'var(--surface)', display: 'grid', gap: 10 }}>
-            <div>
-              <div style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontWeight: 900, color: '#FF6B35' }}>#{found.job_code}</div>
-              <div style={{ fontWeight: 800, fontSize: 17 }}>{found.client_name || 'Unnamed client'}</div>
-              <div style={{ fontSize: 14, color: 'var(--text-muted)' }}>{found.site_address}</div>
-            </div>
-            <button type="button" className="btn btn-primary" onClick={() => onJob(found)} style={bigButton}>
-              Load photos to this job
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function SignedInBar({ person, onSignOut }: { person: Person; onSignOut: () => void }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, fontSize: 13, color: 'var(--text-muted)' }}>
-      <span>Signed in as <strong style={{ color: 'var(--text)' }}>{person.name}</strong> ({person.person_code})</span>
-      <button type="button" onClick={onSignOut} className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px' }}>Sign out</button>
-    </div>
   )
 }
 
@@ -520,12 +385,3 @@ function Thumb({ item, onRemove }: { item: Item; onRemove?: () => void }) {
     </div>
   )
 }
-
-const shell: CSSProperties = { minHeight: '100dvh', background: 'var(--bg)', color: 'var(--text)', display: 'flex', flexDirection: 'column' }
-const column: CSSProperties = { width: '100%', margin: '0 auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }
-const bigInput: CSSProperties = {
-  width: '100%', height: 56, padding: '0 16px', borderRadius: 12, fontSize: 22, fontWeight: 800,
-  border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)',
-}
-const bigButton: CSSProperties = { height: 52, fontSize: 16, fontWeight: 800, borderRadius: 12 }
-const errorBox: CSSProperties = { padding: '10px 12px', borderRadius: 10, background: 'rgba(248,113,113,0.14)', color: '#F87171', fontWeight: 700, fontSize: 14 }
