@@ -487,41 +487,53 @@ function UnsavedNavigationGuard({
   return <>{children({ requestTabChange, onBackToJobsClick })}</>
 }
 
-/** Talks to the Job Manager's file menu when it draws the Home sections outside this page. */
+/** Talks to the Job Manager's file menu when it draws the tabs and Home sections outside this page. */
 function ParentFileMenuBridge({
   activeTab,
   homeSection,
+  menuTabs,
   setHomeSection,
   setActiveTab,
 }: {
   activeTab: Tab
   homeSection: HomeSection
+  menuTabs: { id: Tab; label: string }[]
   setHomeSection: (next: HomeSection) => void
   setActiveTab: (next: Tab) => void
 }) {
   const { hasUnsaved } = useUnsavedChanges()
+  const tabsKey = JSON.stringify(menuTabs)
 
   useEffect(() => {
     window.parent.postMessage(
-      { type: JOB_EMBED_MSG.location, tab: activeTab, section: homeSection },
+      { type: JOB_EMBED_MSG.location, tab: activeTab, section: homeSection, tabs: JSON.parse(tabsKey) },
       window.location.origin,
     )
-  }, [activeTab, homeSection])
+  }, [activeTab, homeSection, tabsKey])
 
   useEffect(() => {
     function onMessage(e: MessageEvent) {
       if (e.origin !== window.location.origin || e.source !== window.parent) return
-      if (e.data?.type !== JOB_EMBED_MSG.openSection || !isHomeSection(e.data.section)) return
-      if (activeTab !== 'home') {
-        if (!confirmLeaveWhenUnsaved(hasUnsaved)) return
-        setActiveTab('home')
+      if (e.data?.type === JOB_EMBED_MSG.openSection && isHomeSection(e.data.section)) {
+        if (activeTab !== 'home') {
+          if (!confirmLeaveWhenUnsaved(hasUnsaved)) return
+          setActiveTab('home')
+        }
+        setHomeSection(e.data.section)
+        window.scrollTo({ top: 0 })
+        return
       }
-      setHomeSection(e.data.section)
-      window.scrollTo({ top: 0 })
+      if (e.data?.type === JOB_EMBED_MSG.openTab) {
+        const next = menuTabs.find(t => t.id === e.data.tab)?.id
+        if (!next || next === activeTab) return
+        if (!confirmLeaveWhenUnsaved(hasUnsaved)) return
+        setActiveTab(next)
+        window.scrollTo({ top: 0 })
+      }
     }
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
-  }, [activeTab, hasUnsaved, setActiveTab, setHomeSection])
+  }, [activeTab, hasUnsaved, menuTabs, setActiveTab, setHomeSection])
 
   return null
 }
@@ -1010,6 +1022,11 @@ export default function JobPage() {
     { id: 'invoice',        label: 'Invoice',        show: canInvoice },
   ]
   const tabs = allTabs.filter(t => t.show)
+  /** The Job Manager lists these under the numbered Home sections, Photos first. */
+  const fileMenuTabs = [
+    ...tabs.filter(t => t.id === 'photos'),
+    ...tabs.filter(t => t.id !== 'photos' && t.id !== 'home'),
+  ].map(({ id, label }) => ({ id, label }))
   const pageTitle = activeTab === 'home' && homeSection === 'execute'
     ? DOC_TYPE_LABELS.waste_disposal_manifest
     : activeTab === 'home' && homeSection === 'survey'
@@ -1285,6 +1302,7 @@ export default function JobPage() {
         <ParentFileMenuBridge
           activeTab={activeTab}
           homeSection={homeSection}
+          menuTabs={fileMenuTabs}
           setHomeSection={setHomeSection}
           setActiveTab={setActiveTab}
         />
@@ -1335,8 +1353,8 @@ export default function JobPage() {
             </div>
           </div>
 
-          {/* Tabs — horizontal scroll slider */}
-          <div data-devid="P2-E3" className="tab-slider" style={{
+          {/* Tabs — horizontal scroll slider. The Job Manager's file menu replaces it. */}
+          {!parentFileMenu && <div data-devid="P2-E3" className="tab-slider" style={{
             display: 'flex',
             gap: 0,
             overflowX: 'auto',
@@ -1359,7 +1377,7 @@ export default function JobPage() {
                 {t.label}
               </button>
             ))}
-          </div>
+          </div>}
         </div>
       </div>
 

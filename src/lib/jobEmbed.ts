@@ -11,8 +11,10 @@
  *   job page → workspace   CHANGED       something was saved; reload drafts and markers
  *
  * Job Manager file menu (job page loaded with ?filemenu=parent):
- *   job page → parent      LOCATION      { tab, section } now showing
+ *   job page → parent      LOCATION      { tab, section, tabs } now showing, and the
+ *                                        other tabs this person can open, in menu order
  *   parent → job page      OPEN_SECTION  { section } open this Home section
+ *   parent → job page      OPEN_TAB      { tab } open one of those tabs
  *
  * Embedded means window.self !== window.top. sessionStorage is shared with the
  * top window, so it cannot tell the two apart.
@@ -25,10 +27,21 @@ export const JOB_EMBED_MSG = {
   changed: 'bh-job-embed:changed',
   location: 'bh-job-embed:location',
   openSection: 'bh-job-embed:open-section',
+  openTab: 'bh-job-embed:open-tab',
 } as const
 
-/** Query flag: the parent page draws the Home section menu, so the job page hides its own. */
+/** Query flag: the parent page draws the job menu, so the job page hides its tabs and Home sections. */
 export const FILE_MENU_PARAM = 'filemenu'
+
+/** A job page tab outside Home, as listed in the parent's file menu. */
+export interface FileMenuTab {
+  id: string
+  label: string
+}
+
+export function isFileMenuTabList(v: unknown): v is FileMenuTab[] {
+  return Array.isArray(v) && v.every(t => t && typeof t.id === 'string' && typeof t.label === 'string')
+}
 
 function readEmbedded(): boolean {
   try {

@@ -4,9 +4,10 @@
  * Job Manager — three columns. Left: every job as a compact menu row, grouped
  * by pipeline stage (lead → paid) with search, checkboxes for bulk archive, and
  * a hide toggle remembered in localStorage. Middle: the open job's numbered
- * Home sections (lib/jobHomeSections); the chosen section carries over when
- * switching jobs. Right: the job's full page in a same-origin iframe
- * (lib/jobEmbed) with its own section drawer hidden, and status, archive and
+ * Home sections (lib/jobHomeSections), then the job page's other tabs as the
+ * job page reports them; the chosen section carries over when switching jobs.
+ * Right: the job's full page in a same-origin iframe (lib/jobEmbed) with its
+ * own tabs and section drawer hidden, and status, archive and
  * delete in a toolbar above it. Admins and members with view_all_jobs only;
  * others are redirected to /field.
  *
@@ -21,7 +22,7 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import type { CompanyProfile, Job, JobStatus } from '@/lib/types'
 import { useUser } from '@/lib/userContext'
-import { FILE_MENU_PARAM, JOB_EMBED_MSG } from '@/lib/jobEmbed'
+import { FILE_MENU_PARAM, JOB_EMBED_MSG, isFileMenuTabList, type FileMenuTab } from '@/lib/jobEmbed'
 import { isHomeSection, visibleHomeSections, type HomeSection } from '@/lib/jobHomeSections'
 
 const STATUS_ORDER: JobStatus[] = [
@@ -207,12 +208,23 @@ function JobRow({ job, active, showPrice, checked, onCheck, onSelect }: {
   )
 }
 
-function FileMenu({ job, sections, active, onOpen }: {
+function FileMenu({ job, sections, active, onOpen, tabs, activeTab, onOpenTab }: {
   job: Job
   sections: { id: HomeSection; label: string }[]
   active: HomeSection | null
   onOpen: (section: HomeSection) => void
+  tabs: FileMenuTab[]
+  activeTab: string | null
+  onOpenTab: (tab: string) => void
 }) {
+  const item = (selected: boolean): React.CSSProperties => ({
+    display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left',
+    padding: '8px 10px', borderRadius: 8, border: 'none', cursor: 'pointer',
+    background: selected ? 'rgba(59,130,246,0.15)' : 'transparent',
+    color: selected ? 'var(--blue)' : 'var(--text)',
+    fontSize: 13, fontWeight: selected ? 700 : 600,
+  })
+
   return (
     <nav aria-label="Job file sections" style={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%', borderRight: '1px solid var(--border)' }}>
       <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', minWidth: 0 }}>
@@ -232,13 +244,7 @@ function FileMenu({ job, sections, active, onOpen }: {
               type="button"
               aria-current={selected ? 'page' : undefined}
               onClick={() => onOpen(s.id)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left',
-                padding: '8px 10px', borderRadius: 8, border: 'none', cursor: 'pointer',
-                background: selected ? 'rgba(59,130,246,0.15)' : 'transparent',
-                color: selected ? 'var(--blue)' : 'var(--text)',
-                fontSize: 13, fontWeight: selected ? 700 : 600,
-              }}
+              style={item(selected)}
             >
               <span style={{
                 display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
@@ -249,6 +255,23 @@ function FileMenu({ job, sections, active, onOpen }: {
                 {i + 1}
               </span>
               <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.label}</span>
+            </button>
+          )
+        })}
+        {tabs.length > 0 && sections.length > 0 && (
+          <div role="separator" style={{ height: 1, background: 'var(--border)', margin: '6px 4px' }} />
+        )}
+        {tabs.map(t => {
+          const selected = t.id === activeTab
+          return (
+            <button
+              key={t.id}
+              type="button"
+              aria-current={selected ? 'page' : undefined}
+              onClick={() => onOpenTab(t.id)}
+              style={item(selected)}
+            >
+              <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.label}</span>
             </button>
           )
         })}
@@ -281,12 +304,12 @@ function JobViewer({
   const [statusSaving, setStatusSaving] = useState(false)
   const [archiveSaving, setArchiveSaving] = useState(false)
   const [shown, setShown] = useState<HomeSection | null>(null)
+  const [shownTab, setShownTab] = useState<string | null>(null)
+  const [fileTabs, setFileTabs] = useState<FileMenuTab[]>([])
   const isArchived = Boolean(job.archived_at)
   const base = `/jobs/${job.id}`
-  const hasMenu = sections.length > 0
   // Fixed per job (the viewer is keyed by job id) so later section changes don't reload the frame.
   const [frameSrc] = useState(() => {
-    if (!hasMenu) return base
     const qs = new URLSearchParams({ [FILE_MENU_PARAM]: 'parent' })
     if (section) {
       qs.set('tab', 'home')
@@ -309,6 +332,8 @@ function JobViewer({
       else if (e.data?.type === JOB_EMBED_MSG.location) {
         const onHome = e.data.tab === 'home' && isHomeSection(e.data.section)
         setShown(onHome ? e.data.section : null)
+        setShownTab(!onHome && typeof e.data.tab === 'string' ? e.data.tab : null)
+        if (isFileMenuTabList(e.data.tabs)) setFileTabs(e.data.tabs)
         if (onHome) onShownRef.current(e.data.section)
       }
     }
@@ -316,8 +341,8 @@ function JobViewer({
     return () => window.removeEventListener('message', onMessage)
   }, [])
 
-  /** A generated document opens outside the job page, where no bridge listens, so reload the job page at the section. */
-  function openSection(next: HomeSection) {
+  /** A generated document opens outside the job page, where no bridge listens, so reload the job page there. */
+  function openInFrame(tab: string, section: HomeSection | null) {
     const win = iframeRef.current?.contentWindow
     let bridged = false
     try {
@@ -325,11 +350,15 @@ function JobViewer({
         && new URLSearchParams(win.location.search).get(FILE_MENU_PARAM) === 'parent'
     } catch {}
     if (win && !bridged) {
-      const qs = new URLSearchParams({ [FILE_MENU_PARAM]: 'parent', tab: 'home', section: next })
+      const qs = new URLSearchParams({ [FILE_MENU_PARAM]: 'parent', tab })
+      if (section) qs.set('section', section)
       win.location.assign(`${base}?${qs}`)
       return
     }
-    win?.postMessage({ type: JOB_EMBED_MSG.openSection, section: next }, window.location.origin)
+    win?.postMessage(
+      section ? { type: JOB_EMBED_MSG.openSection, section } : { type: JOB_EMBED_MSG.openTab, tab },
+      window.location.origin,
+    )
   }
 
   function refreshFrame() {
@@ -386,8 +415,16 @@ function JobViewer({
   const btn: React.CSSProperties = { fontSize: 12, padding: '5px 10px' }
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: hasMenu ? '230px minmax(0, 1fr)' : 'minmax(0, 1fr)', minHeight: 0, height: '100%' }}>
-      {hasMenu && <FileMenu job={job} sections={sections} active={shown} onOpen={openSection} />}
+    <div style={{ display: 'grid', gridTemplateColumns: '230px minmax(0, 1fr)', minHeight: 0, height: '100%' }}>
+      <FileMenu
+        job={job}
+        sections={sections}
+        active={shown}
+        onOpen={next => openInFrame('home', next)}
+        tabs={fileTabs}
+        activeTab={shownTab}
+        onOpenTab={next => openInFrame(next, null)}
+      />
       <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
         {showModal && (
           <DeleteModal
