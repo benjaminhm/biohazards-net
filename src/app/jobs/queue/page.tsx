@@ -2,7 +2,8 @@
  * app/jobs/queue/page.tsx
  *
  * Job Manager — three columns. Left: every job as a compact menu row, grouped
- * by pipeline stage (lead → paid) with search. Middle: the open job's numbered
+ * by pipeline stage (lead → paid) with search, checkboxes for bulk archive, and
+ * a hide toggle remembered in localStorage. Middle: the open job's numbered
  * Home sections (lib/jobHomeSections); the chosen section carries over when
  * switching jobs. Right: the job's full page in a same-origin iframe
  * (lib/jobEmbed) with its own section drawer hidden, and status, archive and
@@ -57,6 +58,7 @@ const URGENCY_ICON: Record<string, string> = {
 }
 
 const WIDE_QUERY = '(min-width: 1100px)'
+const LIST_HIDDEN_KEY = 'bh.jobManager.listHidden'
 
 function subscribeWide(cb: () => void) {
   const mql = window.matchMedia(WIDE_QUERY)
@@ -144,10 +146,12 @@ function DeleteModal({ clientName, onConfirm, onCancel }: {
   )
 }
 
-function JobRow({ job, active, showPrice, onSelect }: {
+function JobRow({ job, active, showPrice, checked, onCheck, onSelect }: {
   job: Job
   active: boolean
   showPrice: boolean
+  checked: boolean
+  onCheck: (checked: boolean) => void
   onSelect: () => void
 }) {
   const price = job.assessment_data?.target_price
@@ -155,38 +159,50 @@ function JobRow({ job, active, showPrice, onSelect }: {
   const place = suburb(job.site_address)
 
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      aria-current={active ? 'true' : undefined}
-      style={{
-        display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer',
-        padding: '8px 12px 8px 10px', border: 'none',
-        borderLeft: `3px solid ${active ? 'var(--accent)' : 'transparent'}`,
-        background: active ? 'var(--surface-2)' : 'transparent',
-        color: 'var(--text)', opacity: isArchived ? 0.7 : 1,
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 11, color: 'var(--accent)', flexShrink: 0 }}>
-          {job.job_code ?? '----'}
-        </span>
-        <span style={{ flex: 1, minWidth: 0, fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {job.client_name || 'Unnamed'}
-        </span>
-        {showPrice && price ? (
-          <span style={{ fontSize: 12, fontWeight: 700, color: '#10B981', flexShrink: 0 }}>
-            ${price.toLocaleString('en-AU')}
+    <div style={{
+      display: 'flex', alignItems: 'stretch',
+      borderLeft: `3px solid ${active ? 'var(--accent)' : 'transparent'}`,
+      background: active ? 'var(--surface-2)' : checked ? 'rgba(255,107,53,0.06)' : 'transparent',
+      opacity: isArchived ? 0.7 : 1,
+    }}>
+      <label style={{ display: 'flex', alignItems: 'center', padding: '0 4px 0 9px', cursor: 'pointer' }}>
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={e => onCheck(e.target.checked)}
+          aria-label={`Select ${job.client_name || 'job'}`}
+        />
+      </label>
+      <button
+        type="button"
+        onClick={onSelect}
+        aria-current={active ? 'true' : undefined}
+        style={{
+          display: 'block', flex: 1, minWidth: 0, textAlign: 'left', cursor: 'pointer',
+          padding: '8px 12px 8px 6px', border: 'none', background: 'transparent', color: 'var(--text)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 11, color: 'var(--accent)', flexShrink: 0 }}>
+            {job.job_code ?? '----'}
           </span>
-        ) : null}
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, fontSize: 12, color: 'var(--text-muted)', overflow: 'hidden', whiteSpace: 'nowrap' }}>
-        <span style={{ flexShrink: 0 }}>{URGENCY_ICON[job.urgency]}</span>
-        <span style={{ flexShrink: 0 }}>{JOB_TYPE_LABELS[job.job_type] ?? job.job_type}</span>
-        {place && <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>· {place}</span>}
-        {isArchived && <span style={{ marginLeft: 'auto', fontWeight: 600, flexShrink: 0 }}>Archived</span>}
-      </div>
-    </button>
+          <span style={{ flex: 1, minWidth: 0, fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {job.client_name || 'Unnamed'}
+          </span>
+          {showPrice && price ? (
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#10B981', flexShrink: 0 }}>
+              ${price.toLocaleString('en-AU')}
+            </span>
+          ) : null}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, fontSize: 12, color: 'var(--text-muted)', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+          <span style={{ flexShrink: 0 }}>{URGENCY_ICON[job.urgency]}</span>
+          <span style={{ flexShrink: 0 }}>{JOB_TYPE_LABELS[job.job_type] ?? job.job_type}</span>
+          {place && <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>· {place}</span>}
+          {isArchived && <span style={{ marginLeft: 'auto', fontWeight: 600, flexShrink: 0 }}>Archived</span>}
+        </div>
+      </button>
+    </div>
   )
 }
 
@@ -461,6 +477,9 @@ function JobQueue() {
   const [q, setQ] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(params.get('job'))
   const [section, setSection] = useState<HomeSection | null>(null)
+  const [checkedIds, setCheckedIds] = useState<Set<string>>(() => new Set())
+  const [bulkSaving, setBulkSaving] = useState(false)
+  const [listHidden, setListHidden] = useState(false)
   const { org: ctxOrg, loading: userLoading, isAdmin, caps } = useUser()
   const fileSections = useMemo(() => visibleHomeSections(caps), [caps])
 
@@ -547,6 +566,53 @@ function JobQueue() {
 
   const selectedJob = selectedId ? jobs.find(j => j.id === selectedId) ?? null : null
 
+  useEffect(() => {
+    setListHidden(window.localStorage.getItem(LIST_HIDDEN_KEY) === '1')
+  }, [])
+
+  function toggleList() {
+    setListHidden(h => {
+      window.localStorage.setItem(LIST_HIDDEN_KEY, h ? '0' : '1')
+      return !h
+    })
+  }
+
+  const checkedJobs = jobs.filter(j => checkedIds.has(j.id))
+  const checkedArchived = checkedJobs.filter(j => j.archived_at).length
+  const checkedActive = checkedJobs.length - checkedArchived
+
+  function setChecked(ids: string[], on: boolean) {
+    setCheckedIds(prev => {
+      const next = new Set(prev)
+      for (const id of ids) {
+        if (on) next.add(id)
+        else next.delete(id)
+      }
+      return next
+    })
+  }
+
+  async function bulkArchive(archived: boolean) {
+    const targets = checkedJobs.filter(j => Boolean(j.archived_at) !== archived)
+    if (!targets.length || bulkSaving) return
+    const n = targets.length
+    if (archived && !window.confirm(`Archive ${n} job${n === 1 ? '' : 's'}? They will disappear from the main queue but stay in the database for reporting.`)) return
+    setBulkSaving(true)
+    const results = await Promise.all(targets.map(j =>
+      fetch(`/api/jobs/${j.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ archived }),
+      }).then(r => r.ok).catch(() => false),
+    ))
+    const failed = results.filter(ok => !ok).length
+    await loadJobs(true)
+    if (archived && !showArchived && selectedId && targets.some(j => j.id === selectedId)) selectJob(null)
+    setCheckedIds(new Set())
+    setBulkSaving(false)
+    if (failed) window.alert(`${failed} of ${n} job${n === 1 ? '' : 's'} could not be ${archived ? 'archived' : 'restored'}.`)
+  }
+
   function onRowClick(id: string) {
     if (wide) selectJob(id)
     else router.push(`/jobs/${id}`)
@@ -575,81 +641,146 @@ function JobQueue() {
         </div>
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: wide ? '340px minmax(0, 1fr)' : '1fr' }}>
+      <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: !wide ? '1fr' : listHidden ? '36px minmax(0, 1fr)' : '340px minmax(0, 1fr)' }}>
         {/* Job menu */}
-        <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, borderRight: wide ? '1px solid var(--border)' : 'none' }}>
-          <div style={{ padding: 10, borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <input
-              className="input"
-              value={q}
-              onChange={e => setQ(e.target.value)}
-              placeholder="Search jobs"
-              style={{ fontSize: 13, padding: '7px 10px' }}
-            />
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-muted)' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+        {wide && listHidden ? (
+          <button
+            type="button"
+            onClick={toggleList}
+            title="Show job list"
+            aria-label="Show job list"
+            style={{
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, paddingTop: 12,
+              border: 'none', borderRight: '1px solid var(--border)', background: 'var(--surface)',
+              color: 'var(--text-muted)', cursor: 'pointer', fontSize: 14,
+            }}
+          >
+            <span>»</span>
+            <span style={{ writingMode: 'vertical-rl', fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+              Jobs · {jobs.length}
+            </span>
+          </button>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, borderRight: wide ? '1px solid var(--border)' : 'none' }}>
+            <div style={{ padding: 10, borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ display: 'flex', gap: 6 }}>
                 <input
-                  type="checkbox"
-                  checked={showArchived}
-                  onChange={e => {
-                    setShowArchived(e.target.checked)
-                    setLoading(true)
-                  }}
+                  className="input"
+                  value={q}
+                  onChange={e => setQ(e.target.value)}
+                  placeholder="Search jobs"
+                  style={{ flex: 1, minWidth: 0, fontSize: 13, padding: '7px 10px' }}
                 />
-                Show archived
-              </label>
-              <span>{jobs.length} job{jobs.length !== 1 ? 's' : ''}</span>
+                {wide && (
+                  <button
+                    type="button"
+                    onClick={toggleList}
+                    title="Hide job list"
+                    aria-label="Hide job list"
+                    className="btn btn-ghost"
+                    style={{ padding: '4px 10px', fontSize: 14, color: 'var(--text-muted)' }}
+                  >
+                    «
+                  </button>
+                )}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-muted)' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={showArchived}
+                    onChange={e => {
+                      setShowArchived(e.target.checked)
+                      setLoading(true)
+                    }}
+                  />
+                  Show archived
+                </label>
+                <span>{jobs.length} job{jobs.length !== 1 ? 's' : ''}</span>
+              </div>
+              {checkedJobs.length > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 8px', borderRadius: 8, background: 'var(--surface-2)', fontSize: 12 }}>
+                  <span style={{ flex: 1, fontWeight: 700 }}>{checkedJobs.length} selected</span>
+                  {checkedActive > 0 && (
+                    <button type="button" className="btn btn-primary" disabled={bulkSaving} onClick={() => void bulkArchive(true)} style={{ fontSize: 12, padding: '4px 10px' }}>
+                      {bulkSaving ? <span className="spinner" /> : `Archive${checkedArchived ? ` ${checkedActive}` : ''}`}
+                    </button>
+                  )}
+                  {checkedArchived > 0 && (
+                    <button type="button" className="btn btn-secondary" disabled={bulkSaving} onClick={() => void bulkArchive(false)} style={{ fontSize: 12, padding: '4px 10px' }}>
+                      {`Restore${checkedActive ? ` ${checkedArchived}` : ''}`}
+                    </button>
+                  )}
+                  <button type="button" className="btn btn-ghost" disabled={bulkSaving} onClick={() => setCheckedIds(new Set())} style={{ fontSize: 12, padding: '4px 8px', color: 'var(--text-muted)' }}>
+                    Clear
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 12 }}>
+              {loading && (
+                <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
+                  <div className="spinner" style={{ margin: '0 auto 12px' }} />
+                  <div style={{ fontSize: 13 }}>Loading jobs...</div>
+                </div>
+              )}
+
+              {error && (
+                <div style={{ margin: 10, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, padding: 12, fontSize: 13, color: '#F87171' }}>
+                  {error}
+                </div>
+              )}
+
+              {!loading && !error && jobs.length === 0 && (
+                <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
+                  <div style={{ fontSize: 32, marginBottom: 12 }}>🧤</div>
+                  <div style={{ fontWeight: 600, marginBottom: 6 }}>No jobs yet</div>
+                  <div style={{ fontSize: 13 }}>Create your first job to get started</div>
+                </div>
+              )}
+
+              {!loading && !error && jobs.length > 0 && groups.length === 0 && (
+                <div style={{ padding: 16, fontSize: 13, color: 'var(--text-muted)' }}>No jobs match “{q}”</div>
+              )}
+
+              {!loading && !error && groups.map(g => {
+                const ids = g.jobs.map(j => j.id)
+                const nChecked = ids.filter(id => checkedIds.has(id)).length
+                return (
+                  <div key={g.status}>
+                    <div style={{
+                      position: 'sticky', top: 0, zIndex: 1, background: 'var(--bg)',
+                      display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px 6px',
+                    }}>
+                      <input
+                        type="checkbox"
+                        checked={nChecked === ids.length}
+                        ref={el => { if (el) el.indeterminate = nChecked > 0 && nChecked < ids.length }}
+                        onChange={e => setChecked(ids, e.target.checked)}
+                        aria-label={`Select all ${STATUS_LABELS[g.status]} jobs`}
+                        title={`Select all ${STATUS_LABELS[g.status]}`}
+                      />
+                      <span className={`badge badge-${g.status}`}>{STATUS_LABELS[g.status]}</span>
+                      <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{g.jobs.length}</span>
+                    </div>
+                    {g.jobs.map(job => (
+                      <JobRow
+                        key={job.id}
+                        job={job}
+                        active={wide && job.id === selectedId}
+                        showPrice={caps.view_quote}
+                        checked={checkedIds.has(job.id)}
+                        onCheck={on => setChecked([job.id], on)}
+                        onSelect={() => onRowClick(job.id)}
+                      />
+                    ))}
+                  </div>
+                )
+              })}
             </div>
           </div>
-
-          <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 12 }}>
-            {loading && (
-              <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
-                <div className="spinner" style={{ margin: '0 auto 12px' }} />
-                <div style={{ fontSize: 13 }}>Loading jobs...</div>
-              </div>
-            )}
-
-            {error && (
-              <div style={{ margin: 10, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, padding: 12, fontSize: 13, color: '#F87171' }}>
-                {error}
-              </div>
-            )}
-
-            {!loading && !error && jobs.length === 0 && (
-              <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
-                <div style={{ fontSize: 32, marginBottom: 12 }}>🧤</div>
-                <div style={{ fontWeight: 600, marginBottom: 6 }}>No jobs yet</div>
-                <div style={{ fontSize: 13 }}>Create your first job to get started</div>
-              </div>
-            )}
-
-            {!loading && !error && jobs.length > 0 && groups.length === 0 && (
-              <div style={{ padding: 16, fontSize: 13, color: 'var(--text-muted)' }}>No jobs match “{q}”</div>
-            )}
-
-            {!loading && !error && groups.map(g => (
-              <div key={g.status}>
-                <div style={{
-                  position: 'sticky', top: 0, zIndex: 1, background: 'var(--bg)',
-                  display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px 6px',
-                }}>
-                  <span className={`badge badge-${g.status}`}>{STATUS_LABELS[g.status]}</span>
-                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{g.jobs.length}</span>
-                </div>
-                {g.jobs.map(job => (
-                  <JobRow
-                    key={job.id}
-                    job={job}
-                    active={wide && job.id === selectedId}
-                    showPrice={caps.view_quote}
-                    onSelect={() => onRowClick(job.id)}
-                  />
-                ))}
-              </div>
-            ))}
-          </div>
-        </div>
+        )}
 
         {/* Viewer */}
         {wide && (
