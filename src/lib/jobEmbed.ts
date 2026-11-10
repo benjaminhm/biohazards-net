@@ -10,6 +10,10 @@
  *   job page → workspace   REFRESH_ACK   the refresh was handled
  *   job page → workspace   CHANGED       something was saved; reload drafts and markers
  *
+ * Job Manager file menu (job page loaded with ?filemenu=parent):
+ *   job page → parent      LOCATION      { tab, section } now showing
+ *   parent → job page      OPEN_SECTION  { section } open this Home section
+ *
  * Embedded means window.self !== window.top. sessionStorage is shared with the
  * top window, so it cannot tell the two apart.
  */
@@ -19,7 +23,12 @@ export const JOB_EMBED_MSG = {
   refresh: 'bh-job-embed:refresh',
   refreshAck: 'bh-job-embed:refresh-ack',
   changed: 'bh-job-embed:changed',
+  location: 'bh-job-embed:location',
+  openSection: 'bh-job-embed:open-section',
 } as const
+
+/** Query flag: the parent page draws the Home section menu, so the job page hides its own. */
+export const FILE_MENU_PARAM = 'filemenu'
 
 function readEmbedded(): boolean {
   try {

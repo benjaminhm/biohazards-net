@@ -31,7 +31,7 @@
 import React, { useEffect, useState } from 'react'
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import type { Job, Photo, Document, DocumentBundle, JobStatus, TeamCapabilities } from '@/lib/types'
+import type { Job, Photo, Document, DocumentBundle, JobStatus } from '@/lib/types'
 import { DOC_TYPE_LABELS } from '@/lib/types'
 import ClientDetailsTab from '@/components/tabs/ClientDetailsTab'
 import InitialContactTab from '@/components/tabs/InitialContactTab'
@@ -75,7 +75,8 @@ import AgentDrawer from '@/components/agent/AgentDrawer'
 import AgentDraftsBanner from '@/components/workspace/AgentDraftsBanner'
 import JobFlags from '@/components/workspace/JobFlags'
 import ViewToggle from '@/components/workspace/ViewToggle'
-import { useJobEmbedBridge } from '@/lib/jobEmbed'
+import { FILE_MENU_PARAM, JOB_EMBED_MSG, useJobEmbedBridge } from '@/lib/jobEmbed'
+import { HOME_SECTIONS, HOME_SECTION_IDS, HOME_SECTION_TO_CAP, isHomeSection, type HomeSection } from '@/lib/jobHomeSections'
 import { isTradingNameId, type TradingNameId } from '@/lib/tradingNames'
 import { useUser } from '@/lib/userContext'
 import {
@@ -86,52 +87,6 @@ import {
 
 type Tab = 'dashboard' | 'home' | 'docs' | 'details' | 'timeline' | 'assessment' | 'case_studies' | 'scope_capture' | 'quote_capture' | 'pre_remediation_checklist_capture' | 'progress_capture' | 'progress_notes_capture' | 'quality_checks_capture' | 'recommendations_capture' | 'progress_report_generate' | 'client_feedback_capture' | 'team_feedback_capture' | 'engagement_agreement_capture' | 'nda_capture' | 'authority_to_proceed_capture' | 'swms_capture' | 'jsa_capture' | 'risk_assessment_capture' | 'waste_disposal_manifest_capture' | 'iaq_multi_capture' | 'quote' | 'photos' | 'messages' | 'invoice' | 'company_letter' | 'prestart_briefing'
 
-/**
- * Home sub-tabs — sequential remediation workflow phases rendered as an empty-room strip
- * under the Home h1. Content for each section will be wired up in subsequent PRs; phase-id
- * renames in docWorkflow.ts, caps gating, and per-tab admin toggles come with those.
- */
-type HomeSection =
-  | 'initial_contact'
-  | 'onsite_assessment'
-  | 'survey'
-  | 'scope_of_work'
-  | 'biohazard_cleaning'
-  | 'quote'
-  | 'contents_clearance'
-  | 'surface_area_cleaning'
-  | 'legal'
-  | 'safety_compliance'
-  | 'plan'
-  | 'execute'
-  | 'verify'
-  | 'company_letterhead'
-  | 'statement'
-  | 'payment_overdue'
-  | 'review'
-
-const HOME_SECTIONS: { id: HomeSection; label: string }[] = [
-  { id: 'initial_contact', label: 'Initial Contact' },
-  { id: 'onsite_assessment', label: 'Onsite Assessment' },
-  { id: 'survey', label: 'Survey' },
-  { id: 'scope_of_work', label: 'Scope of Work' },
-  { id: 'biohazard_cleaning', label: 'BCQ' },
-  { id: 'contents_clearance', label: 'CCQ' },
-  { id: 'surface_area_cleaning', label: 'SACQ' },
-  { id: 'quote', label: 'Quote/Estimate (legacy)' },
-  { id: 'legal', label: 'Legal' },
-  { id: 'safety_compliance', label: 'Safety and Compliance' },
-  { id: 'plan', label: 'Plan' },
-  { id: 'execute', label: 'Contents Disposal Record' },
-  { id: 'verify', label: 'Post Remediation Evaluation' },
-  { id: 'company_letterhead', label: 'Company Letterhead' },
-  { id: 'statement', label: 'Statement of Accounts' },
-  { id: 'payment_overdue', label: 'Payment Overdue' },
-  { id: 'review', label: 'Review' },
-]
-
-const HOME_SECTION_IDS = HOME_SECTIONS.map(s => s.id) as readonly HomeSection[]
-
 /** Docs primary tab sub-sections: Compose (generate new) / History (filed docs). */
 type DocsSection = 'compose' | 'history'
 const DOCS_SECTIONS: { id: DocsSection; label: string }[] = [
@@ -139,32 +94,6 @@ const DOCS_SECTIONS: { id: DocsSection; label: string }[] = [
   { id: 'history', label: 'History' },
 ]
 const DOCS_SECTION_IDS = DOCS_SECTIONS.map(s => s.id) as readonly DocsSection[]
-
-/**
- * Maps each Home sub-tab to the capability that gates its visibility. Admins and
- * managers have all ten on via ALL_CAPABILITIES / DEFAULT_MANAGER_CAPABILITIES;
- * members start with all ten off and rely on the admin flipping them in the
- * team profile. See CAP_GROUPS > "Job Home — Workflow sub-tabs" in app/team/[id].
- */
-const HOME_SECTION_TO_CAP: Record<HomeSection, keyof TeamCapabilities> = {
-  initial_contact:   'view_home_initial_contact',
-  onsite_assessment: 'view_home_onsite_assessment',
-  survey:            'view_home_onsite_assessment',
-  scope_of_work:     'view_home_scope_of_work',
-  biohazard_cleaning: 'view_home_quote',
-  quote:             'view_home_quote',
-  contents_clearance: 'view_home_quote',
-  surface_area_cleaning: 'view_home_quote',
-  legal:             'view_home_legal',
-  safety_compliance: 'view_home_safety_compliance',
-  plan:              'view_home_plan',
-  execute:           'view_home_execute',
-  verify:            'view_home_verify',
-  company_letterhead: 'view_home_verify',
-  statement:         'view_home_verify',
-  payment_overdue:   'view_home_verify',
-  review:            'view_home_review',
-}
 
 /**
  * HomeWorkflowDrawer — vertical collapsible list used for the 10 Home phases.
@@ -556,6 +485,45 @@ function UnsavedNavigationGuard({
     if (!confirmLeaveWhenUnsaved(hasUnsaved)) e.preventDefault()
   }
   return <>{children({ requestTabChange, onBackToJobsClick })}</>
+}
+
+/** Talks to the Job Manager's file menu when it draws the Home sections outside this page. */
+function ParentFileMenuBridge({
+  activeTab,
+  homeSection,
+  setHomeSection,
+  setActiveTab,
+}: {
+  activeTab: Tab
+  homeSection: HomeSection
+  setHomeSection: (next: HomeSection) => void
+  setActiveTab: (next: Tab) => void
+}) {
+  const { hasUnsaved } = useUnsavedChanges()
+
+  useEffect(() => {
+    window.parent.postMessage(
+      { type: JOB_EMBED_MSG.location, tab: activeTab, section: homeSection },
+      window.location.origin,
+    )
+  }, [activeTab, homeSection])
+
+  useEffect(() => {
+    function onMessage(e: MessageEvent) {
+      if (e.origin !== window.location.origin || e.source !== window.parent) return
+      if (e.data?.type !== JOB_EMBED_MSG.openSection || !isHomeSection(e.data.section)) return
+      if (activeTab !== 'home') {
+        if (!confirmLeaveWhenUnsaved(hasUnsaved)) return
+        setActiveTab('home')
+      }
+      setHomeSection(e.data.section)
+      window.scrollTo({ top: 0 })
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [activeTab, hasUnsaved, setActiveTab, setHomeSection])
+
+  return null
 }
 
 function pageTitleForTab(tab: Tab, job: Job): string {
@@ -997,6 +965,7 @@ export default function JobPage() {
     if (docsRes.ok) setDocuments((await docsRes.json()).documents ?? [])
     await Promise.all([refreshJobQuietly(), refreshDocumentBundles()])
   })
+  const parentFileMenu = embedded && searchParams.get(FILE_MENU_PARAM) === 'parent'
 
   if (loading) {
     return (
@@ -1312,6 +1281,14 @@ export default function JobPage() {
       <UnsavedNavigationGuard setActiveTab={setActiveTab}>
         {({ requestTabChange, onBackToJobsClick }) => (
     <div style={{ minHeight: '100vh', paddingBottom: 40 }}>
+      {parentFileMenu && (
+        <ParentFileMenuBridge
+          activeTab={activeTab}
+          homeSection={homeSection}
+          setHomeSection={setHomeSection}
+          setActiveTab={setActiveTab}
+        />
+      )}
       {/* Header */}
       <div data-devid="P2-E1" style={{ borderBottom: '1px solid var(--border)', padding: '14px 0', position: 'sticky', top: 0, background: 'var(--bg)', zIndex: 10 }}>
         <div className="container">
@@ -1414,7 +1391,7 @@ export default function JobPage() {
          * legacy /?tab=assessment deep link, in which case the Home primary
          * strip is hidden.
          */}
-        {activeTab === 'home' && visibleHomeSections.length > 0 && (
+        {activeTab === 'home' && visibleHomeSections.length > 0 && !parentFileMenu && (
           <HomeWorkflowDrawer
             sections={visibleHomeSections}
             active={homeSection}

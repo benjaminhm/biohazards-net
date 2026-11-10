@@ -1,11 +1,13 @@
 /*
  * app/jobs/queue/page.tsx
  *
- * Job Manager — a split view. Left: every job as a compact menu row, grouped
- * by pipeline stage (lead → paid) with search. Right: the selected job's full
- * page in a same-origin iframe (lib/jobEmbed), with status, archive and delete
- * in a toolbar above it. Admins and members with view_all_jobs only; others are
- * redirected to /field.
+ * Job Manager — three columns. Left: every job as a compact menu row, grouped
+ * by pipeline stage (lead → paid) with search. Middle: the open job's numbered
+ * Home sections (lib/jobHomeSections); the chosen section carries over when
+ * switching jobs. Right: the job's full page in a same-origin iframe
+ * (lib/jobEmbed) with its own section drawer hidden, and status, archive and
+ * delete in a toolbar above it. Admins and members with view_all_jobs only;
+ * others are redirected to /field.
  *
  * /jobs/queue?job=<id> opens a job. On narrow screens there is no viewer and a
  * row opens the job page directly.
@@ -17,7 +19,8 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import type { CompanyProfile, Job, JobStatus } from '@/lib/types'
 import { useUser } from '@/lib/userContext'
-import { JOB_EMBED_MSG } from '@/lib/jobEmbed'
+import { FILE_MENU_PARAM, JOB_EMBED_MSG } from '@/lib/jobEmbed'
+import { isHomeSection, visibleHomeSections, type HomeSection } from '@/lib/jobHomeSections'
 
 const STATUS_ORDER: JobStatus[] = [
   'lead', 'assessed', 'quoted', 'accepted', 'scheduled', 'underway',
@@ -53,7 +56,7 @@ const URGENCY_ICON: Record<string, string> = {
   standard: '⚪',
 }
 
-const WIDE_QUERY = '(min-width: 900px)'
+const WIDE_QUERY = '(min-width: 1100px)'
 
 function subscribeWide(cb: () => void) {
   const mql = window.matchMedia(WIDE_QUERY)
@@ -187,15 +190,71 @@ function JobRow({ job, active, showPrice, onSelect }: {
   )
 }
 
+function FileMenu({ job, sections, active, onOpen }: {
+  job: Job
+  sections: { id: HomeSection; label: string }[]
+  active: HomeSection | null
+  onOpen: (section: HomeSection) => void
+}) {
+  return (
+    <nav aria-label="Job file sections" style={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%', borderRight: '1px solid var(--border)' }}>
+      <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', minWidth: 0 }}>
+        <div style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 11, fontWeight: 800, color: 'var(--accent)' }}>
+          {job.job_code ? `#${job.job_code}` : 'Job file'}
+        </div>
+        <div style={{ fontWeight: 700, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {job.client_name || 'Unnamed'}
+        </div>
+      </div>
+      <div style={{ flex: 1, overflowY: 'auto', padding: 6, display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {sections.map((s, i) => {
+          const selected = s.id === active
+          return (
+            <button
+              key={s.id}
+              type="button"
+              aria-current={selected ? 'page' : undefined}
+              onClick={() => onOpen(s.id)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left',
+                padding: '8px 10px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                background: selected ? 'rgba(59,130,246,0.15)' : 'transparent',
+                color: selected ? 'var(--blue)' : 'var(--text)',
+                fontSize: 13, fontWeight: selected ? 700 : 600,
+              }}
+            >
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                width: 22, height: 22, borderRadius: '50%', fontSize: 11, fontWeight: 700, flexShrink: 0,
+                background: selected ? 'var(--blue)' : 'var(--surface-2)',
+                color: selected ? '#fff' : 'var(--text-muted)',
+              }}>
+                {i + 1}
+              </span>
+              <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.label}</span>
+            </button>
+          )
+        })}
+      </div>
+    </nav>
+  )
+}
+
 function JobViewer({
   job,
+  sections,
+  section,
   showArchived,
+  onSectionShown,
   onJobPatched,
   onRemoveJob,
   onEmbedChanged,
 }: {
   job: Job
+  sections: { id: HomeSection; label: string }[]
+  section: HomeSection | null
   showArchived: boolean
+  onSectionShown: (section: HomeSection) => void
   onJobPatched: (job: Job) => void
   onRemoveJob: (id: string) => void
   onEmbedChanged: () => void
@@ -204,22 +263,45 @@ function JobViewer({
   const [showModal, setShowModal] = useState(false)
   const [statusSaving, setStatusSaving] = useState(false)
   const [archiveSaving, setArchiveSaving] = useState(false)
+  const [shown, setShown] = useState<HomeSection | null>(null)
   const isArchived = Boolean(job.archived_at)
   const base = `/jobs/${job.id}`
+  const hasMenu = sections.length > 0
+  // Fixed per job (the viewer is keyed by job id) so later section changes don't reload the frame.
+  const [frameSrc] = useState(() => {
+    if (!hasMenu) return base
+    const qs = new URLSearchParams({ [FILE_MENU_PARAM]: 'parent' })
+    if (section) {
+      qs.set('tab', 'home')
+      qs.set('section', section)
+    }
+    return `${base}?${qs}`
+  })
 
   const onChangedRef = useRef(onEmbedChanged)
+  const onShownRef = useRef(onSectionShown)
   useEffect(() => {
     onChangedRef.current = onEmbedChanged
+    onShownRef.current = onSectionShown
   })
 
   useEffect(() => {
     function onMessage(e: MessageEvent) {
       if (e.origin !== window.location.origin || e.source !== iframeRef.current?.contentWindow) return
       if (e.data?.type === JOB_EMBED_MSG.changed) onChangedRef.current()
+      else if (e.data?.type === JOB_EMBED_MSG.location) {
+        const onHome = e.data.tab === 'home' && isHomeSection(e.data.section)
+        setShown(onHome ? e.data.section : null)
+        if (onHome) onShownRef.current(e.data.section)
+      }
     }
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
   }, [])
+
+  function openSection(next: HomeSection) {
+    iframeRef.current?.contentWindow?.postMessage({ type: JOB_EMBED_MSG.openSection, section: next }, window.location.origin)
+  }
 
   function refreshFrame() {
     iframeRef.current?.contentWindow?.postMessage({ type: JOB_EMBED_MSG.refresh }, window.location.origin)
@@ -275,84 +357,86 @@ function JobViewer({
   const btn: React.CSSProperties = { fontSize: 12, padding: '5px 10px' }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
-      {showModal && (
-        <DeleteModal
-          clientName={job.client_name}
-          onConfirm={handleDelete}
-          onCancel={() => setShowModal(false)}
-        />
-      )}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
-        <select
-          aria-label="Job status"
-          value={job.status}
-          disabled={statusSaving || isArchived}
-          onChange={e => void handleStatusChange(e.target.value as JobStatus)}
-          className={`badge badge-${job.status}`}
-          style={{
-            fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
-            padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)',
-            cursor: statusSaving || isArchived ? 'not-allowed' : 'pointer',
-            background: 'var(--surface-2)', color: 'inherit',
-          }}
-        >
-          {STATUS_ORDER.map(s => (
-            <option key={s} value={s}>{STATUS_LABELS[s]}</option>
-          ))}
-        </select>
-        {isArchived && <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)' }}>Archived</span>}
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
-          {!isArchived ? (
-            <button
-              type="button"
-              onClick={() => {
-                if (window.confirm('Archive this job? It will disappear from the main queue but stay in the database for reporting.')) {
-                  void setArchived(true)
-                }
-              }}
-              disabled={archiveSaving}
-              title="Archive job"
-              className="btn btn-ghost"
-              style={{ ...btn, color: 'var(--text-muted)' }}
-            >
-              Archive
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => void setArchived(false)}
-              disabled={archiveSaving}
-              title="Restore to queue"
-              className="btn btn-secondary"
-              style={btn}
-            >
-              Restore
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => setShowModal(true)}
-            title="Permanently delete job"
+    <div style={{ display: 'grid', gridTemplateColumns: hasMenu ? '230px minmax(0, 1fr)' : 'minmax(0, 1fr)', minHeight: 0, height: '100%' }}>
+      {hasMenu && <FileMenu job={job} sections={sections} active={shown} onOpen={openSection} />}
+      <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
+        {showModal && (
+          <DeleteModal
+            clientName={job.client_name}
+            onConfirm={handleDelete}
+            onCancel={() => setShowModal(false)}
+          />
+        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
+          <select
+            aria-label="Job status"
+            value={job.status}
+            disabled={statusSaving || isArchived}
+            onChange={e => void handleStatusChange(e.target.value as JobStatus)}
+            className={`badge badge-${job.status}`}
             style={{
-              background: 'none', border: '1px solid var(--border)', borderRadius: 6,
-              padding: '4px 8px', fontSize: 13, color: 'var(--text-muted)', cursor: 'pointer',
+              fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+              padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)',
+              cursor: statusSaving || isArchived ? 'not-allowed' : 'pointer',
+              background: 'var(--surface-2)', color: 'inherit',
             }}
           >
-            {'\u{1F5D1}\uFE0F'}
-          </button>
-          <a href={base} target="_blank" rel="noopener" className="btn btn-ghost" style={{ ...btn, textDecoration: 'none' }} title="Open this job in a new tab">
-            Open full page ↗
-          </a>
+            {STATUS_ORDER.map(s => (
+              <option key={s} value={s}>{STATUS_LABELS[s]}</option>
+            ))}
+          </select>
+          {isArchived && <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)' }}>Archived</span>}
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
+            {!isArchived ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (window.confirm('Archive this job? It will disappear from the main queue but stay in the database for reporting.')) {
+                    void setArchived(true)
+                  }
+                }}
+                disabled={archiveSaving}
+                title="Archive job"
+                className="btn btn-ghost"
+                style={{ ...btn, color: 'var(--text-muted)' }}
+              >
+                Archive
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void setArchived(false)}
+                disabled={archiveSaving}
+                title="Restore to queue"
+                className="btn btn-secondary"
+                style={btn}
+              >
+                Restore
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setShowModal(true)}
+              title="Permanently delete job"
+              style={{
+                background: 'none', border: '1px solid var(--border)', borderRadius: 6,
+                padding: '4px 8px', fontSize: 13, color: 'var(--text-muted)', cursor: 'pointer',
+              }}
+            >
+              {'\u{1F5D1}\uFE0F'}
+            </button>
+            <a href={base} target="_blank" rel="noopener" className="btn btn-ghost" style={{ ...btn, textDecoration: 'none' }} title="Open this job in a new tab">
+              Open full page ↗
+            </a>
+          </div>
         </div>
+        <iframe
+          ref={iframeRef}
+          src={frameSrc}
+          title={`Job ${job.job_code ?? job.client_name ?? ''}`}
+          style={{ flex: 1, minHeight: 0, width: '100%', border: 'none', background: 'var(--bg)' }}
+        />
       </div>
-      <iframe
-        key={job.id}
-        ref={iframeRef}
-        src={base}
-        title={`Job ${job.job_code ?? job.client_name ?? ''}`}
-        style={{ flex: 1, minHeight: 0, width: '100%', border: 'none', background: 'var(--bg)' }}
-      />
     </div>
   )
 }
@@ -376,7 +460,9 @@ function JobQueue() {
   const [showArchived, setShowArchived] = useState(false)
   const [q, setQ] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(params.get('job'))
+  const [section, setSection] = useState<HomeSection | null>(null)
   const { org: ctxOrg, loading: userLoading, isAdmin, caps } = useUser()
+  const fileSections = useMemo(() => visibleHomeSections(caps), [caps])
 
   // Full pipeline board is for admins and members with view_all_jobs only.
   useEffect(() => {
@@ -570,7 +656,11 @@ function JobQueue() {
           <div style={{ minHeight: 0, minWidth: 0 }}>
             {selectedJob ? (
               <JobViewer
+                key={selectedJob.id}
                 job={selectedJob}
+                sections={fileSections}
+                section={section}
+                onSectionShown={setSection}
                 showArchived={showArchived}
                 onJobPatched={handleJobPatched}
                 onRemoveJob={handleRemoveJob}
