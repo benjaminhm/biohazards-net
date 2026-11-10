@@ -11,7 +11,8 @@
  * others are redirected to /field.
  *
  * /jobs/queue?job=<id> opens a job. On narrow screens there is no viewer and a
- * row opens the job page directly.
+ * row opens the job page directly. + New Job creates a blank job, adds it to the
+ * list and opens it on Initial Contact.
  */
 'use client'
 
@@ -187,7 +188,7 @@ function JobRow({ job, active, showPrice, checked, onCheck, onSelect }: {
             {job.job_code ?? '----'}
           </span>
           <span style={{ flex: 1, minWidth: 0, fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {job.client_name || 'Unnamed'}
+            {job.client_name || 'New job'}
           </span>
           {showPrice && price ? (
             <span style={{ fontSize: 12, fontWeight: 700, color: '#10B981', flexShrink: 0 }}>
@@ -479,6 +480,7 @@ function JobQueue() {
   const [section, setSection] = useState<HomeSection | null>(null)
   const [checkedIds, setCheckedIds] = useState<Set<string>>(() => new Set())
   const [bulkSaving, setBulkSaving] = useState(false)
+  const [creating, setCreating] = useState(false)
   const [listHidden, setListHidden] = useState(false)
   const { org: ctxOrg, loading: userLoading, isAdmin, caps } = useUser()
   const fileSections = useMemo(() => visibleHomeSections(caps), [caps])
@@ -618,6 +620,34 @@ function JobQueue() {
     else router.push(`/jobs/${id}`)
   }
 
+  async function createJob() {
+    if (creating) return
+    setCreating(true)
+    try {
+      const r = await fetch('/api/jobs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ blank: true }),
+      })
+      const data = (await r.json().catch(() => ({}))) as { job?: Job; error?: string }
+      if (!r.ok || !data.job) throw new Error(data.error || 'Could not create the job.')
+      const job = data.job
+      if (!wide) {
+        router.push(`/jobs/${job.id}?tab=home&section=initial_contact`)
+        return
+      }
+      setJobs(prev => [job, ...prev.filter(j => j.id !== job.id)])
+      setQ('')
+      setListHidden(false)
+      setSection('initial_contact')
+      selectJob(job.id)
+      setCreating(false)
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Could not create the job.')
+      setCreating(false)
+    }
+  }
+
   return (
     <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', background: 'var(--bg)' }}>
       {/* Header */}
@@ -632,9 +662,9 @@ function JobQueue() {
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <Link href="/jobs/new">
-            <button className="btn btn-primary" style={{ fontSize: 14, padding: '8px 16px' }}>+ New Job</button>
-          </Link>
+          <button type="button" className="btn btn-primary" disabled={creating} onClick={() => void createJob()} style={{ fontSize: 14, padding: '8px 16px' }}>
+            {creating ? <span className="spinner" /> : '+ New Job'}
+          </button>
           <Link href="/settings">
             <button className="btn btn-ghost" style={{ fontSize: 18, padding: '4px 8px' }} title="Company Settings">⚙️</button>
           </Link>

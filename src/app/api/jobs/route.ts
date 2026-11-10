@@ -2,7 +2,9 @@
  * app/api/jobs/route.ts
  *
  * GET  /api/jobs          — list all jobs for the current org
- * POST /api/jobs          — create a new job (status defaults to 'lead')
+ * POST /api/jobs          — create a new job (status defaults to 'lead').
+ *                            { blank: true } creates an empty job that staff fill
+ *                            in from Initial Contact (Job Manager's + New Job).
  *
  * GET supports ?upcoming=true to fetch the next 10 scheduled jobs in
  * chronological order (used by the field schedule view).
@@ -136,7 +138,8 @@ export async function POST(req: Request) {
     const job_type = body.job_type
     const urgency = body.urgency
 
-    if (!client_name || !site_address || !job_type) {
+    const blank = body.blank === true
+    if (!blank && (!client_name || !site_address || !job_type)) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
     }
 
@@ -167,7 +170,7 @@ export async function POST(req: Request) {
       .from('jobs')
       .insert({
         job_code,
-        client_name,
+        client_name: client_name || '',
         client_organization_name: str('client_organization_name'),
         client_contact_role: str('client_contact_role'),
         client_contact_relationship: str('client_contact_relationship'),
@@ -175,11 +178,11 @@ export async function POST(req: Request) {
         trading_name,
         client_phone: clientPhoneOut,
         client_email: client_email ?? '',
-        site_address,
+        site_address: site_address || '',
         site_place_id: str('site_place_id'),
         site_lat: num('site_lat'),
         site_lng: num('site_lng'),
-        job_type,
+        job_type: job_type || 'other',
         urgency: urgency ?? 'standard',
         status: 'lead',
         notes: '',
