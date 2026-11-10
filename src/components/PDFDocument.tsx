@@ -193,7 +193,7 @@ function splitWordmark(name: string): { line: string; accent: string | null } {
 }
 
 function Header({ reference, date, company }: HeaderProps) {
-  const name = company?.name || 'Brisbane Biohazard Cleaning'
+  const name = company?.name || 'Biohazard Cleaning QLD'
   const tagline = company?.tagline || 'Professional services'
   const contact = [company?.phone, company?.email, company?.abn ? `ABN: ${company.abn}` : ''].filter(Boolean).join('  ·  ')
   const wordmark = splitWordmark(name)
@@ -225,7 +225,7 @@ function Header({ reference, date, company }: HeaderProps) {
 }
 
 function Footer({ company }: { company: CompanyProfile | null }) {
-  const name = company?.name || 'Brisbane Biohazard Cleaning'
+  const name = company?.name || 'Biohazard Cleaning QLD'
   return (
     <View style={styles.footer} fixed>
       <Text style={styles.footerText}>{name} — biohazards.net</Text>
@@ -1438,7 +1438,7 @@ interface JobPDFDocumentProps {
 export function JobPDFDocument({ type, content, photos, company, areas = [], siteAddress }: JobPDFDocumentProps) {
   const allPhotos = photos
   photos = photosForComposedReports(photos)
-  const name = company?.name || 'Brisbane Biohazard Cleaning'
+  const name = company?.name || 'Biohazard Cleaning QLD'
   return (
     <Document title={name} author={name}>
       {type === 'quote' ? (

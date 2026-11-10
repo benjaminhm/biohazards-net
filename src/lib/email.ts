@@ -39,7 +39,7 @@ export async function sendQuoteAcceptedEmail(data: QuoteAcceptedData) {
     <div style="font-family: -apple-system, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px;">
       <div style="border-top: 4px solid #FF6B35; padding-top: 24px; margin-bottom: 32px;">
         <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #FF6B35; margin-bottom: 6px;">
-          Brisbane Biohazard Cleaning
+          Biohazard Cleaning QLD
         </div>
         <h1 style="font-size: 24px; font-weight: 700; color: #111; margin: 0;">
           Quote Accepted ✓
@@ -81,7 +81,7 @@ export async function sendQuoteAcceptedEmail(data: QuoteAcceptedData) {
       </a>
 
       <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #eee; font-size: 12px; color: #aaa;">
-        Brisbane Biohazard Cleaning · biohazards.net
+        Biohazard Cleaning QLD · biohazards.net
         <!-- TWILIO SMS: add SMS notification here when ready -->
       </div>
     </div>

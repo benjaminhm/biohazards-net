@@ -57,7 +57,7 @@ import { quotePrintTitle } from '@/lib/quoteSpokes'
 import type { CustomPricingRow, SectionTerms, VolumeDisposalFeeMode, VolumePricingBlock } from '@/lib/types'
 
 /** Matches the navy header when `company` is missing (meta grid used to show "—" while header showed this name). */
-const DEFAULT_PRINT_ORG_NAME = 'Brisbane Biohazard Cleaning'
+const DEFAULT_PRINT_ORG_NAME = 'Biohazard Cleaning QLD'
 import { proseHasPrintableContent, richBodyHtmlForPrint } from '@/lib/richTextPrint'
 import type { CompanyLetterheadContent } from '@/lib/companyLetterhead'
 import { breakdownTotal, isStatementV2Content, presentStatementDocument, presentStatementV2, statementClientLines, statementPhone, StatementReconciliationError, type StatementPresentation, type StatementV2Presentation } from '@/lib/statementOfAccounts'
@@ -3223,7 +3223,7 @@ function statementFrame(c: { payment_terms?: string; due_date?: string }, compan
         <div class="sow-meta">
           <div class="sow-meta-cell"><div class="sow-meta-label">Client</div><div class="sow-meta-value">${statementMetaValue([clientLines.line1 || '—', clientLines.line2])}</div></div>
           <div class="sow-meta-cell"><div class="sow-meta-label">Client contact</div><div class="sow-meta-value">${contactPhone ? `<div class="soa-phone">${esc(contactPhone)}</div>` : ''}${contactEmail ? `<div class="soa-email">${esc(contactEmail)}</div>` : ''}${!contactPhone && !contactEmail ? '—' : ''}</div></div>
-          <div class="sow-meta-cell"><div class="sow-meta-label">Company</div><div class="sow-meta-value">${esc(company?.name?.trim() || 'Brisbane Biohazard Cleaning')}</div></div>
+          <div class="sow-meta-cell"><div class="sow-meta-label">Company</div><div class="sow-meta-value">${esc(company?.name?.trim() || 'Biohazard Cleaning QLD')}</div></div>
           <div class="sow-meta-cell"><div class="sow-meta-label">Business details</div><div class="sow-meta-value">${businessPhone ? `<div class="soa-phone">${esc(businessPhone)}</div>` : ''}${businessEmail ? `<div class="soa-email">${esc(businessEmail)}</div>` : ''}${(company?.address || '').trim() ? `<div>${esc(company?.address?.trim() || '')}</div>` : ''}${!businessPhone && !businessEmail && !(company?.address || '').trim() ? '—' : ''}</div></div>
         </div>`
   const questions = businessPhone || businessEmail

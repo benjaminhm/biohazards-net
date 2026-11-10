@@ -10,6 +10,7 @@ import type { CompanyProfile } from '@/lib/types'
 export const TRADING_NAME_IDS = [
   'brisbane_biohazard_cleaning',
   'forensic_cleaning_qld',
+  'hoarding_cleaning_qld',
 ] as const
 
 export type TradingNameId = (typeof TRADING_NAME_IDS)[number]
@@ -43,8 +44,9 @@ export const DEFAULT_AUTH_REPLY_EMAIL = 'admin@brisbanebiohazardcleaning.com.au'
 
 export const TRADING_NAME_OPTIONS: TradingNameOption[] = [
   {
+    // Stored id predates the rename to Biohazard Cleaning QLD; existing jobs reference it.
     id: 'brisbane_biohazard_cleaning',
-    label: 'Brisbane Biohazard Cleaning',
+    label: 'Biohazard Cleaning QLD',
     // Letterhead email/logo stay whatever is on company_profile (Settings).
     // Auth-to-proceed reply falls back via DEFAULT_AUTH_REPLY_EMAIL.
   },
@@ -55,6 +57,12 @@ export const TRADING_NAME_OPTIONS: TradingNameOption[] = [
     useWordmark: true,
     accountsHost: 'accounts.forensiccleaningqld.com.au',
     photoHost: 'photo.forensiccleaningqld.com.au',
+  },
+  {
+    id: 'hoarding_cleaning_qld',
+    label: 'Hoarding Cleaning QLD',
+    // No brand email, logo, or domains yet: email falls back to Settings.
+    useWordmark: true,
   },
 ]
 

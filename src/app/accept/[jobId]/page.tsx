@@ -129,7 +129,7 @@ export default function AcceptQuotePage() {
         <div style={{ background: '#111', padding: '20px 0' }}>
           <div style={container}>
             <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#FF6B35' }}>
-              Brisbane Biohazard Cleaning
+              Biohazard Cleaning QLD
             </div>
           </div>
         </div>
@@ -157,7 +157,7 @@ export default function AcceptQuotePage() {
             </div>
           </div>
           <div style={{ marginTop: 32, fontSize: 13, color: '#999' }}>
-            Brisbane Biohazard Cleaning · biohazards.net
+            Biohazard Cleaning QLD · biohazards.net
           </div>
         </div>
       </div>
@@ -170,7 +170,7 @@ export default function AcceptQuotePage() {
       <div style={{ background: '#111', padding: '20px 0' }}>
         <div style={container}>
           <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#FF6B35' }}>
-            Brisbane Biohazard Cleaning
+            Biohazard Cleaning QLD
           </div>
         </div>
       </div>
@@ -278,7 +278,7 @@ export default function AcceptQuotePage() {
         </div>
 
         <div style={{ marginTop: 40, paddingTop: 20, borderTop: '1px solid #e5e5e5', fontSize: 12, color: '#bbb', textAlign: 'center' }}>
-          Brisbane Biohazard Cleaning · biohazards.net
+          Biohazard Cleaning QLD · biohazards.net
         </div>
       </div>
     </div>

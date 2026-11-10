@@ -1314,7 +1314,7 @@ export interface PhoneEntry {
 }
 
 /** Trading name used on this job's client-facing documents (same ABN). */
-export type JobTradingName = 'brisbane_biohazard_cleaning' | 'forensic_cleaning_qld'
+export type JobTradingName = 'brisbane_biohazard_cleaning' | 'forensic_cleaning_qld' | 'hoarding_cleaning_qld'
 
 export interface Job {
   id: string

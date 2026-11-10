@@ -53,8 +53,8 @@ export async function generateMetadata(): Promise<Metadata> {
   }
 
   return {
-    title: 'Brisbane Biohazard Cleaning',
-    description: 'Job management for Brisbane Biohazard Cleaning',
+    title: 'Biohazard Cleaning QLD',
+    description: 'Job management for Biohazard Cleaning QLD',
     manifest: '/manifest.json',
     appleWebApp: {
       capable: true,

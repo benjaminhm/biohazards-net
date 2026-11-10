@@ -5,7 +5,7 @@
  *
  * Both the magic link and the account invite are transactional and sent from the
  * trading brand's own address, so a Forensic Cleaning QLD account never receives
- * mail branded Brisbane Biohazard Cleaning. Per docs/ai-product-principles.md
+ * mail branded Biohazard Cleaning QLD. Per docs/ai-product-principles.md
  * these are strictly transactional loops, not composed client comms.
  *
  * The sending domain must be verified in Resend for the brand address to work.

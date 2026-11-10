@@ -238,7 +238,7 @@ function Workspace() {
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--bg)' }}>
       <header style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 14px', borderBottom: '1px solid var(--border)' }}>
         <Link href="/" onClick={() => writeViewMode('classic')} style={{ fontWeight: 800, fontSize: 14, color: 'var(--text)', textDecoration: 'none' }}>
-          Brisbane Biohazard Cleaning
+          Biohazard Cleaning QLD
         </Link>
         <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Agent workspace</span>
         <div style={{ marginLeft: 'auto' }}>

@@ -41,7 +41,7 @@ test('a generated letterhead is the letter plus the company header and attached 
     [],
     [],
     {
-      name: 'Brisbane Biohazard Cleaning',
+      name: 'Biohazard Cleaning QLD',
       tagline: 'Forensic cleaning',
       abn: '12 345 678 901',
       licence: '123456',
@@ -56,7 +56,7 @@ test('a generated letterhead is the letter plus the company header and attached 
   assert.doesNotMatch(html, /Company Letterhead/)
   assert.doesNotMatch(html, /class="sow-doc-title"/)
   assert.match(html, /class="sow-meta"/)
-  assert.match(html, /Brisbane Biohazard Cleaning/)
+  assert.match(html, /Biohazard Cleaning QLD/)
   assert.match(html, /ABN 12 345 678 901/)
   assert.match(html, /Ada Client/)
   assert.match(html, /The works at the property are complete/)

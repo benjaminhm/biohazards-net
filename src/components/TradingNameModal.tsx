@@ -89,7 +89,7 @@ export default function TradingNameModal({
             ' this job'
           )}
           . It appears on quotes, letters, and other composed documents. ABN and
-          address stay the same; Forensic Cleaning QLD uses its own email.
+          address stay the same; email and logo follow the option below.
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 18 }}>

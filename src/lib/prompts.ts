@@ -13,6 +13,13 @@ import type { Job, Photo } from './types'
 import { filterGroupedStages, groupPhotosByRoomAndStage } from './photoGroups'
 import { photosForComposedReports } from '@/lib/photosForComposedReports'
 import { effectiveAreaDimensions } from '@/lib/areaSubzones'
+import { tradingNameLabel } from '@/lib/tradingNames'
+
+const DEFAULT_COMPANY_NAME = 'Biohazard Cleaning QLD'
+
+function companyName(job: Job): string {
+  return tradingNameLabel(job.trading_name) ?? DEFAULT_COMPANY_NAME
+}
 
 /**
  * Formats job and assessment data into a text block injected into every prompt.
@@ -106,7 +113,7 @@ export function buildQuotePrompt(job: Job, photos: Photo[]): string {
 
   const photoBlock = buildPhotoEvidenceBlock(photos, ['before', 'assessment'])
 
-  return `You are writing a professional quote for a biohazard cleaning company in Australia called "Brisbane Biohazard Cleaning".
+  return `You are writing a professional quote for a biohazard cleaning company in Australia called "${companyName(job)}".
 
 ${buildJobDataBlock(job)}
 ${photoBlock}
@@ -174,7 +181,7 @@ export function buildSOWPrompt(job: Job, photos: Photo[]): string {
 
   const photoBlock = buildPhotoEvidenceBlock(photos, ['before', 'assessment'])
 
-  return `You are writing a Scope of Work for a biohazard remediation company in Australia called "Brisbane Biohazard Cleaning".
+  return `You are writing a Scope of Work for a biohazard remediation company in Australia called "${companyName(job)}".
 
 ${buildJobDataBlock(job)}
 ${photoBlock}
@@ -213,7 +220,7 @@ export function buildReportPrompt(job: Job, photos: Photo[]): string {
   const afterBlock = buildPhotoEvidenceBlock(progressPhotos, ['after'])
   const duringBlock = buildPhotoEvidenceBlock(progressPhotos, ['during'])
 
-  return `You are writing a completion report for a biohazard remediation job in Australia. This report may be submitted to an insurance company or regulatory body. Company: "Brisbane Biohazard Cleaning".
+  return `You are writing a completion report for a biohazard remediation job in Australia. This report may be submitted to an insurance company or regulatory body. Company: "${companyName(job)}".
 
 ${buildJobDataBlock(job)}
 

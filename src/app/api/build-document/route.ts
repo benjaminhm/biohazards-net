@@ -154,7 +154,7 @@ function jobContext(job: Job, photos: Photo[], company: CompanyProfile | null): 
     : 'none'
 
   return `
-COMPANY: ${company?.name ?? 'Brisbane Biohazard Cleaning'} | ABN: ${company?.abn ?? ''} | Phone: ${company?.phone ?? ''} | Licence: ${company?.licence ?? ''}
+COMPANY: ${company?.name ?? 'Biohazard Cleaning QLD'} | ABN: ${company?.abn ?? ''} | Phone: ${company?.phone ?? ''} | Licence: ${company?.licence ?? ''}
 ADDRESS: ${company?.address ?? 'Brisbane, QLD'}
 
 CLIENT: ${job.client_name}
@@ -264,7 +264,7 @@ If ASSESSMENT DOCUMENT — STAFF CAPTURE appears in JOB CONTEXT with labelled li
 {
   "title": "Safe Work Method Statement — [job type] at [address]",
   "reference": "${r}",
-  "project_details": "Site: ${job.site_address} | Client: ${job.client_name} | Date: ${d} | Contractor: ${company?.name ?? 'Brisbane Biohazard Cleaning'}",
+  "project_details": "Site: ${job.site_address} | Client: ${job.client_name} | Date: ${d} | Contractor: ${company?.name ?? 'Biohazard Cleaning QLD'}",
   "steps": [
     {"step":"task name","hazards":"identified hazards","risk_before":"H/M/L","controls":"control measures","risk_after":"H/M/L","responsible":"Technician"}
   ],
@@ -292,7 +292,7 @@ Include 6–10 realistic steps covering: site assessment, PPE donning, containme
 {
   "title": "Engagement Agreement — Biohazard Remediation Services",
   "reference": "${r}",
-  "parties": "This agreement is between ${company?.name ?? 'Brisbane Biohazard Cleaning'} (ABN: ${company?.abn ?? ''}) ('the Contractor') and ${job.client_name} ('the Client') in respect of works at ${job.site_address}.",
+  "parties": "This agreement is between ${company?.name ?? 'Biohazard Cleaning QLD'} (ABN: ${company?.abn ?? ''}) ('the Contractor') and ${job.client_name} ('the Client') in respect of works at ${job.site_address}.",
   "services_description": "detailed description of services to be provided",
   "fees_and_payment": "fee structure, deposit, payment schedule, late payment terms",
   "liability_limitations": "limitation of liability clause, exclusions, consequential loss",
@@ -329,7 +329,7 @@ Include 6–10 realistic steps covering: site assessment, PPE donning, containme
   "products_used": "antimicrobial/disinfection products used with active ingredients",
   "outcome_statement": "This certifies that the premises at [address] have been professionally decontaminated and are suitable for re-occupation.",
   "limitations": "This certificate relates only to the areas treated. Ongoing monitoring recommended for [any specific concern].",
-  "certifier_statement": "Issued by ${company?.name ?? 'Brisbane Biohazard Cleaning'} | Licence: ${company?.licence ?? ''} | ${d}",
+  "certifier_statement": "Issued by ${company?.name ?? 'Biohazard Cleaning QLD'} | Licence: ${company?.licence ?? ''} | ${d}",
   "completed_by": ""
 }`,
 
@@ -409,7 +409,7 @@ Include 5–8 steps covering the key tasks for this specific job type.`,
 {
   "title": "Non-Disclosure Agreement",
   "reference": "${r}",
-  "parties": "This Agreement is between ${company?.name ?? 'Brisbane Biohazard Cleaning'} ('Contractor') and ${job.client_name} ('Disclosing Party') regarding works at ${job.site_address}.",
+  "parties": "This Agreement is between ${company?.name ?? 'Biohazard Cleaning QLD'} ('Contractor') and ${job.client_name} ('Disclosing Party') regarding works at ${job.site_address}.",
   "confidential_information_definition": "All information relating to the nature, circumstances, location and details of the remediation works, including but not limited to the type of biohazard, identities of any individuals involved, and photographic evidence.",
   "obligations": "The Contractor agrees to hold all Confidential Information in strict confidence and not disclose to any third party without prior written consent, except as required by law.",
   "exceptions": "Disclosure may be required by law enforcement, coronial inquiry, or public health authorities. Contractor will notify Client of any compelled disclosure where legally permitted.",
@@ -425,7 +425,7 @@ Include 5–8 steps covering the key tasks for this specific job type.`,
   "reference": "${r}",
   "site_description": "description of site and nature of works",
   "assessment_date": "${d}",
-  "assessor": "${company?.name ?? 'Brisbane Biohazard Cleaning'}",
+  "assessor": "${company?.name ?? 'Biohazard Cleaning QLD'}",
   "risks": [
     {"hazard":"hazard name","likelihood":"H/M/L","consequence":"H/M/L","risk_rating":"H/M/L","controls":"control measures","residual_risk":"H/M/L"}
   ],
@@ -451,7 +451,7 @@ Include 6–10 realistic risks based on the job type, contamination level, and s
 
   const rules = getDocumentRulesForBuild(type, company, platformDbRules)
 
-  return `You are a professional document writer for ${company?.name ?? 'Brisbane Biohazard Cleaning'}, an Australian biohazard remediation company.
+  return `You are a professional document writer for ${company?.name ?? 'Biohazard Cleaning QLD'}, an Australian biohazard remediation company.
 ${rules}
 JOB CONTEXT:
 ${ctx}

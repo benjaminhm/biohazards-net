@@ -130,7 +130,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ documen
   after(() => syncJobInvoice(supabase, job.id as string, 'quote_accepted'))
 
   const trading = isTradingNameId(job.trading_name) ? job.trading_name : null
-  const brandLabel = (trading && tradingNameOption(trading)?.label) || 'Brisbane Biohazard Cleaning'
+  const brandLabel = (trading && tradingNameOption(trading)?.label) || 'Biohazard Cleaning QLD'
   const site = (job.site_address as string | null) ?? ''
 
   try {

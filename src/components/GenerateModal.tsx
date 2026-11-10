@@ -143,9 +143,9 @@ export default function GenerateModal({ jobId, type, content, photos, clientName
           : 'Fixed-price quote'
         : DOC_TYPE_LABELS[type]
 
-    const subject = encodeURIComponent(`${effectiveLabel} — ${company?.name ?? 'Brisbane Biohazard Cleaning'}`)
+    const subject = encodeURIComponent(`${effectiveLabel} — ${company?.name ?? 'Biohazard Cleaning QLD'}`)
     const body = encodeURIComponent(
-      `Hi ${clientName.split(' ')[0]},\n\nPlease find your ${effectiveLabel.toLowerCase()} at the link below.\n\n${result.printUrl}\n\nDon't hesitate to reach out if you have any questions.\n\nKind regards,\n${company?.name ?? 'Brisbane Biohazard Cleaning'}`
+      `Hi ${clientName.split(' ')[0]},\n\nPlease find your ${effectiveLabel.toLowerCase()} at the link below.\n\n${result.printUrl}\n\nDon't hesitate to reach out if you have any questions.\n\nKind regards,\n${company?.name ?? 'Biohazard Cleaning QLD'}`
     )
     const mailto = `mailto:${clientEmail}?subject=${subject}&body=${body}`
     window.location.href = mailto

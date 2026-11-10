@@ -14,7 +14,7 @@ import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import { normalizeOptionalPhoneField } from '@/lib/phone'
 import { ensureJobInboundEmailToken } from '@/lib/jobInboundEmail'
-import { isTradingNameId } from '@/lib/tradingNames'
+import { isTradingNameId, TRADING_NAME_IDS } from '@/lib/tradingNames'
 import { getStaffFirstName } from '@/lib/clerkDisplayName'
 import { recordHumanEdits, staleAfterStaffSave } from '@/lib/agent/drafts'
 import { isDraftableField } from '@/lib/agent/workspaceText'
@@ -123,7 +123,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         body.trading_name = null
       } else if (!isTradingNameId(body.trading_name)) {
         return NextResponse.json(
-          { error: 'Invalid trading_name. Use brisbane_biohazard_cleaning or forensic_cleaning_qld.' },
+          { error: `Invalid trading_name. Use one of: ${TRADING_NAME_IDS.join(', ')}.` },
           { status: 400 },
         )
       }
