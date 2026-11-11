@@ -47,11 +47,11 @@ test('brisbane_biohazard_cleaning id is kept and displays as Biohazard Cleaning 
   assert.equal(applyTradingBrand(company, 'brisbane_biohazard_cleaning')?.name, 'Biohazard Cleaning QLD')
 })
 
-test('hoarding_cleaning_qld uses a wordmark and Settings email', () => {
+test('hoarding_cleaning_qld id is kept, displays as Hoarding Clearance QLD, and uses a wordmark and Settings email', () => {
   assert.ok(isTradingNameId('hoarding_cleaning_qld'))
-  assert.equal(tradingNameLabel('hoarding_cleaning_qld'), 'Hoarding Cleaning QLD')
+  assert.equal(tradingNameLabel('hoarding_cleaning_qld'), 'Hoarding Clearance QLD')
   const branded = applyTradingBrand(company, 'hoarding_cleaning_qld')
-  assert.equal(branded?.name, 'Hoarding Cleaning QLD')
+  assert.equal(branded?.name, 'Hoarding Clearance QLD')
   assert.equal(branded?.email, 'settings@example.com')
   assert.equal(branded?.logo_url, null)
   assert.equal(tradingAuthReplyEmail('hoarding_cleaning_qld', company.email), 'settings@example.com')
@@ -59,5 +59,5 @@ test('hoarding_cleaning_qld uses a wordmark and Settings email', () => {
 
 test('portal terms exist for every trading name', () => {
   for (const id of TRADING_NAME_IDS) assert.ok(PORTAL_TERMS[id], id)
-  assert.match(PORTAL_TERMS.hoarding_cleaning_qld.title, /^Hoarding Cleaning QLD/)
+  assert.match(PORTAL_TERMS.hoarding_cleaning_qld.title, /^Hoarding Clearance QLD/)
 })

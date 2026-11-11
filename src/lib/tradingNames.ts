@@ -72,12 +72,12 @@ export const TRADING_NAME_OPTIONS: TradingNameOption[] = [
     documentHost: 'document.forensiccleaningqld.com.au',
   },
   {
+    // Stored id predates the correction to Hoarding Clearance QLD; existing jobs reference it.
     id: 'hoarding_cleaning_qld',
-    label: 'Hoarding Cleaning QLD',
+    label: 'Hoarding Clearance QLD',
     short: 'HCQ',
     // No brand email or logo yet: email falls back to Settings.
     useWordmark: true,
-    // The brand has no domain of its own name; its documents use the Hoarding Clearance QLD one.
     documentHost: 'document.hoardingclearanceqld.com.au',
   },
 ]

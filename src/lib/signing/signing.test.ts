@@ -103,7 +103,7 @@ test('FCQ quotes go from the FCQ address and replies come back to it', () => {
 
 test('a brand with no address of its own keeps its name, uses the shared address, and replies go to Settings', () => {
   for (const [id, label] of [
-    ['hoarding_cleaning_qld', 'Hoarding Cleaning QLD'],
+    ['hoarding_cleaning_qld', 'Hoarding Clearance QLD'],
     ['brisbane_biohazard_cleaning', 'Biohazard Cleaning QLD'],
   ] as const) {
     const sender = resolveSender(id, { RESEND_FROM_EMAIL: 'shared@example.com' }, ' office@example.com ')
