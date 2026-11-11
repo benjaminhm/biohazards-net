@@ -7,8 +7,8 @@
  *   { action: 'sign', name, signature, method, agreed }
  *   { action: 'decline', reason }
  *   { action: 'pay' }       after signing: the pay step as it stands now (the page
- *                           asks again while it is open, so the card button and
- *                           "deposit received" appear without a reload)
+ *                           asks again while it is open, so the payment details
+ *                           and "deposit received" appear without a reload)
  *
  * Public: the token in the path is the credential, plus the passcode where the
  * link has one (five wrong tries locks the link). Everything the page sends is
@@ -16,8 +16,9 @@
  * signed once only (the update is conditional on it still being open).
  *
  * Signing is recorded first and answered straight away. The signed PDF, the
- * emails, the staff alert and Xero follow in after(), so a slow PDF or a
- * rejected email can never lose a signature.
+ * emails and the staff alert follow in after(), so a slow PDF or a rejected
+ * email can never lose a signature. Signing sends nothing to Xero: staff check
+ * the signed request and create the invoice themselves.
  */
 import { after, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
@@ -128,7 +129,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
     const pay = await loadPayPanel(supabase, row)
     if (!pay) return NextResponse.json({ error: 'There is no deposit to pay on this document.' }, { status: 404 })
     return NextResponse.json(
-      { html: payPanelHtml(pay), settled: depositSettled(pay) },
+      { html: payPanelHtml(pay), settled: depositSettled(pay), stage: pay.stage },
       { headers: { 'Cache-Control': 'private, no-store' } },
     )
   }

@@ -18,6 +18,7 @@ import {
   linkMessage,
   linkState,
   messageToHtml,
+  paymentReadyMessage,
   newPasscode,
   newSigningToken,
   normalizePasscode,
@@ -39,9 +40,12 @@ import {
   depositPartPaid,
   depositSettled,
   parseDepositPercent,
+  payStage,
   paymentReference,
-  staffDepositNote,
+  signedNext,
+  staffCheckNote,
   type PayPanel,
+  type StaffInvoiceView,
 } from '@/lib/signing/pay'
 import { xeroPayUrl } from '@/lib/xero/payments'
 import { documentHostTradingName } from '@/lib/tradingNames'
@@ -462,12 +466,12 @@ function shellFor(deposit: { amountLabel: string; percentLabel: string } | null)
 function panel(over: Partial<PayPanel> = {}): PayPanel {
   return {
     brandLabel: 'Forensic Cleaning QLD',
+    stage: 'ready',
     percent: 50,
     deposit: 1650,
     total: 3300,
     reference: 'BCQ-1',
     bank: { accountName: 'Example Pty Ltd', bsb: '064-000', accountNumber: '12345678' },
-    cardExpected: true,
     cardUrl: null,
     invoiceNumber: '',
     paid: 0,
@@ -500,11 +504,12 @@ test('the document is in view on arrival: nothing covers it until the client cho
   assert.doesNotMatch(shell, /data-step="pay"|id="sg-done-next"|The next step is your deposit/)
 })
 
-test('with a deposit the steps end at Pay deposit and the signed message leads there', () => {
+test('with a deposit the steps end at Pay deposit, and the signed message says there is nothing to pay yet', () => {
   const shell = shellFor({ amountLabel: '$1,650.00', percentLabel: '50%' })
   assert.match(shell, /<li data-step="pay"><b>3<\/b>Pay deposit<\/li><\/ol>/)
-  assert.match(shell, /The next step is your deposit of <strong>\$1,650\.00<\/strong> \(50%\)\./)
-  assert.match(shell, /id="sg-done-next">Next: pay deposit</)
+  assert.match(shell, /The next step is your deposit of <strong>\$1,650\.00<\/strong> \(50%\)\. There is nothing to pay yet: Forensic Cleaning QLD will check the details, prepare your invoice and let you know when it is ready\./)
+  assert.match(shell, /id="sg-done-next">Continue</)
+  assert.doesNotMatch(shell, /Next: pay deposit/)
 })
 
 test('the deposit percentage is a share of the total, to the cent', () => {
@@ -526,13 +531,106 @@ test('the deposit percentage is a share of the total, to the cent', () => {
   assert.equal(depositAmount('abc', 50), null)
 })
 
-test('staff are told the one thing to do in Xero, and nothing when there is no deposit', () => {
+test('the signed alert tells staff nothing is invoiced until they have checked it', () => {
+  const next = 'Nothing has been invoiced yet. Open the job, check who signed and what they accepted on the quote in Documents, then create the invoice from there.'
   assert.equal(
-    staffDepositNote(3300, 30),
-    "Deposit shown to the client: $990.00 (30%). In Xero, open the job's draft invoice, set the deposit request to 30% and approve it. Pay by card then appears on the client's page.",
+    staffCheckNote(3300, 30),
+    `${next} Deposit to ask for: $990.00 (30%). The client sees no payment details until the invoice is approved in Xero.`,
   )
-  assert.equal(staffDepositNote(3300, null), '')
-  assert.equal(staffDepositNote(null, 50), '')
+  // No deposit on the link: the check is still needed before anything is invoiced.
+  assert.equal(staffCheckNote(3300, null), next)
+  assert.equal(staffCheckNote(null, 50), next)
+})
+
+test('the client is shown how to pay only after the staff check and an approved invoice', () => {
+  // Signed, not checked: nothing to pay with, whatever Xero says.
+  for (const invoiceStatus of ['', 'DRAFT', 'AUTHORISED', 'PAID']) {
+    assert.equal(payStage({ confirmed: false, xeroConnected: true, invoiceStatus }), 'preparing', invoiceStatus)
+  }
+  assert.equal(payStage({ confirmed: false, xeroConnected: false, invoiceStatus: '' }), 'preparing')
+  // Checked, invoice not approved yet.
+  for (const invoiceStatus of ['', 'CLAIMED', 'DRAFT', 'SUBMITTED']) {
+    assert.equal(payStage({ confirmed: true, xeroConnected: true, invoiceStatus }), 'preparing', invoiceStatus)
+  }
+  // Checked and approved.
+  assert.equal(payStage({ confirmed: true, xeroConnected: true, invoiceStatus: 'AUTHORISED' }), 'ready')
+  assert.equal(payStage({ confirmed: true, xeroConnected: true, invoiceStatus: 'PAID' }), 'ready')
+  // Without Xero there is no invoice to wait for: the check opens it.
+  assert.equal(payStage({ confirmed: true, xeroConnected: false, invoiceStatus: '' }), 'ready')
+  // A voided invoice is not something to pay.
+  assert.equal(payStage({ confirmed: true, xeroConnected: true, invoiceStatus: 'VOIDED' }), 'contact')
+  assert.equal(payStage({ confirmed: true, xeroConnected: true, invoiceStatus: 'DELETED' }), 'contact')
+})
+
+test('under a signed quote staff are given one next step at a time', () => {
+  const xero = (over: Partial<StaffInvoiceView> = {}): StaffInvoiceView => ({
+    xeroConnected: true, number: '', status: '', amountPaid: 0, paidOn: null, payLinkLive: false, ...over,
+  })
+  const ask = { total: 3300, percent: 50 }
+
+  const unchecked = signedNext({ confirmed: false, ...ask, invoice: xero() })
+  assert.equal(unchecked.needsCheck, true)
+  assert.equal(unchecked.canSendPayMessage, false)
+  assert.match(unchecked.text, /^Not invoiced yet\. Check who signed and what they accepted, then create the invoice in Xero\./)
+  assert.match(signedNext({ confirmed: false, ...ask, invoice: xero({ xeroConnected: false }) }).text, /then mark it as checked\./)
+
+  // Staff who are not shown money cannot do the check, and are told who does.
+  const teamLead = signedNext({ confirmed: false, total: null, percent: 50, invoice: null })
+  assert.equal(teamLead.needsCheck, false)
+  assert.equal(teamLead.text, 'Waiting for the office to check this and create the invoice.')
+  assert.equal(signedNext({ confirmed: true, total: null, percent: 50, invoice: null }).text, '')
+
+  const missing = signedNext({ confirmed: true, ...ask, invoice: xero() })
+  assert.equal(missing.canCreateInvoice, true)
+  assert.match(missing.text, /the Xero invoice has not been created yet/)
+
+  const draft = signedNext({ confirmed: true, ...ask, invoice: xero({ status: 'DRAFT', number: 'INV-0042' }) })
+  assert.equal(draft.tone, 'todo')
+  assert.equal(draft.canSendPayMessage, false)
+  assert.equal(draft.text, "Deposit to ask for: $1,650.00 (50%). Next: in Xero, set the deposit request to 50% on draft invoice INV-0042 and approve it. The client's page then shows how to pay.")
+
+  const approved = signedNext({ confirmed: true, ...ask, invoice: xero({ status: 'AUTHORISED', number: 'INV-0042', payLinkLive: true }) })
+  assert.equal(approved.canSendPayMessage, true)
+  assert.equal(approved.text, "Deposit asked: $1,650.00 (50%). Invoice INV-0042 is approved, and the client's page now shows how to pay, by card or bank transfer. Nothing received yet.")
+
+  const paid = signedNext({ confirmed: true, ...ask, invoice: xero({ status: 'AUTHORISED', number: 'INV-0042', amountPaid: 1650, paidOn: '2026-11-12' }) })
+  assert.equal(paid.tone, 'good')
+  assert.equal(paid.canSendPayMessage, false)
+  assert.equal(paid.text, 'Deposit received: $1,650.00 paid on invoice INV-0042 (12/11/2026). Asked for $1,650.00 (50%).')
+
+  const noXero = signedNext({ confirmed: true, ...ask, invoice: xero({ xeroConnected: false }) })
+  assert.equal(noXero.canSendPayMessage, true)
+  assert.match(noXero.text, /Xero is not connected, so there is no invoice; the client's page shows the bank details\./)
+
+  const voided = signedNext({ confirmed: true, ...ask, invoice: xero({ status: 'VOIDED', number: 'INV-0042' }) })
+  assert.equal(voided.canSendPayMessage, false)
+  assert.match(voided.text, /Invoice INV-0042 was voided in Xero, so the client's page shows no way to pay\./)
+
+  // No deposit on the link: the invoice still needs the check, but there is no pay message.
+  const noDeposit = signedNext({ confirmed: true, total: 3300, percent: null, invoice: xero({ status: 'AUTHORISED', number: 'INV-0042' }) })
+  assert.equal(noDeposit.canSendPayMessage, false)
+  assert.equal(noDeposit.text, 'Invoice INV-0042 is approved in Xero.')
+})
+
+test('the ready-to-pay message has the amount, the link on its own line, and the passcode when there is one', () => {
+  const base = {
+    clientName: 'Jane Smith', brandLabel: 'Forensic Cleaning QLD', staffFirstName: 'Ben',
+    depositLabel: '$1,650.00', link: 'https://document.forensiccleaningqld.com.au/abc', card: true, bank: true,
+  }
+  assert.equal(paymentReadyMessage({ ...base, passcode: 'K7M4' }), [
+    'Hi Jane, thank you for signing. Your deposit of $1,650.00 to Forensic Cleaning QLD is ready to pay by card or bank transfer here:',
+    'https://document.forensiccleaningqld.com.au/abc',
+    '',
+    'Passcode: K7M4',
+    '',
+    'Kind regards,',
+    'Ben',
+  ].join('\n'))
+  // A link the system emailed has no passcode, and only the ways to pay that exist are named.
+  const emailed = paymentReadyMessage({ ...base, passcode: null, card: false, staffFirstName: '' })
+  assert.doesNotMatch(emailed, /Passcode|card/)
+  assert.match(emailed, /is ready to pay by bank transfer here:\nhttps:/)
+  assert.match(emailed, /Kind regards,\nForensic Cleaning QLD$/)
 })
 
 test('bank details are saved whole or not at all', () => {
@@ -571,38 +669,46 @@ test('a deposit counts as received only when Xero shows the money', () => {
   assert.equal(depositPartPaid({ paid: 1650, jobDeposits: 1650, deposit: 1650 }), null)
 })
 
-test('the pay step shows the amount and bank details straight away, and says the card option is coming', () => {
-  const html = payPanelHtml(panel())
+test('after signing, the pay step says the invoice is being prepared and shows no way to pay', () => {
+  // Even with a pay link and bank details on hand, nothing is shown before the check.
+  const html = payPanelHtml(panel({ stage: 'preparing', cardUrl: 'https://in.xero.com/abc123', invoiceNumber: 'INV-0042' }))
+  assert.match(html, /Your invoice is being prepared/)
+  assert.match(html, /Forensic Cleaning QLD is checking the details and preparing your invoice/)
+  assert.match(html, /Your deposit is \$1,650\.00 \(50% of \$3,300\.00 including GST\)\. There is nothing to pay yet\./)
+  assert.doesNotMatch(html, /064-000|12345678|Account name|in\.xero\.com|Pay by card|Pay by bank transfer|INV-0042|sg-copy/)
+})
+
+test('once the invoice is approved, card and bank transfer are shown together', () => {
+  const html = payPanelHtml(panel({ cardUrl: 'https://in.xero.com/abc123', invoiceNumber: 'INV-0042' }))
   assert.match(html, /Pay your deposit/)
   assert.match(html, /<div class="sg-amount">\$1,650\.00<\/div>/)
   assert.match(html, /50% of \$3,300\.00 including GST\./)
+  assert.match(html, /<a class="sg-btn sg-btn-wide" href="https:\/\/in\.xero\.com\/abc123" target="_blank" rel="noopener noreferrer">Pay by card<\/a>/)
+  assert.match(html, /Opens your invoice INV-0042 from Forensic Cleaning QLD/)
   assert.match(html, /<span>BSB<\/span><strong>064-000<\/strong>/)
   assert.match(html, /<span>Account number<\/span><strong>12345678<\/strong>/)
   assert.match(html, /<span>Reference<\/span><strong>BCQ-1<\/strong><button type="button" class="sg-copy" data-copy="BCQ-1"/)
-  assert.match(html, /your invoice is being prepared.*or you can pay by bank transfer now/)
-  assert.doesNotMatch(html, /<a class="sg-btn/)
+  assert.equal(html.indexOf('Pay by card') < html.indexOf('Pay by bank transfer'), true)
+  assert.doesNotMatch(html, /being prepared/)
 })
 
 test('the pay step promises nothing that is not set up', () => {
-  // Xero not connected: no word about paying by card.
-  const bankOnly = payPanelHtml(panel({ cardExpected: false }))
+  // No pay link (Xero not connected): no word about paying by card.
+  const bankOnly = payPanelHtml(panel())
   assert.doesNotMatch(bankOnly, /card/i)
   assert.match(bankOnly, /Pay by bank transfer/)
-  // No bank details saved: no bank block, and no "or by bank transfer".
-  const cardOnly = payPanelHtml(panel({ bank: null }))
+  // No bank details saved: no bank block.
+  const cardOnly = payPanelHtml(panel({ bank: null, cardUrl: 'https://in.xero.com/abc123' }))
   assert.doesNotMatch(cardOnly, /bank/i)
-  assert.match(cardOnly, /A Pay by card button will appear here when it is ready\./)
+  assert.match(cardOnly, />Pay by card<\/a>/)
   // Neither: the brand follows up.
-  const neither = payPanelHtml(panel({ bank: null, cardExpected: false }))
+  const neither = payPanelHtml(panel({ bank: null }))
   assert.match(neither, /Forensic Cleaning QLD will be in touch with payment details\./)
   assert.doesNotMatch(neither, /card|bank/i)
-})
-
-test('once the invoice is approved in Xero the pay step links to it', () => {
-  const html = payPanelHtml(panel({ cardUrl: 'https://in.xero.com/abc123', invoiceNumber: 'INV-0042' }))
-  assert.match(html, /<a class="sg-btn sg-btn-wide" href="https:\/\/in\.xero\.com\/abc123" target="_blank" rel="noopener noreferrer">Pay by card<\/a>/)
-  assert.match(html, /Opens your invoice INV-0042 from Forensic Cleaning QLD/)
-  assert.doesNotMatch(html, /being prepared/)
+  // The invoice was voided in Xero: no way to pay is shown, even with details on hand.
+  const voided = payPanelHtml(panel({ stage: 'contact', cardUrl: 'https://in.xero.com/abc123' }))
+  assert.match(voided, /Forensic Cleaning QLD will be in touch with payment details\./)
+  assert.doesNotMatch(voided, /064-000|in\.xero\.com/)
 })
 
 test('only a real Xero address is ever offered as the pay link', () => {
@@ -662,6 +768,13 @@ test('a signed document opens on the pay step until the deposit is in', () => {
   assert.match(due, /<li data-step="sign" class="sg-done"><b>✓<\/b>Sign<\/li><li data-step="pay" class="sg-now" aria-current="step"><b>3<\/b>Pay deposit<\/li>/)
   assert.match(due, /signed by Jane &lt;b&gt;Smith&lt;\/b&gt;, 11 Nov 2026/)
   assert.match(due, new RegExp(`"token":"${TOKEN}","settled":false`))
+
+  // Signed but not yet checked by staff: the step is there, with nothing to pay.
+  const waiting = signedViewHtml({ ...base, pay: panel({ stage: 'preparing' }) })
+  assert.match(waiting, /class="sg-overlay sg-on" id="sg-pay"/)
+  assert.match(waiting, /id="sg-pay-open">Your deposit</)
+  assert.match(waiting, /Your invoice is being prepared/)
+  assert.doesNotMatch(waiting, /064-000|Pay by card/)
 
   const paid = signedViewHtml({ ...base, pay: panel({ paid: 1650 }) })
   assert.match(paid, /class="sg-overlay" id="sg-pay"/)

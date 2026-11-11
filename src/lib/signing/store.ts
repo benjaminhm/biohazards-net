@@ -3,7 +3,11 @@
  *
  * Database and delivery work for signing requests: finding a request from the
  * client's link, building the signed copy, storing its PDF, and everything that
- * follows a signature (emails, job status, Xero).
+ * follows a signature (emails, job status, the pay step).
+ *
+ * A signature does not create the Xero invoice. Staff check the signed request
+ * first and create the invoice from the quote in Documents (see
+ * /api/signing/[id]); until then the client's page shows no payment details.
  *
  * Server only. The rules themselves are in core.ts; the fields in slots.ts.
  */
@@ -11,10 +15,9 @@ import twilio from 'twilio'
 import type { createServiceClient } from '@/lib/supabase'
 import { sendQuoteAcceptedEmail } from '@/lib/email'
 import { formatToTwilioE164 } from '@/lib/phone'
-import { syncJobInvoice } from '@/lib/xero/sync'
 import { jobPayState } from '@/lib/xero/payments'
 import { loadBankDetails } from '@/lib/paymentDetails'
-import { depositAmount, money, paymentReference, percentLabel, staffDepositNote } from '@/lib/signing/pay'
+import { depositAmount, money, paymentReference, payStage, percentLabel, staffCheckNote } from '@/lib/signing/pay'
 import type { PayPanel } from '@/lib/signing/pay'
 import {
   docketHtml,
@@ -79,6 +82,13 @@ export interface SigningRequestRow {
   passcode_locked_at: string | null
   /** Share of quote_total asked for on the pay step after signing. Null = no pay step. */
   deposit_percent: number | null
+  /** When staff checked the signed request and created the invoice. Null = still waiting for that check. */
+  invoice_confirmed_at: string | null
+  invoice_confirmed_by: string | null
+  /** The Xero contact the invoice was raised to at the check. */
+  xero_contact_id: string | null
+  /** Hash of the second link, made for the ready-to-pay message staff send. */
+  pay_token_hash: string | null
 }
 
 /**
@@ -90,7 +100,7 @@ export const SIGNING_SUMMARY_COLUMNS =
   'id, job_id, document_id, status, document_type, document_title, reference, brand_label, from_address, reply_to, ' +
   'to_email, to_name, subject, message, sent_at, sent_by_name, expires_at, first_viewed_at, signed_at, signer_name, ' +
   'declined_at, decline_reason, voided_at, delivered_at, delivery_error, delivery_method, passcode, passcode_locked_at, ' +
-  'quote_total, deposit_percent'
+  'quote_total, deposit_percent, invoice_confirmed_at'
 
 export function documentLine(row: Pick<SigningRequestRow, 'document_title' | 'reference'>): string {
   return `${row.document_title}${row.reference ? ` ${row.reference}` : ''}`
@@ -102,6 +112,16 @@ export async function findSigningRequestByToken(
 ): Promise<SigningRequestRow | null> {
   const hash = hashSigningTokenSafe(token)
   if (!hash) return null
+  // A request can have two links: the one first sent, and the one in the
+  // ready-to-pay message. The hash is hex, so it is safe inside the filter.
+  const either = await supabase
+    .from('signing_requests')
+    .select('*')
+    .or(`token_hash.eq.${hash},pay_token_hash.eq.${hash}`)
+    .limit(1)
+    .maybeSingle()
+  if (!either.error) return (either.data as SigningRequestRow | null) ?? null
+  // The second link's column is not there yet: the first link must still open.
   const { data } = await supabase.from('signing_requests').select('*').eq('token_hash', hash).maybeSingle()
   return (data as SigningRequestRow | null) ?? null
 }
@@ -188,9 +208,9 @@ export async function ensureSignedPdf(supabase: ServiceClient, row: SigningReque
  * again.
  *
  * `links` are the client's own addresses, known only at the moment of signing
- * (the link is never stored). With them, the email also points to the pay step
- * when a deposit was asked for. A later re-send by staff passes null: it has no
- * link to give, and the deposit may have been paid since.
+ * (the link is never stored). With them, the email also names the deposit that
+ * comes next, when one was asked for. A later re-send by staff passes null: it
+ * has no link to give, and the deposit may have been paid since.
  */
 export async function deliverSignedCopy(
   supabase: ServiceClient,
@@ -200,7 +220,7 @@ export async function deliverSignedCopy(
   const downloadUrl = links?.pdf ?? null
   const due = depositAmount(row.quote_total, row.deposit_percent)
   const deposit = links && due != null && row.deposit_percent != null
-    ? { amountLabel: money(due), percentLabel: percentLabel(Number(row.deposit_percent)), pageUrl: links.page }
+    ? { amountLabel: money(due), percentLabel: percentLabel(Number(row.deposit_percent)) }
     : null
   let pdf: Buffer | null = null
   let pdfError = ''
@@ -275,7 +295,8 @@ const POST_ACCEPTANCE = new Set(['accepted', 'scheduled', 'underway', 'completed
 
 /**
  * A signature is an acceptance: record it the same way the quote link and the
- * portal do, so the job moves to Accepted and its Xero invoice is built from it.
+ * portal do, so the job moves to Accepted. The Xero invoice is built from these
+ * records, but only once staff have checked the signed request.
  * Returns false when this document already had an acceptance on file.
  */
 export async function recordAcceptance(
@@ -330,9 +351,9 @@ export async function recordAcceptance(
 
 /**
  * Everything slow that follows a signature. Run it with after(), not in the
- * response. The three jobs do not depend on each other, so they run together:
- * the invoice is in Xero within seconds of the signature rather than after the
- * PDF and the emails. None of them throws.
+ * response. The signed copy goes to the client and staff are told to check it.
+ * Nothing is sent to Xero here: the invoice is created by a person, after the
+ * check. Neither step throws.
  */
 export async function afterSigned(
   supabase: ServiceClient,
@@ -345,9 +366,6 @@ export async function afterSigned(
       console.error('[signing] signed copy failed', row.id, err)
     }),
     tellStaffSigned(row, info),
-    syncJobInvoice(supabase, row.job_id, 'quote_accepted').catch(err => {
-      console.error('[signing] xero sync failed', row.id, err)
-    }),
   ])
 }
 
@@ -357,7 +375,6 @@ async function tellStaffSigned(
 ): Promise<void> {
   const clientName = row.signer_name || row.to_name
   const reference = row.reference || row.document_title
-  const depositNote = staffDepositNote(row.quote_total, row.deposit_percent)
   try {
     await sendQuoteAcceptedEmail({
       jobId: row.job_id,
@@ -367,7 +384,7 @@ async function tellStaffSigned(
       reference,
       total: row.quote_total ?? 0,
       contactEmail: row.to_email ?? undefined,
-      ...(depositNote ? { depositNote } : {}),
+      checkNote: staffCheckNote(row.quote_total, row.deposit_percent),
     })
   } catch (err) {
     console.error('[signing] staff email failed', row.id, err)
@@ -384,13 +401,14 @@ async function tellStaffSigned(
       : ` $${Number(row.quote_total).toLocaleString('en-AU', { minimumFractionDigits: 2 })}`
     const due = depositAmount(row.quote_total, row.deposit_percent)
     const depositText = due != null && row.deposit_percent != null
-      ? ` Deposit ${money(due)} (${percentLabel(Number(row.deposit_percent))}): set the deposit request and approve the invoice in Xero.`
+      ? ` Deposit to ask for ${money(due)} (${percentLabel(Number(row.deposit_percent))}).`
       : ''
+    const appUrl = (process.env.NEXT_PUBLIC_APP_URL || 'https://app.biohazards.net').replace(/\/+$/, '')
     try {
       await twilio(sid, authToken).messages.create({
         from: fromNum,
         to,
-        body: `Quote signed: ${clientName}${row.to_email ? ` (${row.to_email})` : ''} — ${reference}${total}${info.siteAddress ? ` — ${info.siteAddress}` : ''}.${depositText}`,
+        body: `Quote signed: ${clientName}${row.to_email ? ` (${row.to_email})` : ''} — ${reference}${total}${info.siteAddress ? ` — ${info.siteAddress}` : ''}.${depositText} Not invoiced yet: check it and create the invoice. ${appUrl}/jobs/${row.job_id}`,
       })
     } catch (err) {
       console.error('[signing] staff sms failed', row.id, err)
@@ -401,11 +419,11 @@ async function tellStaffSigned(
 // ── Pay step ─────────────────────────────────────────────────────────────────
 
 /**
- * What the pay step shows for a signed request: the deposit, the bank details
- * from Settings, and where the job's Xero invoice is up to (pay link, what has
- * been paid). Null when the request is not signed or no deposit was asked for.
- * Never throws; Xero being unreachable only means the card link and the paid
- * status are as last known.
+ * What the pay step shows for a signed request: the deposit, whether the
+ * client may be shown how to pay yet (staff have checked it and the invoice is
+ * approved in Xero), the bank details from Settings, and what has been paid.
+ * Null when the request is not signed or no deposit was asked for. Never
+ * throws; Xero being unreachable only means the invoice is as last known.
  */
 export async function loadPayPanel(supabase: ServiceClient, row: SigningRequestRow): Promise<PayPanel | null> {
   const deposit = depositAmount(row.quote_total, row.deposit_percent)
@@ -430,14 +448,19 @@ export async function loadPayPanel(supabase: ServiceClient, row: SigningRequestR
 
   // A voided or deleted invoice is no longer something to pay or to count.
   const live = pay.status !== 'VOIDED' && pay.status !== 'DELETED'
+  const stage = payStage({
+    confirmed: Boolean(row.invoice_confirmed_at),
+    xeroConnected: pay.xeroConnected,
+    invoiceStatus: pay.status,
+  })
   return {
     brandLabel: row.brand_label,
+    stage,
     percent: Number(row.deposit_percent),
     deposit,
     total: Number(row.quote_total),
     reference: paymentReference(row.reference, row.signer_name || row.to_name),
     bank: bank.details,
-    cardExpected: pay.xeroConnected && live && pay.status !== 'PAID',
     cardUrl: live ? pay.payUrl : null,
     invoiceNumber: live ? pay.invoiceNumber : '',
     paid: live ? pay.amountPaid : 0,

@@ -11,7 +11,11 @@
  *                          Email from here    the system emails the link from the brand address
  *                        and the deposit the client is asked to pay after signing
  *   SigningStatus        the strip under a saved quote: link created / sent / opened /
- *                        signed / declined, then the deposit and what to do in Xero
+ *                        signed / declined. Once signed it holds the staff check:
+ *                        who signed and what they accepted, with Create invoice in
+ *                        Xero. Nothing is invoiced, and the client is shown no way
+ *                        to pay, until a person has done that. After it: what to
+ *                        do in Xero, then a ready-to-pay message to send yourself.
  *
  * The From address is decided on the server from the job's trading name and is
  * only shown here. Either way a person decides what goes to the client
@@ -22,6 +26,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import type { CSSProperties } from 'react'
+import { depositAmount, money, percentLabel, signedNext } from '@/lib/signing/pay'
 
 export interface SigningSummary {
   id: string
@@ -55,6 +60,17 @@ export interface SigningSummary {
   quote_total: number | null
   /** Share of the total asked for after signing. Null = no pay step. */
   deposit_percent: number | null
+  /** When staff checked the signed request and created the invoice. Null = not checked yet. */
+  invoice_confirmed_at: string | null
+}
+
+/** The ready-to-pay message, with a new private link, for staff to send themselves. */
+interface PayMessage {
+  url: string
+  passcode: string | null
+  card: boolean
+  bank: boolean
+  message: string
 }
 
 /** Where the job's Xero invoice is up to, for a signed quote with a deposit. */
@@ -158,14 +174,9 @@ function when(iso: string | null): string {
   return new Date(iso).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })
 }
 
-function money(n: number): string {
-  return '$' + n.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
-
-/** Same sum as the server (lib/signing/pay.ts): a share of the inc-GST total, to the cent. */
+/** A share of the inc-GST total, to the cent: the server's own sum. */
 function depositOf(total: number | null, percent: number | null): number | null {
-  if (total == null || percent == null || !(total > 0) || !(percent > 0)) return null
-  return Math.round(total * percent) / 100
+  return depositAmount(total, percent)
 }
 
 /** What is typed in the deposit box: a percentage, empty for none, or not valid. */
@@ -404,7 +415,7 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
             )}
 
             <div style={{ ...helpText, marginBottom: 12 }}>
-              The client views the quote first, signs it on the same page, then sees the deposit to pay.
+              The client views the quote and signs it on the same page. You then check who signed and create the invoice; they are shown how to pay once the invoice is approved in Xero.
             </div>
 
             <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
@@ -475,11 +486,11 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
                   <>No deposit: the client&apos;s page ends at the signed copy.</>
                 ) : (
                   <>
-                    After signing, the client&apos;s page shows this deposit{preview.bankDetailsSet ? ' with your bank details and the quote reference' : ''}.
+                    After signing, the client is told this deposit comes next, but is shown no way to pay yet.
                     {' '}Our quotes ask for {preview.defaultDepositPercent}%: if you change it, check the quote&apos;s payment terms say the same.
                     {' '}{preview.xeroConnected
-                      ? 'Once it is signed, set the deposit request on the draft invoice in Xero and approve it; Pay by card then appears on their page.'
-                      : 'Xero is not connected, so no invoice is created and there is no Pay by card.'}
+                      ? `Once it is signed you check it here and create the invoice, then set the deposit request and approve it in Xero. Their page then shows Pay by card${preview.bankDetailsSet ? ' and your bank details together' : ''}.`
+                      : `Xero is not connected, so there is no invoice and no Pay by card. Once it is signed you check it here${preview.bankDetailsSet ? ', and their page then shows your bank details' : ''}.`}
                     {!preview.bankDetailsSet && (
                       <span style={{ color: '#FBBF24' }}> No bank details are saved in Settings, so the client will not see bank transfer details.</span>
                     )}
@@ -549,8 +560,11 @@ export function SigningStatus({ request, invoice, onChanged }: {
   const [error, setError] = useState('')
   const [note, setNote] = useState('')
   const [confirmCancel, setConfirmCancel] = useState(false)
+  const [payMessage, setPayMessage] = useState<PayMessage | null>(null)
+  const [payText, setPayText] = useState('')
+  const [copied, setCopied] = useState('')
 
-  async function act(action: 'void' | 'resend' | 'deliver', done: string) {
+  async function act(action: 'void' | 'resend' | 'deliver' | 'confirm' | 'pay_message', done: string) {
     setBusy(action)
     setError('')
     setNote('')
@@ -562,7 +576,11 @@ export function SigningStatus({ request, invoice, onChanged }: {
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data?.error ?? 'That did not work')
-      setNote(done)
+      if (action === 'pay_message' && data.payMessage) {
+        setPayMessage(data.payMessage as PayMessage)
+        setPayText((data.payMessage as PayMessage).message)
+      }
+      setNote(typeof data.note === 'string' && data.note ? data.note : done)
       onChanged()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'That did not work')
@@ -613,35 +631,28 @@ export function SigningStatus({ request, invoice, onChanged }: {
     detail = `The wrong passcode was entered five times, so the link for ${request.to_name} no longer opens. Use Send to client to create a new one.`
   }
 
-  // After signing: the deposit the client was asked for, and what is next in Xero.
-  const percent = request.status === 'signed' ? request.deposit_percent : null
-  const due = depositOf(request.quote_total, percent)
-  const asked = percent == null ? '' : due != null ? `${money(due)} (${percent}%)` : `${percent}%`
-  const invoiceName = invoice?.number ? `invoice ${invoice.number}` : 'the invoice'
-  let depositColor = 'var(--text)'
-  let depositText = ''
-  if (percent != null && invoice) {
-    const received = invoice.amountPaid
-    if (!invoice.xeroConnected) {
-      depositText = `Deposit asked: ${asked}. Xero is not connected, so no invoice was created; the client's page shows bank details only.`
-    } else if (invoice.status === 'VOIDED' || invoice.status === 'DELETED') {
-      depositText = `Deposit asked: ${asked}. ${invoiceName[0].toUpperCase()}${invoiceName.slice(1)} was voided in Xero, so the client's page shows bank details only.`
-    } else if (due != null && received >= due - 0.005) {
-      depositColor = '#34D399'
-      depositText = `Deposit received: ${money(received)} paid on ${invoiceName}${invoice.paidOn ? ` (${invoice.paidOn.split('-').reverse().join('/')})` : ''}. Asked for ${asked}.`
-    } else if (invoice.status === 'PAID') {
-      depositColor = '#34D399'
-      depositText = `${invoiceName[0].toUpperCase()}${invoiceName.slice(1)} is paid in full.`
-    } else if (!invoice.status || invoice.status === 'CLAIMED') {
-      depositText = `Deposit asked: ${asked}. The Xero invoice has not been created yet.`
-    } else if (invoice.status === 'AUTHORISED') {
-      depositText = `Deposit asked: ${asked}. ${invoiceName[0].toUpperCase()}${invoiceName.slice(1)} is approved${invoice.payLinkLive ? ", and Pay by card is showing on the client's page" : ''}. ${received > 0.005 ? `${money(received)} received so far.` : 'Nothing received yet.'}`
-    } else {
-      depositColor = '#FBBF24'
-      depositText = `Deposit asked: ${asked}. Next: in Xero, set the deposit request to ${percent}% on draft ${invoiceName} and approve it. Pay by card then appears on the client's page.`
-    }
-  } else if (percent != null) {
-    depositText = `Deposit asked: ${asked}.`
+  // After signing: the staff check, then what is next in Xero, then the money.
+  const signed = request.status === 'signed'
+  const due = signed ? depositOf(request.quote_total, request.deposit_percent) : null
+  const next = signed
+    ? signedNext({
+        confirmed: Boolean(request.invoice_confirmed_at),
+        total: request.quote_total,
+        percent: request.deposit_percent,
+        invoice,
+      })
+    : null
+  const nextColor = next?.tone === 'good' ? '#34D399' : next?.tone === 'todo' ? '#FBBF24' : 'var(--text)'
+  const createLabel = invoice?.xeroConnected ? 'Create invoice in Xero' : 'Mark as checked'
+
+  function copy(what: string, text: string) {
+    navigator.clipboard.writeText(text).then(
+      () => {
+        setCopied(what)
+        setTimeout(() => setCopied(current => (current === what ? '' : current)), 2000)
+      },
+      () => setCopied('failed'),
+    )
   }
 
   return (
@@ -709,12 +720,79 @@ export function SigningStatus({ request, invoice, onChanged }: {
           </div>
         )
       )}
-      {depositText && (
-        <div style={{ color: depositColor, marginTop: 4 }}>
-          {depositText}
+      {next?.needsCheck && (
+        <div style={{ marginTop: 8, padding: '10px 12px', borderRadius: 8, border: '1px solid rgba(251,191,36,0.5)', background: 'rgba(251,191,36,0.08)' }}>
+          <div style={{ fontWeight: 700, color: 'var(--text)', marginBottom: 6 }}>Check before invoicing</div>
+          <div style={{ color: 'var(--text)' }}>
+            <div><span style={{ color: 'var(--text-muted)' }}>Signed by:</span> {request.signer_name ?? request.to_name}{request.to_email ? ` (${request.to_email})` : ''}, {when(request.signed_at)}</div>
+            <div>
+              <span style={{ color: 'var(--text-muted)' }}>Accepted:</span> {request.document_title}{request.reference ? ` ${request.reference}` : ''}
+              {request.quote_total != null && <>, {money(request.quote_total)} inc GST</>}
+            </div>
+            {due != null && request.deposit_percent != null && (
+              <div><span style={{ color: 'var(--text-muted)' }}>Deposit to ask for:</span> {money(due)} ({percentLabel(Number(request.deposit_percent))})</div>
+            )}
+          </div>
+          <div style={{ color: 'var(--text)', opacity: 0.75, margin: '8px 0' }}>
+            {invoice?.xeroConnected
+              ? 'Nothing has been invoiced. If this is right, create the draft invoice in Xero. Nothing is sent to the client, and they see no payment details until you have set the deposit request and approved the invoice in Xero.'
+              : 'Xero is not connected, so no invoice is created. If this is right, mark it as checked: the client\'s page then shows the deposit with your bank details.'}
+          </div>
+          <button type="button" className="btn btn-primary" style={{ fontSize: 12, padding: '7px 14px' }} disabled={!!busy}
+            onClick={() => act('confirm', 'Checked.')}>
+            {busy === 'confirm' ? 'Working…' : createLabel}
+          </button>
+        </div>
+      )}
+      {next && !next.needsCheck && next.text && (
+        <div style={{ color: nextColor, marginTop: 4 }}>
+          {next.text}
           {invoice?.xeroUrl && (
-            <> <a href={invoice.xeroUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', fontWeight: 600 }}>Open in Xero</a></>
+            <> <a href={invoice.xeroUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', fontWeight: 600 }}>Open invoice in Xero</a></>
           )}
+        </div>
+      )}
+      {next && (next.canCreateInvoice || (next.canSendPayMessage && !payMessage)) && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
+          {next.canCreateInvoice && (
+            <button type="button" className="btn btn-primary" style={small} disabled={!!busy} onClick={() => act('confirm', 'Done.')}>
+              {busy === 'confirm' ? 'Working…' : 'Create invoice in Xero'}
+            </button>
+          )}
+          {next.canSendPayMessage && !payMessage && (
+            <button type="button" className="btn btn-secondary" style={small} disabled={!!busy}
+              onClick={() => act('pay_message', 'Nothing has been sent. Copy the message and send it yourself.')}>
+              {busy === 'pay_message' ? 'Working…' : 'Message to tell the client they can pay'}
+            </button>
+          )}
+        </div>
+      )}
+      {payMessage && (
+        <div style={{ marginTop: 8, padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)' }}>
+          <label htmlFor={`pay-msg-${request.id}`} style={fieldLabel}>Message to send</label>
+          <textarea
+            id={`pay-msg-${request.id}`}
+            style={{ ...fieldInput, minHeight: 190, resize: 'vertical', lineHeight: 1.5, fontSize: 13 }}
+            value={payText}
+            onChange={e => setPayText(e.target.value)}
+          />
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '8px 0' }}>
+            <button type="button" className="btn btn-primary" style={small} onClick={() => copy('message', payText)}>
+              {copied === 'message' ? '✓ Copied' : 'Copy message'}
+            </button>
+            <button type="button" className="btn btn-secondary" style={small} onClick={() => copy('link', payMessage.url)}>
+              {copied === 'link' ? '✓ Copied' : 'Copy link only'}
+            </button>
+            <button type="button" className="btn btn-secondary" style={small} onClick={() => setPayMessage(null)}>Close</button>
+          </div>
+          {copied === 'failed' && <div role="alert" style={{ color: '#F87171' }}>Could not copy. Select the message above and copy it by hand.</div>}
+          <div style={{ color: 'var(--text-muted)' }}>
+            Nothing has been sent from here. This is a new private link to the client&apos;s page, shown this once
+            {payMessage.passcode ? '; it asks for the same passcode' : ''}. The link they already have still works.
+            Making another message replaces this link.
+            {!payMessage.card && ' Xero has not given a pay link yet, so their page shows bank transfer only for now.'}
+            {!payMessage.bank && ' No bank details are saved in Settings, so their page shows Pay by card only.'}
+          </div>
         </div>
       )}
       {note && <div style={{ color: 'var(--text-muted)', marginTop: 4 }}>{note}</div>}

@@ -7,8 +7,10 @@
  *   1 View          the document opens straight away, nothing in front of it
  *   2 Sign          "Next: sign" asks them to agree to sign electronically,
  *                   then lights up the fields: draw or type a signature, Finish
- *   3 Pay deposit   once signed, the amount, bank transfer details and (when
- *                   the invoice is approved in Xero) a Pay by card button
+ *   3 Pay deposit   once signed, "your invoice is being prepared" until staff
+ *                   have checked the signed document and approved the invoice
+ *                   in Xero; then the amount with Pay by card and the bank
+ *                   transfer details together
  *
  * The pay step is left out when the request has no deposit.
  *
@@ -686,10 +688,10 @@ export function signingShellHtml(d: SigningShellData): string {
           ? `Your signed copy of ${esc(docLine)} is being emailed to ${esc(d.toEmail)}. You can also download it now.`
           : `Download your signed copy of ${esc(docLine)} now and keep it for your records.`}</p>
         ${d.deposit
-          ? `<p>The next step is your deposit of <strong>${esc(d.deposit.amountLabel)}</strong> (${esc(d.deposit.percentLabel)}).</p>
+          ? `<p>The next step is your deposit of <strong>${esc(d.deposit.amountLabel)}</strong> (${esc(d.deposit.percentLabel)}). There is nothing to pay yet: ${esc(d.brandLabel)} will check the details, prepare your invoice and let you know when it is ready.</p>
         <div class="sg-actions">
           <a class="sg-btn sg-btn-quiet" href="${esc(pdfUrl)}">Download signed copy</a>
-          <button type="button" class="sg-btn" id="sg-done-next">Next: pay deposit</button>
+          <button type="button" class="sg-btn" id="sg-done-next">Continue</button>
         </div>`
           : `<div class="sg-actions">
           <a class="sg-btn" href="${esc(pdfUrl)}">Download signed copy</a>
@@ -727,8 +729,11 @@ function bankRow(label: string, value: string): string {
 /**
  * The inside of the pay card. Built on the server both for the page and for the
  * page's later checks (which swap this in), so there is one version of the
- * wording. Nothing is promised that cannot happen: the card line only appears
- * when Xero is connected, and the bank block only when bank details are saved.
+ * wording. Until staff have checked the signed request and the invoice is
+ * approved in Xero, it says the invoice is being prepared and shows no way to
+ * pay. After that, card and bank transfer are shown together. Nothing is
+ * promised that cannot happen: the card button only appears with a real Xero
+ * pay link, and the bank block only when bank details are saved.
  */
 export function payPanelHtml(p: PayPanel): string {
   const brand = esc(p.brandLabel)
@@ -743,14 +748,22 @@ export function payPanelHtml(p: PayPanel): string {
       <p class="sg-small">Your deposit was ${esc(money(p.deposit))} (${esc(share)}). ${brand} will be in touch about next steps.</p>`
   }
 
+  // Signed, but not yet checked by staff or approved in Xero: no way to pay is shown.
+  if (p.stage === 'preparing') {
+    return `
+      <div class="sg-eyebrow">${brand}</div>
+      <h2 id="sg-pay-h">Your invoice is being prepared</h2>
+      <div class="sg-note">Thank you for signing. ${brand} is checking the details and preparing your invoice. We will let you know when it is ready, and the payment details will then be on this page.</div>
+      <p class="sg-small">Your deposit is ${esc(money(p.deposit))} (${esc(share)}). There is nothing to pay yet.</p>`
+  }
+
   const part = depositPartPaid(p)
-  const card = p.cardUrl
+  const ready = p.stage === 'ready'
+  const card = ready && p.cardUrl
     ? `<a class="sg-btn sg-btn-wide" href="${esc(p.cardUrl)}" target="_blank" rel="noopener noreferrer">Pay by card</a>
       <p class="sg-small" style="margin:8px 0 0">Opens your invoice${p.invoiceNumber ? ` ${esc(p.invoiceNumber)}` : ''} from ${brand}, where you can pay online.</p>`
-    : p.cardExpected
-      ? `<div class="sg-note">To pay by card: your invoice is being prepared. A Pay by card button will appear here when it is ready${p.bank ? ', or you can pay by bank transfer now' : ''}.</div>`
-      : ''
-  const bank = p.bank
+    : ''
+  const bank = ready && p.bank
     ? `<h3>Pay by bank transfer</h3>
       <div class="sg-bank">
         ${bankRow('Account name', p.bank.accountName)}
@@ -802,6 +815,9 @@ const PAY_SCRIPT = String.raw`
     }, function () {});
   });
 
+  function label(stage) {
+    if (!settled && stage) open.textContent = stage === 'preparing' ? 'Your deposit' : 'Pay deposit';
+  }
   function markSettled() {
     open.textContent = 'Deposit received';
     if (step) {
@@ -811,8 +827,9 @@ const PAY_SCRIPT = String.raw`
     }
   }
 
-  // The card button appears once the invoice is approved, and the deposit shows
-  // as received once it is paid. Ask now and then while the page is in view.
+  // The payment details appear once staff have checked the signed document and
+  // approved the invoice, and the deposit shows as received once it is paid.
+  // Ask now and then while the page is in view.
   function check() {
     if (busy || settled || document.hidden) return;
     busy = true;
@@ -826,6 +843,7 @@ const PAY_SCRIPT = String.raw`
       if (!data || typeof data.html !== 'string') return;
       if (data.html !== shown) { body.innerHTML = data.html; shown = data.html; }
       if (data.settled) { settled = true; markSettled(); }
+      else label(data.stage);
     }).catch(function () {}).then(function () { busy = false; });
   }
 
@@ -865,7 +883,7 @@ export function signedViewHtml(d: {
         <div class="sg-title">${esc(docLine)} — signed by ${esc(d.signerName)}, ${esc(d.signedAtLabel)}</div>
       </div>
       <a class="sg-btn${d.pay ? ' sg-btn-quiet' : ''}" href="${esc(d.pdfUrl)}">Download<span class="sg-wide"> signed copy</span></a>
-      ${d.pay ? `<button type="button" class="sg-btn" id="sg-pay-open">${settled ? 'Deposit received' : 'Pay deposit'}</button>` : ''}
+      ${d.pay ? `<button type="button" class="sg-btn" id="sg-pay-open">${settled ? 'Deposit received' : d.pay.stage === 'preparing' ? 'Your deposit' : 'Pay deposit'}</button>` : ''}
     </div>
     ${stepsHtml(d.pay && !settled ? 'pay' : 'finished', Boolean(d.pay))}
     ${d.pay ? `

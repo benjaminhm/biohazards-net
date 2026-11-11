@@ -277,6 +277,36 @@ export function linkMessage(data: {
   ].join('\n')
 }
 
+/**
+ * The message staff copy into their own text or email once they have checked
+ * the signed document and the client can pay. Fixed wording; they can edit it
+ * before sending, and nothing is sent from the app. It only names the ways to
+ * pay that the client's page will actually show.
+ */
+export function paymentReadyMessage(data: {
+  clientName: string
+  brandLabel: string
+  staffFirstName: string
+  /** e.g. "$1,650.00" */
+  depositLabel: string
+  link: string
+  /** Null for a link the system emailed: those have no passcode. */
+  passcode: string | null
+  card: boolean
+  bank: boolean
+}): string {
+  const first = data.clientName.trim().split(/\s+/)[0] || 'there'
+  const ways = data.card && data.bank ? ' by card or bank transfer' : data.card ? ' by card' : data.bank ? ' by bank transfer' : ''
+  return [
+    `Hi ${first}, thank you for signing. Your deposit of ${data.depositLabel} to ${data.brandLabel} is ready to pay${ways} here:`,
+    data.link,
+    ...(data.passcode ? ['', `Passcode: ${data.passcode}`] : []),
+    '',
+    'Kind regards,',
+    data.staffFirstName.trim() || data.brandLabel,
+  ].join('\n')
+}
+
 /** The staff member's message as email paragraphs, exactly as typed. */
 export function messageToHtml(message: string): string {
   return message

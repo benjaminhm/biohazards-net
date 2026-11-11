@@ -2,8 +2,14 @@
  * lib/xero/sync.ts
  *
  * Keeps one DRAFT ACCREC invoice in Xero per job, with one line per accepted
- * quote. Called (in after()) whenever a quote is accepted or an accepted quote
- * is saved again.
+ * quote. Called when staff confirm a signed document link, when a quote is
+ * accepted from the emailed accept box or the trade portal, and when an
+ * accepted quote is saved again.
+ *
+ * A quote signed on a document link is not invoiced by the signature. A person
+ * checks who signed and what they accepted first, then creates the invoice
+ * (trigger 'staff_confirmed'). Until then the job's invoice is held: no other
+ * trigger creates or changes it.
  *
  *   - No invoice yet: find or create the Xero contact, create the draft.
  *   - Invoice still DRAFT in Xero: replace its lines with the accepted quotes.
@@ -23,14 +29,24 @@ import {
   contactFromJob,
   draftInvoiceBody,
   linesHash,
+  staffCheckHold,
   xeroSettings,
   type AcceptedQuote,
   type ContactInput,
+  type SignedLink,
 } from '@/lib/xero/invoice'
 
 type Supabase = ReturnType<typeof createServiceClient>
 
-export type XeroSyncTrigger = 'quote_accepted' | 'portal_quote_accepted' | 'quote_edited'
+export type XeroSyncTrigger = 'quote_accepted' | 'portal_quote_accepted' | 'quote_edited' | 'staff_confirmed'
+
+export interface XeroSyncOptions {
+  /** With 'staff_confirmed': the signed document link staff have just checked. */
+  requestId?: string
+}
+
+/** Why a sync was skipped while a signed link waits for its staff check. */
+export const AWAITING_STAFF_CHECK = 'awaiting staff check'
 
 export type XeroSyncResult =
   | { outcome: 'skipped'; reason: string }
@@ -90,6 +106,28 @@ async function releaseLock(supabase: Supabase, jobId: string, patch: Record<stri
     .from('xero_job_invoices')
     .update({ ...patch, sync_lock_until: null, updated_at: new Date().toISOString() })
     .eq('job_id', jobId)
+}
+
+/**
+ * The signed document links on a job, and whether each has had its staff check.
+ * If this cannot be read, nothing is held: the caller carries on as it did
+ * before links had a check.
+ */
+async function signedLinks(supabase: Supabase, jobId: string): Promise<SignedLink[]> {
+  const { data, error } = await supabase
+    .from('signing_requests')
+    .select('id, document_id, invoice_confirmed_at')
+    .eq('job_id', jobId)
+    .eq('status', 'signed')
+  if (error) {
+    console.error('[xero] reading signed links failed', jobId, error.message)
+    return []
+  }
+  return ((data ?? []) as { id: string; document_id: string | null; invoice_confirmed_at: string | null }[]).map(r => ({
+    id: r.id,
+    confirmed: Boolean(r.invoice_confirmed_at),
+    documentIds: r.document_id ? [r.document_id] : [],
+  }))
 }
 
 async function acceptedQuotes(supabase: Supabase, jobId: string): Promise<AcceptedQuote[]> {
@@ -173,7 +211,12 @@ function totalNote(invoice: XeroInvoice, quotes: AcceptedQuote[]): string {
   return ` Xero total ${money(invoice.Total)} differs from the accepted quotes (${money(expected)}); check GST rounding.`
 }
 
-export async function syncJobInvoice(supabase: Supabase, jobId: string, trigger: XeroSyncTrigger): Promise<XeroSyncResult> {
+export async function syncJobInvoice(
+  supabase: Supabase,
+  jobId: string,
+  trigger: XeroSyncTrigger,
+  options: XeroSyncOptions = {},
+): Promise<XeroSyncResult> {
   const { data: job } = await supabase
     .from('jobs')
     .select('id, org_id, job_code, client_name, client_organization_name, client_email, client_phone')
@@ -182,7 +225,14 @@ export async function syncJobInvoice(supabase: Supabase, jobId: string, trigger:
   if (!job) return { outcome: 'skipped', reason: 'job not found' }
   const orgId = job.org_id as string
 
-  const quotes = await acceptedQuotes(supabase, jobId)
+  // A signed link waiting for its staff check holds the invoice.
+  const check = staffCheckHold(
+    await signedLinks(supabase, jobId),
+    trigger === 'staff_confirmed' ? options.requestId ?? '' : null,
+  )
+  if (check.hold) return { outcome: 'skipped', reason: AWAITING_STAFF_CHECK }
+
+  const quotes = (await acceptedQuotes(supabase, jobId)).filter(q => !check.leaveOut.includes(q.document_id))
   if (!quotes.length) return { outcome: 'skipped', reason: 'no accepted quotes' }
   if (!xeroConfigured()) return { outcome: 'skipped', reason: 'Xero app keys not set' }
   const conn = await loadXeroConnection(supabase, orgId)

@@ -130,11 +130,12 @@ export interface SignedCopyEmail {
   /** Used when the PDF could not be attached. */
   downloadUrl: string | null
   /**
-   * The deposit to pay next, with the client's own document page where the
-   * payment details are. Null when no deposit was asked for, or when this is a
-   * later re-send (it may have been paid since).
+   * The deposit that comes next. The email only names it: nothing can be paid
+   * until staff have checked the signed document and approved the invoice, and
+   * a person tells the client when that is. Null when no deposit was asked
+   * for, or when this is a later re-send (it may have been paid since).
    */
-  deposit: { amountLabel: string; percentLabel: string; pageUrl: string } | null
+  deposit: { amountLabel: string; percentLabel: string } | null
 }
 
 /**
@@ -150,7 +151,7 @@ export async function sendSignedCopyEmail(data: SignedCopyEmail): Promise<{ used
     ? 'Your signed copy is attached to this email as a PDF. The last page is the signature docket, which records when and how it was signed.'
     : 'You can download your signed copy using the button below. The last page is the signature docket, which records when and how it was signed.'
   const depositLine = data.deposit
-    ? `The next step is your deposit of ${data.deposit.amountLabel} (${data.deposit.percentLabel}). The payment details are on your document page.`
+    ? `The next step is your deposit of ${data.deposit.amountLabel} (${data.deposit.percentLabel}). There is nothing to pay yet: we are checking the details and preparing your invoice, and will let you know when it is ready.`
     : ''
   const closing = data.deposit
     ? 'If you have any questions, just reply to this email.'
@@ -167,8 +168,7 @@ export async function sendSignedCopyEmail(data: SignedCopyEmail): Promise<{ used
       ${data.deposit ? `
       <p style="font-size: 15px; color: #333; line-height: 1.6; margin: 0 0 16px;">
         ${esc(depositLine)}
-      </p>
-      <div style="margin: 8px 0 20px;">${button(data.deposit.pageUrl, 'Pay deposit')}</div>` : ''}
+      </p>` : ''}
       <p style="font-size: 15px; color: #333; line-height: 1.6; margin: 0;">
         ${esc(closing)}
       </p>
@@ -179,7 +179,7 @@ export async function sendSignedCopyEmail(data: SignedCopyEmail): Promise<{ used
     '',
     where,
     ...(!data.pdf && data.downloadUrl ? ['', data.downloadUrl] : []),
-    ...(data.deposit ? ['', depositLine, data.deposit.pageUrl] : []),
+    ...(data.deposit ? ['', depositLine] : []),
     '',
     closing,
     '',

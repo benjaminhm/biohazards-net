@@ -140,6 +140,36 @@ export function draftInvoiceBody(input: InvoiceInput) {
   }
 }
 
+/** A signed document link on a job, as far as the invoice is concerned. */
+export interface SignedLink {
+  id: string
+  /** Staff have checked it and created (or confirmed) the invoice. */
+  confirmed: boolean
+  /** The quotes accepted on it. */
+  documentIds: string[]
+}
+
+/**
+ * Whether the job's invoice may be touched now. A signed link that staff have
+ * not checked yet holds the invoice: nothing is created or changed until a
+ * person confirms it. The check itself (`confirming` is that link) goes ahead,
+ * leaving out the quotes of any other link still waiting for its own check.
+ * Pass null for every other trigger.
+ */
+export function staffCheckHold(links: SignedLink[], confirming: string | null): { hold: boolean; leaveOut: string[] } {
+  const waiting = links.filter(l => !l.confirmed && l.id !== confirming)
+  if (confirming == null) return { hold: waiting.length > 0, leaveOut: [] }
+  return { hold: false, leaveOut: [...new Set(waiting.flatMap(l => l.documentIds))] }
+}
+
+/**
+ * Where staff open an invoice inside Xero. They need to be signed in to Xero;
+ * with one Xero file there is no organisation to choose.
+ */
+export function xeroInvoiceUrl(invoiceId: string): string {
+  return `https://go.xero.com/AccountsReceivable/View.aspx?InvoiceID=${encodeURIComponent(invoiceId.trim())}`
+}
+
 /** Value for a Xero `where` string literal: quotes and backslashes removed. */
 export function whereLiteral(value: string): string {
   return value.replace(/["\\]/g, '').trim()

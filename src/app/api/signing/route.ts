@@ -3,8 +3,9 @@
  * pay the deposit on.
  *
  * GET  ?jobId=…        the signing requests on a job (status for the Documents
- *                      tab), with where the job's Xero invoice is up to when a
- *                      signed request has a deposit
+ *                      tab), with where the job's Xero invoice is up to once a
+ *                      request has been signed (the staff check on the signed
+ *                      request, in /api/signing/[id], is what creates it)
  * GET  ?documentId=…   what the send window shows before sending: who it is
  *                      from, the starting wording, the quote total for the
  *                      deposit, and anything stopping it
@@ -47,6 +48,7 @@ import { documentHostStatus, signingLinks } from '@/lib/signing/links'
 import { DEFAULT_DEPOSIT_PERCENT, depositAmount, parseDepositPercent } from '@/lib/signing/pay'
 import { loadBankDetails } from '@/lib/paymentDetails'
 import { loadXeroConnection, xeroConfigured } from '@/lib/xero/client'
+import { xeroInvoiceUrl } from '@/lib/xero/invoice'
 import { jobPayState } from '@/lib/xero/payments'
 
 export const maxDuration = 60
@@ -119,9 +121,10 @@ export async function GET(req: Request) {
       .order('sent_at', { ascending: false })
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-    // Where the job's Xero invoice is up to, when a signed quote is waiting on a deposit.
+    // Where the job's Xero invoice is up to, once a quote has been signed: the
+    // staff check creates it, and the deposit is watched from then on.
     const list = (requests ?? []) as unknown as { status: string; quote_total: number | null; deposit_percent: number | null }[]
-    const awaitingDeposit = financials && list.some(r => r.status === 'signed' && depositAmount(r.quote_total, r.deposit_percent) != null)
+    const hasSigned = financials && list.some(r => r.status === 'signed')
     let invoice: {
       xeroConnected: boolean
       number: string
@@ -131,7 +134,7 @@ export async function GET(req: Request) {
       payLinkLive: boolean
       xeroUrl: string | null
     } | null = null
-    if (awaitingDeposit) {
+    if (hasSigned) {
       const pay = await jobPayState(supabase, orgId, jobId)
       invoice = {
         xeroConnected: pay.xeroConnected,
@@ -140,9 +143,7 @@ export async function GET(req: Request) {
         amountPaid: pay.amountPaid,
         paidOn: pay.paidOn,
         payLinkLive: Boolean(pay.payUrl),
-        xeroUrl: pay.invoiceId
-          ? `https://go.xero.com/AccountsReceivable/View.aspx?InvoiceID=${encodeURIComponent(pay.invoiceId)}`
-          : null,
+        xeroUrl: pay.invoiceId ? xeroInvoiceUrl(pay.invoiceId) : null,
       }
     }
     return NextResponse.json({
@@ -251,7 +252,7 @@ export async function POST(req: Request) {
   if (insertError || !created) {
     const notMigrated = /does not exist|schema cache|null value in column "to_email"/i.test(insertError?.message ?? '')
     return NextResponse.json(
-      { error: notMigrated ? 'Signing is not fully set up yet: migrations 068, 069 and 070 need to be applied.' : insertError?.message ?? 'Could not save the request' },
+      { error: notMigrated ? 'Signing is not fully set up yet: migrations 068 to 071 need to be applied.' : insertError?.message ?? 'Could not save the request' },
       { status: 500 },
     )
   }

@@ -2,8 +2,13 @@
  * lib/signing/pay.ts
  *
  * The rules for the pay step that follows a signature: how much the deposit
- * is, what bank details may be saved, and when a deposit counts as received.
- * No database or network in here, so it can be tested directly.
+ * is, what bank details may be saved, when the client may be shown how to pay,
+ * and when a deposit counts as received. No database or network in here, so it
+ * can be tested directly.
+ *
+ * Signing does not open the pay step. A person checks the signed request and
+ * creates the invoice, sets the deposit and approves it in Xero; only then are
+ * card and bank transfer shown, together.
  *
  * The app takes no payments itself. The client pays by bank transfer, or by
  * card on Xero's own invoice page, and what has been paid is read from Xero.
@@ -11,6 +16,9 @@
 
 /** What every quote's payment terms ask for today. Staff can change it per link. */
 export const DEFAULT_DEPOSIT_PERCENT = 50
+
+/** Amounts within half a cent are the same amount. */
+const CENT = 0.005
 
 export type DepositPercentResult =
   | { ok: true; percent: number | null }
@@ -52,12 +60,132 @@ export function longDate(isoDay: string | null | undefined): string {
   return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' })
 }
 
-/** What staff do next about the deposit, for the signed alert. Empty when no deposit was asked for. */
-export function staffDepositNote(total: unknown, percent: unknown): string {
+/**
+ * What staff do next, for the signed alert. Nothing is invoiced by the
+ * signature itself: a person checks it first.
+ */
+export function staffCheckNote(total: unknown, percent: unknown): string {
+  const next = 'Nothing has been invoiced yet. Open the job, check who signed and what they accepted on the quote in Documents, then create the invoice from there.'
   const due = depositAmount(total, percent)
-  if (due == null) return ''
-  const share = percentLabel(Number(percent))
-  return `Deposit shown to the client: ${money(due)} (${share}). In Xero, open the job's draft invoice, set the deposit request to ${share} and approve it. Pay by card then appears on the client's page.`
+  if (due == null) return next
+  return `${next} Deposit to ask for: ${money(due)} (${percentLabel(Number(percent))}). The client sees no payment details until the invoice is approved in Xero.`
+}
+
+// ── When the client may be shown how to pay ──────────────────────────────────
+
+/**
+ *   preparing  waiting for the staff check, or for the invoice to be approved
+ *              in Xero: the client is told it is being prepared, and is shown
+ *              no payment details
+ *   ready      card and bank transfer are shown together
+ *   contact    the invoice was voided or deleted in Xero: the brand follows up
+ */
+export type PayStage = 'preparing' | 'ready' | 'contact'
+
+export function payStage(input: {
+  /** Staff have checked the signed request. */
+  confirmed: boolean
+  xeroConnected: boolean
+  /** Xero's invoice status; empty when there is no invoice. */
+  invoiceStatus: string
+}): PayStage {
+  if (!input.confirmed) return 'preparing'
+  // Without Xero there is no invoice to wait for: the check alone opens the pay step.
+  if (!input.xeroConnected) return 'ready'
+  if (input.invoiceStatus === 'VOIDED' || input.invoiceStatus === 'DELETED') return 'contact'
+  if (input.invoiceStatus === 'AUTHORISED' || input.invoiceStatus === 'PAID') return 'ready'
+  return 'preparing'
+}
+
+// ── What staff see under a signed quote ──────────────────────────────────────
+
+/** Where the job's Xero invoice is up to, as the staff screens are given it. */
+export interface StaffInvoiceView {
+  xeroConnected: boolean
+  number: string
+  /** Xero's status: DRAFT, SUBMITTED, AUTHORISED, PAID, VOIDED, DELETED. Empty when there is no invoice. */
+  status: string
+  amountPaid: number
+  paidOn: string | null
+  payLinkLive: boolean
+}
+
+export interface SignedNext {
+  /** One line: where it is up to and what to do next. Empty when there is nothing to say. */
+  text: string
+  tone: 'plain' | 'todo' | 'good'
+  /** The staff check has not been done: show it. */
+  needsCheck: boolean
+  /** Checked and Xero is connected, but there is no invoice: offer to create it. */
+  canCreateInvoice: boolean
+  /** The client can pay now: offer the ready-to-pay message. */
+  canSendPayMessage: boolean
+}
+
+/**
+ * The one next step on a signed request, in order: check it and create the
+ * invoice, set the deposit and approve it in Xero, tell the client they can
+ * pay, deposit received. `invoice` is null for staff who are not shown money.
+ */
+export function signedNext(input: {
+  confirmed: boolean
+  total: number | null
+  percent: number | null
+  invoice: StaffInvoiceView | null
+}): SignedNext {
+  const none = { tone: 'plain' as const, needsCheck: false, canCreateInvoice: false, canSendPayMessage: false }
+  const { invoice } = input
+  if (!invoice) {
+    return { ...none, text: input.confirmed ? '' : 'Waiting for the office to check this and create the invoice.' }
+  }
+  const due = depositAmount(input.total, input.percent)
+  const asked = due != null ? `${money(due)} (${percentLabel(Number(input.percent))})` : ''
+  if (!input.confirmed) {
+    return {
+      ...none,
+      tone: 'todo',
+      needsCheck: true,
+      text: `Not invoiced yet. Check who signed and what they accepted, then ${invoice.xeroConnected ? 'create the invoice in Xero' : 'mark it as checked'}.${asked ? ' The client sees no payment details until then.' : ''}`,
+    }
+  }
+  const name = invoice.number ? `invoice ${invoice.number}` : 'the invoice'
+  const Name = name[0].toUpperCase() + name.slice(1)
+  if (!invoice.xeroConnected) {
+    return {
+      ...none,
+      canSendPayMessage: due != null,
+      text: asked
+        ? `Checked. Deposit asked: ${asked}. Xero is not connected, so there is no invoice; the client's page shows the bank details.`
+        : 'Checked. Xero is not connected, so no invoice was created.',
+    }
+  }
+  if (invoice.status === 'VOIDED' || invoice.status === 'DELETED') {
+    return { ...none, text: `${Name} was voided in Xero${asked ? ", so the client's page shows no way to pay" : ''}.` }
+  }
+  if (due != null && invoice.amountPaid >= due - CENT) {
+    const on = invoice.paidOn ? ` (${invoice.paidOn.split('-').reverse().join('/')})` : ''
+    return { ...none, tone: 'good', text: `Deposit received: ${money(invoice.amountPaid)} paid on ${name}${on}. Asked for ${asked}.` }
+  }
+  if (invoice.status === 'PAID') return { ...none, tone: 'good', text: `${Name} is paid in full.` }
+  if (!invoice.status || invoice.status === 'CLAIMED') {
+    return { ...none, tone: 'todo', canCreateInvoice: true, text: 'Checked, but the Xero invoice has not been created yet.' }
+  }
+  if (invoice.status === 'AUTHORISED') {
+    if (due == null) return { ...none, text: `${Name} is approved in Xero.` }
+    const received = invoice.amountPaid > CENT ? `${money(invoice.amountPaid)} received so far.` : 'Nothing received yet.'
+    return {
+      ...none,
+      canSendPayMessage: true,
+      text: `Deposit asked: ${asked}. ${Name} is approved, and the client's page now shows how to pay${invoice.payLinkLive ? ', by card or bank transfer' : ''}. ${received}`,
+    }
+  }
+  return {
+    ...none,
+    tone: 'todo',
+    text: due != null
+      ? `Deposit to ask for: ${asked}. Next: in Xero, set the deposit request to ${percentLabel(Number(input.percent))} on draft ${name} and approve it. The client's page then shows how to pay.`
+      : `Draft ${name} is in Xero. Approve it there when you are ready.`,
+  }
 }
 
 // ── Bank details ─────────────────────────────────────────────────────────────
@@ -110,6 +238,8 @@ export function paymentReference(reference: string | null | undefined, signerNam
 
 export interface PayPanel {
   brandLabel: string
+  /** Whether the client may be shown how to pay yet. */
+  stage: PayStage
   percent: number
   /** This quote's deposit, inc GST. */
   deposit: number
@@ -119,8 +249,6 @@ export interface PayPanel {
   reference: string
   /** Null until an admin saves bank details in Settings. */
   bank: BankDetails | null
-  /** Xero is connected, so a card link will appear once the invoice is approved there. */
-  cardExpected: boolean
   /** Xero's online invoice. Null until the invoice is approved in Xero. */
   cardUrl: string | null
   invoiceNumber: string
@@ -134,8 +262,6 @@ export interface PayPanel {
    */
   jobDeposits: number
 }
-
-const CENT = 0.005
 
 /** True once Xero shows at least the deposits asked for on this job as paid. */
 export function depositSettled(p: Pick<PayPanel, 'paid' | 'jobDeposits'>): boolean {

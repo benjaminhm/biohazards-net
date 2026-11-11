@@ -9,6 +9,8 @@ import {
   draftInvoiceBody,
   linesHash,
   quoteAmount,
+  staffCheckHold,
+  xeroInvoiceUrl,
   xeroSettings,
 } from './invoice'
 import { xeroErrorMessage, xeroRedirectUriFor } from './client'
@@ -105,6 +107,57 @@ test('deposit prefill reads what Xero says was paid, with the latest payment dat
   )
   assert.equal(invoicePaid({ InvoiceNumber: 'INV-9', AmountPaid: 0 }), null)
   assert.equal(invoicePaid(null), null)
+})
+
+test('a signed link waiting for its staff check holds the job invoice', () => {
+  const checked = { id: 'a', confirmed: true, documentIds: ['doc-a'] }
+  const waiting = { id: 'b', confirmed: false, documentIds: ['doc-b'] }
+  const alsoWaiting = { id: 'c', confirmed: false, documentIds: ['doc-c', 'doc-d'] }
+
+  // Any trigger other than the check itself (a quote edited, another quote accepted) is held.
+  assert.deepEqual(staffCheckHold([checked, waiting], null), { hold: true, leaveOut: [] })
+  // Nothing waiting: carry on as before.
+  assert.deepEqual(staffCheckHold([checked], null), { hold: false, leaveOut: [] })
+  assert.deepEqual(staffCheckHold([], null), { hold: false, leaveOut: [] })
+
+  // The check on a link goes ahead for that link.
+  assert.deepEqual(staffCheckHold([checked, waiting], 'b'), { hold: false, leaveOut: [] })
+  // Another link still waiting is not invoiced along with it.
+  assert.deepEqual(staffCheckHold([checked, waiting, alsoWaiting], 'b'), { hold: false, leaveOut: ['doc-c', 'doc-d'] })
+  // Creating the invoice again on a link already checked leaves every waiting link out.
+  assert.deepEqual(staffCheckHold([checked, waiting], 'a'), { hold: false, leaveOut: ['doc-b'] })
+})
+
+test('the staff link opens the invoice inside Xero', () => {
+  assert.equal(
+    xeroInvoiceUrl(' 3f2a9c1e-0000-4000-8000-123456789abc '),
+    'https://go.xero.com/AccountsReceivable/View.aspx?InvoiceID=3f2a9c1e-0000-4000-8000-123456789abc',
+  )
+  assert.equal(xeroInvoiceUrl('a b&c'), 'https://go.xero.com/AccountsReceivable/View.aspx?InvoiceID=a%20b%26c')
+})
+
+test('the signed alert asks staff to check and invoice, and escapes what the client typed', async () => {
+  process.env.RESEND_API_KEY ||= 're_test_not_used'
+  const { quoteAcceptedEmailHtml } = await import('../email')
+  const base = {
+    jobId: 'job-1', clientName: 'Jane <b>Smith</b>', siteAddress: '1 Example St', jobType: 'trauma',
+    reference: 'BCQ-1', total: 3300, contactEmail: 'jane@example.com',
+  }
+  const signed = quoteAcceptedEmailHtml({ ...base, checkNote: 'Nothing has been invoiced yet. Check <it>.' })
+  assert.match(signed, /Quote signed: check and create the invoice/)
+  assert.match(signed, /Nothing has been invoiced yet\. Check &lt;it&gt;\./)
+  assert.match(signed, /Open job to check →/)
+  assert.match(signed, /\/jobs\/job-1"/)
+  assert.doesNotMatch(signed, /Ready to schedule|Open invoice in Xero|<b>Smith/)
+  assert.match(signed, /Jane &lt;b&gt;Smith&lt;\/b&gt;/)
+
+  // The emailed accept box is unchanged.
+  const accepted = quoteAcceptedEmailHtml(base)
+  assert.match(accepted, /Quote Accepted ✓/)
+  assert.match(accepted, /Ready to schedule — open the job to proceed\./)
+  // Only a real Xero address is ever linked.
+  assert.match(quoteAcceptedEmailHtml({ ...base, xeroInvoiceUrl: xeroInvoiceUrl('abc') }), /Open invoice in Xero →/)
+  assert.doesNotMatch(quoteAcceptedEmailHtml({ ...base, xeroInvoiceUrl: 'https://evil.example/x' }), /Open invoice in Xero|evil\.example/)
 })
 
 test('Xero returns the admin to the staff host they are signed in on, and to no other host', () => {
