@@ -54,6 +54,7 @@ import { SURFACE_LABELS } from '@/lib/areaSurfaces'
 import { effectiveAreaDimensions } from '@/lib/areaSubzones'
 import { OUTCOME_KIND_LABELS, groupRowsByKind, volumePricingSectionSubtotal, volumePricingSubtotal, customSectionSubtotal, customSectionRowsSum } from '@/lib/quoteSections'
 import { quotePrintTitle } from '@/lib/quoteSpokes'
+import { signatureBlockHtml } from '@/lib/signing/slots'
 import type { CustomPricingRow, SectionTerms, VolumeDisposalFeeMode, VolumePricingBlock } from '@/lib/types'
 
 /** Matches the navy header when `company` is missing (meta grid used to show "—" while header showed this name). */
@@ -596,6 +597,43 @@ function cssSowPrint(): string {
       cursor: pointer;
     }
     .sow-root .quote-accept .quote-accept-msg { margin-top: 10px; font-size: 13px; }
+    /* Fixed signature fields on a quote sent for signing (lib/signing/slots.ts). Printed, unlike .quote-accept. */
+    .sow-root .sign-block {
+      margin-top: 28px;
+      padding: 16px 18px;
+      border: 1px solid var(--sow-rule);
+      border-radius: 8px;
+      background: #fff;
+    }
+    .sow-root .sign-block .sign-grid {
+      display: grid;
+      grid-template-columns: 1.8fr 1.4fr 1.2fr;
+      gap: 18px;
+      margin-top: 14px;
+      align-items: end;
+    }
+    .sow-root .sign-block .sign-slot {
+      min-height: 64px;
+      box-sizing: border-box;
+      border-bottom: 1px solid #111;
+      display: flex;
+      align-items: flex-end;
+      padding: 0 4px 4px;
+      font-size: 11pt;
+      color: #111;
+    }
+    .sow-root .sign-block .sign-slot img { display: block; max-height: 58px; max-width: 100%; }
+    .sow-root .sign-block .sign-field--date .sign-slot { white-space: nowrap; }
+    .sow-root .sign-block .sign-cap {
+      margin-top: 4px;
+      font-size: 8pt;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--sow-muted);
+    }
+    @media screen and (max-width: 640px) {
+      .sow-root .sign-block .sign-grid { grid-template-columns: 1fr; }
+    }
     .sow-root .quote-auth-callout ol {
       margin: 0;
       padding-left: 1.2em;
@@ -979,6 +1017,11 @@ function cssSowPrint(): string {
         orphans: unset !important;
         widows: unset !important;
       }
+      /* Keep the signature, name and date together on one page. */
+      .sow-root .sign-block {
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
+      }
       .sow-root.bcq-doc table,
       .sow-root.bcq-doc .bcq-zone,
       .sow-root.bcq-doc .bcq-zones,
@@ -1024,6 +1067,11 @@ export interface ClientInfo {
   quoteAcceptDocumentId?: string
   /** Set when this quote document has already been accepted. */
   quoteAccepted?: { email: string; accepted_at: string } | null
+  /**
+   * Quote sent for signing: end the document with the fixed signature fields
+   * (lib/signing/slots.ts) instead of the email accept box.
+   */
+  signatureBlock?: boolean
 }
 
 /**
@@ -2410,6 +2458,7 @@ function buildQuoteMid(
 }
 
 function quoteAcceptPanel(client: ClientInfo | undefined): string {
+  if (client?.signatureBlock) return signatureBlockHtml()
   const id = client?.quoteAcceptDocumentId
   if (!id) return ''
   if (client?.quoteAccepted) {

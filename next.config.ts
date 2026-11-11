@@ -24,6 +24,15 @@ const nextConfig: NextConfig = {
     root: path.join(__dirname),
   },
   transpilePackages: ['@react-pdf/renderer', 'pdfjs-dist'],
+  // Signed quote PDFs are rendered with headless Chrome (lib/signing/pdf.ts). On Vercel the
+  // browser is unpacked at run time from these compressed files, which file tracing cannot
+  // see because nothing imports them. Only the routes that make a PDF carry them.
+  outputFileTracingIncludes: {
+    '/api/sign/*': ['./node_modules/@sparticuz/chromium/bin/**'],
+    '/api/sign/*/pdf': ['./node_modules/@sparticuz/chromium/bin/**'],
+    '/api/signing/*': ['./node_modules/@sparticuz/chromium/bin/**'],
+    '/api/signing/*/pdf': ['./node_modules/@sparticuz/chromium/bin/**'],
+  },
   images: {
     remotePatterns: [
       {

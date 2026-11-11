@@ -94,11 +94,16 @@ export interface RenderDocumentOptions {
   includeClientContact: boolean
   /** Public quote page: show the accept button for this saved document. */
   showQuoteAccept?: boolean
+  /**
+   * Sending for signature: end the quote with the fixed signature fields and
+   * leave off the screen action bar. This is the HTML the client signs.
+   */
+  forSigning?: boolean
 }
 
 /** Fetch everything a document needs and return the rendered HTML page. */
 export async function renderDocumentHtml(options: RenderDocumentOptions): Promise<string> {
-  const { supabase, doc, imagesParam, viewerUrl, includeClientContact, showQuoteAccept } = options
+  const { supabase, doc, imagesParam, viewerUrl, includeClientContact, showQuoteAccept, forSigning } = options
 
   const [companyRes, photosRes, jobRes] = await Promise.all([
     supabase.from('company_profile').select('*').limit(1).maybeSingle(),
@@ -203,6 +208,8 @@ export async function renderDocumentHtml(options: RenderDocumentOptions): Promis
       photosOn,
       quoteAcceptDocumentId: showQuoteAccept && isAcceptableQuoteType(doc.type) ? doc.id : undefined,
       quoteAccepted,
+      signatureBlock: forSigning === true && isAcceptableQuoteType(doc.type),
     },
+    forSigning ? { screenActionBar: false } : undefined,
   )
 }

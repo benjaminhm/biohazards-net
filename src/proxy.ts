@@ -31,6 +31,7 @@
  * Public routes (no staff session required):
  *   - All [slug].biohazards.net requests (public websites)
  *   - /login, /accept/:id
+ *   - /sign/:token, /api/sign/:token (client signing link; the token is the credential)
  *   - /api/auth/*, /api/print, /api/sms/inbound, /api/public/*
  *   - /api/webhooks/inbound-email, /api/webhooks/voip, /api/webhooks/website-enquiry
  *     (shared secret or signature checked in the route)
@@ -57,6 +58,9 @@ function isPublicPath(pathname: string): boolean {
   if (pathname === '/login' || pathname.startsWith('/login/')) return true
   if (pathname.startsWith('/accept/')) return true
   if (pathname.startsWith('/api/accept/')) return true
+  // Client signing links. The trailing slash keeps staff /api/signing behind the session.
+  if (pathname.startsWith('/sign/')) return true
+  if (pathname.startsWith('/api/sign/')) return true
   if (pathname.startsWith('/api/auth/')) return true
   if (pathname.startsWith('/api/company')) return true
   if (pathname.startsWith('/api/print/')) return true

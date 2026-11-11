@@ -24,6 +24,8 @@ import { useRouter } from 'next/navigation'
 import type { Document, DocumentBundle, DocType, DocWorkflowPhaseId } from '@/lib/types'
 import DocumentBundlesSection from '@/components/DocumentBundlesSection'
 import { DOC_TYPE_LABELS, DOC_TYPE_GROUPS } from '@/lib/types'
+import { isAcceptableQuoteType } from '@/lib/acceptableQuotes'
+import { SendForSigningModal, SigningStatus, currentSigning, useJobSigning } from '@/components/SendForSigning'
 
 type NavigateTab =
   | 'details'
@@ -144,6 +146,12 @@ function DocRow({ doc, jobId, clientName, clientEmail, onDeleted, tradeAccountLi
   const [releasedAt,    setReleasedAt]    = useState(doc.released_to_portal_at ?? null)
   const [releasing,     setReleasing]     = useState(false)
   const [releaseError,  setReleaseError]  = useState('')
+  const [sendingToSign, setSendingToSign] = useState(false)
+
+  // Quotes can be sent to the client to sign; other documents cannot.
+  const canSign = isAcceptableQuoteType(doc.type)
+  const { requests: signingRequests, reload: reloadSigning } = useJobSigning(canSign ? jobId : null)
+  const signing = canSign ? currentSigning(signingRequests, doc.id) : null
 
   const printUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/api/print/${doc.id}`
   const label    = DOC_TYPE_LABELS[doc.type as DocType] ?? doc.type
@@ -202,6 +210,12 @@ function DocRow({ doc, jobId, clientName, clientEmail, onDeleted, tradeAccountLi
           <a href={printUrl} target="_blank" rel="noopener noreferrer">
             <button className="btn btn-secondary" style={{ fontSize: 12, padding: '7px 12px' }}>↗ Open</button>
           </a>
+          {canSign && signing?.status !== 'signed' && (
+            <button
+              onClick={() => setSendingToSign(true)}
+              className="btn btn-primary" style={{ fontSize: 12, padding: '7px 12px' }}
+            >Send to sign</button>
+          )}
           {confirmDelete ? (
             <>
               <button onClick={handleDelete} disabled={deleting}
@@ -225,6 +239,15 @@ function DocRow({ doc, jobId, clientName, clientEmail, onDeleted, tradeAccountLi
         style={{ fontSize: 11, color: 'var(--text-muted)', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 10px', wordBreak: 'break-all', cursor: 'pointer', userSelect: 'all' }}>
         {printUrl}
       </div>
+
+      {signing && <SigningStatus request={signing} onChanged={reloadSigning} />}
+      {sendingToSign && (
+        <SendForSigningModal
+          documentId={doc.id}
+          onClose={() => setSendingToSign(false)}
+          onSent={() => { setSendingToSign(false); void reloadSigning() }}
+        />
+      )}
 
       {/* Portal release — only meaningful once the job has a trade account */}
       {tradeAccountLinked && (
