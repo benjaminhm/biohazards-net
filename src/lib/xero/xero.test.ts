@@ -11,7 +11,7 @@ import {
   quoteAmount,
   xeroSettings,
 } from './invoice'
-import { xeroErrorMessage } from './client'
+import { xeroErrorMessage, xeroRedirectUriFor } from './client'
 import { invoicePaid, xeroDate } from './payments'
 import { isAcceptableQuoteType } from '../acceptableQuotes'
 
@@ -105,4 +105,19 @@ test('deposit prefill reads what Xero says was paid, with the latest payment dat
   )
   assert.equal(invoicePaid({ InvoiceNumber: 'INV-9', AmountPaid: 0 }), null)
   assert.equal(invoicePaid(null), null)
+})
+
+test('Xero returns the admin to the staff host they are signed in on, and to no other host', () => {
+  const env = { NEXT_PUBLIC_APP_URL: 'https://app.biohazards.net/' }
+  assert.equal(xeroRedirectUriFor('login.biohazards.net', env), 'https://login.biohazards.net/api/xero/callback')
+  assert.equal(xeroRedirectUriFor('app.biohazards.net', env), 'https://app.biohazards.net/api/xero/callback')
+  assert.equal(xeroRedirectUriFor('Login.Biohazards.net:443', env), 'https://login.biohazards.net/api/xero/callback')
+  // Any other host (a client-facing one, or one made up in the request) falls back to the app address.
+  for (const host of ['document.forensiccleaningqld.com.au', 'evil.example', 'login.biohazards.net.evil.example', '', null]) {
+    assert.equal(xeroRedirectUriFor(host, env), 'https://app.biohazards.net/api/xero/callback', String(host))
+  }
+  assert.equal(xeroRedirectUriFor(null, {}), 'https://app.biohazards.net/api/xero/callback')
+  assert.equal(xeroRedirectUriFor('localhost:3000', { NEXT_PUBLIC_APP_URL: 'http://localhost:3000' }), 'http://localhost:3000/api/xero/callback')
+  // An explicit setting always wins.
+  assert.equal(xeroRedirectUriFor('login.biohazards.net', { XERO_REDIRECT_URI: ' https://x.example/cb ' }), 'https://x.example/cb')
 })

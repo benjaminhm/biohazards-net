@@ -9,7 +9,7 @@ import { timingSafeEqual } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import { requireXeroAdmin } from '@/lib/xero/admin'
-import { completeXeroConnection } from '@/lib/xero/client'
+import { completeXeroConnection, xeroRedirectUri } from '@/lib/xero/client'
 
 const STATE_COOKIE = 'xero_oauth_state'
 
@@ -44,7 +44,7 @@ export async function GET(req: Request) {
   if (!code) return back('error', 'Xero did not return an authorisation code')
 
   try {
-    await completeXeroConnection(createServiceClient(), guard.orgId, code, guard.userId)
+    await completeXeroConnection(createServiceClient(), guard.orgId, code, guard.userId, xeroRedirectUri(req))
   } catch (err) {
     console.error('[xero] connect failed', err)
     return back('error', err instanceof Error ? err.message : 'Connection failed')

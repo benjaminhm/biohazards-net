@@ -7,7 +7,7 @@
 import { randomBytes } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { requireXeroAdmin } from '@/lib/xero/admin'
-import { xeroAuthorizeUrl, xeroConfigured } from '@/lib/xero/client'
+import { xeroAuthorizeUrl, xeroConfigured, xeroRedirectUri } from '@/lib/xero/client'
 
 const XERO_STATE_COOKIE = 'xero_oauth_state'
 
@@ -19,7 +19,7 @@ export async function GET(req: Request) {
   }
 
   const state = randomBytes(24).toString('hex')
-  const res = NextResponse.redirect(xeroAuthorizeUrl(state))
+  const res = NextResponse.redirect(xeroAuthorizeUrl(state, xeroRedirectUri(req)))
   res.cookies.set(XERO_STATE_COOKIE, state, {
     httpOnly: true,
     secure: new URL(req.url).protocol === 'https:',

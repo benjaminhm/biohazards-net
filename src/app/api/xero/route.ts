@@ -9,7 +9,7 @@ import { createServiceClient } from '@/lib/supabase'
 import { requireXeroAdmin } from '@/lib/xero/admin'
 import { disconnectXero, xeroConfigured, xeroRedirectUri } from '@/lib/xero/client'
 
-export async function GET() {
+export async function GET(req: Request) {
   const guard = await requireXeroAdmin()
   if ('response' in guard) return guard.response
   const { data } = await createServiceClient()
@@ -22,7 +22,7 @@ export async function GET() {
     connected: Boolean(data),
     tenant_name: data?.tenant_name ?? null,
     connected_at: data?.connected_at ?? null,
-    redirect_uri: xeroRedirectUri(),
+    redirect_uri: xeroRedirectUri(req),
   })
 }
 

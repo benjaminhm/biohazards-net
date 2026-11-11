@@ -10,6 +10,7 @@
  */
 import type { createServiceClient } from '@/lib/supabase'
 import { decryptToken, encryptToken } from '@/lib/xero/crypto'
+import { isStaffAppHost } from '@/lib/staffSession'
 
 type Supabase = ReturnType<typeof createServiceClient>
 
@@ -25,18 +26,35 @@ export function xeroConfigured(): boolean {
   return Boolean(process.env.XERO_CLIENT_ID?.trim() && process.env.XERO_CLIENT_SECRET?.trim() && process.env.XERO_TOKEN_KEY?.trim())
 }
 
-export function xeroRedirectUri(): string {
-  const explicit = process.env.XERO_REDIRECT_URI?.trim()
+/**
+ * Where Xero sends the admin back after they approve. It has to be the staff
+ * host they are working on (login.biohazards.net or app.biohazards.net): their
+ * sign-in and the one-time state cookie live on that host, so a return to the
+ * other one arrives signed out. Only those two hosts are ever used, whatever
+ * the request says, and each one's address must be registered in the Xero
+ * developer app.
+ */
+export function xeroRedirectUriFor(
+  host: string | null | undefined,
+  env: Record<string, string | undefined> = process.env,
+): string {
+  const explicit = env.XERO_REDIRECT_URI?.trim()
   if (explicit) return explicit
-  const app = (process.env.NEXT_PUBLIC_APP_URL || 'https://app.biohazards.net').replace(/\/+$/, '')
+  const hostNoPort = (host ?? '').split(',')[0].trim().split(':')[0].toLowerCase()
+  if (isStaffAppHost(hostNoPort)) return `https://${hostNoPort}/api/xero/callback`
+  const app = (env.NEXT_PUBLIC_APP_URL || 'https://app.biohazards.net').replace(/\/+$/, '')
   return `${app}/api/xero/callback`
 }
 
-export function xeroAuthorizeUrl(state: string): string {
+export function xeroRedirectUri(req?: Request): string {
+  return xeroRedirectUriFor(req ? req.headers.get('x-forwarded-host') ?? req.headers.get('host') : null)
+}
+
+export function xeroAuthorizeUrl(state: string, redirectUri: string): string {
   const q = new URLSearchParams({
     response_type: 'code',
     client_id: process.env.XERO_CLIENT_ID?.trim() ?? '',
-    redirect_uri: xeroRedirectUri(),
+    redirect_uri: redirectUri,
     scope: XERO_SCOPES,
     state,
   })
@@ -82,8 +100,10 @@ export async function completeXeroConnection(
   orgId: string,
   code: string,
   connectedBy: string,
+  /** The same address the consent screen was opened with; Xero checks they match. */
+  redirectUri: string,
 ): Promise<{ tenantName: string }> {
-  const tokens = await tokenRequest({ grant_type: 'authorization_code', code, redirect_uri: xeroRedirectUri() })
+  const tokens = await tokenRequest({ grant_type: 'authorization_code', code, redirect_uri: redirectUri })
   const res = await fetch(CONNECTIONS_URL, { headers: { Authorization: `Bearer ${tokens.access_token}` } })
   const tenants = (await res.json().catch(() => [])) as XeroTenant[]
   const orgs = (Array.isArray(tenants) ? tenants : []).filter(t => t.tenantType === 'ORGANISATION')
