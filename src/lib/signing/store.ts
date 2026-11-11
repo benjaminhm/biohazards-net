@@ -25,6 +25,7 @@ import {
   insertAtBodyEnd,
   signedDateLabel,
 } from '@/lib/signing/core'
+import { readSignerDetails } from '@/lib/signing/details'
 import { fillSignSlots } from '@/lib/signing/slots'
 import { renderPdf } from '@/lib/signing/pdf'
 import { sendSignedCopyEmail, sendSignedCopyToOfficeEmail, sendSigningDeclinedEmail } from '@/lib/signing/email'
@@ -63,6 +64,8 @@ export interface SigningRequestRow {
   consented_at: string | null
   signed_at: string | null
   signer_name: string | null
+  /** What the signer gave on the Your details step (lib/signing/details.ts). Null on requests signed before that step. */
+  signer_details: unknown
   signature_png: string | null
   signature_method: 'drawn' | 'typed' | null
   signer_ip: string | null
@@ -100,10 +103,28 @@ export const SIGNING_SUMMARY_COLUMNS =
   'id, job_id, document_id, status, document_type, document_title, reference, brand_label, from_address, reply_to, ' +
   'to_email, to_name, subject, message, sent_at, sent_by_name, expires_at, first_viewed_at, signed_at, signer_name, ' +
   'declined_at, decline_reason, voided_at, delivered_at, delivery_error, delivery_method, passcode, passcode_locked_at, ' +
-  'quote_total, deposit_percent, invoice_confirmed_at'
+  'quote_total, deposit_percent, invoice_confirmed_at, signer_details, xero_contact_id'
+
+/**
+ * A summary row as one member of staff may see it. Money, and what the signer
+ * gave about themselves (date of birth, home address), are only for staff who
+ * are shown money: they are the ones who do the check.
+ */
+export function staffSummary<T extends object>(row: T, financials: boolean): T {
+  return financials ? row : { ...row, quote_total: null, signer_details: null }
+}
 
 export function documentLine(row: Pick<SigningRequestRow, 'document_title' | 'reference'>): string {
   return `${row.document_title}${row.reference ? ` ${row.reference}` : ''}`
+}
+
+/**
+ * Where the signer's own copy goes: the address the request was sent to, else
+ * the email the signer gave in their details. Null only on a request sent by
+ * text and signed before the Your details step.
+ */
+export function signerEmail(row: Pick<SigningRequestRow, 'to_email' | 'signer_details'>): string | null {
+  return row.to_email || readSignerDetails(row.signer_details)?.email || null
 }
 
 export async function findSigningRequestByToken(
@@ -155,6 +176,7 @@ export function signedCopyHtml(row: SigningRequestRow): string {
       deliveryMethod: row.delivery_method === 'link' ? 'link' : 'email',
       passcodeVerifiedAt: row.passcode_verified_at,
       signerName: row.signer_name!,
+      details: readSignerDetails(row.signer_details),
       signatureMethod: row.signature_method ?? 'drawn',
       signaturePng: row.signature_png!,
       sentAt: row.sent_at,
@@ -200,9 +222,10 @@ export async function ensureSignedPdf(supabase: ServiceClient, row: SigningReque
 }
 
 /**
- * Email the signed copy to the client, with the brand inbox on BCC. With no
- * client email on the request (a link sent by text), it goes to the office
- * inbox to pass on. If the PDF cannot be made, the email still goes with a
+ * Email the signed copy to the client, with the brand inbox on BCC. It goes to
+ * the address the request was sent to, else to the email the signer gave in
+ * their details. With neither (a link sent by text, signed before the Your
+ * details step), it goes to the office inbox to pass on. If the PDF cannot be made, the email still goes with a
  * download link when there is one, so nobody is left with nothing. The outcome
  * is written on the row so staff can see a copy that did not go and send it
  * again.
@@ -242,13 +265,14 @@ export async function deliverSignedCopy(
   if (!pdf && !downloadUrl) return fail(`Signed PDF could not be made: ${pdfError}`)
 
   const office = row.reply_to || process.env.NOTIFY_EMAIL || null
+  const copyTo = signerEmail(row)
   const notes: string[] = []
   try {
-    if (row.to_email) {
+    if (copyTo) {
       const sent = await sendSignedCopyEmail({
         from: row.from_address,
         replyTo: row.reply_to,
-        to: row.to_email,
+        to: copyTo,
         bcc: office,
         toName: row.signer_name || row.to_name,
         brandLabel: row.brand_label,
@@ -318,7 +342,7 @@ export async function recordAcceptance(
       job_id: row.job_id,
       document_id: row.document_id,
       contact_name: row.signer_name || row.to_name,
-      contact_email: row.to_email ?? '',
+      contact_email: signerEmail(row) ?? '',
       quote_total: row.quote_total,
       quote_reference: row.reference || row.document_title,
       terms_version: 'e-signature',
@@ -383,7 +407,7 @@ async function tellStaffSigned(
       jobType: info.jobType,
       reference,
       total: row.quote_total ?? 0,
-      contactEmail: row.to_email ?? undefined,
+      contactEmail: signerEmail(row) ?? undefined,
       checkNote: staffCheckNote(row.quote_total, row.deposit_percent),
     })
   } catch (err) {

@@ -8,6 +8,8 @@
  * Server only (Node crypto). The signature fields themselves live in slots.ts.
  */
 import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto'
+import { addressLine, capacityLabel, formatCompanyNumber } from '@/lib/signing/details'
+import type { SignerDetails } from '@/lib/signing/details'
 import { isSigningTokenShape } from '@/lib/signing/hostShape'
 import { tradingNameOption, tradingSendingEmail } from '@/lib/tradingNames'
 import type { TradingNameId } from '@/lib/tradingNames'
@@ -397,6 +399,8 @@ export interface DocketData {
   deliveryMethod: 'email' | 'link'
   passcodeVerifiedAt: string | null
   signerName: string
+  /** What the signer gave on the Your details step. Null on a request signed before that step. */
+  details?: SignerDetails | null
   signatureMethod: 'drawn' | 'typed'
   signaturePng: string
   sentAt: string
@@ -436,6 +440,32 @@ export function docketHtml(d: DocketData): string {
   const identity = byStaff
     ? 'Private link, opened with a passcode entered by the signer'
     : 'Private signing link emailed to the address above'
+  // What the signer said about themselves. The date of birth is kept on the
+  // record but not printed: the signed copy is emailed and passed around.
+  const s = d.details ?? null
+  const company = s?.company ?? null
+  const signerRows = s
+    ? [
+        row('Full legal name', text(d.signerName)),
+        row('Signing as', text(capacityLabel(s.capacity) || s.capacity)),
+        ...(company
+          ? [
+              row('Company', text(company.name)),
+              ...(company.number ? [row(company.numberType || 'ABN or ACN', text(formatCompanyNumber(company.number)))] : []),
+              ...(company.position ? [row('Position', text(company.position))] : []),
+            ]
+          : []),
+        row('Residential address', text(addressLine(s.address))),
+        row('Mobile', text(s.mobile)),
+        row('Email', text(s.email)),
+        row('Declaration', `${text(s.declaration?.text)}<br><span class="sd-quiet">Declared by the signer ${esc(docketTime(s.declaration?.agreedAt))}</span>`),
+        row('How the signer was reached', identity),
+      ]
+    : [
+        row('Name', text(d.signerName)),
+        row('Email', text(d.toEmail)),
+        row('Identity check', identity),
+      ]
   return `
   <section class="sign-docket">
     <style>
@@ -463,6 +493,7 @@ export function docketHtml(d: DocketData): string {
       }
       .sign-docket .sd-sig img { display: block; max-height: 22mm; max-width: 80mm; }
       .sign-docket .sd-note { font-size: 8pt; color: #555; line-height: 1.5; margin-top: 18px; }
+      .sign-docket .sd-quiet { font-size: 8pt; color: #555; }
       @media print { .sign-docket { max-width: none; margin: 0; padding: 0; } }
     </style>
     <h2>Signature docket</h2>
@@ -483,9 +514,7 @@ export function docketHtml(d: DocketData): string {
 
     <h3>Signer</h3>
     <table>
-      ${row('Name', text(d.signerName))}
-      ${row('Email', text(d.toEmail))}
-      ${row('Identity check', identity)}
+      ${signerRows.join('\n      ')}
       ${row('Signature', `<div class="sd-sig"><img src="${esc(d.signaturePng)}" alt="Signature"></div>`)}
       ${row('Signature type', esc(how))}
     </table>
@@ -502,7 +531,9 @@ export function docketHtml(d: DocketData): string {
 
     <p class="sd-note">
       The fingerprint identifies the document exactly as it was sent for signing, before the
-      signature, name and date were added. Times are Brisbane time (AEST, UTC+10).
+      signature, name and date were added. Times are Brisbane time (AEST, UTC+10).${s ? `
+      The signer's details are as the signer gave them under the declaration above; they were not
+      checked against identity documents.` : ''}
     </p>
   </section>`
 }

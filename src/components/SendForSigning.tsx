@@ -25,8 +25,10 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import type { CSSProperties } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import { depositAmount, money, percentLabel, signedNext } from '@/lib/signing/pay'
+import { addressLine, capacityLabel, formatCompanyNumber, readSignerDetails, shortDate } from '@/lib/signing/details'
+import type { SignerDetails } from '@/lib/signing/details'
 
 export interface SigningSummary {
   id: string
@@ -62,6 +64,27 @@ export interface SigningSummary {
   deposit_percent: number | null
   /** When staff checked the signed request and created the invoice. Null = not checked yet. */
   invoice_confirmed_at: string | null
+  /** What the signer gave on the Your details step. Null before that step existed, and for staff who are not shown money. */
+  signer_details?: unknown
+  /** The Xero contact the invoice was made out to at the check. */
+  xero_contact_id?: string | null
+}
+
+/** What the check offers for who the invoice is made out to (GET /api/signing/[id]). */
+interface ContactOptions {
+  xeroConnected: boolean
+  hasDetails: boolean
+  /** The contact a new one would be created as, from the signer's details. */
+  proposed: { name: string; person: string; email: string; phone: string; address: string } | null
+  contacts: { id: string; name: string; person: string; email: string; why: 'email' | 'name' | 'similar' }[]
+  /** The contact on the job's invoice, when the job already has one. */
+  current: { id: string; name: string; email: string; invoiceNumber: string } | null
+}
+
+/** The choice made so far. `ready` is false until there is something that can be sent. */
+interface ContactPick {
+  choice: string
+  ready: boolean
 }
 
 /** The ready-to-pay message, with a new private link, for staff to send themselves. */
@@ -415,7 +438,7 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
             )}
 
             <div style={{ ...helpText, marginBottom: 12 }}>
-              The client views the quote and signs it on the same page. You then check who signed and create the invoice; they are shown how to pay once the invoice is approved in Xero.
+              The client views the quote, gives their details (who they are signing as, legal name, date of birth, home address, mobile and email) and signs it on the same page. You then check who signed and create the invoice; they are shown how to pay once the invoice is approved in Xero.
             </div>
 
             <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
@@ -503,7 +526,7 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
               <div style={{ ...helpText, marginBottom: 14 }}>
                 {emailTyped
                   ? 'Once signed, the signed PDF with its signature docket is emailed to this address, and the job moves to Accepted.'
-                  : 'With no email, the client downloads their signed copy when they sign, the office inbox is emailed the PDF to pass on, and the job moves to Accepted.'}
+                  : 'With no email here, the signed PDF with its signature docket is emailed to the address the client gives in their details when they sign, and the job moves to Accepted.'}
                 {' '}They sign the quote as it is saved right now; changes made afterwards are not included.
               </div>
             )}
@@ -549,6 +572,121 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
   )
 }
 
+/** What the signer said about themselves, for the person doing the check. */
+function SignerDetailsBlock({ details }: { details: SignerDetails }) {
+  const muted: CSSProperties = { color: 'var(--text-muted)' }
+  const company = details.company
+  return (
+    <>
+      <div><span style={muted}>Signing as:</span> {capacityLabel(details.capacity) || details.capacity}</div>
+      {company && (
+        <div>
+          <span style={muted}>Company:</span> {company.name}
+          {company.number && <> ({company.numberType || 'ABN or ACN'} {formatCompanyNumber(company.number)})</>}
+          {company.position && <>, {company.position}</>}
+        </div>
+      )}
+      <div><span style={muted}>Date of birth:</span> {shortDate(details.dateOfBirth)}</div>
+      <div><span style={muted}>Lives at:</span> {addressLine(details.address)}</div>
+      <div><span style={muted}>Mobile:</span> {details.mobile} <span style={muted}>Email:</span> {details.email}</div>
+    </>
+  )
+}
+
+/**
+ * Who the invoice is made out to: the person doing the check picks a contact
+ * already in Xero, or a new one made from the signer's details. Nothing is
+ * chosen for them when Xero has a possible match, so a second contact for the
+ * same person is never made by accident.
+ */
+function InvoiceContactChoice({ requestId, pick, onPick }: {
+  requestId: string
+  pick: ContactPick
+  onPick: (pick: ContactPick) => void
+}) {
+  const [options, setOptions] = useState<ContactOptions | null>(null)
+  const [error, setError] = useState('')
+  const [attempt, setAttempt] = useState(0)
+
+  useEffect(() => {
+    let live = true
+    fetch(`/api/signing/${requestId}`)
+      .then(async res => {
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(data?.error ?? 'Could not load the Xero contacts')
+        return data as ContactOptions
+      })
+      .then(data => {
+        if (!live) return
+        setError('')
+        setOptions(data)
+        // Nothing to choose: Xero is off, or the quote was signed before the details step.
+        if (!data.xeroConnected || !data.hasDetails) return onPick({ choice: '', ready: true })
+        if (data.current) return onPick({ choice: 'keep', ready: true })
+        if (data.contacts.length === 0) return onPick({ choice: 'new', ready: true })
+        onPick({ choice: '', ready: false })
+      })
+      .catch(err => {
+        if (live) setError(err instanceof Error ? err.message : 'Could not load the Xero contacts')
+      })
+    return () => { live = false }
+    // onPick is the parent's state setter; the list is loaded once per request (and again on Try again).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestId, attempt])
+
+  if (error) {
+    return (
+      <div role="alert" style={{ color: '#F87171', margin: '8px 0' }}>
+        {error}{' '}
+        <button type="button" className="btn btn-secondary" style={{ fontSize: 11, padding: '3px 8px' }} onClick={() => { setError(''); setAttempt(n => n + 1) }}>Try again</button>
+      </div>
+    )
+  }
+  if (!options) return <div style={{ color: 'var(--text-muted)', margin: '8px 0' }}>Looking for this person in Xero…</div>
+  if (!options.xeroConnected || !options.hasDetails || !options.proposed) return null
+
+  const name = `contact-${requestId}`
+  const option = (value: string, title: ReactNode, sub: ReactNode) => (
+    // The app styles every label as a small upper-case heading; these are sentences to read.
+    <label key={value} style={{
+      display: 'flex', gap: 8, alignItems: 'flex-start', padding: '5px 0', margin: 0, cursor: 'pointer',
+      fontSize: 12, fontWeight: 400, letterSpacing: 'normal', textTransform: 'none', lineHeight: 1.45,
+    }}>
+      <input type="radio" name={name} value={value} checked={pick.choice === value}
+        onChange={() => onPick({ choice: value, ready: true })} style={{ marginTop: 2 }} />
+      <span>
+        <span style={{ color: 'var(--text)', fontWeight: 600 }}>{title}</span>
+        {sub && <span style={{ display: 'block', color: 'var(--text-muted)' }}>{sub}</span>}
+      </span>
+    </label>
+  )
+  const why = { email: 'same email', name: 'same name', similar: 'similar' } as const
+  const p = options.proposed
+  return (
+    <fieldset style={{ border: 'none', padding: 0, margin: '8px 0' }}>
+      <legend style={{ fontWeight: 700, color: 'var(--text)', padding: 0, marginBottom: 2 }}>Invoice made out to</legend>
+      {options.current && option(
+        'keep',
+        <>Keep {options.current.name || 'the contact'} on {options.current.invoiceNumber ? `invoice ${options.current.invoiceNumber}` : "the job's invoice"}</>,
+        <>{options.current.email || 'No email in Xero'}. The job already has an invoice, made out to this contact.</>,
+      )}
+      {options.contacts.map(c => option(
+        c.id,
+        <>{c.name} <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>· already in Xero, {why[c.why]}</span></>,
+        <>{[c.person, c.email || 'no email in Xero'].filter(Boolean).join(' · ')}</>,
+      ))}
+      {option(
+        'new',
+        <>Create a new Xero contact: {p.name}</>,
+        <>{[p.person, p.email, p.phone, p.address].filter(Boolean).join(' · ')}</>,
+      )}
+      {!options.current && options.contacts.length > 0 && !pick.choice && (
+        <div style={{ color: '#FBBF24' }}>Xero already has {options.contacts.length === 1 ? 'a contact' : 'contacts'} that may be this person. Choose one, or create a new contact.</div>
+      )}
+    </fieldset>
+  )
+}
+
 /** Where a saved quote's signing is up to, with the few things staff can do about it. */
 export function SigningStatus({ request, invoice, onChanged }: {
   request: SigningSummary
@@ -563,6 +701,8 @@ export function SigningStatus({ request, invoice, onChanged }: {
   const [payMessage, setPayMessage] = useState<PayMessage | null>(null)
   const [payText, setPayText] = useState('')
   const [copied, setCopied] = useState('')
+  const [contactPick, setContactPick] = useState<ContactPick>({ choice: '', ready: false })
+  const [showDetails, setShowDetails] = useState(false)
 
   async function act(action: 'void' | 'resend' | 'deliver' | 'confirm' | 'pay_message', done: string) {
     setBusy(action)
@@ -572,7 +712,7 @@ export function SigningStatus({ request, invoice, onChanged }: {
       const res = await fetch(`/api/signing/${request.id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action }),
+        body: JSON.stringify(action === 'confirm' && contactPick.choice ? { action, contact: contactPick.choice } : { action }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data?.error ?? 'That did not work')
@@ -611,10 +751,12 @@ export function SigningStatus({ request, invoice, onChanged }: {
     color = '#FBBF24'
     detail = `by ${who} on ${when(request.first_viewed_at)}. ${byLink ? 'Link created' : 'Sent'} ${when(request.sent_at)}.`
   }
+  const signerDetails = request.status === 'signed' ? readSignerDetails(request.signer_details) : null
+  const signerEmail = request.to_email ?? signerDetails?.email ?? null
   if (request.status === 'signed') {
     label = 'Signed'
     color = '#34D399'
-    detail = `by ${request.signer_name ?? request.to_name}${request.to_email ? ` (${request.to_email})` : ''} on ${when(request.signed_at)}.`
+    detail = `by ${request.signer_name ?? request.to_name}${signerEmail ? ` (${signerEmail})` : ''} on ${when(request.signed_at)}.`
   }
   if (request.status === 'declined') {
     label = 'Declined'
@@ -644,6 +786,12 @@ export function SigningStatus({ request, invoice, onChanged }: {
     : null
   const nextColor = next?.tone === 'good' ? '#34D399' : next?.tone === 'todo' ? '#FBBF24' : 'var(--text)'
   const createLabel = invoice?.xeroConnected ? 'Create invoice in Xero' : 'Mark as checked'
+  // Creating the invoice from a quote signed with details needs a contact chosen first.
+  const choosesContact = Boolean(next && (next.needsCheck || next.canCreateInvoice) && invoice?.xeroConnected && signerDetails)
+  const contactChoice = choosesContact
+    ? <InvoiceContactChoice requestId={request.id} pick={contactPick} onPick={setContactPick} />
+    : null
+  const cannotCreate = !!busy || (choosesContact && !contactPick.ready)
 
   function copy(what: string, text: string) {
     navigator.clipboard.writeText(text).then(
@@ -689,9 +837,14 @@ export function SigningStatus({ request, invoice, onChanged }: {
               Signed PDF
             </a>
             <button type="button" className="btn btn-secondary" style={small} disabled={!!busy}
-              onClick={() => act('deliver', request.to_email ? 'Signed copy emailed.' : 'Signed copy emailed to the office.')}>
-              {busy === 'deliver' ? 'Sending…' : request.to_email ? 'Email signed copy again' : 'Email signed copy to office'}
+              onClick={() => act('deliver', signerEmail ? 'Signed copy emailed.' : 'Signed copy emailed to the office.')}>
+              {busy === 'deliver' ? 'Sending…' : signerEmail ? 'Email signed copy again' : 'Email signed copy to office'}
             </button>
+            {signerDetails && !next?.needsCheck && (
+              <button type="button" className="btn btn-secondary" style={small} aria-expanded={showDetails} onClick={() => setShowDetails(v => !v)}>
+                {showDetails ? 'Hide signer details' : 'Signer details'}
+              </button>
+            )}
           </>
         )}
       </div>
@@ -720,11 +873,19 @@ export function SigningStatus({ request, invoice, onChanged }: {
           </div>
         )
       )}
+      {signerDetails && showDetails && !next?.needsCheck && (
+        <div style={{ marginTop: 8, padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)' }}>
+          <div><span style={{ color: 'var(--text-muted)' }}>Signed by:</span> {request.signer_name ?? request.to_name}, {when(request.signed_at)}</div>
+          <SignerDetailsBlock details={signerDetails} />
+          <div style={{ color: 'var(--text-muted)', marginTop: 4 }}>As the signer gave them under their declaration. Not checked against identity documents.</div>
+        </div>
+      )}
       {next?.needsCheck && (
         <div style={{ marginTop: 8, padding: '10px 12px', borderRadius: 8, border: '1px solid rgba(251,191,36,0.5)', background: 'rgba(251,191,36,0.08)' }}>
           <div style={{ fontWeight: 700, color: 'var(--text)', marginBottom: 6 }}>Check before invoicing</div>
           <div style={{ color: 'var(--text)' }}>
-            <div><span style={{ color: 'var(--text-muted)' }}>Signed by:</span> {request.signer_name ?? request.to_name}{request.to_email ? ` (${request.to_email})` : ''}, {when(request.signed_at)}</div>
+            <div><span style={{ color: 'var(--text-muted)' }}>Signed by:</span> {request.signer_name ?? request.to_name}{!signerDetails && request.to_email ? ` (${request.to_email})` : ''}, {when(request.signed_at)}</div>
+            {signerDetails && <SignerDetailsBlock details={signerDetails} />}
             <div>
               <span style={{ color: 'var(--text-muted)' }}>Accepted:</span> {request.document_title}{request.reference ? ` ${request.reference}` : ''}
               {request.quote_total != null && <>, {money(request.quote_total)} inc GST</>}
@@ -733,12 +894,18 @@ export function SigningStatus({ request, invoice, onChanged }: {
               <div><span style={{ color: 'var(--text-muted)' }}>Deposit to ask for:</span> {money(due)} ({percentLabel(Number(request.deposit_percent))})</div>
             )}
           </div>
+          {signerDetails && (
+            <div style={{ color: 'var(--text-muted)', marginTop: 4 }}>
+              The signer&apos;s details are as they gave them under their declaration. They have not been checked against identity documents.
+            </div>
+          )}
+          {contactChoice}
           <div style={{ color: 'var(--text)', opacity: 0.75, margin: '8px 0' }}>
             {invoice?.xeroConnected
               ? 'Nothing has been invoiced. If this is right, create the draft invoice in Xero. Nothing is sent to the client, and they see no payment details until you have set the deposit request and approved the invoice in Xero.'
               : 'Xero is not connected, so no invoice is created. If this is right, mark it as checked: the client\'s page then shows the deposit with your bank details.'}
           </div>
-          <button type="button" className="btn btn-primary" style={{ fontSize: 12, padding: '7px 14px' }} disabled={!!busy}
+          <button type="button" className="btn btn-primary" style={{ fontSize: 12, padding: '7px 14px' }} disabled={cannotCreate}
             onClick={() => act('confirm', 'Checked.')}>
             {busy === 'confirm' ? 'Working…' : createLabel}
           </button>
@@ -752,10 +919,11 @@ export function SigningStatus({ request, invoice, onChanged }: {
           )}
         </div>
       )}
+      {next?.canCreateInvoice && contactChoice}
       {next && (next.canCreateInvoice || (next.canSendPayMessage && !payMessage)) && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
           {next.canCreateInvoice && (
-            <button type="button" className="btn btn-primary" style={small} disabled={!!busy} onClick={() => act('confirm', 'Done.')}>
+            <button type="button" className="btn btn-primary" style={small} disabled={cannotCreate} onClick={() => act('confirm', 'Done.')}>
               {busy === 'confirm' ? 'Working…' : 'Create invoice in Xero'}
             </button>
           )}

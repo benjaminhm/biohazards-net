@@ -3,8 +3,13 @@
  *
  *   { action: 'unlock', code }   the passcode for a link staff sent themselves
  *   { action: 'view' }      the document was opened in a browser
+ *   { action: 'details', details, declared }
+ *                           check what they typed on the Your details step and hand it
+ *                           back tidied, or say which field is wrong. Nothing is saved:
+ *                           the details are saved with the signature
  *   { action: 'consent' }   they agreed to sign electronically
- *   { action: 'sign', name, signature, method, agreed }
+ *   { action: 'sign', details, declared, signature, method, agreed }
+ *                           the name signed under is the legal name in their details
  *   { action: 'decline', reason }
  *   { action: 'pay' }       after signing: the pay step as it stands now (the page
  *                           asks again while it is open, so the payment details
@@ -25,20 +30,20 @@ import { createServiceClient } from '@/lib/supabase'
 import {
   DECLINE_REASON_MAX,
   UNLOCK_SECONDS,
-  cleanSignerName,
   isUnlocked,
   linkState,
   passcodeAttempt,
   signaturePngError,
   signedDateLabel,
-  signerNameError,
   unlockCookieName,
   unlockCookieValue,
 } from '@/lib/signing/core'
+import { DECLARATION_VERSION, cleanSignerDetails, declarationText } from '@/lib/signing/details'
+import type { SignerDetails } from '@/lib/signing/details'
 import { signingLinks } from '@/lib/signing/links'
 import { depositSettled } from '@/lib/signing/pay'
 import { payPanelHtml } from '@/lib/signing/shell'
-import { afterDeclined, afterSigned, findSigningRequestByToken, loadPayPanel, recordAcceptance } from '@/lib/signing/store'
+import { afterDeclined, afterSigned, findSigningRequestByToken, loadPayPanel, recordAcceptance, signerEmail } from '@/lib/signing/store'
 import type { SigningRequestRow } from '@/lib/signing/store'
 
 export const maxDuration = 60
@@ -168,16 +173,40 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
     return NextResponse.json({ ok: true })
   }
 
+  // The Your details step: one set of rules (lib/signing/details.ts), run here
+  // so the page has no copy of them. Nothing is saved until they sign.
+  if (action === 'details') {
+    const checked = cleanSignerDetails(body.details, now)
+    if (!checked.ok) return NextResponse.json({ error: checked.error, field: checked.field }, { status: 400 })
+    if (body.declared !== true) {
+      return NextResponse.json({ error: 'Please tick the declaration to continue.', field: 'declaration' }, { status: 400 })
+    }
+    return NextResponse.json({ ok: true, details: checked.details }, { headers: { 'Cache-Control': 'private, no-store' } })
+  }
+
   if (action === 'sign') {
     if (body.agreed !== true) {
       return NextResponse.json({ error: 'Please agree to sign electronically first.' }, { status: 400 })
     }
-    const name = cleanSignerName(body.name)
-    const nameProblem = signerNameError(name)
-    if (nameProblem) return NextResponse.json({ error: nameProblem }, { status: 400 })
+    // A page opened before the Your details step existed sends none.
+    if (body.details == null) {
+      return NextResponse.json({ error: 'Please reload this page and complete your details before signing.' }, { status: 400 })
+    }
+    const checked = cleanSignerDetails(body.details, now)
+    if (!checked.ok) return NextResponse.json({ error: checked.error, field: checked.field }, { status: 400 })
+    if (body.declared !== true) {
+      return NextResponse.json({ error: 'Please tick the declaration to continue.', field: 'declaration' }, { status: 400 })
+    }
     const signatureProblem = signaturePngError(body.signature)
     if (signatureProblem) return NextResponse.json({ error: signatureProblem }, { status: 400 })
     const method = body.method === 'typed' ? 'typed' : 'drawn'
+    // The name signed under is the legal name they declared. The declaration is
+    // kept word for word, so later changes to the wording never alter this record.
+    const name = checked.details.legalName
+    const signerDetails: SignerDetails = {
+      ...checked.details,
+      declaration: { version: DECLARATION_VERSION, text: declarationText(row.brand_label), agreedAt: nowIso },
+    }
 
     const ip = (req.headers.get('x-forwarded-for') ?? '').split(',')[0].trim() || (req.headers.get('x-real-ip') ?? '')
     const { data: updated, error } = await supabase
@@ -186,6 +215,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
         status: 'signed',
         signed_at: nowIso,
         signer_name: name,
+        signer_details: signerDetails,
         signature_png: body.signature as string,
         signature_method: method,
         signer_ip: ip.slice(0, 100) || null,
@@ -211,7 +241,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
     const links = await signingLinks(signed.trading_name, token)
     after(() => afterSigned(supabase, signed, info, { page: links.page, pdf: links.pdf }))
 
-    return NextResponse.json({ ok: true, dateLabel: signedDateLabel(nowIso) })
+    // copyEmail: where the signed copy is going, so the page can say so.
+    return NextResponse.json({ ok: true, dateLabel: signedDateLabel(nowIso), copyEmail: signerEmail(signed) })
   }
 
   if (action === 'decline') {

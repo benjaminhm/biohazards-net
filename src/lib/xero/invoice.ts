@@ -179,6 +179,124 @@ export interface ContactInput {
   name: string
   email: string
   phone: string
+  /** The person, when the contact's name is a company. */
+  firstName?: string
+  lastName?: string
+  address?: { line1: string; city: string; region: string; postalCode: string }
+  /** ABN, digits only. */
+  abn?: string
+  /** ACN, digits only. */
+  acn?: string
+}
+
+/**
+ * The Xero contact for the person who signed: they are the paying, responsible
+ * client, so the invoice is made out to them as they gave their details. The
+ * contact is named for the company when they signed for one, with the signer
+ * as its person.
+ */
+export function contactFromSigner(details: {
+  legalName: string
+  email: string
+  mobile: string
+  address: { street: string; suburb: string; state: string; postcode: string }
+  company: { name: string; number: string; numberType: string } | null
+}): ContactInput {
+  const words = details.legalName.trim().split(/\s+/)
+  const company = details.company?.name.trim() ?? ''
+  return {
+    name: company || details.legalName.trim(),
+    email: details.email,
+    phone: details.mobile,
+    firstName: words[0] ?? '',
+    lastName: words.slice(1).join(' '),
+    address: {
+      line1: details.address.street,
+      city: details.address.suburb,
+      region: details.address.state,
+      postalCode: details.address.postcode,
+    },
+    ...(details.company?.numberType === 'ABN' ? { abn: details.company.number } : {}),
+    ...(details.company?.numberType === 'ACN' ? { acn: details.company.number } : {}),
+  }
+}
+
+/**
+ * A new contact as Xero takes it. The address is given as both the street and
+ * the postal address: Xero prints the postal one on invoices.
+ */
+export function xeroContactBody(input: ContactInput): Record<string, unknown> {
+  const contact: Record<string, unknown> = { Name: input.name }
+  if (input.firstName) contact.FirstName = input.firstName
+  if (input.lastName) contact.LastName = input.lastName
+  if (input.email) contact.EmailAddress = input.email
+  if (input.phone) contact.Phones = [{ PhoneType: 'MOBILE', PhoneNumber: input.phone }]
+  if (input.address) {
+    const a = {
+      AddressLine1: input.address.line1,
+      City: input.address.city,
+      Region: input.address.region,
+      PostalCode: input.address.postalCode,
+      Country: 'Australia',
+    }
+    contact.Addresses = [{ AddressType: 'STREET', ...a }, { AddressType: 'POBOX', ...a }]
+  }
+  if (input.abn) contact.TaxNumber = input.abn
+  if (input.acn) contact.CompanyNumber = input.acn
+  return contact
+}
+
+/** A contact as Xero's search returns it. */
+export interface XeroContactLite {
+  ContactID: string
+  Name?: string
+  FirstName?: string
+  LastName?: string
+  EmailAddress?: string
+  ContactStatus?: string
+}
+
+/** A Xero contact that may be the person who signed, for staff to choose from. */
+export interface ContactCandidate {
+  id: string
+  name: string
+  /** The contact's person, when it has one and it differs from the name. */
+  person: string
+  email: string
+  /** Why it is offered: the same email, the same name, or only similar. */
+  why: 'email' | 'name' | 'similar'
+}
+
+/**
+ * Existing Xero contacts that may be the signer, best first: the same email,
+ * then the same name, then anything else the search turned up. Archived
+ * contacts are left out (an invoice cannot be raised to one), and only a few
+ * are shown: staff are choosing, not browsing.
+ */
+export function rankContacts(
+  found: XeroContactLite[],
+  who: { email: string; names: string[] },
+  limit = 8,
+): ContactCandidate[] {
+  const email = who.email.trim().toLowerCase()
+  const names = who.names.map(n => n.trim().toLowerCase()).filter(Boolean)
+  const seen = new Set<string>()
+  const out: ContactCandidate[] = []
+  for (const c of found) {
+    if (!c.ContactID || seen.has(c.ContactID) || c.ContactStatus === 'ARCHIVED') continue
+    seen.add(c.ContactID)
+    const name = (c.Name ?? '').trim()
+    const person = [c.FirstName, c.LastName].map(s => (s ?? '').trim()).filter(Boolean).join(' ')
+    const contactEmail = (c.EmailAddress ?? '').trim()
+    const why = email && contactEmail.toLowerCase() === email
+      ? 'email'
+      : names.includes(name.toLowerCase()) || (person && names.includes(person.toLowerCase()))
+        ? 'name'
+        : 'similar'
+    out.push({ id: c.ContactID, name: name || person || contactEmail, person: person && person !== name ? person : '', email: contactEmail, why })
+  }
+  const order = { email: 0, name: 1, similar: 2 }
+  return out.sort((a, b) => order[a.why] - order[b.why]).slice(0, limit)
 }
 
 export function contactFromJob(job: {

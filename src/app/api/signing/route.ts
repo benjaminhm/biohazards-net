@@ -42,7 +42,7 @@ import {
   signingExpiry,
 } from '@/lib/signing/core'
 import { prepareSigning } from '@/lib/signing/prepare'
-import { SIGNING_SUMMARY_COLUMNS } from '@/lib/signing/store'
+import { SIGNING_SUMMARY_COLUMNS, staffSummary } from '@/lib/signing/store'
 import { sendSigningInviteEmail } from '@/lib/signing/email'
 import { documentHostStatus, signingLinks } from '@/lib/signing/links'
 import { DEFAULT_DEPOSIT_PERCENT, depositAmount, parseDepositPercent } from '@/lib/signing/pay'
@@ -105,7 +105,7 @@ export async function GET(req: Request) {
           }
         : null,
       defaults: prepared.defaults,
-      requests: requests ?? [],
+      requests: ((requests ?? []) as unknown as object[]).map(r => staffSummary(r, financials)),
     })
   }
 
@@ -147,7 +147,7 @@ export async function GET(req: Request) {
       }
     }
     return NextResponse.json({
-      requests: financials ? list : list.map(r => ({ ...r, quote_total: null })),
+      requests: list.map(r => staffSummary(r, financials)),
       invoice,
     })
   }
@@ -293,9 +293,10 @@ export async function POST(req: Request) {
     .in('status', ['sent', 'viewed'])
     .neq('id', createdId)
 
+  const request = staffSummary(created as unknown as object, seesFinancials(guard.role))
   if (byLink && passcode) {
     return NextResponse.json({
-      request: created,
+      request,
       // Shown once: only a hash of the link is kept, so it cannot be shown again.
       link: {
         url: links.page,
@@ -313,5 +314,5 @@ export async function POST(req: Request) {
       },
     })
   }
-  return NextResponse.json({ request: created })
+  return NextResponse.json({ request })
 }

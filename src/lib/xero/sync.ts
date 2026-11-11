@@ -30,6 +30,7 @@ import {
   draftInvoiceBody,
   linesHash,
   staffCheckHold,
+  xeroContactBody,
   xeroSettings,
   type AcceptedQuote,
   type ContactInput,
@@ -40,9 +41,22 @@ type Supabase = ReturnType<typeof createServiceClient>
 
 export type XeroSyncTrigger = 'quote_accepted' | 'portal_quote_accepted' | 'quote_edited' | 'staff_confirmed'
 
+/**
+ * Who the invoice is made out to, as staff chose at the check: a contact
+ * already in Xero, or a new one created from the signer's details (`key` makes
+ * a repeated press create it once).
+ */
+export type ContactChoice = { use: string } | { create: ContactInput; key: string }
+
 export interface XeroSyncOptions {
   /** With 'staff_confirmed': the signed document link staff have just checked. */
   requestId?: string
+  /**
+   * With 'staff_confirmed': the contact staff chose. Left out, a new invoice
+   * goes to the contact found or made from the job's client, as before, and an
+   * existing invoice keeps the contact it has.
+   */
+  contact?: ContactChoice
 }
 
 /** Why a sync was skipped while a signed link waits for its staff check. */
@@ -168,14 +182,30 @@ async function findOrCreateContact(
       : pick(list, c => (c.Name ?? '').trim().toLowerCase() === lower)
     if (hit) return hit.ContactID
   }
+  return createContact(supabase, conn, input, `contact-${ctx.jobId}`, ctx)
+}
 
-  const contact: Record<string, unknown> = { Name: input.name }
-  if (input.email) contact.EmailAddress = input.email
-  if (input.phone) contact.Phones = [{ PhoneType: 'MOBILE', PhoneNumber: input.phone }]
-  const created = await xeroRequest<{ Contacts?: XeroContact[] }>(
-    supabase, conn, 'PUT', '/Contacts', { Contacts: [contact] },
-    { idempotencyKey: `contact-${ctx.jobId}` },
-  )
+async function createContact(
+  supabase: Supabase,
+  conn: XeroConnection,
+  input: ContactInput,
+  idempotencyKey: string,
+  ctx: { orgId: string; jobId: string; trigger: XeroSyncTrigger },
+): Promise<string> {
+  const contact = xeroContactBody(input)
+  let created: { Contacts?: XeroContact[] }
+  try {
+    created = await xeroRequest<{ Contacts?: XeroContact[] }>(
+      supabase, conn, 'PUT', '/Contacts', { Contacts: [contact] }, { idempotencyKey },
+    )
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    // Xero keeps contact names unique, so a second "create new" with a name it has is refused.
+    if (/already assigned to another contact/i.test(message)) {
+      throw new Error(`Xero already has a contact named "${input.name}". Choose that contact instead of creating a new one`)
+    }
+    throw err
+  }
   const id = created.Contacts?.[0]?.ContactID
   if (!id) throw new Error('Xero did not return the new contact')
   await logAgentAction(supabase, {
@@ -190,6 +220,17 @@ async function findOrCreateContact(
     note: `Created Xero contact "${input.name}".`,
   })
   return id
+}
+
+/** The contact staff chose at the check: one already in Xero, or a new one made now. */
+async function chosenContact(
+  supabase: Supabase,
+  conn: XeroConnection,
+  choice: ContactChoice,
+  ctx: { orgId: string; jobId: string; trigger: XeroSyncTrigger },
+): Promise<string> {
+  if ('use' in choice) return choice.use
+  return createContact(supabase, conn, choice.create, `contact-${choice.key}`, ctx)
 }
 
 const money = (n: number) => `$${n.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -265,8 +306,12 @@ export async function syncJobInvoice(
       return { outcome: 'skipped', reason: 'no priced quotes' }
     }
 
+    const ctx = { orgId, jobId, trigger }
+    const chosen = options.contact
     if (!row.xero_invoice_id) {
-      const contactId = row.xero_contact_id || await findOrCreateContact(supabase, conn, contactFromJob(job), { orgId, jobId, trigger })
+      const contactId = chosen
+        ? await chosenContact(supabase, conn, chosen, ctx)
+        : row.xero_contact_id || await findOrCreateContact(supabase, conn, contactFromJob(job), ctx)
       const body = draftInvoiceBody({ contactId, reference, lines, settings, now: new Date() })
       const res = await xeroRequest<{ Invoices?: XeroInvoice[] }>(
         supabase, conn, 'PUT', '/Invoices', { Invoices: [body] },
@@ -294,7 +339,10 @@ export async function syncJobInvoice(
     }
 
     const invoiceId = row.xero_invoice_id
-    if (row.lines_hash === hash) {
+    const linesSame = row.lines_hash === hash
+    // Choosing the contact the invoice already has changes nothing.
+    const contactSame = !chosen || ('use' in chosen && chosen.use === row.xero_contact_id)
+    if (linesSame && contactSame) {
       await releaseLock(supabase, jobId, { document_ids: documentIds })
       return { outcome: 'unchanged', invoiceId }
     }
@@ -306,24 +354,33 @@ export async function syncJobInvoice(
 
     if (current.Status !== 'DRAFT') {
       await releaseLock(supabase, jobId, { xero_status: current.Status, document_ids: documentIds, lines_hash: hash, last_synced_at: new Date().toISOString() })
+      const what = linesSame ? 'A different contact was chosen for' : 'Accepted quotes changed on'
       await log('xero_invoice_change_blocked', {
         target_id: invoiceId,
         status: 'needs_review',
         before,
         after: lines,
-        note: `Accepted quotes on ${reference} changed after invoice ${number} was ${current.Status.toLowerCase()} in Xero, so it was not changed. Adjust it in Xero (or raise a credit note).${unpricedNote}`,
+        note: `${what} ${reference} after invoice ${number} was ${current.Status.toLowerCase()} in Xero, so it was not changed. Adjust it in Xero (or raise a credit note).${unpricedNote}`,
       })
       return { outcome: 'needs_review', invoiceId }
     }
 
+    // Only now, with a draft that can take it, is a new contact made in Xero.
+    const contactId = contactSame || !chosen ? null : await chosenContact(supabase, conn, chosen, ctx)
     const res = await xeroRequest<{ Invoices?: XeroInvoice[] }>(
       supabase, conn, 'POST', `/Invoices/${invoiceId}`,
-      { Invoices: [{ InvoiceID: invoiceId, LineAmountTypes: 'Exclusive', LineItems: lines }] },
+      { Invoices: [{
+        InvoiceID: invoiceId,
+        ...(contactId ? { Contact: { ContactID: contactId } } : {}),
+        LineAmountTypes: 'Exclusive',
+        LineItems: lines,
+      }] },
     )
     const inv = res.Invoices?.[0] ?? current
     await releaseLock(supabase, jobId, {
       xero_status: inv.Status,
       xero_invoice_number: inv.InvoiceNumber ?? number,
+      ...(contactId ? { xero_contact_id: contactId } : {}),
       document_ids: documentIds,
       lines_hash: hash,
       total: inv.Total ?? null,
@@ -334,7 +391,7 @@ export async function syncJobInvoice(
       target_id: invoiceId,
       before,
       after: lines,
-      note: `Draft invoice ${number} lines replaced with ${lines.length} accepted quote(s).${unpricedNote}${totalNote(inv, quotes)}`,
+      note: `Draft invoice ${number} ${linesSame ? 'kept its lines' : `lines replaced with ${lines.length} accepted quote(s)`}${contactId ? ' and is now made out to the contact chosen at the check' : ''}.${unpricedNote}${totalNote(inv, quotes)}`,
     })
     return { outcome: 'updated', invoiceId }
   } catch (err) {

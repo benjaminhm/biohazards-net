@@ -47,6 +47,23 @@ import {
   type PayPanel,
   type StaffInvoiceView,
 } from '@/lib/signing/pay'
+import {
+  DECLARATION_VERSION,
+  addressLine,
+  ageOn,
+  capacityLabel,
+  cleanSignerDetails,
+  companyRule,
+  declarationText,
+  formatCompanyNumber,
+  isAbn,
+  isAcn,
+  readSignerDetails,
+  shortDate,
+  tidyDate,
+  tidyMobile,
+  type SignerDetails,
+} from '@/lib/signing/details'
 import { xeroPayUrl } from '@/lib/xero/payments'
 import { documentHostTradingName } from '@/lib/tradingNames'
 
@@ -268,7 +285,10 @@ test('the signing page cannot be broken out of by a name', () => {
   })
   assert.doesNotMatch(shell, /<script>alert\(1\)/)
   assert.match(shell, /Trauma &lt;Cleaning&gt; BCQ-1/)
-  assert.match(shell, /"toName":"\\u003c\/script\\u003e\\u003cscript\\u003ealert\(1\)\\u003c\/script\\u003e"/)
+  // The name staff typed starts the legal name field, as text and nothing more.
+  assert.match(shell, /id="sg-d-name"[^>]* value="&lt;\/script&gt;&lt;script&gt;alert\(1\)&lt;\/script&gt;">/)
+  // The document line goes to the script as data that cannot end the script element.
+  assert.match(shell, /"docLine":"Trauma \\u003cCleaning\\u003e BCQ-1"/)
   assert.match(shell, new RegExp(`/api/sign/${'A'.repeat(43)}/pdf`))
 })
 
@@ -425,7 +445,7 @@ test('the passcode screen shows the brand and nothing about the client or the do
   assert.doesNotMatch(gate, /sow-root|sign-block/)
 })
 
-test('with no client email the signing page offers the download instead of promising an email', () => {
+test('with no client email on the link, the page names no address until the signer has given one', () => {
   const shell = signingShellHtml({
     token: 'A'.repeat(43),
     brandLabel: 'Forensic Cleaning QLD',
@@ -439,8 +459,10 @@ test('with no client email the signing page offers the download instead of promi
     deposit: null,
   })
   assert.match(shell, /<span>For:<\/span> Jane Smith<\/div>/)
-  assert.match(shell, /Download your signed copy of Trauma Cleaning BCQ-1 now/)
-  assert.doesNotMatch(shell, /emailed to/)
+  // The signed message is filled in with the email from their details once they sign.
+  assert.match(shell, /<span id="sg-done-copy">Your signed copy of Trauma Cleaning BCQ-1 is ready\.<\/span> You can download it now/)
+  assert.match(shell, /id="sg-d-email"[^>]* value="">/)
+  assert.doesNotMatch(shell, /is being emailed to [^']/)
   assert.match(shell, new RegExp(`href="/${'A'.repeat(43)}/pdf"`))
 })
 
@@ -495,10 +517,10 @@ test('what the client is sent asks them to view the document, not to sign it', (
 
 test('the document is in view on arrival: nothing covers it until the client chooses to sign', () => {
   const shell = shellFor(null)
-  // No overlay is open in the page as served; the script opens the consent one only from "Next: sign".
+  // No overlay is open in the page as served; the script opens them only when the client asks to go on.
   assert.doesNotMatch(shell, /class="sg-overlay sg-on"/)
-  assert.match(shell, /id="sg-next">Next: sign<\/button>/)
-  assert.match(shell, /<li data-step="view" class="sg-now" aria-current="step"><b>1<\/b>View<\/li><li data-step="sign"><b>2<\/b>Sign<\/li><\/ol>/)
+  assert.match(shell, /id="sg-next">Next: your details<\/button>/)
+  assert.match(shell, /<li data-step="view" class="sg-now" aria-current="step"><b>1<\/b>View<\/li><li data-step="details"><b>2<\/b>Your details<\/li><li data-step="sign"><b>3<\/b>Sign<\/li><\/ol>/)
   assert.match(shell, /id="sg-consent-h">Sign this document</)
   assert.match(shell, /id="sg-agree-cancel">Not yet</)
   assert.doesNotMatch(shell, /data-step="pay"|id="sg-done-next"|The next step is your deposit/)
@@ -506,7 +528,7 @@ test('the document is in view on arrival: nothing covers it until the client cho
 
 test('with a deposit the steps end at Pay deposit, and the signed message says there is nothing to pay yet', () => {
   const shell = shellFor({ amountLabel: '$1,650.00', percentLabel: '50%' })
-  assert.match(shell, /<li data-step="pay"><b>3<\/b>Pay deposit<\/li><\/ol>/)
+  assert.match(shell, /<li data-step="pay"><b>4<\/b>Pay deposit<\/li><\/ol>/)
   assert.match(shell, /The next step is your deposit of <strong>\$1,650\.00<\/strong> \(50%\)\. There is nothing to pay yet: Forensic Cleaning QLD will check the details, prepare your invoice and let you know when it is ready\./)
   assert.match(shell, /id="sg-done-next">Continue</)
   assert.doesNotMatch(shell, /Next: pay deposit/)
@@ -765,7 +787,7 @@ test('a signed document opens on the pay step until the deposit is in', () => {
   const due = signedViewHtml({ ...base, pay: panel() })
   assert.match(due, /class="sg-overlay sg-on" id="sg-pay"/)
   assert.match(due, /id="sg-pay-open">Pay deposit</)
-  assert.match(due, /<li data-step="sign" class="sg-done"><b>✓<\/b>Sign<\/li><li data-step="pay" class="sg-now" aria-current="step"><b>3<\/b>Pay deposit<\/li>/)
+  assert.match(due, /<li data-step="details" class="sg-done"><b>✓<\/b>Your details<\/li><li data-step="sign" class="sg-done"><b>✓<\/b>Sign<\/li><li data-step="pay" class="sg-now" aria-current="step"><b>4<\/b>Pay deposit<\/li>/)
   assert.match(due, /signed by Jane &lt;b&gt;Smith&lt;\/b&gt;, 11 Nov 2026/)
   assert.match(due, new RegExp(`"token":"${TOKEN}","settled":false`))
 
@@ -785,4 +807,222 @@ test('a signed document opens on the pay step until the deposit is in', () => {
   assert.doesNotMatch(none, /data-step="pay"|id="sg-pay|Pay your deposit/)
   assert.match(none, /<li data-step="sign" class="sg-done"><b>✓<\/b>Sign<\/li><\/ol>/)
   assert.match(none, new RegExp(`<a class="sg-btn" href="/${TOKEN}/pdf">Download`))
+})
+
+// ── Your details ─────────────────────────────────────────────────────────────
+
+/** 11 November 2026 in Brisbane. */
+const TODAY = new Date('2026-11-10T15:00:00Z')
+
+function typed(over: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    capacity: 'owner',
+    legalName: 'Jordan Example',
+    dateOfBirth: '14/03/1990',
+    address: { street: '12 Example Street', suburb: 'Brisbane City', state: 'QLD', postcode: '4000' },
+    mobile: '0412 345 678',
+    email: 'jordan@example.com',
+    company: { name: '', number: '', position: '' },
+    ...over,
+  }
+}
+
+function problem(over: Record<string, unknown>): string {
+  const result = cleanSignerDetails(typed(over), TODAY)
+  return result.ok ? 'ok' : result.field
+}
+
+test('the signer\'s details are tidied into one shape before they are kept', () => {
+  const result = cleanSignerDetails(typed({
+    legalName: '  Jordan   Example ',
+    dateOfBirth: '14/3/1990',
+    address: { street: ' 12 Example Street ', suburb: 'Brisbane City', state: 'qld', postcode: '4000' },
+    mobile: '+61 412 345 678',
+    email: ' Jordan@Example.com ',
+    // An owner is not asked for a company, so one sent anyway is not kept.
+    company: { name: 'Sneaky Pty Ltd', number: '51824753556', position: 'Director' },
+  }), TODAY)
+  assert.equal(result.ok, true)
+  if (!result.ok) return
+  assert.deepEqual(result.details, {
+    capacity: 'owner',
+    legalName: 'Jordan Example',
+    dateOfBirth: '1990-03-14',
+    address: { street: '12 Example Street', suburb: 'Brisbane City', state: 'QLD', postcode: '4000' },
+    mobile: '0412 345 678',
+    email: 'jordan@example.com',
+    company: null,
+  })
+  assert.equal(addressLine(result.details.address), '12 Example Street, Brisbane City QLD 4000')
+  assert.equal(shortDate(result.details.dateOfBirth), '14/03/1990')
+})
+
+test('each thing wrong with the details is reported against its own field', () => {
+  assert.equal(problem({}), 'ok')
+  assert.equal(problem({ capacity: 'landlord' }), 'capacity')
+  assert.equal(problem({ capacity: '' }), 'capacity')
+  assert.equal(problem({ legalName: 'J' }), 'legalName')
+  assert.equal(problem({ legalName: 'x'.repeat(121) }), 'legalName')
+  assert.equal(problem({ dateOfBirth: '' }), 'dateOfBirth')
+  assert.equal(problem({ dateOfBirth: '31/02/1990' }), 'dateOfBirth')
+  assert.equal(problem({ dateOfBirth: '1890-01-01' }), 'dateOfBirth')
+  assert.equal(problem({ address: { street: '', suburb: 'Brisbane City', state: 'QLD', postcode: '4000' } }), 'street')
+  assert.equal(problem({ address: { street: '12 Example Street', suburb: '', state: 'QLD', postcode: '4000' } }), 'suburb')
+  assert.equal(problem({ address: { street: '12 Example Street', suburb: 'Brisbane City', state: 'Queensland', postcode: '4000' } }), 'state')
+  assert.equal(problem({ address: { street: '12 Example Street', suburb: 'Brisbane City', state: 'QLD', postcode: '400' } }), 'postcode')
+  assert.equal(problem({ address: 'not an address' }), 'street')
+  assert.equal(problem({ mobile: '07 3000 0000' }), 'mobile')
+  assert.equal(problem({ mobile: '0412 345' }), 'mobile')
+  assert.equal(problem({ email: 'jordan@example' }), 'email')
+  assert.equal(problem({ email: 'a@b.com, c@d.com' }), 'email')
+  const nothing = cleanSignerDetails(null, TODAY)
+  assert.equal(nothing.ok, false)
+})
+
+test('a signer must be 18 on the day, by the Brisbane date', () => {
+  // 11 November 2026 in Brisbane, though still the 10th in UTC.
+  assert.equal(ageOn('2008-11-11', TODAY), 18)
+  assert.equal(ageOn('2008-11-12', TODAY), 17)
+  assert.equal(problem({ dateOfBirth: '11/11/2008' }), 'ok')
+  assert.equal(problem({ dateOfBirth: '12/11/2008' }), 'dateOfBirth')
+  assert.equal(tidyDate('2008-11-11'), '2008-11-11')
+  assert.equal(tidyDate('1.2.1990'), '1990-02-01')
+  assert.equal(tidyDate('1990'), null)
+  assert.equal(tidyDate('29/02/2001'), null)
+})
+
+test('mobiles are kept one way, and a landline is not a mobile', () => {
+  assert.equal(tidyMobile('0412345678'), '0412 345 678')
+  assert.equal(tidyMobile('+61 412 345 678'), '0412 345 678')
+  assert.equal(tidyMobile('61412345678'), '0412 345 678')
+  assert.equal(tidyMobile('+64 21 123 4567'), '+64211234567')
+  assert.equal(tidyMobile('07 3000 0000'), null)
+  assert.equal(tidyMobile('+61 7 3000 0000'), null)
+  assert.equal(tidyMobile(''), null)
+  assert.equal(tidyMobile(412345678), null)
+})
+
+test('an ABN or ACN has to be a real one, not just the right length', () => {
+  assert.equal(isAbn('51 824 753 556'), true)
+  assert.equal(isAbn('51 824 753 557'), false)
+  assert.equal(isAbn('5182475355'), false)
+  assert.equal(isAcn('004 085 616'), true)
+  assert.equal(isAcn('000 000 019'), true)
+  assert.equal(isAcn('004 085 617'), false)
+  assert.equal(formatCompanyNumber('51824753556'), '51 824 753 556')
+  assert.equal(formatCompanyNumber('004085616'), '004 085 616')
+})
+
+test('a company officer gives the company, its number and their position; an agent may', () => {
+  assert.equal(companyRule('company_officer'), 'required')
+  assert.equal(companyRule('agent'), 'optional')
+  assert.equal(companyRule('tenant'), 'none')
+
+  const officer = (company: Record<string, string>) => problem({ capacity: 'company_officer', company })
+  assert.equal(officer({ name: '', number: '51824753556', position: 'Director' }), 'companyName')
+  assert.equal(officer({ name: 'Example Holdings Pty Ltd', number: '', position: 'Director' }), 'companyNumber')
+  assert.equal(officer({ name: 'Example Holdings Pty Ltd', number: '12345678901', position: 'Director' }), 'companyNumber')
+  assert.equal(officer({ name: 'Example Holdings Pty Ltd', number: '51824753556', position: '' }), 'position')
+  assert.equal(officer({ name: 'Example Holdings Pty Ltd', number: '51 824 753 556', position: 'Director' }), 'ok')
+
+  const kept = cleanSignerDetails(typed({
+    capacity: 'company_officer',
+    company: { name: 'Example Holdings Pty Ltd', number: '004 085 616', position: 'Director' },
+  }), TODAY)
+  assert.equal(kept.ok && kept.details.company?.numberType, 'ACN')
+  assert.equal(kept.ok && kept.details.company?.number, '004085616')
+
+  // An agent with no company is fine; one who starts on a company must name it properly.
+  assert.equal(problem({ capacity: 'agent' }), 'ok')
+  assert.equal(problem({ capacity: 'agent', company: { name: 'Example Realty', number: '', position: '' } }), 'ok')
+  assert.equal(problem({ capacity: 'agent', company: { name: '', number: '51824753556', position: '' } }), 'companyName')
+  assert.equal(problem({ capacity: 'agent', company: { name: 'Example Realty', number: '123', position: '' } }), 'companyNumber')
+})
+
+function savedDetails(): SignerDetails {
+  const result = cleanSignerDetails(typed({
+    capacity: 'company_officer',
+    legalName: 'Jordan <b>Example</b>',
+    company: { name: 'Example Holdings Pty Ltd', number: '51824753556', position: 'Director' },
+  }), TODAY)
+  assert.equal(result.ok, true)
+  if (!result.ok) throw new Error('details did not pass')
+  return {
+    ...result.details,
+    declaration: { version: DECLARATION_VERSION, text: declarationText('Forensic Cleaning QLD'), agreedAt: '2026-11-11T01:01:00Z' },
+  }
+}
+
+test('details read back from the database are used only in the saved shape', () => {
+  const saved = savedDetails()
+  assert.deepEqual(readSignerDetails(JSON.parse(JSON.stringify(saved))), saved)
+  assert.equal(readSignerDetails(null), null)
+  assert.equal(readSignerDetails('Jordan'), null)
+  assert.equal(readSignerDetails({ legalName: 'Jordan' }), null)
+  assert.equal(capacityLabel('executor'), 'Executor or administrator of an estate')
+  assert.equal(capacityLabel('nobody'), '')
+})
+
+test('the docket prints who signed and in what capacity, but not their date of birth', () => {
+  const details = savedDetails()
+  const docket = docketHtml({
+    requestId: '11111111-2222-4333-8444-555555555555',
+    brandLabel: 'Forensic Cleaning QLD',
+    documentTitle: 'Trauma Cleaning',
+    reference: 'BCQ-1',
+    docSha256: 'f'.repeat(64),
+    fromAddress: 'Forensic Cleaning QLD <admin@forensiccleaningqld.com.au>',
+    sentByName: 'Ben',
+    toName: 'Jordan',
+    toEmail: null,
+    deliveryMethod: 'link',
+    passcodeVerifiedAt: '2026-11-11T01:00:10Z',
+    signerName: details.legalName,
+    details,
+    signatureMethod: 'drawn',
+    signaturePng: png(),
+    sentAt: '2026-11-11T00:00:00Z',
+    firstViewedAt: '2026-11-11T01:00:12Z',
+    consentedAt: '2026-11-11T01:00:30Z',
+    signedAt: '2026-11-11T01:02:03Z',
+    signerIp: '203.0.113.7',
+    signerUserAgent: 'Mozilla/5.0',
+  })
+  assert.match(docket, /Full legal name<\/th><td>Jordan &lt;b&gt;Example&lt;\/b&gt;/)
+  assert.match(docket, /Signing as<\/th><td>Officer of a company/)
+  assert.match(docket, /Company<\/th><td>Example Holdings Pty Ltd/)
+  assert.match(docket, /ABN<\/th><td>51 824 753 556/)
+  assert.match(docket, /Position<\/th><td>Director/)
+  assert.match(docket, /Residential address<\/th><td>12 Example Street, Brisbane City QLD 4000/)
+  assert.match(docket, /Mobile<\/th><td>0412 345 678/)
+  assert.match(docket, /Email<\/th><td>jordan@example\.com/)
+  assert.match(docket, /Declaration<\/th><td>I declare that the details I have given are true and correct/)
+  assert.match(docket, /Declared by the signer 11 Nov 2026, 11:01:00 AEST/)
+  assert.match(docket, /How the signer was reached<\/th><td>Private link, opened with a passcode entered by the signer/)
+  // Says what it is: the signer's own statement, not a check of identity.
+  assert.match(docket, /they were not\s+checked against identity documents/)
+  assert.doesNotMatch(docket, /Identity check/)
+  assert.doesNotMatch(docket, /1990|14\/03|Date of birth/)
+  assert.doesNotMatch(docket, /<b>Example/)
+})
+
+test('the Your details step asks for each detail and carries the declaration', () => {
+  const shell = shellFor(null)
+  for (const id of ['sg-d-capacity', 'sg-d-name', 'sg-d-dob', 'sg-d-street', 'sg-d-suburb', 'sg-d-state', 'sg-d-postcode', 'sg-d-mobile', 'sg-d-email', 'sg-d-company-name', 'sg-d-company-number', 'sg-d-position', 'sg-d-declare']) {
+    assert.match(shell, new RegExp(`id="${id}"`))
+    assert.match(shell, new RegExp(`for="${id}"|<input type="checkbox" id="${id}"`))
+  }
+  assert.match(shell, /<option value="owner">Owner of the property<\/option><option value="tenant">Tenant of the property<\/option><option value="agent">Agent for the owner<\/option><option value="executor">Executor or administrator of an estate<\/option><option value="company_officer">Officer of a company<\/option>/)
+  assert.match(shell, /id="sg-d-name"[^>]* value="Jane Smith">/)
+  assert.match(shell, /id="sg-d-email"[^>]* value="jane@example\.com">/)
+  assert.match(shell, /I declare that the details I have given are true and correct, that I am the person named/)
+  assert.match(shell, /I understand Forensic Cleaning QLD will rely on these details/)
+  // The company fields stay out of the way until the capacity asks for them.
+  assert.match(shell, /id="sg-d-company" style="display:none"/)
+  assert.match(shell, /"companyRules":\{"owner":"none","tenant":"none","agent":"optional","executor":"none","company_officer":"required"\}/)
+  // The page sends what was typed to be checked, and the checked details with the signature.
+  assert.match(shell, /action: 'details', details: typedDetails\(\), declared:/)
+  assert.match(shell, /action: 'sign', details: state\.details, declared: true,/)
+  // The name in the document is no longer typed there.
+  assert.doesNotMatch(shell, /Your full name|sg-name"/)
 })

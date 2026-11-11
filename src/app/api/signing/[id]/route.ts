@@ -6,16 +6,25 @@
  *                          only for requests the system emailed
  *   { action: 'deliver' }  email the signed copy again (e.g. after a failed delivery); with no
  *                          client email on the request it goes to the office inbox
- *   { action: 'confirm' }  the staff check on a signed request: a person has looked at who
+ *   { action: 'confirm', contact }
+ *                          the staff check on a signed request: a person has looked at who
  *                          signed and what they accepted, and the job's draft invoice is now
- *                          created in Xero (or brought up to date). With Xero not connected
- *                          it only records the check. Until this is done nothing is invoiced
- *                          and the client's page shows no payment details.
+ *                          created in Xero (or brought up to date). `contact` is who they chose
+ *                          to make it out to: 'new' (created from the signer's details), the id
+ *                          of a contact already in Xero, or 'keep' (the one on the job's
+ *                          invoice). With Xero not connected it only records the check. Until
+ *                          this is done nothing is invoiced, no contact is created, and the
+ *                          client's page shows no payment details.
  *   { action: 'pay_message' }
  *                          once the client can pay: a message for staff to send themselves,
  *                          with a new private link to the client's page (the first link is
  *                          never stored, so it cannot be shown again) and the passcode where
  *                          the link has one. Nothing is sent from here.
+ *
+ * GET /api/signing/[id] — what the staff check needs to choose who the invoice
+ * is made out to: the contact a new one would be created as (from the signer's
+ * details), the contacts already in Xero that match the signer's email or name,
+ * and the contact on the job's invoice when it has one. Reads Xero only.
  *
  * Full-access staff only, and only for requests in their own organisation. The
  * check and the pay message are for staff who are shown money (not team leads).
@@ -25,41 +34,129 @@ import { guardFullAccessStaff } from '@/lib/fullAccessStaff'
 import { seesFinancials } from '@/lib/agent/jobSnapshot'
 import { getStaffFirstName } from '@/lib/clerkDisplayName'
 import { newSigningToken, paymentReadyMessage, signedDateLabel, signingExpiry } from '@/lib/signing/core'
-import { SIGNING_SUMMARY_COLUMNS, deliverSignedCopy, documentLine, loadPayPanel } from '@/lib/signing/store'
+import { addressLine, readSignerDetails } from '@/lib/signing/details'
+import { SIGNING_SUMMARY_COLUMNS, deliverSignedCopy, documentLine, loadPayPanel, staffSummary } from '@/lib/signing/store'
 import type { SigningRequestRow } from '@/lib/signing/store'
 import { sendSigningInviteEmail } from '@/lib/signing/email'
 import { signingLinks } from '@/lib/signing/links'
 import { depositPartPaid, depositSettled, money } from '@/lib/signing/pay'
 import { loadXeroConnection, xeroConfigured } from '@/lib/xero/client'
+import { findContactCandidates, loadContact } from '@/lib/xero/contacts'
+import { contactFromSigner } from '@/lib/xero/invoice'
+import type { ContactCandidate } from '@/lib/xero/invoice'
 import { syncJobInvoice } from '@/lib/xero/sync'
+import type { ContactChoice } from '@/lib/xero/sync'
 
 export const maxDuration = 60
 
 const NOT_MIGRATED = 'This is not fully set up yet: migration 071 needs to be applied.'
+const UUID = /^[0-9a-f-]{36}$/i
+
+/** The contact on the job's Xero invoice, when the job has an invoice. */
+async function jobInvoiceContact(
+  supabase: Parameters<typeof loadContact>[0],
+  orgId: string,
+  jobId: string,
+): Promise<{ invoiceId: string; invoiceNumber: string; contactId: string } | null> {
+  const { data } = await supabase
+    .from('xero_job_invoices')
+    .select('xero_invoice_id, xero_invoice_number, xero_contact_id')
+    .eq('job_id', jobId)
+    .eq('org_id', orgId)
+    .maybeSingle()
+  const inv = data as { xero_invoice_id?: string | null; xero_invoice_number?: string | null; xero_contact_id?: string | null } | null
+  if (!inv?.xero_invoice_id) return null
+  return { invoiceId: inv.xero_invoice_id, invoiceNumber: inv.xero_invoice_number ?? '', contactId: inv.xero_contact_id ?? '' }
+}
+
+export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const guard = await guardFullAccessStaff(req)
+  if (!guard.ok) return guard.response
+  const { supabase, orgId } = guard
+  const { id } = await params
+  if (!UUID.test(id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (!seesFinancials(guard.role)) {
+    return NextResponse.json({ error: 'This is done by the office: you are not set up to see invoices.' }, { status: 403 })
+  }
+
+  const { data } = await supabase
+    .from('signing_requests')
+    .select('id, job_id, status, signer_details')
+    .eq('id', id)
+    .eq('org_id', orgId)
+    .maybeSingle()
+  const row = data as Pick<SigningRequestRow, 'id' | 'job_id' | 'status' | 'signer_details'> | null
+  if (!row) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (row.status !== 'signed') return NextResponse.json({ error: 'This document has not been signed.' }, { status: 409 })
+
+  const details = readSignerDetails(row.signer_details)
+  const conn = xeroConfigured() ? await loadXeroConnection(supabase, orgId) : null
+  const nothing = { hasDetails: Boolean(details), proposed: null, contacts: [] as ContactCandidate[], current: null }
+  if (!conn) return NextResponse.json({ xeroConnected: false, ...nothing })
+
+  const onInvoice = await jobInvoiceContact(supabase, orgId, row.job_id)
+  const holder = onInvoice?.contactId ? await loadContact(supabase, conn, onInvoice.contactId) : null
+  const current = onInvoice
+    ? { id: onInvoice.contactId, name: holder?.name ?? '', email: holder?.email ?? '', invoiceNumber: onInvoice.invoiceNumber }
+    : null
+  // Signed before the Your details step: the contact comes from the job, as it did then.
+  if (!details) return NextResponse.json({ xeroConnected: true, ...nothing, current })
+
+  const input = contactFromSigner(details)
+  let contacts: ContactCandidate[]
+  try {
+    contacts = await findContactCandidates(supabase, conn, {
+      email: details.email,
+      names: [details.legalName, details.company?.name ?? ''],
+    })
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : 'no answer'
+    return NextResponse.json({ error: `Xero could not be searched for matching contacts (${reason}). Try again.` }, { status: 502 })
+  }
+  return NextResponse.json(
+    {
+      xeroConnected: true,
+      hasDetails: true,
+      proposed: {
+        name: input.name,
+        person: input.name === details.legalName ? '' : details.legalName,
+        email: input.email,
+        phone: input.phone,
+        address: addressLine(details.address),
+      },
+      contacts: contacts.filter(c => c.id !== current?.id),
+      current,
+    },
+    { headers: { 'Cache-Control': 'private, no-store' } },
+  )
+}
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const guard = await guardFullAccessStaff(req)
   if (!guard.ok) return guard.response
   const { supabase, orgId, userId } = guard
+  const financials = seesFinancials(guard.role)
   const { id } = await params
-  if (!/^[0-9a-f-]{36}$/i.test(id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (!UUID.test(id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  let action = ''
+  let body: Record<string, unknown> = {}
   try {
-    const body = (await req.json()) as { action?: unknown }
-    action = typeof body.action === 'string' ? body.action : ''
+    const parsed = (await req.json()) as unknown
+    if (parsed && typeof parsed === 'object') body = parsed as Record<string, unknown>
   } catch {
-    action = ''
+    body = {}
   }
+  const action = typeof body.action === 'string' ? body.action : ''
 
   const { data } = await supabase.from('signing_requests').select('*').eq('id', id).eq('org_id', orgId).maybeSingle()
   const row = data as SigningRequestRow | null
   if (!row) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const summary = async () => {
+  const freshSummary = async () => {
     const { data: fresh } = await supabase.from('signing_requests').select(SIGNING_SUMMARY_COLUMNS).eq('id', id).maybeSingle()
-    return NextResponse.json({ request: fresh })
+    return fresh ? staffSummary(fresh as unknown as object, financials) : null
   }
+  const summary = async () => NextResponse.json({ request: await freshSummary() })
   const waiting = row.status === 'sent' || row.status === 'viewed'
   const now = new Date()
 
@@ -118,7 +215,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
 
   if (action === 'confirm' || action === 'pay_message') {
-    if (!seesFinancials(guard.role)) {
+    if (!financials) {
       return NextResponse.json({ error: 'This is done by the office: you are not set up to see invoices.' }, { status: 403 })
     }
     if (row.status !== 'signed') return NextResponse.json({ error: 'This document has not been signed.' }, { status: 409 })
@@ -126,11 +223,40 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   if (action === 'confirm') {
     let note = ''
-    const connected = xeroConfigured() && Boolean(await loadXeroConnection(supabase, orgId))
-    if (!connected) {
+    const conn = xeroConfigured() ? await loadXeroConnection(supabase, orgId) : null
+    const connected = Boolean(conn)
+    if (!conn) {
       note = 'Marked as checked. Xero is not connected, so no invoice was created.'
     } else {
-      const result = await syncJobInvoice(supabase, row.job_id, 'staff_confirmed', { requestId: row.id })
+      // Who the invoice is made out to is the person's choice at the check:
+      //   'new'         a contact created from the signer's details
+      //   a contact id  one already in Xero
+      //   'keep'        the contact already on the job's invoice
+      // A request signed before the Your details step has no details to choose
+      // from, and goes to the contact found or made from the job, as it did then.
+      const details = readSignerDetails(row.signer_details)
+      const choice = typeof body.contact === 'string' ? body.contact.trim() : ''
+      let contact: ContactChoice | undefined
+      if (choice === 'new') {
+        if (!details) {
+          return NextResponse.json({ error: 'This quote was signed without the signer\'s details, so there is nothing to create a contact from.' }, { status: 400 })
+        }
+        contact = { create: contactFromSigner(details), key: row.id }
+      } else if (UUID.test(choice)) {
+        const existing = await loadContact(supabase, conn, choice)
+        if (!existing) return NextResponse.json({ error: 'That contact could not be found in Xero. Choose again.' }, { status: 409 })
+        if (existing.archived) return NextResponse.json({ error: `${existing.name || 'That contact'} is archived in Xero, so it cannot be invoiced. Choose another, or restore it in Xero.` }, { status: 409 })
+        contact = { use: existing.id }
+      } else if (choice === 'keep' || choice === '') {
+        const onInvoice = await jobInvoiceContact(supabase, orgId, row.job_id)
+        if (details && !onInvoice) {
+          return NextResponse.json({ error: 'Choose who the invoice is made out to first.' }, { status: 400 })
+        }
+      } else {
+        return NextResponse.json({ error: 'Choose who the invoice is made out to first.' }, { status: 400 })
+      }
+
+      const result = await syncJobInvoice(supabase, row.job_id, 'staff_confirmed', { requestId: row.id, contact })
       if (result.outcome === 'failed') {
         return NextResponse.json(
           { error: `Xero did not take the invoice (${result.error}). Nothing has been marked as checked; try again.` },
@@ -178,8 +304,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       console.error('[signing] recording the staff check failed', id, error.message)
       return NextResponse.json({ error: /does not exist|schema cache/i.test(error.message) ? NOT_MIGRATED : error.message }, { status: 500 })
     }
-    const { data: fresh } = await supabase.from('signing_requests').select(SIGNING_SUMMARY_COLUMNS).eq('id', id).maybeSingle()
-    return NextResponse.json({ request: fresh, note })
+    return NextResponse.json({ request: await freshSummary(), note })
   }
 
   if (action === 'pay_message') {

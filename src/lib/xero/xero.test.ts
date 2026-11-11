@@ -6,10 +6,13 @@ import {
   brisbaneDate,
   buildInvoiceLines,
   contactFromJob,
+  contactFromSigner,
   draftInvoiceBody,
   linesHash,
   quoteAmount,
+  rankContacts,
   staffCheckHold,
+  xeroContactBody,
   xeroInvoiceUrl,
   xeroSettings,
 } from './invoice'
@@ -134,6 +137,89 @@ test('the staff link opens the invoice inside Xero', () => {
     'https://go.xero.com/AccountsReceivable/View.aspx?InvoiceID=3f2a9c1e-0000-4000-8000-123456789abc',
   )
   assert.equal(xeroInvoiceUrl('a b&c'), 'https://go.xero.com/AccountsReceivable/View.aspx?InvoiceID=a%20b%26c')
+})
+
+const SIGNER = {
+  legalName: 'Jordan Lee Example',
+  email: 'jordan@example.com',
+  mobile: '0412 345 678',
+  address: { street: '12 Example Street', suburb: 'Brisbane City', state: 'QLD', postcode: '4000' },
+  company: null as { name: string; number: string; numberType: string } | null,
+}
+
+test('a new Xero contact is the person who signed, with where they live', () => {
+  const input = contactFromSigner(SIGNER)
+  assert.equal(input.name, 'Jordan Lee Example')
+  const address = { AddressLine1: '12 Example Street', City: 'Brisbane City', Region: 'QLD', PostalCode: '4000', Country: 'Australia' }
+  assert.deepEqual(xeroContactBody(input), {
+    Name: 'Jordan Lee Example',
+    FirstName: 'Jordan',
+    LastName: 'Lee Example',
+    EmailAddress: 'jordan@example.com',
+    Phones: [{ PhoneType: 'MOBILE', PhoneNumber: '0412 345 678' }],
+    // Both, because Xero prints the postal address on invoices.
+    Addresses: [{ AddressType: 'STREET', ...address }, { AddressType: 'POBOX', ...address }],
+  })
+})
+
+test('signing for a company names the contact for the company, with the signer as its person', () => {
+  const abn = xeroContactBody(contactFromSigner({
+    ...SIGNER,
+    company: { name: 'Example Holdings Pty Ltd', number: '51824753556', numberType: 'ABN' },
+  }))
+  assert.equal(abn.Name, 'Example Holdings Pty Ltd')
+  assert.equal(abn.FirstName, 'Jordan')
+  assert.equal(abn.LastName, 'Lee Example')
+  assert.equal(abn.TaxNumber, '51824753556')
+  assert.equal('CompanyNumber' in abn, false)
+
+  const acn = xeroContactBody(contactFromSigner({
+    ...SIGNER,
+    company: { name: 'Example Holdings Pty Ltd', number: '004085616', numberType: 'ACN' },
+  }))
+  assert.equal(acn.CompanyNumber, '004085616')
+  assert.equal('TaxNumber' in acn, false)
+
+  // An agent's company with no number given.
+  const bare = xeroContactBody(contactFromSigner({ ...SIGNER, company: { name: 'Example Realty', number: '', numberType: '' } }))
+  assert.equal(bare.Name, 'Example Realty')
+  assert.equal('TaxNumber' in bare || 'CompanyNumber' in bare, false)
+})
+
+test('a contact from the job alone is unchanged: name, email and phone only', () => {
+  assert.deepEqual(xeroContactBody({ name: 'Acme Pty Ltd', email: 'a@acme.com', phone: '0400 000 000' }), {
+    Name: 'Acme Pty Ltd',
+    EmailAddress: 'a@acme.com',
+    Phones: [{ PhoneType: 'MOBILE', PhoneNumber: '0400 000 000' }],
+  })
+  assert.deepEqual(xeroContactBody({ name: 'Job 1234', email: '', phone: '' }), { Name: 'Job 1234' })
+})
+
+test('existing Xero contacts are offered best match first, never archived ones', () => {
+  const found = [
+    { ContactID: 'similar', Name: 'Jordan Examples Plumbing', EmailAddress: 'office@plumbing.example' },
+    { ContactID: 'by-name', Name: 'JORDAN LEE EXAMPLE', EmailAddress: 'old@example.com' },
+    { ContactID: 'archived', Name: 'Jordan Lee Example', EmailAddress: 'jordan@example.com', ContactStatus: 'ARCHIVED' },
+    { ContactID: 'by-email', Name: 'J Example', EmailAddress: 'Jordan@Example.com', ContactStatus: 'ACTIVE' },
+    // The same contact turned up by a second search.
+    { ContactID: 'by-email', Name: 'J Example', EmailAddress: 'Jordan@Example.com' },
+    { ContactID: 'by-person', Name: 'Example Holdings Pty Ltd', FirstName: 'Jordan Lee', LastName: 'Example', EmailAddress: '' },
+    { ContactID: '', Name: 'No id' },
+  ]
+  const ranked = rankContacts(found, { email: 'jordan@example.com', names: ['Jordan Lee Example', ''] })
+  assert.deepEqual(ranked.map(c => [c.id, c.why]), [
+    ['by-email', 'email'],
+    ['by-name', 'name'],
+    ['by-person', 'name'],
+    ['similar', 'similar'],
+  ])
+  assert.equal(ranked[2].person, 'Jordan Lee Example')
+  assert.equal(ranked[1].person, '')
+  // A handful to choose from, not the whole file.
+  const many = Array.from({ length: 30 }, (_, i) => ({ ContactID: `c${i}`, Name: `Jordan ${i}` }))
+  assert.equal(rankContacts(many, { email: '', names: ['Jordan'] }).length, 8)
+  // With no email given, an empty email in Xero is not "the same email".
+  assert.equal(rankContacts([{ ContactID: 'x', Name: 'Someone', EmailAddress: '' }], { email: '', names: [] })[0].why, 'similar')
 })
 
 test('the signed alert asks staff to check and invoice, and escapes what the client typed', async () => {

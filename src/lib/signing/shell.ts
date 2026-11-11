@@ -5,9 +5,13 @@
  * a funnel with the document first:
  *
  *   1 View          the document opens straight away, nothing in front of it
- *   2 Sign          "Next: sign" asks them to agree to sign electronically,
- *                   then lights up the fields: draw or type a signature, Finish
- *   3 Pay deposit   once signed, "your invoice is being prepared" until staff
+ *   2 Your details  who is signing and in what capacity, where they live and
+ *                   how to reach them, and a declaration that it is true. What
+ *                   they type is checked by the server (lib/signing/details.ts)
+ *   3 Sign          asks them to agree to sign electronically, then lights up
+ *                   the fields: draw or type a signature, Finish. The name in
+ *                   the document is the legal name from their details
+ *   4 Pay deposit   once signed, "your invoice is being prepared" until staff
  *                   have checked the signed document and approved the invoice
  *                   in Xero; then the amount with Pay by card and the bank
  *                   transfer details together
@@ -21,6 +25,7 @@
  */
 import { depositPartPaid, depositSettled, longDate, money, percentLabel } from '@/lib/signing/pay'
 import type { PayPanel } from '@/lib/signing/pay'
+import { CAPACITIES, STATES, companyRule, declarationText } from '@/lib/signing/details'
 
 function esc(s: string): string {
   return s
@@ -65,7 +70,7 @@ const SHELL_CSS = `
   #sg-bar .sg-btn-quiet { color: #fff; border-color: rgba(255,255,255,0.35); padding: 9px 12px; }
   #sg-root a.sg-btn { text-decoration: none; display: inline-block; text-align: center; }
   #sg-root .sg-btn-wide { display: block; width: 100%; padding: 14px; font-size: 16px; }
-  /* The three steps, under the bar */
+  /* The steps, under the bar */
   #sg-steps {
     position: fixed; top: 56px; left: 0; right: 0; z-index: 999; height: 30px; margin: 0; padding: 0 12px;
     display: flex; align-items: center; justify-content: center; gap: 22px; list-style: none;
@@ -115,6 +120,19 @@ const SHELL_CSS = `
     width: 100%; padding: 11px 12px; border: 1px solid #d0d5dd; border-radius: 8px; font: inherit; font-size: 16px; margin: 0 0 10px;
   }
   #sg-root textarea.sg-input { min-height: 96px; resize: vertical; }
+  /* Your details */
+  #sg-root select.sg-input { background: #fff; color: #111; height: 46px; }
+  #sg-root .sg-card-wide { max-width: 560px; }
+  #sg-root .sg-label { display: block; font-size: 13px; font-weight: 600; color: #344054; margin: 0 0 4px; }
+  #sg-root .sg-label small { font-weight: 400; color: #667085; font-size: 12px; }
+  #sg-root .sg-row { display: flex; gap: 10px; }
+  #sg-root .sg-row > * { flex: 1 1 0; min-width: 0; }
+  #sg-root .sg-row > .sg-narrow { flex: 0 0 112px; }
+  #sg-root .sg-input.sg-bad { border-color: #b91c1c; box-shadow: 0 0 0 3px rgba(185, 28, 28, 0.15); }
+  #sg-root .sg-group { border-top: 1px solid #e4e7ec; margin: 6px 0 0; padding: 14px 0 0; }
+  #sg-root .sg-declare { background: #f5f7fa; border-radius: 10px; padding: 12px 14px; margin: 6px 0 0; }
+  #sg-root .sg-declare .sg-check { margin: 0; }
+  .sow-root .sign-block .sign-slot.sg-name-slot { cursor: pointer; }
   #sg-root .sg-typed {
     border: 1px dashed #98a2b3; border-radius: 10px; background: #fcfcfd; height: 110px;
     display: flex; align-items: center; justify-content: center; overflow: hidden; padding: 0 12px;
@@ -148,11 +166,7 @@ const SHELL_CSS = `
     font: 700 13px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #7a5200; letter-spacing: 0.02em;
   }
   .sow-root .sign-block .sign-slot.sg-done { cursor: pointer; }
-  .sow-root .sign-block .sign-slot .sg-name {
-    width: 100%; border: none; background: transparent; font: inherit; color: inherit; padding: 0; outline: none;
-  }
   .sow-root .sign-block .sign-slot.sg-name-slot { background: #f5f9ff; border-radius: 6px 6px 0 0; }
-  .sow-root .sign-block .sign-slot.sg-name-slot.sg-todo { background: #fff4c2; }
   /* Phones: the A4 sheet is scaled to the screen width (see FIT_SCRIPT), so give the fields more room. */
   @media screen and (max-width: 640px) {
     .sow-root .sign-block .sign-slot { min-height: 120px; font-size: 17pt; }
@@ -164,8 +178,11 @@ const SHELL_CSS = `
     #sg-bar { gap: 8px; padding: 0 10px; }
     #sg-bar .sg-progress { display: none; }
     #sg-bar .sg-wide { display: none; }
-    #sg-steps { gap: 14px; }
+    #sg-steps { gap: 10px; font-size: 11px; padding: 0 6px; }
     #sg-root .sg-card { padding: 20px 18px; }
+    #sg-root .sg-row { flex-wrap: wrap; }
+    #sg-root .sg-row > .sg-first { flex: 1 1 100%; }
+    #sg-root .sg-row > .sg-narrow { flex: 1 1 0; }
     #sg-root .sg-bank-row span { flex-basis: 92px; }
   }
   @media print { #sg-root { display: none !important; } }
@@ -197,11 +214,13 @@ const SHELL_SCRIPT = String.raw`
 (function () {
   var cfg = JSON.parse(document.getElementById('sg-config').textContent);
   var api = '/api/sign/' + cfg.token;
-  // The document is shown first. Signing starts when they ask for it, and only
-  // after they have agreed to sign electronically.
+  // The document is shown first. Signing starts when they ask for it: their
+  // details come first, then they agree to sign electronically, then they sign.
+  // details is what the server last checked and tidied; it is cleared again if
+  // they change anything on the form, so what is sent is what they can see.
   var state = {
     signature: null, method: null, busy: false, finished: false,
-    agreed: !!cfg.consented, signing: false, pending: null
+    agreed: !!cfg.consented, signing: false, pending: null, details: null
   };
 
   function $(id) { return document.getElementById(id); }
@@ -213,7 +232,11 @@ const SHELL_SCRIPT = String.raw`
       body: JSON.stringify(body)
     }).then(function (res) {
       return res.json().catch(function () { return {}; }).then(function (data) {
-        if (!res.ok) throw new Error((data && data.error) || 'Something went wrong. Please try again.');
+        if (!res.ok) {
+          var problem = new Error((data && data.error) || 'Something went wrong. Please try again.');
+          problem.field = data && data.field;
+          throw problem;
+        }
         return data;
       });
     });
@@ -238,8 +261,8 @@ const SHELL_SCRIPT = String.raw`
     return;
   }
 
-  // ── Steps: View, Sign, Pay deposit ────────────────────────────────────────
-  var STEP_ORDER = ['view', 'sign', 'pay'];
+  // ── Steps: View, Your details, Sign, Pay deposit ──────────────────────────
+  var STEP_ORDER = ['view', 'details', 'sign', 'pay'];
   function setStep(name) {
     var at = STEP_ORDER.indexOf(name);
     var items = document.querySelectorAll('#sg-steps li');
@@ -249,10 +272,19 @@ const SHELL_SCRIPT = String.raw`
       items[i].querySelector('b').textContent = idx < at ? '\u2713' : String(i + 1);
     }
   }
+  /** The step they are on when no window is open over the document. */
+  function restStep() { setStep(state.finished ? 'pay' : (state.details ? 'sign' : 'view')); }
 
-  /** Move from viewing to signing, asking for agreement first if it has not been given. */
+  /**
+   * Move from viewing to signing. Their details come first, then agreeing to
+   * sign electronically; each is asked once, and only when it is missing.
+   */
   function startSigning(then) {
     if (state.busy || state.finished) return;
+    if (!state.details) {
+      openDetails(then);
+      return;
+    }
     if (!state.agreed) {
       state.pending = then;
       show('sg-consent');
@@ -261,8 +293,8 @@ const SHELL_SCRIPT = String.raw`
     if (!state.signing) {
       state.signing = true;
       block.classList.add('sg-live');
-      setStep('sign');
     }
+    restStep();
     refresh();
     then();
   }
@@ -270,17 +302,21 @@ const SHELL_SCRIPT = String.raw`
   // ── Fields in the document ────────────────────────────────────────────────
   dateSlot.textContent = cfg.dateLabel;
 
-  var nameInput = document.createElement('input');
-  nameInput.className = 'sg-name';
-  nameInput.type = 'text';
-  nameInput.maxLength = 120;
-  nameInput.autocomplete = 'name';
-  nameInput.setAttribute('aria-label', 'Your full name');
-  nameInput.placeholder = 'Your full name';
-  nameInput.value = cfg.toName || '';
+  // The name in the document is the legal name from their details. It is not
+  // typed here: choosing it opens their details.
+  var nameText = document.createElement('span');
   nameSlot.classList.add('sg-name-slot');
-  nameSlot.appendChild(nameInput);
-  nameInput.addEventListener('input', refresh);
+  nameSlot.appendChild(nameText);
+  nameSlot.setAttribute('role', 'button');
+  nameSlot.setAttribute('tabindex', '0');
+  nameSlot.setAttribute('aria-label', 'Your name, from your details. Choose to change your details.');
+  nameSlot.addEventListener('click', function () { if (!state.busy && !state.finished) openDetails(null); });
+  nameSlot.addEventListener('keydown', function (event) {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      if (!state.busy && !state.finished) openDetails(null);
+    }
+  });
 
   sigSlot.setAttribute('role', 'button');
   sigSlot.setAttribute('tabindex', '0');
@@ -290,8 +326,7 @@ const SHELL_SCRIPT = String.raw`
     if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); startSigning(openPad); }
   });
 
-  function nameValue() { return nameInput.value.replace(/\s+/g, ' ').trim(); }
-  function nameOk() { return nameValue().length >= 2; }
+  function nameValue() { return state.details ? state.details.legalName : ''; }
 
   function renderSignature() {
     sigSlot.textContent = '';
@@ -314,30 +349,133 @@ const SHELL_SCRIPT = String.raw`
   }
 
   function refresh() {
-    var done = (state.signature ? 1 : 0) + (nameOk() ? 1 : 0);
-    nameSlot.classList.toggle('sg-todo', state.signing && !nameOk());
-    $('sg-progress').textContent = state.signing ? done + ' of 2 fields done' : '';
+    nameText.textContent = nameValue();
+    var ready = !!state.details && state.signing;
+    $('sg-progress').textContent = !ready ? '' : (state.signature ? 'Ready to finish' : 'Signature needed');
     var next = $('sg-next');
-    next.textContent = !state.signing ? 'Next: sign' : (done === 2 ? 'Finish' : 'Next');
+    next.textContent = !state.details ? 'Next: your details' : (!state.signing ? 'Next: sign' : (state.signature ? 'Finish' : 'Next'));
     next.disabled = state.busy;
   }
 
   function goToNextField() {
-    var target = !state.signature ? sigSlot : nameSlot;
-    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    if (target === nameSlot) { nameInput.focus({ preventScroll: true }); }
-    else { sigSlot.focus({ preventScroll: true }); }
+    sigSlot.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    sigSlot.focus({ preventScroll: true });
     refresh();
   }
 
   $('sg-next').addEventListener('click', function () {
     if (state.busy) return;
-    if (!state.signing) startSigning(goToNextField);
-    else if (state.signature && nameOk()) finish();
+    if (!state.details || !state.signing) startSigning(goToNextField);
+    else if (state.signature) finish();
     else goToNextField();
   });
 
-  // ── Agree to sign electronically (asked when they choose to sign, not on entry) ──
+  // ── Your details (asked when they choose to sign, not on entry) ───────────
+  var detailsForm = $('sg-details-form');
+  var FIELDS = {
+    capacity: 'sg-d-capacity', legalName: 'sg-d-name', dateOfBirth: 'sg-d-dob',
+    street: 'sg-d-street', suburb: 'sg-d-suburb', state: 'sg-d-state', postcode: 'sg-d-postcode',
+    mobile: 'sg-d-mobile', email: 'sg-d-email',
+    companyName: 'sg-d-company-name', companyNumber: 'sg-d-company-number', position: 'sg-d-position',
+    declaration: 'sg-d-declare'
+  };
+  // Typed details survive a reload of this tab, and are forgotten once signed.
+  var storeKey = 'sg-details:' + String(cfg.token).slice(0, 16);
+  function val(key) { return $(FIELDS[key]).value; }
+  function typedDetails() {
+    return {
+      capacity: val('capacity'), legalName: val('legalName'), dateOfBirth: val('dateOfBirth'),
+      address: { street: val('street'), suburb: val('suburb'), state: val('state'), postcode: val('postcode') },
+      mobile: val('mobile'), email: val('email'),
+      company: { name: val('companyName'), number: val('companyNumber'), position: val('position') }
+    };
+  }
+  function put(key, value) { if (typeof value === 'string') $(FIELDS[key]).value = value; }
+  function dayFirst(value) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || '');
+    return m ? m[3] + '/' + m[2] + '/' + m[1] : value;
+  }
+  function fillDetails(d) {
+    if (!d || typeof d !== 'object') return;
+    var a = d.address || {};
+    var c = d.company || {};
+    put('capacity', d.capacity); put('legalName', d.legalName); put('dateOfBirth', dayFirst(d.dateOfBirth));
+    put('street', a.street); put('suburb', a.suburb); put('state', a.state); put('postcode', a.postcode);
+    put('mobile', d.mobile); put('email', d.email);
+    put('companyName', c.name); put('companyNumber', c.number); put('position', c.position);
+    showCompany();
+  }
+  function showCompany() {
+    var rule = cfg.companyRules[val('capacity')] || 'none';
+    $('sg-d-company').style.display = rule === 'none' ? 'none' : '';
+    $('sg-d-company-note').textContent = rule === 'optional'
+      ? 'If you act for a company (for example a real estate agency), add it here. Leave these empty if not.'
+      : 'The company you are signing for.';
+  }
+  function remember() {
+    try { sessionStorage.setItem(storeKey, JSON.stringify(typedDetails())); } catch (e) {}
+  }
+  function clearBad() {
+    var bad = detailsForm.querySelectorAll('.sg-bad');
+    for (var i = 0; i < bad.length; i++) { bad[i].classList.remove('sg-bad'); bad[i].removeAttribute('aria-invalid'); }
+    $('sg-details-error').textContent = '';
+  }
+  function detailsProblem(field, message) {
+    $('sg-details-error').textContent = message;
+    var el = field && FIELDS[field] ? $(FIELDS[field]) : null;
+    if (!el) return;
+    if (el.type !== 'checkbox') { el.classList.add('sg-bad'); el.setAttribute('aria-invalid', 'true'); }
+    el.scrollIntoView({ block: 'center' });
+    el.focus({ preventScroll: true });
+  }
+  function openDetails(then) {
+    state.pending = then || state.pending;
+    clearBad();
+    show('sg-details');
+    setStep('details');
+  }
+  function closeDetails() {
+    hide('sg-details');
+    restStep();
+  }
+  try {
+    var kept = sessionStorage.getItem(storeKey);
+    if (kept) fillDetails(JSON.parse(kept));
+  } catch (e) {}
+  showCompany();
+  $(FIELDS.capacity).addEventListener('change', showCompany);
+  // Anything changed after the check means it must be checked again.
+  function changed() {
+    if (state.details) { state.details = null; $(FIELDS.declaration).checked = false; refresh(); }
+    remember();
+  }
+  detailsForm.addEventListener('input', function (event) { if (event.target !== $(FIELDS.declaration)) changed(); });
+  detailsForm.addEventListener('change', function (event) { if (event.target !== $(FIELDS.declaration)) changed(); });
+  $('sg-details-back').addEventListener('click', function () { state.pending = null; closeDetails(); });
+  detailsForm.addEventListener('submit', function (event) {
+    event.preventDefault();
+    if (state.busy || state.finished) return;
+    clearBad();
+    var button = $('sg-details-continue');
+    button.disabled = true;
+    remember();
+    post({ action: 'details', details: typedDetails(), declared: $(FIELDS.declaration).checked })
+      .then(function (data) {
+        state.details = data.details;
+        fillDetails(data.details);
+        remember();
+        closeDetails();
+        var then = state.pending || goToNextField;
+        state.pending = null;
+        startSigning(then);
+      })
+      .catch(function (err) {
+        detailsProblem(err && err.field, err && err.message ? err.message : 'Could not check your details. Please try again.');
+      })
+      .then(function () { button.disabled = false; });
+  });
+
+  // ── Agree to sign electronically ──────────────────────────────────────────
   var agree = $('sg-agree');
   var agreeBtn = $('sg-agree-continue');
   agree.addEventListener('change', function () { agreeBtn.disabled = !agree.checked; });
@@ -489,24 +627,30 @@ const SHELL_SCRIPT = String.raw`
     if (mode === 'draw' ? !drawnOk() : !typedOk()) return;
     state.signature = mode === 'draw' ? exportDrawn() : exportTyped();
     state.method = mode === 'draw' ? 'drawn' : 'typed';
-    if (mode === 'type' && !nameOk()) nameInput.value = typed.value.replace(/\s+/g, ' ').trim();
     hide('sg-pad');
     renderSignature();
     refresh();
-    if (!nameOk()) goToNextField();
   });
 
   // ── Finish ────────────────────────────────────────────────────────────────
   function finish() {
+    if (!state.details || !state.signature) return;
     state.busy = true;
     $('sg-next').textContent = 'Signing…';
     $('sg-next').disabled = true;
-    post({ action: 'sign', name: nameValue(), signature: state.signature, method: state.method, agreed: true })
+    post({ action: 'sign', details: state.details, declared: true, signature: state.signature, method: state.method, agreed: true })
       .then(function (data) {
         state.finished = true;
+        try { sessionStorage.removeItem(storeKey); } catch (e) {}
         nameSlot.textContent = nameValue();
-        nameSlot.classList.remove('sg-name-slot', 'sg-todo');
+        nameSlot.classList.remove('sg-name-slot');
+        nameSlot.removeAttribute('role');
+        nameSlot.removeAttribute('tabindex');
+        nameSlot.removeAttribute('aria-label');
         if (data && data.dateLabel) dateSlot.textContent = data.dateLabel;
+        if (data && data.copyEmail) {
+          $('sg-done-copy').textContent = 'Your signed copy of ' + cfg.docLine + ' is being emailed to ' + data.copyEmail + '.';
+        }
         block.classList.remove('sg-live');
         sigSlot.removeAttribute('role');
         sigSlot.removeAttribute('tabindex');
@@ -519,6 +663,14 @@ const SHELL_SCRIPT = String.raw`
       })
       .catch(function (err) {
         state.busy = false;
+        // The server found a problem with their details: back to that step.
+        if (err && err.field) {
+          state.details = null;
+          refresh();
+          openDetails(null);
+          detailsProblem(err.field, err.message);
+          return;
+        }
         refresh();
         toast(err && err.message ? err.message : 'Could not record your signature. Please try again.');
       });
@@ -576,16 +728,17 @@ export interface SigningShellData {
   deposit: { amountLabel: string; percentLabel: string } | null
 }
 
-type Step = 'view' | 'sign' | 'pay'
+type Step = 'view' | 'details' | 'sign' | 'pay'
 
 /** The steps under the bar. `current` past the last step shows them all as done. */
 function stepsHtml(current: Step | 'finished', hasPay: boolean): string {
   const steps: { id: Step; label: string }[] = [
     { id: 'view', label: 'View' },
+    { id: 'details', label: 'Your details' },
     { id: 'sign', label: 'Sign' },
     ...(hasPay ? [{ id: 'pay' as const, label: 'Pay deposit' }] : []),
   ]
-  const order: (Step | 'finished')[] = ['view', 'sign', 'pay', 'finished']
+  const order: (Step | 'finished')[] = ['view', 'details', 'sign', 'pay', 'finished']
   const at = order.indexOf(current)
   return `<ol id="sg-steps" aria-label="Steps">${steps
     .map((step, i) => {
@@ -615,9 +768,92 @@ export function signingShellHtml(d: SigningShellData): string {
       </div>
       <span class="sg-progress" id="sg-progress" aria-live="polite"></span>
       <button type="button" class="sg-btn sg-btn-quiet" id="sg-decline-open">Decline</button>
-      <button type="button" class="sg-btn" id="sg-next">Next: sign</button>
+      <button type="button" class="sg-btn" id="sg-next">Next: your details</button>
     </div>
     ${stepsHtml('view', Boolean(d.deposit))}
+
+    <div class="sg-overlay" id="sg-details" role="dialog" aria-modal="true" aria-labelledby="sg-details-h">
+      <form class="sg-card sg-card-wide" id="sg-details-form" novalidate>
+        <div class="sg-eyebrow">${esc(d.brandLabel)}</div>
+        <h2 id="sg-details-h">Your details</h2>
+        <p>Before you sign, tell us who is accepting ${esc(docLine)}. ${esc(d.brandLabel)} uses these details for your invoice and to contact you.</p>
+
+        <label class="sg-label" for="sg-d-capacity">I am signing as</label>
+        <select class="sg-input" id="sg-d-capacity">
+          <option value="">Choose one</option>
+          ${CAPACITIES.map(c => `<option value="${c.id}">${esc(c.label)}</option>`).join('')}
+        </select>
+
+        <label class="sg-label" for="sg-d-name">Full legal name</label>
+        <input type="text" class="sg-input" id="sg-d-name" maxlength="120" autocomplete="name" value="${esc(d.toName)}">
+
+        <label class="sg-label" for="sg-d-dob">Date of birth <small>day / month / year</small></label>
+        <input type="text" class="sg-input" id="sg-d-dob" maxlength="10" inputmode="numeric" autocomplete="bday" placeholder="DD/MM/YYYY">
+
+        <div class="sg-group">
+          <label class="sg-label" for="sg-d-street">Residential address <small>where you live, not a PO box</small></label>
+          <input type="text" class="sg-input" id="sg-d-street" maxlength="120" autocomplete="address-line1" placeholder="Street address">
+          <div class="sg-row">
+            <div class="sg-first">
+              <label class="sg-label" for="sg-d-suburb">Suburb or town</label>
+              <input type="text" class="sg-input" id="sg-d-suburb" maxlength="60" autocomplete="address-level2">
+            </div>
+            <div class="sg-narrow">
+              <label class="sg-label" for="sg-d-state">State</label>
+              <select class="sg-input" id="sg-d-state" autocomplete="address-level1">
+                <option value=""></option>
+                ${STATES.map(s => `<option value="${s}">${s}</option>`).join('')}
+              </select>
+            </div>
+            <div class="sg-narrow">
+              <label class="sg-label" for="sg-d-postcode">Postcode</label>
+              <input type="text" class="sg-input" id="sg-d-postcode" maxlength="4" inputmode="numeric" autocomplete="postal-code">
+            </div>
+          </div>
+        </div>
+
+        <div class="sg-group">
+          <div class="sg-row">
+            <div class="sg-first">
+              <label class="sg-label" for="sg-d-mobile">Mobile</label>
+              <input type="tel" class="sg-input" id="sg-d-mobile" maxlength="20" autocomplete="tel" placeholder="0412 345 678">
+            </div>
+            <div class="sg-first">
+              <label class="sg-label" for="sg-d-email">Email</label>
+              <input type="email" class="sg-input" id="sg-d-email" maxlength="160" autocomplete="email" value="${esc(d.toEmail ?? '')}">
+            </div>
+          </div>
+        </div>
+
+        <div class="sg-group" id="sg-d-company" style="display:none">
+          <p class="sg-small" id="sg-d-company-note" style="margin:0 0 10px"></p>
+          <label class="sg-label" for="sg-d-company-name">Company name</label>
+          <input type="text" class="sg-input" id="sg-d-company-name" maxlength="120" autocomplete="organization">
+          <div class="sg-row">
+            <div class="sg-first">
+              <label class="sg-label" for="sg-d-company-number">ABN or ACN</label>
+              <input type="text" class="sg-input" id="sg-d-company-number" maxlength="20" inputmode="numeric" autocomplete="off">
+            </div>
+            <div class="sg-first">
+              <label class="sg-label" for="sg-d-position">Your position</label>
+              <input type="text" class="sg-input" id="sg-d-position" maxlength="120" autocomplete="organization-title" placeholder="For example Director">
+            </div>
+          </div>
+        </div>
+
+        <div class="sg-declare">
+          <label class="sg-check">
+            <input type="checkbox" id="sg-d-declare">
+            <span>${esc(declarationText(d.brandLabel))}</span>
+          </label>
+        </div>
+        <div class="sg-error" id="sg-details-error" role="alert"></div>
+        <div class="sg-actions" style="margin-top:10px">
+          <button type="button" class="sg-btn sg-btn-quiet" id="sg-details-back">Back to document</button>
+          <button type="submit" class="sg-btn" id="sg-details-continue">Continue</button>
+        </div>
+      </form>
+    </div>
 
     <div class="sg-overlay" id="sg-consent" role="dialog" aria-modal="true" aria-labelledby="sg-consent-h">
       <div class="sg-card">
@@ -627,7 +863,7 @@ export function signingShellHtml(d: SigningShellData): string {
           <div><span>Document:</span> ${esc(docLine)}</div>
           <div><span>For:</span> ${esc(who)}</div>
         </div>
-        <p>You sign at the end of the document. It takes about a minute, and ${d.toEmail ? 'a signed copy is emailed to you straight away' : 'you can download your signed copy straight away'}.</p>
+        <p>You sign at the end of the document, under the name you gave in your details. It takes about a minute, and a signed copy is emailed to you straight away.</p>
         <label class="sg-check">
           <input type="checkbox" id="sg-agree">
           <span>I agree to sign this document electronically, and that my electronic signature has the same effect as signing on paper.</span>
@@ -684,9 +920,9 @@ export function signingShellHtml(d: SigningShellData): string {
       <div class="sg-card">
         <div class="sg-eyebrow">${esc(d.brandLabel)}</div>
         <h2 id="sg-done-h">Signed. Thank you.</h2>
-        <p>${d.toEmail
-          ? `Your signed copy of ${esc(docLine)} is being emailed to ${esc(d.toEmail)}. You can also download it now.`
-          : `Download your signed copy of ${esc(docLine)} now and keep it for your records.`}</p>
+        <p><span id="sg-done-copy">${d.toEmail
+          ? `Your signed copy of ${esc(docLine)} is being emailed to ${esc(d.toEmail)}.`
+          : `Your signed copy of ${esc(docLine)} is ready.`}</span> You can download it now and keep it for your records.</p>
         ${d.deposit
           ? `<p>The next step is your deposit of <strong>${esc(d.deposit.amountLabel)}</strong> (${esc(d.deposit.percentLabel)}). There is nothing to pay yet: ${esc(d.brandLabel)} will check the details, prepare your invoice and let you know when it is ready.</p>
         <div class="sg-actions">
@@ -710,10 +946,12 @@ export function signingShellHtml(d: SigningShellData): string {
     <div id="sg-toast" role="alert"></div>
     <script type="application/json" id="sg-config">${scriptJson({
       token: d.token,
-      toName: d.toName,
       dateLabel: d.dateLabel,
       consented: d.consented,
       brandLabel: d.brandLabel,
+      docLine,
+      // Which capacities ask for a company: required, optional or none.
+      companyRules: Object.fromEntries(CAPACITIES.map(c => [c.id, companyRule(c.id)])),
     })}</script>
     <script>${FIT_SCRIPT}</script>
     <script>${SHELL_SCRIPT}</script>
