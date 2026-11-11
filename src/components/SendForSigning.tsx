@@ -1,12 +1,17 @@
 /*
- * Send a saved quote to the client to sign, and show where it is up to.
+ * Send a saved quote to the client, and show where it is up to. The client's
+ * link is a funnel: they view the quote, sign it on the same page, then see the
+ * deposit to pay.
  *
- *   useJobSigning        the signing requests on a job (one fetch shared by every row)
+ *   useJobSigning        the requests on a job, and where the job's Xero invoice
+ *                        is up to (one fetch shared by every row)
  *   SendForSigningModal  the send window, with two ways to get the quote to the client:
  *                          Link and passcode  creates a private link, a passcode and a
  *                                             message to paste into your own text or email
  *                          Email from here    the system emails the link from the brand address
- *   SigningStatus        the strip under a saved quote: link created / sent / opened / signed / declined
+ *                        and the deposit the client is asked to pay after signing
+ *   SigningStatus        the strip under a saved quote: link created / sent / opened /
+ *                        signed / declined, then the deposit and what to do in Xero
  *
  * The From address is decided on the server from the job's trading name and is
  * only shown here. Either way a person decides what goes to the client
@@ -46,6 +51,27 @@ export interface SigningSummary {
   delivery_method: 'email' | 'link'
   passcode: string | null
   passcode_locked_at: string | null
+  /** Inc GST. Null for staff who are not shown money. */
+  quote_total: number | null
+  /** Share of the total asked for after signing. Null = no pay step. */
+  deposit_percent: number | null
+}
+
+/** Where the job's Xero invoice is up to, for a signed quote with a deposit. */
+export interface SigningInvoice {
+  xeroConnected: boolean
+  number: string
+  /** Xero's status: DRAFT, SUBMITTED, AUTHORISED, PAID, VOIDED, DELETED. Empty when there is no invoice yet. */
+  status: string
+  amountPaid: number
+  paidOn: string | null
+  payLinkLive: boolean
+  xeroUrl: string | null
+}
+
+interface JobSigning {
+  requests: SigningSummary[]
+  invoice: SigningInvoice | null
 }
 
 interface Preview {
@@ -59,6 +85,12 @@ interface Preview {
   linkHost: string | null
   /** The brand's document host when it is not connected yet. */
   pendingLinkHost: string | null
+  /** Quote total inc GST. Null for staff who are not shown money. */
+  total: number | null
+  hasTotal: boolean
+  defaultDepositPercent: number
+  bankDetailsSet: boolean
+  xeroConnected: boolean
 }
 
 interface CreatedLink {
@@ -70,40 +102,41 @@ interface CreatedLink {
 }
 
 // Every saved-quote row on a job asks for the same list; share one request.
-const inFlight = new Map<string, Promise<SigningSummary[]>>()
+const inFlight = new Map<string, Promise<JobSigning>>()
+const NOTHING: JobSigning = { requests: [], invoice: null }
 
-function loadJobSigning(jobId: string): Promise<SigningSummary[]> {
+function loadJobSigning(jobId: string): Promise<JobSigning> {
   let pending = inFlight.get(jobId)
   if (!pending) {
     pending = fetch(`/api/signing?jobId=${encodeURIComponent(jobId)}`)
-      .then(res => (res.ok ? res.json() : { requests: [] }))
-      .then((data: { requests?: SigningSummary[] }) => data.requests ?? [])
-      .catch(() => [])
+      .then(res => (res.ok ? res.json() : NOTHING))
+      .then((data: Partial<JobSigning>) => ({ requests: data.requests ?? [], invoice: data.invoice ?? null }))
+      .catch(() => NOTHING)
       .finally(() => inFlight.delete(jobId))
     inFlight.set(jobId, pending)
   }
   return pending
 }
 
-/** Signing requests for a job. Pass null to skip (rows that are not quotes). */
+/** Signing requests for a job, with its Xero invoice status. Pass null to skip (rows that are not quotes). */
 export function useJobSigning(jobId: string | null) {
-  const [requests, setRequests] = useState<SigningSummary[]>([])
+  const [state, setState] = useState<JobSigning>(NOTHING)
 
   const reload = useCallback(async () => {
     if (!jobId) return
-    setRequests(await loadJobSigning(jobId))
+    setState(await loadJobSigning(jobId))
   }, [jobId])
 
   useEffect(() => {
     if (!jobId) return
     let live = true
     const load = () => {
-      void loadJobSigning(jobId).then(list => {
-        if (live) setRequests(list)
+      void loadJobSigning(jobId).then(next => {
+        if (live) setState(next)
       })
     }
     load()
-    // The client signs somewhere else; pick it up when staff come back to the tab.
+    // The client signs and pays somewhere else; pick it up when staff come back to the tab.
     window.addEventListener('focus', load)
     return () => {
       live = false
@@ -111,7 +144,7 @@ export function useJobSigning(jobId: string | null) {
     }
   }, [jobId])
 
-  return { requests, reload }
+  return { requests: state.requests, invoice: state.invoice, reload }
 }
 
 /** The request that matters for a document: the newest one that was not cancelled, else the newest. */
@@ -123,6 +156,25 @@ export function currentSigning(requests: SigningSummary[], documentId: string): 
 function when(iso: string | null): string {
   if (!iso) return ''
   return new Date(iso).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })
+}
+
+function money(n: number): string {
+  return '$' + n.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+/** Same sum as the server (lib/signing/pay.ts): a share of the inc-GST total, to the cent. */
+function depositOf(total: number | null, percent: number | null): number | null {
+  if (total == null || percent == null || !(total > 0) || !(percent > 0)) return null
+  return Math.round(total * percent) / 100
+}
+
+/** What is typed in the deposit box: a percentage, empty for none, or not valid. */
+function readDeposit(text: string): { ok: boolean; percent: number | null } {
+  const t = text.trim()
+  if (!t) return { ok: true, percent: null }
+  const n = Number(t)
+  if (!Number.isFinite(n) || n < 0 || n > 100) return { ok: false, percent: null }
+  return { ok: true, percent: n > 0 ? Math.round(n * 100) / 100 : null }
 }
 
 const fieldLabel: CSSProperties = {
@@ -153,6 +205,7 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
   const [toEmail, setToEmail] = useState('')
   const [subject, setSubject] = useState('')
   const [message, setMessage] = useState('')
+  const [depositText, setDepositText] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
   const [created, setCreated] = useState<CreatedLink | null>(null)
@@ -174,6 +227,7 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
         setToEmail(data.defaults.toEmail)
         setSubject(data.defaults.subject)
         setMessage(data.defaults.message)
+        setDepositText(data.hasTotal ? String(data.defaultDepositPercent) : '')
       })
       .catch(err => {
         if (live) setLoadError(err instanceof Error ? err.message : 'Could not load')
@@ -197,7 +251,9 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
   const emailTyped = toEmail.trim()
   const emailOk = /^\S+@\S+\.\S+$/.test(emailTyped)
   const nameOk = toName.trim().length >= 2
-  const ready = !blocked && nameOk && (
+  const depositChoice = readDeposit(depositText)
+  const depositDue = depositOf(preview?.total ?? null, depositChoice.percent)
+  const ready = !blocked && nameOk && depositChoice.ok && (
     mode === 'link'
       ? !emailTyped || emailOk
       : emailOk && Boolean(subject.trim()) && Boolean(message.trim())
@@ -213,8 +269,8 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(
           mode === 'link'
-            ? { mode, documentId, toName, toEmail }
-            : { mode, documentId, toName, toEmail, subject, message },
+            ? { mode, documentId, toName, toEmail, depositPercent: depositChoice.percent }
+            : { mode, documentId, toName, toEmail, subject, message, depositPercent: depositChoice.percent },
         ),
       })
       const data = await res.json().catch(() => ({}))
@@ -277,7 +333,7 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 14 }}>
           <div>
             <div id="send-signing-title" style={{ fontWeight: 700, fontSize: 18, color: 'var(--text)' }}>
-              {created ? 'Link and passcode ready' : 'Send for signing'}
+              {created ? 'Link and passcode ready' : 'Send to client'}
             </div>
             {docLine && <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }}>{docLine}</div>}
           </div>
@@ -347,6 +403,10 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
               </div>
             )}
 
+            <div style={{ ...helpText, marginBottom: 12 }}>
+              The client views the quote first, signs it on the same page, then sees the deposit to pay.
+            </div>
+
             <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
               {tab('link', 'Link and passcode')}
               {tab('email', 'Email from here')}
@@ -388,6 +448,46 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
               </div>
             </div>
 
+            <div style={{ marginBottom: 14 }}>
+              <label htmlFor="sfs-deposit" style={fieldLabel}>Deposit to pay after signing</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <input
+                  id="sfs-deposit" inputMode="decimal" autoComplete="off" maxLength={6}
+                  style={{ ...fieldInput, width: 84, textAlign: 'right' }}
+                  value={depositText}
+                  disabled={!preview.hasTotal}
+                  onChange={e => setDepositText(e.target.value)}
+                  aria-describedby="sfs-deposit-help"
+                />
+                <span style={{ fontSize: 14, color: 'var(--text)' }}>%</span>
+                {depositDue != null && preview.total != null && (
+                  <span style={{ fontSize: 14, color: 'var(--text)' }}>
+                    = <strong>{money(depositDue)}</strong> of {money(preview.total)} inc GST
+                  </span>
+                )}
+              </div>
+              <div id="sfs-deposit-help" style={{ ...helpText, marginTop: 6 }}>
+                {!preview.hasTotal ? (
+                  <>This quote has no total, so the client is not asked for a deposit.</>
+                ) : !depositChoice.ok ? (
+                  <span style={{ color: '#F87171' }}>Enter a percentage between 1 and 100, or leave it empty for no deposit.</span>
+                ) : depositChoice.percent == null ? (
+                  <>No deposit: the client&apos;s page ends at the signed copy.</>
+                ) : (
+                  <>
+                    After signing, the client&apos;s page shows this deposit{preview.bankDetailsSet ? ' with your bank details and the quote reference' : ''}.
+                    {' '}Our quotes ask for {preview.defaultDepositPercent}%: if you change it, check the quote&apos;s payment terms say the same.
+                    {' '}{preview.xeroConnected
+                      ? 'Once it is signed, set the deposit request on the draft invoice in Xero and approve it; Pay by card then appears on their page.'
+                      : 'Xero is not connected, so no invoice is created and there is no Pay by card.'}
+                    {!preview.bankDetailsSet && (
+                      <span style={{ color: '#FBBF24' }}> No bank details are saved in Settings, so the client will not see bank transfer details.</span>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+
             {mode === 'link' && (
               <div style={{ ...helpText, marginBottom: 14 }}>
                 {emailTyped
@@ -408,7 +508,7 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
                   <textarea id="sfs-message" style={{ ...fieldInput, minHeight: 190, resize: 'vertical', lineHeight: 1.5 }} value={message} onChange={e => setMessage(e.target.value)} maxLength={4000} />
                 </div>
                 <div style={{ ...helpText, marginBottom: 14 }}>
-                  The client gets a private link with a Review and sign button under your message. They sign the quote as it is saved right now; changes made after sending are not included. Once signed, they are emailed the signed PDF with its signature docket, and the job moves to Accepted.
+                  The client gets a private link with a View document button under your message. They see and sign the quote as it is saved right now; changes made after sending are not included. Once signed, they are emailed the signed PDF with its signature docket, and the job moves to Accepted.
                 </div>
               </>
             )}
@@ -439,7 +539,12 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
 }
 
 /** Where a saved quote's signing is up to, with the few things staff can do about it. */
-export function SigningStatus({ request, onChanged }: { request: SigningSummary; onChanged: () => void }) {
+export function SigningStatus({ request, invoice, onChanged }: {
+  request: SigningSummary
+  /** The job's Xero invoice, when a signed quote on the job has a deposit. */
+  invoice: SigningInvoice | null
+  onChanged: () => void
+}) {
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [note, setNote] = useState('')
@@ -505,7 +610,38 @@ export function SigningStatus({ request, onChanged }: { request: SigningSummary;
   if (locked) {
     label = 'Locked'
     color = '#F87171'
-    detail = `The wrong passcode was entered five times, so the link for ${request.to_name} no longer opens. Use Send to sign to create a new one.`
+    detail = `The wrong passcode was entered five times, so the link for ${request.to_name} no longer opens. Use Send to client to create a new one.`
+  }
+
+  // After signing: the deposit the client was asked for, and what is next in Xero.
+  const percent = request.status === 'signed' ? request.deposit_percent : null
+  const due = depositOf(request.quote_total, percent)
+  const asked = percent == null ? '' : due != null ? `${money(due)} (${percent}%)` : `${percent}%`
+  const invoiceName = invoice?.number ? `invoice ${invoice.number}` : 'the invoice'
+  let depositColor = 'var(--text)'
+  let depositText = ''
+  if (percent != null && invoice) {
+    const received = invoice.amountPaid
+    if (!invoice.xeroConnected) {
+      depositText = `Deposit asked: ${asked}. Xero is not connected, so no invoice was created; the client's page shows bank details only.`
+    } else if (invoice.status === 'VOIDED' || invoice.status === 'DELETED') {
+      depositText = `Deposit asked: ${asked}. ${invoiceName[0].toUpperCase()}${invoiceName.slice(1)} was voided in Xero, so the client's page shows bank details only.`
+    } else if (due != null && received >= due - 0.005) {
+      depositColor = '#34D399'
+      depositText = `Deposit received: ${money(received)} paid on ${invoiceName}${invoice.paidOn ? ` (${invoice.paidOn.split('-').reverse().join('/')})` : ''}. Asked for ${asked}.`
+    } else if (invoice.status === 'PAID') {
+      depositColor = '#34D399'
+      depositText = `${invoiceName[0].toUpperCase()}${invoiceName.slice(1)} is paid in full.`
+    } else if (!invoice.status || invoice.status === 'CLAIMED') {
+      depositText = `Deposit asked: ${asked}. The Xero invoice has not been created yet.`
+    } else if (invoice.status === 'AUTHORISED') {
+      depositText = `Deposit asked: ${asked}. ${invoiceName[0].toUpperCase()}${invoiceName.slice(1)} is approved${invoice.payLinkLive ? ", and Pay by card is showing on the client's page" : ''}. ${received > 0.005 ? `${money(received)} received so far.` : 'Nothing received yet.'}`
+    } else {
+      depositColor = '#FBBF24'
+      depositText = `Deposit asked: ${asked}. Next: in Xero, set the deposit request to ${percent}% on draft ${invoiceName} and approve it. Pay by card then appears on the client's page.`
+    }
+  } else if (percent != null) {
+    depositText = `Deposit asked: ${asked}.`
   }
 
   return (
@@ -572,6 +708,14 @@ export function SigningStatus({ request, onChanged }: { request: SigningSummary;
             The signed copy has not been emailed: {request.delivery_error}
           </div>
         )
+      )}
+      {depositText && (
+        <div style={{ color: depositColor, marginTop: 4 }}>
+          {depositText}
+          {invoice?.xeroUrl && (
+            <> <a href={invoice.xeroUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', fontWeight: 600 }}>Open in Xero</a></>
+          )}
+        </div>
       )}
       {note && <div style={{ color: 'var(--text-muted)', marginTop: 4 }}>{note}</div>}
       {error && <div role="alert" style={{ color: '#F87171', marginTop: 4 }}>{error}</div>}

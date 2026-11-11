@@ -217,10 +217,14 @@ export function resolveSender(
 }
 
 // ── Default wording for the send window (staff edit it before sending) ───────
+//
+// What goes to the client invites them to view their document. Signing is the
+// next step on the page itself, and paying the deposit the one after, so the
+// message does not lead with either.
 
 export function defaultSubject(brandLabel: string, title: string, reference: string | null): string {
   const ref = reference?.trim()
-  return `${title}${ref ? ` ${ref}` : ''} from ${brandLabel} — please review and sign`
+  return `${title}${ref ? ` ${ref}` : ''} from ${brandLabel} — ready to view`
 }
 
 export function defaultMessage(data: {
@@ -237,7 +241,7 @@ export function defaultMessage(data: {
     '',
     `Please find our quote${site ? ` for ${site}` : ''}: ${data.title}.`,
     '',
-    'You can read it and sign online using the button below. Once you have signed, a copy is emailed to you for your records.',
+    'You can view it online using the button below. If you would like to go ahead, you can accept it on the same page.',
     '',
     'If you have any questions, just reply to this email.',
     '',
@@ -263,7 +267,7 @@ export function linkMessage(data: {
   const first = data.clientName.trim().split(/\s+/)[0] || 'there'
   const site = data.siteAddress?.trim()
   return [
-    `Hi ${first}, here is your quote from ${data.brandLabel}${site ? ` for ${site}` : ''} to review and sign:`,
+    `Hi ${first}, your documents from ${data.brandLabel}${site ? ` for ${site}` : ''} are ready to view here:`,
     data.link,
     '',
     `Passcode: ${data.passcode}`,

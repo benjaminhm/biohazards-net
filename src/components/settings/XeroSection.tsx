@@ -64,7 +64,8 @@ export default function XeroSection() {
       </div>
       <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 14, lineHeight: 1.5 }}>
         When a client accepts a quote, the job&apos;s draft invoice in Xero is created or updated with every accepted quote on the job.
-        Nothing is sent from here: approve the invoice and request the deposit in Xero.
+        Nothing is sent from here: set the deposit request and approve the invoice in Xero. Once it is approved, the
+        client&apos;s document page shows a Pay by card button that opens the Xero invoice, and what they pay shows on the quote here.
       </div>
 
       {notice && (

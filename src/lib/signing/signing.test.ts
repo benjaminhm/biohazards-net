@@ -9,6 +9,7 @@ import {
   buildSigningLinks,
   cleanSignerName,
   defaultMessage,
+  defaultSubject,
   docketHtml,
   hashSigningTokenSafe,
   insertAtBodyEnd,
@@ -31,7 +32,18 @@ import {
   unlockCookieValue,
 } from '@/lib/signing/core'
 import { fillSignSlots, hasSignSlots, signatureBlockHtml } from '@/lib/signing/slots'
-import { passcodeGatePage, signingShellHtml } from '@/lib/signing/shell'
+import { passcodeGatePage, payPanelHtml, signedViewHtml, signingShellHtml } from '@/lib/signing/shell'
+import {
+  cleanBankDetails,
+  depositAmount,
+  depositPartPaid,
+  depositSettled,
+  parseDepositPercent,
+  paymentReference,
+  staffDepositNote,
+  type PayPanel,
+} from '@/lib/signing/pay'
+import { xeroPayUrl } from '@/lib/xero/payments'
 import { documentHostTradingName } from '@/lib/tradingNames'
 
 /** A PNG data URL of roughly the given size (valid header, filler body). */
@@ -248,6 +260,7 @@ test('the signing page cannot be broken out of by a name', () => {
     pdfUrl: `/api/sign/${'A'.repeat(43)}/pdf`,
     dateLabel: '11 November 2026',
     consented: false,
+    deposit: null,
   })
   assert.doesNotMatch(shell, /<script>alert\(1\)/)
   assert.match(shell, /Trauma &lt;Cleaning&gt; BCQ-1/)
@@ -353,7 +366,7 @@ test('the message to paste has the greeting, the link on its own line, and the p
     passcode: 'K7M4',
   })
   assert.equal(message, [
-    'Hi Jane, here is your quote from Forensic Cleaning QLD for 1 Example Street to review and sign:',
+    'Hi Jane, your documents from Forensic Cleaning QLD for 1 Example Street are ready to view here:',
     'https://document.forensiccleaningqld.com.au/abc',
     '',
     'Passcode: K7M4',
@@ -362,7 +375,7 @@ test('the message to paste has the greeting, the link on its own line, and the p
     'Ben',
   ].join('\n'))
   assert.match(linkMessage({ clientName: '', siteAddress: null, staffFirstName: '', brandLabel: 'Forensic Cleaning QLD', link: 'x', passcode: 'K7M4' }),
-    /^Hi there, here is your quote from Forensic Cleaning QLD to review and sign:\nx\n\nPasscode: K7M4\n\nKind regards,\nForensic Cleaning QLD$/)
+    /^Hi there, your documents from Forensic Cleaning QLD are ready to view here:\nx\n\nPasscode: K7M4\n\nKind regards,\nForensic Cleaning QLD$/)
 })
 
 test('the docket for a link staff sent themselves claims only what the system saw', () => {
@@ -415,9 +428,244 @@ test('with no client email the signing page offers the download instead of promi
     pdfUrl: `/${'A'.repeat(43)}/pdf`,
     dateLabel: '11 November 2026',
     consented: false,
+    deposit: null,
   })
   assert.match(shell, /<span>For:<\/span> Jane Smith<\/div>/)
   assert.match(shell, /Download your signed copy of Trauma Cleaning BCQ-1 now/)
   assert.doesNotMatch(shell, /emailed to/)
   assert.match(shell, new RegExp(`href="/${'A'.repeat(43)}/pdf"`))
+})
+
+// ── View first, then sign, then pay ──────────────────────────────────────────
+
+const TOKEN = 'A'.repeat(43)
+
+function shellFor(deposit: { amountLabel: string; percentLabel: string } | null): string {
+  return signingShellHtml({
+    token: TOKEN,
+    brandLabel: 'Forensic Cleaning QLD',
+    documentTitle: 'Trauma Cleaning',
+    reference: 'BCQ-1',
+    toName: 'Jane Smith',
+    toEmail: 'jane@example.com',
+    pdfUrl: `/${TOKEN}/pdf`,
+    dateLabel: '11 November 2026',
+    consented: false,
+    deposit,
+  })
+}
+
+function panel(over: Partial<PayPanel> = {}): PayPanel {
+  return {
+    brandLabel: 'Forensic Cleaning QLD',
+    percent: 50,
+    deposit: 1650,
+    total: 3300,
+    reference: 'BCQ-1',
+    bank: { accountName: 'Example Pty Ltd', bsb: '064-000', accountNumber: '12345678' },
+    cardExpected: true,
+    cardUrl: null,
+    invoiceNumber: '',
+    paid: 0,
+    paidOn: null,
+    jobDeposits: 1650,
+    ...over,
+  }
+}
+
+test('what the client is sent asks them to view the document, not to sign it', () => {
+  const who = { clientName: 'Jane Smith', siteAddress: '1 Example Street', staffFirstName: 'Ben', brandLabel: 'Forensic Cleaning QLD' }
+  const subject = defaultSubject('Forensic Cleaning QLD', 'Trauma Cleaning', 'BCQ-1')
+  const message = defaultMessage({ ...who, title: 'Trauma Cleaning' })
+  assert.equal(subject, 'Trauma Cleaning BCQ-1 from Forensic Cleaning QLD — ready to view')
+  const pasted = linkMessage({ ...who, link: 'https://example.com/x', passcode: 'K7M4' })
+  assert.match(subject, /ready to view$/)
+  assert.match(message, /You can view it online using the button below\./)
+  assert.match(pasted, /are ready to view here:/)
+  for (const text of [subject, message, pasted]) assert.doesNotMatch(text, /\bsign/i)
+})
+
+test('the document is in view on arrival: nothing covers it until the client chooses to sign', () => {
+  const shell = shellFor(null)
+  // No overlay is open in the page as served; the script opens the consent one only from "Next: sign".
+  assert.doesNotMatch(shell, /class="sg-overlay sg-on"/)
+  assert.match(shell, /id="sg-next">Next: sign<\/button>/)
+  assert.match(shell, /<li data-step="view" class="sg-now" aria-current="step"><b>1<\/b>View<\/li><li data-step="sign"><b>2<\/b>Sign<\/li><\/ol>/)
+  assert.match(shell, /id="sg-consent-h">Sign this document</)
+  assert.match(shell, /id="sg-agree-cancel">Not yet</)
+  assert.doesNotMatch(shell, /data-step="pay"|id="sg-done-next"|The next step is your deposit/)
+})
+
+test('with a deposit the steps end at Pay deposit and the signed message leads there', () => {
+  const shell = shellFor({ amountLabel: '$1,650.00', percentLabel: '50%' })
+  assert.match(shell, /<li data-step="pay"><b>3<\/b>Pay deposit<\/li><\/ol>/)
+  assert.match(shell, /The next step is your deposit of <strong>\$1,650\.00<\/strong> \(50%\)\./)
+  assert.match(shell, /id="sg-done-next">Next: pay deposit</)
+})
+
+test('the deposit percentage is a share of the total, to the cent', () => {
+  assert.deepEqual(parseDepositPercent(50), { ok: true, percent: 50 })
+  assert.deepEqual(parseDepositPercent(' 33.333 '), { ok: true, percent: 33.33 })
+  assert.deepEqual(parseDepositPercent(''), { ok: true, percent: null })
+  assert.deepEqual(parseDepositPercent(null), { ok: true, percent: null })
+  assert.deepEqual(parseDepositPercent(0), { ok: true, percent: null })
+  for (const bad of [101, -1, 'half', '50%', Number.NaN, {}, true]) {
+    assert.equal(parseDepositPercent(bad).ok, false, String(bad))
+  }
+  assert.equal(depositAmount(3300, 50), 1650)
+  assert.equal(depositAmount(1234.56, 30), 370.37)
+  assert.equal(depositAmount(999.99, 33.33), 333.3)
+  assert.equal(depositAmount(3300, 100), 3300)
+  assert.equal(depositAmount(3300, null), null)
+  assert.equal(depositAmount(null, 50), null)
+  assert.equal(depositAmount(0, 50), null)
+  assert.equal(depositAmount('abc', 50), null)
+})
+
+test('staff are told the one thing to do in Xero, and nothing when there is no deposit', () => {
+  assert.equal(
+    staffDepositNote(3300, 30),
+    "Deposit shown to the client: $990.00 (30%). In Xero, open the job's draft invoice, set the deposit request to 30% and approve it. Pay by card then appears on the client's page.",
+  )
+  assert.equal(staffDepositNote(3300, null), '')
+  assert.equal(staffDepositNote(null, 50), '')
+})
+
+test('bank details are saved whole or not at all', () => {
+  assert.deepEqual(cleanBankDetails({ accountName: '  Example  Pty Ltd ', bsb: '064 000', accountNumber: '1234-5678' }), {
+    ok: true,
+    details: { accountName: 'Example Pty Ltd', bsb: '064-000', accountNumber: '12345678' },
+  })
+  assert.deepEqual(cleanBankDetails({ accountName: '', bsb: ' ', accountNumber: '' }), { ok: true, details: null })
+  assert.deepEqual(cleanBankDetails(null), { ok: true, details: null })
+  assert.equal(cleanBankDetails({ accountName: 'Example Pty Ltd', bsb: '06400', accountNumber: '12345678' }).ok, false)
+  assert.equal(cleanBankDetails({ accountName: 'Example Pty Ltd', bsb: '064-000', accountNumber: '123' }).ok, false)
+  assert.equal(cleanBankDetails({ accountName: 'Example Pty Ltd', bsb: '064-000', accountNumber: '12345678901' }).ok, false)
+  assert.equal(cleanBankDetails({ accountName: '', bsb: '064-000', accountNumber: '12345678' }).ok, false)
+  assert.equal(cleanBankDetails({ accountName: 'Example Pty Ltd', bsb: '064-00A', accountNumber: '12345678' }).ok, false)
+})
+
+test('the payment reference is the quote reference, short enough for a bank', () => {
+  assert.equal(paymentReference('BCQ-2026-0042', 'Jane Smith'), 'BCQ-2026-0042')
+  assert.equal(paymentReference('', 'Jane Smith'), 'JANE SMITH')
+  assert.equal(paymentReference(null, null), 'DEPOSIT')
+  assert.equal(paymentReference('SACQ-2026-11-11-EXAMPLE-STREET', null), 'SACQ-2026-11-11-EX')
+  assert.equal(paymentReference('<b>Q1</b>', null), 'b Q1 /b')
+})
+
+test('a deposit counts as received only when Xero shows the money', () => {
+  assert.equal(depositSettled({ paid: 0, jobDeposits: 1650 }), false)
+  assert.equal(depositSettled({ paid: 1649.99, jobDeposits: 1650 }), false)
+  assert.equal(depositSettled({ paid: 1650, jobDeposits: 1650 }), true)
+  assert.equal(depositSettled({ paid: 3300, jobDeposits: 1650 }), true)
+  // Two signed quotes on the job: the one invoice has to cover both deposits.
+  assert.equal(depositSettled({ paid: 1650, jobDeposits: 2650 }), false)
+  assert.equal(depositSettled({ paid: 0, jobDeposits: 0 }), false)
+  assert.deepEqual(depositPartPaid({ paid: 500, jobDeposits: 1650, deposit: 1650 }), { received: 500, remaining: 1150 })
+  assert.equal(depositPartPaid({ paid: 0, jobDeposits: 1650, deposit: 1650 }), null)
+  assert.equal(depositPartPaid({ paid: 500, jobDeposits: 2650, deposit: 1650 }), null)
+  assert.equal(depositPartPaid({ paid: 1650, jobDeposits: 1650, deposit: 1650 }), null)
+})
+
+test('the pay step shows the amount and bank details straight away, and says the card option is coming', () => {
+  const html = payPanelHtml(panel())
+  assert.match(html, /Pay your deposit/)
+  assert.match(html, /<div class="sg-amount">\$1,650\.00<\/div>/)
+  assert.match(html, /50% of \$3,300\.00 including GST\./)
+  assert.match(html, /<span>BSB<\/span><strong>064-000<\/strong>/)
+  assert.match(html, /<span>Account number<\/span><strong>12345678<\/strong>/)
+  assert.match(html, /<span>Reference<\/span><strong>BCQ-1<\/strong><button type="button" class="sg-copy" data-copy="BCQ-1"/)
+  assert.match(html, /your invoice is being prepared.*or you can pay by bank transfer now/)
+  assert.doesNotMatch(html, /<a class="sg-btn/)
+})
+
+test('the pay step promises nothing that is not set up', () => {
+  // Xero not connected: no word about paying by card.
+  const bankOnly = payPanelHtml(panel({ cardExpected: false }))
+  assert.doesNotMatch(bankOnly, /card/i)
+  assert.match(bankOnly, /Pay by bank transfer/)
+  // No bank details saved: no bank block, and no "or by bank transfer".
+  const cardOnly = payPanelHtml(panel({ bank: null }))
+  assert.doesNotMatch(cardOnly, /bank/i)
+  assert.match(cardOnly, /A Pay by card button will appear here when it is ready\./)
+  // Neither: the brand follows up.
+  const neither = payPanelHtml(panel({ bank: null, cardExpected: false }))
+  assert.match(neither, /Forensic Cleaning QLD will be in touch with payment details\./)
+  assert.doesNotMatch(neither, /card|bank/i)
+})
+
+test('once the invoice is approved in Xero the pay step links to it', () => {
+  const html = payPanelHtml(panel({ cardUrl: 'https://in.xero.com/abc123', invoiceNumber: 'INV-0042' }))
+  assert.match(html, /<a class="sg-btn sg-btn-wide" href="https:\/\/in\.xero\.com\/abc123" target="_blank" rel="noopener noreferrer">Pay by card<\/a>/)
+  assert.match(html, /Opens your invoice INV-0042 from Forensic Cleaning QLD/)
+  assert.doesNotMatch(html, /being prepared/)
+})
+
+test('only a real Xero address is ever offered as the pay link', () => {
+  assert.equal(xeroPayUrl('https://in.xero.com/abc123'), 'https://in.xero.com/abc123')
+  assert.equal(xeroPayUrl('https://xero.com/pay'), 'https://xero.com/pay')
+  for (const bad of [
+    'http://in.xero.com/abc123',
+    'https://in.xero.com.evil.example/abc',
+    'https://evilxero.com/abc',
+    'https://evil.example/?next=in.xero.com',
+    'javascript:alert(1)',
+    'not a url',
+    '',
+    null,
+    42,
+  ]) {
+    assert.equal(xeroPayUrl(bad), null, String(bad))
+  }
+})
+
+test('paid and part-paid deposits are reported as Xero has them', () => {
+  const paid = payPanelHtml(panel({ paid: 1650, paidOn: '2026-11-12', cardUrl: 'https://in.xero.com/abc123' }))
+  assert.match(paid, /Deposit received/)
+  assert.match(paid, /We have received \$1,650\.00 on 12 November 2026\./)
+  assert.doesNotMatch(paid, /Pay by card|Pay by bank transfer|064-000/)
+
+  const part = payPanelHtml(panel({ paid: 500 }))
+  assert.match(part, /<div class="sg-amount">\$1,150\.00<\/div>/)
+  assert.match(part, /Still to pay\. We have received \$500\.00 of your \$1,650\.00 deposit/)
+})
+
+test('text on the pay step cannot inject markup', () => {
+  const html = payPanelHtml(panel({
+    brandLabel: 'Forensic <b>Cleaning</b>',
+    reference: '"><img src=x onerror=alert(1)>',
+    bank: { accountName: '<script>alert(1)</script>', bsb: '064-000', accountNumber: '12345678' },
+    cardUrl: 'https://in.xero.com/a"onmouseover="alert(1)',
+    invoiceNumber: '<i>INV</i>',
+  }))
+  assert.doesNotMatch(html, /<script>|<img |<i>INV|<b>Cleaning|"onmouseover="/)
+  assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/)
+})
+
+test('a signed document opens on the pay step until the deposit is in', () => {
+  const base = {
+    token: TOKEN,
+    pdfUrl: `/${TOKEN}/pdf`,
+    brandLabel: 'Forensic Cleaning QLD',
+    documentTitle: 'Trauma Cleaning',
+    reference: 'BCQ-1',
+    signerName: 'Jane <b>Smith</b>',
+    signedAtLabel: '11 Nov 2026',
+  }
+  const due = signedViewHtml({ ...base, pay: panel() })
+  assert.match(due, /class="sg-overlay sg-on" id="sg-pay"/)
+  assert.match(due, /id="sg-pay-open">Pay deposit</)
+  assert.match(due, /<li data-step="sign" class="sg-done"><b>✓<\/b>Sign<\/li><li data-step="pay" class="sg-now" aria-current="step"><b>3<\/b>Pay deposit<\/li>/)
+  assert.match(due, /signed by Jane &lt;b&gt;Smith&lt;\/b&gt;, 11 Nov 2026/)
+  assert.match(due, new RegExp(`"token":"${TOKEN}","settled":false`))
+
+  const paid = signedViewHtml({ ...base, pay: panel({ paid: 1650 }) })
+  assert.match(paid, /class="sg-overlay" id="sg-pay"/)
+  assert.match(paid, /id="sg-pay-open">Deposit received</)
+  assert.match(paid, /<li data-step="pay" class="sg-done"><b>✓<\/b>Pay deposit<\/li>/)
+
+  const none = signedViewHtml({ ...base, pay: null })
+  assert.doesNotMatch(none, /data-step="pay"|id="sg-pay|Pay your deposit/)
+  assert.match(none, /<li data-step="sign" class="sg-done"><b>✓<\/b>Sign<\/li><\/ol>/)
+  assert.match(none, new RegExp(`<a class="sg-btn" href="/${TOKEN}/pdf">Download`))
 })

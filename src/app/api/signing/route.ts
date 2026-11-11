@@ -1,15 +1,21 @@
 /*
- * /api/signing — staff side of sending a quote for signature.
+ * /api/signing — staff side of sending a quote to a client to view, sign and
+ * pay the deposit on.
  *
- * GET  ?jobId=…        the signing requests on a job (status for the Documents tab)
+ * GET  ?jobId=…        the signing requests on a job (status for the Documents
+ *                      tab), with where the job's Xero invoice is up to when a
+ *                      signed request has a deposit
  * GET  ?documentId=…   what the send window shows before sending: who it is
- *                      from, the starting wording, and anything stopping it
+ *                      from, the starting wording, the quote total for the
+ *                      deposit, and anything stopping it
  * POST                 two ways to get it to the client:
- *                        { mode: 'link', documentId, toName, toEmail? }
+ *                        { mode: 'link', documentId, toName, toEmail?, depositPercent? }
  *                          creates a private link and a passcode and hands both
  *                          back with a message to paste; the system sends nothing
- *                        { mode: 'email', documentId, toEmail, toName, subject, message }
+ *                        { mode: 'email', documentId, toEmail, toName, subject, message, depositPercent? }
  *                          the system emails the link from the brand address
+ *                      depositPercent is the share of the quote total the client
+ *                      is asked to pay after signing; empty means no pay step.
  *
  * Full-access staff only. The From address always comes from the job's trading
  * name, never from the request. Either way a person decides what goes to the
@@ -20,6 +26,7 @@ import { NextResponse } from 'next/server'
 import { guardFullAccessStaff } from '@/lib/fullAccessStaff'
 import { jobInOrg } from '@/lib/documentAccess'
 import { getStaffFirstName } from '@/lib/clerkDisplayName'
+import { seesFinancials } from '@/lib/agent/jobSnapshot'
 import {
   MESSAGE_MAX,
   SIGNER_NAME_MAX,
@@ -37,6 +44,10 @@ import { prepareSigning } from '@/lib/signing/prepare'
 import { SIGNING_SUMMARY_COLUMNS } from '@/lib/signing/store'
 import { sendSigningInviteEmail } from '@/lib/signing/email'
 import { documentHostStatus, signingLinks } from '@/lib/signing/links'
+import { DEFAULT_DEPOSIT_PERCENT, depositAmount, parseDepositPercent } from '@/lib/signing/pay'
+import { loadBankDetails } from '@/lib/paymentDetails'
+import { loadXeroConnection, xeroConfigured } from '@/lib/xero/client'
+import { jobPayState } from '@/lib/xero/payments'
 
 export const maxDuration = 60
 
@@ -50,6 +61,9 @@ export async function GET(req: Request) {
   const guard = await guardFullAccessStaff(req)
   if (!guard.ok) return guard.response
   const { supabase, orgId, userId } = guard
+  // Team leads send quotes but are not shown money elsewhere in the app; the
+  // same holds here for totals, deposits and what has been paid.
+  const financials = seesFinancials(guard.role)
   const params = new URL(req.url).searchParams
   const jobId = params.get('jobId')
   const documentId = params.get('documentId')
@@ -63,10 +77,20 @@ export async function GET(req: Request) {
       .eq('org_id', orgId)
       .eq('document_id', documentId)
       .order('sent_at', { ascending: false })
-    const hostStatus = await documentHostStatus(prepared.tradingName)
+    const [hostStatus, bank, xeroConnection] = await Promise.all([
+      documentHostStatus(prepared.tradingName),
+      loadBankDetails(supabase, orgId),
+      xeroConfigured() ? loadXeroConnection(supabase, orgId).catch(() => null) : Promise.resolve(null),
+    ])
     return NextResponse.json({
       linkHost: hostStatus.liveHost,
       pendingLinkHost: hostStatus.pendingHost,
+      // For the deposit the client is asked to pay after signing.
+      total: financials ? prepared.total : null,
+      hasTotal: (prepared.total ?? 0) > 0,
+      defaultDepositPercent: DEFAULT_DEPOSIT_PERCENT,
+      bankDetailsSet: Boolean(bank.details),
+      xeroConnected: Boolean(xeroConnection),
       title: prepared.title,
       reference: prepared.reference,
       blockers: prepared.blockers,
@@ -94,7 +118,37 @@ export async function GET(req: Request) {
       .eq('job_id', jobId)
       .order('sent_at', { ascending: false })
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    return NextResponse.json({ requests: requests ?? [] })
+
+    // Where the job's Xero invoice is up to, when a signed quote is waiting on a deposit.
+    const list = (requests ?? []) as unknown as { status: string; quote_total: number | null; deposit_percent: number | null }[]
+    const awaitingDeposit = financials && list.some(r => r.status === 'signed' && depositAmount(r.quote_total, r.deposit_percent) != null)
+    let invoice: {
+      xeroConnected: boolean
+      number: string
+      status: string
+      amountPaid: number
+      paidOn: string | null
+      payLinkLive: boolean
+      xeroUrl: string | null
+    } | null = null
+    if (awaitingDeposit) {
+      const pay = await jobPayState(supabase, orgId, jobId)
+      invoice = {
+        xeroConnected: pay.xeroConnected,
+        number: pay.invoiceNumber,
+        status: pay.status,
+        amountPaid: pay.amountPaid,
+        paidOn: pay.paidOn,
+        payLinkLive: Boolean(pay.payUrl),
+        xeroUrl: pay.invoiceId
+          ? `https://go.xero.com/AccountsReceivable/View.aspx?InvoiceID=${encodeURIComponent(pay.invoiceId)}`
+          : null,
+      }
+    }
+    return NextResponse.json({
+      requests: financials ? list : list.map(r => ({ ...r, quote_total: null })),
+      invoice,
+    })
   }
 
   return NextResponse.json({ error: 'jobId or documentId is required' }, { status: 400 })
@@ -136,6 +190,9 @@ export async function POST(req: Request) {
     }
   }
 
+  const depositChoice = parseDepositPercent(body.depositPercent)
+  if (!depositChoice.ok) return NextResponse.json({ error: depositChoice.error }, { status: 400 })
+
   const sentByName = await staffName(userId)
   const prepared = await prepareSigning(supabase, orgId, documentId, sentByName)
   if (!prepared) return NextResponse.json({ error: 'Document not found' }, { status: 404 })
@@ -143,6 +200,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: prepared.blockers[0] ?? 'This quote cannot be sent yet.' }, { status: 409 })
   }
   const sender = prepared.sender
+  // A deposit is a share of the quote total, so a quote with no total has no pay step.
+  const depositPercent = depositAmount(prepared.total, depositChoice.percent) != null ? depositChoice.percent : null
+  if (depositChoice.percent != null && depositPercent == null) {
+    return NextResponse.json(
+      { error: 'This quote has no total, so a deposit cannot be worked out. Clear the deposit, or add the total to the quote first.' },
+      { status: 409 },
+    )
+  }
 
   const now = new Date()
   const expiresAt = signingExpiry(now)
@@ -174,6 +239,7 @@ export async function POST(req: Request) {
       message,
       delivery_method: byLink ? 'link' : 'email',
       passcode,
+      deposit_percent: depositPercent,
       sent_at: now.toISOString(),
       sent_by: userId,
       sent_by_name: sentByName || null,
@@ -185,7 +251,7 @@ export async function POST(req: Request) {
   if (insertError || !created) {
     const notMigrated = /does not exist|schema cache|null value in column "to_email"/i.test(insertError?.message ?? '')
     return NextResponse.json(
-      { error: notMigrated ? 'Signing is not fully set up yet: migrations 068 and 069 need to be applied.' : insertError?.message ?? 'Could not save the request' },
+      { error: notMigrated ? 'Signing is not fully set up yet: migrations 068, 069 and 070 need to be applied.' : insertError?.message ?? 'Could not save the request' },
       { status: 500 },
     )
   }

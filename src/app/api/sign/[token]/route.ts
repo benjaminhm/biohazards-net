@@ -6,6 +6,9 @@
  *   { action: 'consent' }   they agreed to sign electronically
  *   { action: 'sign', name, signature, method, agreed }
  *   { action: 'decline', reason }
+ *   { action: 'pay' }       after signing: the pay step as it stands now (the page
+ *                           asks again while it is open, so the card button and
+ *                           "deposit received" appear without a reload)
  *
  * Public: the token in the path is the credential, plus the passcode where the
  * link has one (five wrong tries locks the link). Everything the page sends is
@@ -32,7 +35,9 @@ import {
   unlockCookieValue,
 } from '@/lib/signing/core'
 import { signingLinks } from '@/lib/signing/links'
-import { afterDeclined, afterSigned, findSigningRequestByToken, recordAcceptance } from '@/lib/signing/store'
+import { depositSettled } from '@/lib/signing/pay'
+import { payPanelHtml } from '@/lib/signing/shell'
+import { afterDeclined, afterSigned, findSigningRequestByToken, loadPayPanel, recordAcceptance } from '@/lib/signing/store'
 import type { SigningRequestRow } from '@/lib/signing/store'
 
 export const maxDuration = 60
@@ -114,6 +119,20 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
     return res
   }
 
+  // The pay step belongs to a signed document; everything else to an open one.
+  if (action === 'pay') {
+    if (state !== 'signed') return NextResponse.json({ error: 'This document has not been signed.' }, { status: 409 })
+    if (!isUnlocked(req.headers.get('cookie'), token, row.passcode)) {
+      return NextResponse.json({ error: 'Please enter your passcode first. Reload this page to do that.' }, { status: 401 })
+    }
+    const pay = await loadPayPanel(supabase, row)
+    if (!pay) return NextResponse.json({ error: 'There is no deposit to pay on this document.' }, { status: 404 })
+    return NextResponse.json(
+      { html: payPanelHtml(pay), settled: depositSettled(pay) },
+      { headers: { 'Cache-Control': 'private, no-store' } },
+    )
+  }
+
   if (state !== 'open') {
     return NextResponse.json({ error: CLOSED_MESSAGE[state] ?? 'This link can no longer be used.' }, { status: state === 'locked' ? 423 : 409 })
   }
@@ -189,7 +208,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
 
     const info = await recordAcceptance(supabase, signed)
     const links = await signingLinks(signed.trading_name, token)
-    after(() => afterSigned(supabase, signed, info, links.pdf))
+    after(() => afterSigned(supabase, signed, info, { page: links.page, pdf: links.pdf }))
 
     return NextResponse.json({ ok: true, dateLabel: signedDateLabel(nowIso) })
   }

@@ -32,6 +32,7 @@ import AddressAutocomplete from '@/components/AddressAutocomplete'
 import EquipmentCatalogueSection from '@/components/settings/EquipmentCatalogueSection'
 import ChemicalsCatalogueSection from '@/components/settings/ChemicalsCatalogueSection'
 import XeroSection from '@/components/settings/XeroSection'
+import PaymentDetailsSection from '@/components/settings/PaymentDetailsSection'
 
 const RULE_TABS: { id: string; label: string }[] = [
   { id: 'general', label: 'General' },
@@ -413,6 +414,8 @@ export default function SettingsPage() {
         </div>
 
         <XeroSection />
+
+        <PaymentDetailsSection />
 
         {/* ── Website ── */}
         <div className="card" style={{ marginBottom: 24 }}>

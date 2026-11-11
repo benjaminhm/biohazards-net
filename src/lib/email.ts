@@ -24,6 +24,8 @@ export interface QuoteAcceptedData {
   reference: string
   total: number
   contactEmail?: string
+  /** What staff need to do about the deposit (signed quotes with a pay step). Plain text. */
+  depositNote?: string
 }
 
 /**
@@ -74,6 +76,9 @@ export async function sendQuoteAcceptedEmail(data: QuoteAcceptedData) {
           Job status has been updated to <strong>Accepted</strong>.
           Ready to schedule — open the job to proceed.
         </p>
+        ${data.depositNote ? `<p style="font-size: 14px; color: #555; line-height: 1.6; margin: 12px 0 0;">
+          ${data.depositNote.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}
+        </p>` : ''}
       </div>
 
       <a href="${jobUrl}" style="display: inline-block; background: #FF6B35; color: white; text-decoration: none; font-weight: 700; font-size: 15px; padding: 14px 28px; border-radius: 8px;">

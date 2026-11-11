@@ -87,7 +87,7 @@ export async function sendSigningInviteEmail(data: SigningInviteEmail): Promise<
     data.documentLine,
     `
       ${messageToHtml(data.message)}
-      <div style="margin: 24px 0 0;">${button(data.signUrl, 'Review and sign')}</div>
+      <div style="margin: 24px 0 0;">${button(data.signUrl, 'View document')}</div>
       <p style="font-size: 13px; color: #555; line-height: 1.6; margin: 24px 0 0; word-break: break-all;">
         If the button does not work, copy this link into your browser:<br>${esc(data.signUrl)}
       </p>
@@ -99,7 +99,7 @@ export async function sendSigningInviteEmail(data: SigningInviteEmail): Promise<
   const text = [
     data.message.trim(),
     '',
-    `Review and sign: ${data.signUrl}`,
+    `View your document: ${data.signUrl}`,
     '',
     `This link is private to you, so please do not forward it. It can be used until ${data.expiresLabel}.`,
     '',
@@ -129,6 +129,12 @@ export interface SignedCopyEmail {
   pdfFilename: string
   /** Used when the PDF could not be attached. */
   downloadUrl: string | null
+  /**
+   * The deposit to pay next, with the client's own document page where the
+   * payment details are. Null when no deposit was asked for, or when this is a
+   * later re-send (it may have been paid since).
+   */
+  deposit: { amountLabel: string; percentLabel: string; pageUrl: string } | null
 }
 
 /**
@@ -143,6 +149,12 @@ export async function sendSignedCopyEmail(data: SignedCopyEmail): Promise<{ used
   const where = data.pdf
     ? 'Your signed copy is attached to this email as a PDF. The last page is the signature docket, which records when and how it was signed.'
     : 'You can download your signed copy using the button below. The last page is the signature docket, which records when and how it was signed.'
+  const depositLine = data.deposit
+    ? `The next step is your deposit of ${data.deposit.amountLabel} (${data.deposit.percentLabel}). The payment details are on your document page.`
+    : ''
+  const closing = data.deposit
+    ? 'If you have any questions, just reply to this email.'
+    : 'We will be in touch about next steps. If you have any questions, just reply to this email.'
   const html = shell(
     data.brandLabel,
     'Signed copy for your records',
@@ -152,8 +164,13 @@ export async function sendSignedCopyEmail(data: SignedCopyEmail): Promise<{ used
       </p>
       <p style="font-size: 15px; color: #333; line-height: 1.6; margin: 0 0 16px;">${esc(where)}</p>
       ${!data.pdf && data.downloadUrl ? `<div style="margin: 8px 0 16px;">${button(data.downloadUrl, 'Download signed copy')}</div>` : ''}
+      ${data.deposit ? `
+      <p style="font-size: 15px; color: #333; line-height: 1.6; margin: 0 0 16px;">
+        ${esc(depositLine)}
+      </p>
+      <div style="margin: 8px 0 20px;">${button(data.deposit.pageUrl, 'Pay deposit')}</div>` : ''}
       <p style="font-size: 15px; color: #333; line-height: 1.6; margin: 0;">
-        We will be in touch about next steps. If you have any questions, just reply to this email.
+        ${esc(closing)}
       </p>
     `,
   )
@@ -162,8 +179,9 @@ export async function sendSignedCopyEmail(data: SignedCopyEmail): Promise<{ used
     '',
     where,
     ...(!data.pdf && data.downloadUrl ? ['', data.downloadUrl] : []),
+    ...(data.deposit ? ['', depositLine, data.deposit.pageUrl] : []),
     '',
-    'We will be in touch about next steps. If you have any questions, just reply to this email.',
+    closing,
     '',
     data.brandLabel,
   ].join('\n')

@@ -6,9 +6,10 @@
  *
  * Public: the long random token in the link is the way in, and only its hash
  * is stored. A link staff sent themselves also asks for its passcode first.
- * Serves the document exactly as it was sent (not the live document), with the
- * signing controls around it. Once signed, the same link shows the signed
- * document and a download button.
+ * Serves the document exactly as it was sent (not the live document). The link
+ * is a funnel: the document is in view first, signing is the next step, and
+ * once signed the same link shows the signed document, a download button and,
+ * when a deposit was asked for, the pay step.
  *
  * A route handler rather than a page because the document is already a full
  * HTML page with its own print styles.
@@ -26,8 +27,9 @@ import {
   linkState,
   signedDateLabel,
 } from '@/lib/signing/core'
-import { findSigningRequestByToken, signedDocumentHtml } from '@/lib/signing/store'
-import { passcodeGatePage, signedBannerHtml, signingMessagePage, signingShellHtml } from '@/lib/signing/shell'
+import { depositAmount, money, percentLabel } from '@/lib/signing/pay'
+import { findSigningRequestByToken, loadPayPanel, signedDocumentHtml } from '@/lib/signing/store'
+import { passcodeGatePage, signedViewHtml, signingMessagePage, signingShellHtml } from '@/lib/signing/shell'
 
 const HEADERS = {
   'Content-Type': 'text/html; charset=utf-8',
@@ -81,10 +83,17 @@ export async function GET(req: Request, { params }: { params: Promise<{ token: s
 
   if (state === 'signed') {
     try {
+      const signedHtml = signedDocumentHtml(row)
+      const pay = await loadPayPanel(supabase, row).catch(err => {
+        console.error('[signing] pay step failed to load', row.id, err)
+        return null
+      })
       return page(
         insertAtBodyEnd(
-          signedDocumentHtml(row),
-          signedBannerHtml({
+          signedHtml,
+          signedViewHtml({
+            token,
+            pay,
             pdfUrl,
             brandLabel: row.brand_label,
             documentTitle: row.document_title,
@@ -100,10 +109,14 @@ export async function GET(req: Request, { params }: { params: Promise<{ token: s
     }
   }
 
+  const due = depositAmount(row.quote_total, row.deposit_percent)
   return page(
     insertAtBodyEnd(
       row.frozen_html,
       signingShellHtml({
+        deposit: due != null && row.deposit_percent != null
+          ? { amountLabel: money(due), percentLabel: percentLabel(Number(row.deposit_percent)) }
+          : null,
         token,
         brandLabel: row.brand_label,
         documentTitle: row.document_title,

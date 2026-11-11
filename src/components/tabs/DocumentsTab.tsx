@@ -150,7 +150,7 @@ function DocRow({ doc, jobId, clientName, clientEmail, onDeleted, tradeAccountLi
 
   // Quotes can be sent to the client to sign; other documents cannot.
   const canSign = isAcceptableQuoteType(doc.type)
-  const { requests: signingRequests, reload: reloadSigning } = useJobSigning(canSign ? jobId : null)
+  const { requests: signingRequests, invoice: signingInvoice, reload: reloadSigning } = useJobSigning(canSign ? jobId : null)
   const signing = canSign ? currentSigning(signingRequests, doc.id) : null
 
   const printUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/api/print/${doc.id}`
@@ -214,7 +214,7 @@ function DocRow({ doc, jobId, clientName, clientEmail, onDeleted, tradeAccountLi
             <button
               onClick={() => setSendingToSign(true)}
               className="btn btn-primary" style={{ fontSize: 12, padding: '7px 12px' }}
-            >Send to sign</button>
+            >Send to client</button>
           )}
           {confirmDelete ? (
             <>
@@ -240,7 +240,7 @@ function DocRow({ doc, jobId, clientName, clientEmail, onDeleted, tradeAccountLi
         {printUrl}
       </div>
 
-      {signing && <SigningStatus request={signing} onChanged={reloadSigning} />}
+      {signing && <SigningStatus request={signing} invoice={signingInvoice} onChanged={reloadSigning} />}
       {sendingToSign && (
         <SendForSigningModal
           documentId={doc.id}
