@@ -18,6 +18,8 @@ export type TradingNameId = (typeof TRADING_NAME_IDS)[number]
 export interface TradingNameOption {
   id: TradingNameId
   label: string
+  /** Staff shorthand for headings where the full name is too long (Job Manager). Not printed on documents. */
+  short: string
   /** When set, overrides company_profile.email on client-facing documents. */
   email?: string
   /**
@@ -47,12 +49,14 @@ export const TRADING_NAME_OPTIONS: TradingNameOption[] = [
     // Stored id predates the rename to Biohazard Cleaning QLD; existing jobs reference it.
     id: 'brisbane_biohazard_cleaning',
     label: 'Biohazard Cleaning QLD',
+    short: 'BCQ',
     // Letterhead email/logo stay whatever is on company_profile (Settings).
     // Auth-to-proceed reply falls back via DEFAULT_AUTH_REPLY_EMAIL.
   },
   {
     id: 'forensic_cleaning_qld',
     label: 'Forensic Cleaning QLD',
+    short: 'FCQ',
     email: 'admin@forensiccleaningqld.com.au',
     useWordmark: true,
     accountsHost: 'accounts.forensiccleaningqld.com.au',
@@ -61,6 +65,7 @@ export const TRADING_NAME_OPTIONS: TradingNameOption[] = [
   {
     id: 'hoarding_cleaning_qld',
     label: 'Hoarding Cleaning QLD',
+    short: 'HCQ',
     // No brand email, logo, or domains yet: email falls back to Settings.
     useWordmark: true,
   },

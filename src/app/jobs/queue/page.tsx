@@ -1,9 +1,10 @@
 /*
  * app/jobs/queue/page.tsx
  *
- * Job Manager — three columns. Left: every job as a compact menu row, grouped
- * by pipeline stage (lead → paid) with search, checkboxes for bulk archive, and
- * a hide toggle remembered in localStorage. Middle: the open job's numbered
+ * Job Manager — three columns. Left: every job as a compact menu row, under a
+ * heading for its trading name (BCQ, FCQ, HCQ, then jobs with none chosen) and
+ * grouped inside that by pipeline stage (lead → paid), with search, checkboxes
+ * for bulk archive, and a hide toggle remembered in localStorage. Middle: the open job's numbered
  * Home sections (lib/jobHomeSections), then the job page's other tabs as the
  * job page reports them; the chosen section carries over when switching jobs.
  * Right: the job's full page in a same-origin iframe (lib/jobEmbed) with its
@@ -24,6 +25,7 @@ import type { CompanyProfile, Job, JobStatus } from '@/lib/types'
 import { useUser } from '@/lib/userContext'
 import { FILE_MENU_PARAM, JOB_EMBED_MSG, isFileMenuTabList, type FileMenuTab } from '@/lib/jobEmbed'
 import { isHomeSection, visibleHomeSections, type HomeSection } from '@/lib/jobHomeSections'
+import { TRADING_NAME_OPTIONS, isTradingNameId } from '@/lib/tradingNames'
 
 const STATUS_ORDER: JobStatus[] = [
   'lead', 'assessed', 'quoted', 'accepted', 'scheduled', 'underway',
@@ -58,6 +60,14 @@ const URGENCY_ICON: Record<string, string> = {
   urgent: '🟠',
   standard: '⚪',
 }
+
+/** Job menu headings: one per trading name, then jobs with no trading name chosen. */
+const ORG_HEADINGS: { id: string | null; short: string; label: string }[] = [
+  ...TRADING_NAME_OPTIONS.map(o => ({ id: o.id, short: o.short, label: o.label })),
+  { id: null, short: 'No org', label: 'Trading name not chosen yet' },
+]
+/** Fixed so the stage heading can stick directly underneath the org heading. */
+const ORG_HEADING_HEIGHT = 32
 
 const WIDE_QUERY = '(min-width: 1100px)'
 const LIST_HIDDEN_KEY = 'bh.jobManager.listHidden'
@@ -598,19 +608,28 @@ function JobQueue() {
 
   const brandName = company?.name || ctxOrg?.name || 'Company'
 
-  const groups = useMemo(() => {
+  const orgGroups = useMemo(() => {
     const needle = q.trim().toLowerCase()
     const list = needle
       ? jobs.filter(j =>
           [j.job_code, j.client_name, j.site_address, j.client_organization_name]
             .some(v => (v ?? '').toLowerCase().includes(needle)))
       : jobs
-    return STATUS_ORDER
-      .map(status => ({ status, jobs: list.filter(j => j.status === status) }))
-      .filter(g => g.jobs.length)
+    return ORG_HEADINGS
+      .map(org => {
+        const inOrg = list.filter(j => (isTradingNameId(j.trading_name) ? j.trading_name : null) === org.id)
+        const stages = STATUS_ORDER
+          .map(status => ({ status, jobs: inOrg.filter(j => j.status === status) }))
+          .filter(g => g.jobs.length)
+        return { ...org, stages, count: stages.reduce((n, g) => n + g.jobs.length, 0) }
+      })
+      .filter(org => org.count)
   }, [jobs, q])
 
-  const firstJobId = groups[0]?.jobs[0]?.id ?? null
+  // An org that has never set a trading name keeps the plain stage list.
+  const showOrgHeadings = useMemo(() => jobs.some(j => isTradingNameId(j.trading_name)), [jobs])
+
+  const firstJobId = orgGroups[0]?.stages[0]?.jobs[0]?.id ?? null
   useEffect(() => {
     if (wide && !loading && !selectedId && firstJobId) selectJob(firstJobId)
   }, [wide, loading, selectedId, firstJobId, selectJob])
@@ -819,44 +838,67 @@ function JobQueue() {
                 </div>
               )}
 
-              {!loading && !error && jobs.length > 0 && groups.length === 0 && (
+              {!loading && !error && jobs.length > 0 && orgGroups.length === 0 && (
                 <div style={{ padding: 16, fontSize: 13, color: 'var(--text-muted)' }}>No jobs match “{q}”</div>
               )}
 
-              {!loading && !error && groups.map(g => {
-                const ids = g.jobs.map(j => j.id)
-                const nChecked = ids.filter(id => checkedIds.has(id)).length
-                return (
-                  <div key={g.status}>
-                    <div style={{
-                      position: 'sticky', top: 0, zIndex: 1, background: 'var(--bg)',
-                      display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px 6px',
-                    }}>
-                      <input
-                        type="checkbox"
-                        checked={nChecked === ids.length}
-                        ref={el => { if (el) el.indeterminate = nChecked > 0 && nChecked < ids.length }}
-                        onChange={e => setChecked(ids, e.target.checked)}
-                        aria-label={`Select all ${STATUS_LABELS[g.status]} jobs`}
-                        title={`Select all ${STATUS_LABELS[g.status]}`}
-                      />
-                      <span className={`badge badge-${g.status}`}>{STATUS_LABELS[g.status]}</span>
-                      <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{g.jobs.length}</span>
+              {!loading && !error && orgGroups.map(org => (
+                <div key={org.id ?? 'none'}>
+                  {showOrgHeadings && (
+                    <div
+                      role="heading"
+                      aria-level={2}
+                      style={{
+                        position: 'sticky', top: 0, zIndex: 2, height: ORG_HEADING_HEIGHT,
+                        display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px',
+                        background: 'var(--surface-2)',
+                        borderTop: '1px solid var(--border-2)', borderBottom: '1px solid var(--border-2)',
+                      }}
+                    >
+                      <span style={{ fontSize: 13, fontWeight: 800, letterSpacing: '0.08em', flexShrink: 0 }}>{org.short}</span>
+                      <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {org.label}
+                      </span>
+                      <span style={{ fontSize: 12, color: 'var(--text-muted)', flexShrink: 0 }}>{org.count}</span>
                     </div>
-                    {g.jobs.map(job => (
-                      <JobRow
-                        key={job.id}
-                        job={job}
-                        active={wide && job.id === selectedId}
-                        showPrice={caps.view_quote}
-                        checked={checkedIds.has(job.id)}
-                        onCheck={on => setChecked([job.id], on)}
-                        onSelect={() => onRowClick(job.id)}
-                      />
-                    ))}
-                  </div>
-                )
-              })}
+                  )}
+                  {org.stages.map(g => {
+                    const ids = g.jobs.map(j => j.id)
+                    const nChecked = ids.filter(id => checkedIds.has(id)).length
+                    const stageName = `${showOrgHeadings ? `${org.short} ` : ''}${STATUS_LABELS[g.status]}`
+                    return (
+                      <div key={g.status}>
+                        <div style={{
+                          position: 'sticky', top: showOrgHeadings ? ORG_HEADING_HEIGHT : 0, zIndex: 1, background: 'var(--bg)',
+                          display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px 6px',
+                        }}>
+                          <input
+                            type="checkbox"
+                            checked={nChecked === ids.length}
+                            ref={el => { if (el) el.indeterminate = nChecked > 0 && nChecked < ids.length }}
+                            onChange={e => setChecked(ids, e.target.checked)}
+                            aria-label={`Select all ${stageName} jobs`}
+                            title={`Select all ${stageName}`}
+                          />
+                          <span className={`badge badge-${g.status}`}>{STATUS_LABELS[g.status]}</span>
+                          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{g.jobs.length}</span>
+                        </div>
+                        {g.jobs.map(job => (
+                          <JobRow
+                            key={job.id}
+                            job={job}
+                            active={wide && job.id === selectedId}
+                            showPrice={caps.view_quote}
+                            checked={checkedIds.has(job.id)}
+                            onCheck={on => setChecked([job.id], on)}
+                            onSelect={() => onRowClick(job.id)}
+                          />
+                        ))}
+                      </div>
+                    )
+                  })}
+                </div>
+              ))}
             </div>
           </div>
         )}

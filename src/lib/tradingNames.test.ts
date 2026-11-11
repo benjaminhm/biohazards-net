@@ -30,6 +30,17 @@ test('every id has exactly one option', () => {
   assert.deepEqual(TRADING_NAME_OPTIONS.map(o => o.id), [...TRADING_NAME_IDS])
 })
 
+test('each trading name has its own staff shorthand', () => {
+  assert.deepEqual(
+    TRADING_NAME_OPTIONS.map(o => [o.id, o.short]),
+    [
+      ['brisbane_biohazard_cleaning', 'BCQ'],
+      ['forensic_cleaning_qld', 'FCQ'],
+      ['hoarding_cleaning_qld', 'HCQ'],
+    ],
+  )
+})
+
 test('brisbane_biohazard_cleaning id is kept and displays as Biohazard Cleaning QLD', () => {
   assert.ok(isTradingNameId('brisbane_biohazard_cleaning'))
   assert.equal(tradingNameLabel('brisbane_biohazard_cleaning'), 'Biohazard Cleaning QLD')
