@@ -25,7 +25,7 @@ import type { Document, DocumentBundle, DocType, DocWorkflowPhaseId } from '@/li
 import DocumentBundlesSection from '@/components/DocumentBundlesSection'
 import { DOC_TYPE_LABELS, DOC_TYPE_GROUPS } from '@/lib/types'
 import { isAcceptableQuoteType } from '@/lib/acceptableQuotes'
-import { SendForSigningModal, SigningStatus, currentSigning, useJobSigning } from '@/components/SendForSigning'
+import { SendForSigningModal, SigningStatus, currentSigning, signedFor, useJobSigning } from '@/components/SendForSigning'
 
 type NavigateTab =
   | 'details'
@@ -210,7 +210,8 @@ function DocRow({ doc, jobId, clientName, clientEmail, onDeleted, tradeAccountLi
           <a href={printUrl} target="_blank" rel="noopener noreferrer">
             <button className="btn btn-secondary" style={{ fontSize: 12, padding: '7px 12px' }}>↗ Open</button>
           </a>
-          {canSign && signing?.status !== 'signed' && (
+          {/* A quote the client declined on a link they signed for others can be sent again. */}
+          {canSign && !signedFor(signing, doc.id) && (
             <button
               onClick={() => setSendingToSign(true)}
               className="btn btn-primary" style={{ fontSize: 12, padding: '7px 12px' }}
@@ -240,7 +241,7 @@ function DocRow({ doc, jobId, clientName, clientEmail, onDeleted, tradeAccountLi
         {printUrl}
       </div>
 
-      {signing && <SigningStatus request={signing} invoice={signingInvoice} onChanged={reloadSigning} />}
+      {signing && <SigningStatus request={signing} invoice={signingInvoice} onChanged={reloadSigning} documentId={doc.id} />}
       {sendingToSign && (
         <SendForSigningModal
           documentId={doc.id}

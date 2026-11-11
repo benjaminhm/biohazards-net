@@ -18,6 +18,12 @@
  *
  * The pay step is left out when the request has no deposit.
  *
+ * A link can carry several quotes. Each is its own page (?doc=2) with a strip
+ * to move between them, and step 1 becomes Choose: Accept or Decline each
+ * quote, then a review of the choices with the accepted total. They then give
+ * their details and sign once, in a quote they accepted; the server places the
+ * signature on every accepted quote. Declining every quote declines the link.
+ *
  * It is plain HTML, CSS and script added to the document page (the document is
  * already a complete HTML page, not a React screen), so it works on any phone
  * browser with nothing to load first. Nothing here is trusted: the server
@@ -86,6 +92,32 @@ const SHELL_CSS = `
   #sg-steps li.sg-done b { background: #12805c; color: #fff; }
   /* Room for the bar and the steps above the document. */
   @media screen { body, body.sow-print-body { padding-top: 86px; } }
+  /* Several quotes on one link: which is in view, and what was chosen for each */
+  #sg-quotes {
+    position: fixed; top: 86px; left: 0; right: 0; z-index: 998; height: 42px; margin: 0; padding: 0 12px;
+    display: flex; align-items: center; gap: 8px; overflow-x: auto; white-space: nowrap;
+    background: #fff; border-bottom: 1px solid #c9d5e6;
+  }
+  #sg-quotes .sg-q {
+    display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; padding: 5px 11px; border-radius: 999px;
+    border: 1px solid #c9d5e6; background: #fff; color: #0f2447; font-size: 12px; font-weight: 600; text-decoration: none;
+  }
+  #sg-quotes .sg-q.sg-here { background: #0f2447; border-color: #0f2447; color: #fff; }
+  #sg-quotes .sg-q.sg-off { opacity: 0.65; }
+  #sg-quotes .sg-q-state { font-weight: 700; color: #667085; }
+  #sg-quotes .sg-q-state.sg-yes { color: #12805c; }
+  #sg-quotes .sg-q-state.sg-no { color: #b91c1c; }
+  #sg-quotes .sg-here .sg-q-state { color: #c9d5e6; }
+  #sg-quotes .sg-here .sg-q-state.sg-yes { color: #7be0b5; }
+  #sg-quotes .sg-here .sg-q-state.sg-no { color: #ffb4b4; }
+  #sg-root .sg-choices { border: 1px solid #e4e7ec; border-radius: 10px; overflow: hidden; margin: 0 0 12px; }
+  #sg-root .sg-choice { display: flex; align-items: baseline; gap: 10px; padding: 10px 12px; }
+  #sg-root .sg-choice + .sg-choice { border-top: 1px solid #e4e7ec; }
+  #sg-root .sg-choice-name { flex: 1; min-width: 0; font-weight: 600; word-break: break-word; }
+  #sg-root .sg-choice-name small { display: block; font-weight: 400; color: #667085; font-size: 13px; }
+  #sg-root .sg-choice .sg-yes { color: #12805c; font-weight: 700; white-space: nowrap; }
+  #sg-root .sg-choice .sg-no { color: #b91c1c; font-weight: 700; white-space: nowrap; }
+  #sg-root .sg-total { font-size: 17px; font-weight: 700; margin: 0 0 6px; font-variant-numeric: tabular-nums; }
   #sg-root .sg-overlay {
     position: fixed; inset: 0; z-index: 1100; display: none;
     align-items: center; justify-content: center; padding: 16px;
@@ -188,6 +220,11 @@ const SHELL_CSS = `
   @media print { #sg-root { display: none !important; } }
 `
 
+/** With several quotes there is a third strip under the steps, so the document starts lower. */
+const SEVERAL_CSS = `
+  @media screen { body, body.sow-print-body { padding-top: 128px; } }
+`
+
 /*
  * The document is an A4 sheet (210mm wide). On a phone that is wider than the
  * screen, which pushes the bar and the pop-up windows off to the side. Scale
@@ -205,6 +242,10 @@ const FIT_SCRIPT = `
   }
   fit();
   window.addEventListener('resize', fit);
+  // Several quotes: on a narrow screen the strip scrolls sideways, so bring the quote in view into it.
+  var strip = document.getElementById('sg-quotes');
+  var here = strip && strip.querySelector('.sg-here');
+  if (here) strip.scrollLeft = Math.max(0, here.offsetLeft - 12);
 })();
 `
 
@@ -261,6 +302,65 @@ const SHELL_SCRIPT = String.raw`
     return;
   }
 
+  // ── Several quotes on one link ────────────────────────────────────────────
+  // Each quote is its own page (?doc=2). What they choose for each is kept in
+  // this tab until they sign, and goes to the server with the signature. The
+  // server works out the totals (action 'review'), so there are no sums here.
+  // With one quote on the link none of this applies: signing accepts it.
+  var tok = String(cfg.token).slice(0, 16);
+  var multi = cfg.quotes.length > 1;
+  var here = cfg.current - 1;
+  var choicesKey = 'sg-choices:' + tok;
+  var stageKey = 'sg-stage:' + tok;
+  var decisions = [];
+  function keep(key, value) {
+    try {
+      if (value == null) sessionStorage.removeItem(key);
+      else sessionStorage.setItem(key, value);
+    } catch (e) {}
+  }
+  function kept(key) { try { return sessionStorage.getItem(key); } catch (e) { return null; } }
+  (function () {
+    var saved = [];
+    try { saved = JSON.parse(kept(choicesKey) || '[]'); } catch (e) {}
+    for (var i = 0; i < cfg.quotes.length; i++) {
+      var v = saved && saved[i];
+      decisions.push(v === 'accepted' || v === 'declined' ? v : null);
+    }
+  })();
+  function mine() { return decisions[here]; }
+  /** The number (from 1) of the first quote with this choice; 0 when there is none. */
+  function firstWhere(value) {
+    for (var i = 0; i < decisions.length; i++) { if (decisions[i] === value) return i + 1; }
+    return 0;
+  }
+  function goTo(n, stage) {
+    keep(stageKey, stage || null);
+    window.location.search = '?doc=' + n;
+  }
+  function acceptedLine() {
+    var names = [];
+    for (var i = 0; i < decisions.length; i++) { if (decisions[i] === 'accepted') names.push(cfg.quotes[i].label); }
+    if (names.length < 2) return names[0] || '';
+    return names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
+  }
+  function renderQuotes() {
+    var links = document.querySelectorAll('#sg-quotes [data-n]');
+    for (var i = 0; i < links.length; i++) {
+      var d = decisions[Number(links[i].getAttribute('data-n')) - 1];
+      var el = links[i].querySelector('.sg-q-state');
+      el.textContent = d === 'accepted' ? 'Accepted' : (d === 'declined' ? 'Declined' : 'To decide');
+      el.className = 'sg-q-state' + (d === 'accepted' ? ' sg-yes' : (d === 'declined' ? ' sg-no' : ''));
+    }
+  }
+  // reviewed: they have confirmed their choices and this quote is one they
+  // accepted, so it can be signed. A stage of 'go' means they were just sent
+  // here from the review to sign.
+  var stage = multi ? kept(stageKey) : null;
+  state.reviewed = !multi || (!!stage && !firstWhere(null) && mine() === 'accepted');
+  var autostart = multi && state.reviewed && stage === 'go';
+  if (autostart) keep(stageKey, 'sign');
+
   // ── Steps: View, Your details, Sign, Pay deposit ──────────────────────────
   var STEP_ORDER = ['view', 'details', 'sign', 'pay'];
   function setStep(name) {
@@ -281,12 +381,20 @@ const SHELL_SCRIPT = String.raw`
    */
   function startSigning(then) {
     if (state.busy || state.finished) return;
+    // Several quotes: each needs a choice, and the choices a review, first.
+    if (multi && !state.reviewed) {
+      if (!mine()) toast('Choose Accept quote or Decline at the top of the page first.');
+      else if (firstWhere(null)) goTo(firstWhere(null));
+      else openReview();
+      return;
+    }
     if (!state.details) {
       openDetails(then);
       return;
     }
     if (!state.agreed) {
       state.pending = then;
+      if (multi) $('sg-consent-doc').textContent = acceptedLine();
       show('sg-consent');
       return;
     }
@@ -338,6 +446,10 @@ const SHELL_SCRIPT = String.raw`
       sigSlot.classList.remove('sg-todo');
       sigSlot.classList.add('sg-done');
       sigSlot.setAttribute('aria-label', 'Change signature');
+    } else if (multi && !state.reviewed) {
+      // Not a quote to sign yet (or one they declined): the field stays plain.
+      sigSlot.classList.remove('sg-todo');
+      sigSlot.classList.remove('sg-done');
     } else {
       var tag = document.createElement('span');
       tag.className = 'sg-tag';
@@ -350,12 +462,126 @@ const SHELL_SCRIPT = String.raw`
 
   function refresh() {
     nameText.textContent = nameValue();
+    var next = $('sg-next');
+    next.disabled = state.busy;
+    if (multi && !state.reviewed) {
+      // Still choosing: Accept or Decline this quote, then on to the next, then the review.
+      $('sg-progress').textContent = mine() === 'accepted' ? 'Accepted' : (mine() === 'declined' ? 'Declined' : '');
+      next.textContent = !mine() ? 'Accept quote' : (firstWhere(null) ? 'Next quote' : 'Review and sign');
+      $('sg-decline-open').textContent = !mine() ? 'Decline' : 'Change';
+      return;
+    }
+    if (multi) $('sg-decline-open').textContent = 'My choices';
     var ready = !!state.details && state.signing;
     $('sg-progress').textContent = !ready ? '' : (state.signature ? 'Ready to finish' : 'Signature needed');
-    var next = $('sg-next');
     next.textContent = !state.details ? 'Next: your details' : (!state.signing ? 'Next: sign' : (state.signature ? 'Finish' : 'Next'));
-    next.disabled = state.busy;
   }
+
+  /** Leave signing and go back to choosing (several quotes only). */
+  function stopSigning() {
+    state.reviewed = !multi;
+    state.signing = false;
+    block.classList.remove('sg-live');
+  }
+  function choose(decision) {
+    decisions[here] = decision;
+    keep(choicesKey, JSON.stringify(decisions));
+    keep(stageKey, null);
+    stopSigning();
+    renderQuotes();
+    renderSignature();
+    refresh();
+    if (!decision) return;
+    var next = firstWhere(null);
+    if (next) goTo(next);
+    else openReview();
+  }
+
+  // ── Review: what they chose, the total, then sign or decline them all ─────
+  var noneAccepted = false;
+  function openReview() {
+    var list = $('sg-review-list');
+    var go = $('sg-review-go');
+    list.textContent = '';
+    $('sg-review-total').textContent = '';
+    $('sg-review-sum').textContent = 'Checking your choices…';
+    $('sg-review-error').textContent = '';
+    $('sg-review-reason').style.display = 'none';
+    go.disabled = true;
+    show('sg-review');
+    post({ action: 'review', decisions: decisions })
+      .then(function (data) {
+        var s = data.summary;
+        for (var i = 0; i < s.items.length; i++) {
+          var item = s.items[i];
+          var row = document.createElement('div');
+          row.className = 'sg-choice';
+          var name = document.createElement('div');
+          name.className = 'sg-choice-name';
+          name.textContent = item.label;
+          if (item.totalLabel) {
+            var price = document.createElement('small');
+            price.textContent = item.totalLabel + ' including GST';
+            name.appendChild(price);
+          }
+          var what = document.createElement('div');
+          what.className = item.decision === 'accepted' ? 'sg-yes' : 'sg-no';
+          what.textContent = item.decision === 'accepted' ? 'Accepted' : 'Declined';
+          row.appendChild(name);
+          row.appendChild(what);
+          list.appendChild(row);
+        }
+        noneAccepted = !firstWhere('accepted');
+        if (noneAccepted) {
+          $('sg-review-sum').textContent = 'You have declined every quote. ' + cfg.brandLabel + ' will be told, and you will not be able to sign from this link afterwards.';
+          $('sg-review-reason').style.display = '';
+          go.textContent = 'Decline all';
+          go.style.background = '#b91c1c';
+        } else {
+          if (s.acceptedTotalLabel) $('sg-review-total').textContent = 'Total accepted: ' + s.acceptedTotalLabel + ' including GST';
+          $('sg-review-sum').textContent =
+            (s.depositLabel ? 'Deposit after signing: ' + s.depositLabel + ' (' + s.percentLabel + '). ' : '') +
+            'You sign once, and your signature is placed on each quote you accepted.';
+          go.textContent = 'Continue to sign';
+          go.style.background = '';
+        }
+        go.disabled = false;
+      })
+      .catch(function (err) {
+        $('sg-review-sum').textContent = '';
+        $('sg-review-error').textContent = err && err.message ? err.message : 'Could not check your choices. Please try again.';
+      });
+  }
+  $('sg-review-back').addEventListener('click', function () {
+    hide('sg-review');
+    if (multi && state.reviewed) {
+      keep(stageKey, null);
+      stopSigning();
+      renderSignature();
+      refresh();
+    }
+  });
+  $('sg-review-go').addEventListener('click', function () {
+    var go = $('sg-review-go');
+    if (noneAccepted) {
+      go.disabled = true;
+      post({ action: 'decline', reason: $('sg-review-reason').value })
+        .then(function () { hide('sg-review'); declinedDone(); })
+        .catch(function (err) {
+          go.disabled = false;
+          $('sg-review-error').textContent = err && err.message ? err.message : 'Could not send that. Please try again.';
+        });
+      return;
+    }
+    hide('sg-review');
+    // Signing happens in a quote they accepted.
+    if (mine() !== 'accepted') { goTo(firstWhere('accepted'), 'go'); return; }
+    keep(stageKey, 'sign');
+    state.reviewed = true;
+    renderSignature();
+    refresh();
+    startSigning(goToNextField);
+  });
 
   function goToNextField() {
     sigSlot.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -365,6 +591,12 @@ const SHELL_SCRIPT = String.raw`
 
   $('sg-next').addEventListener('click', function () {
     if (state.busy) return;
+    if (multi && !state.reviewed) {
+      if (!mine()) choose('accepted');
+      else if (firstWhere(null)) goTo(firstWhere(null));
+      else openReview();
+      return;
+    }
     if (!state.details || !state.signing) startSigning(goToNextField);
     else if (state.signature) finish();
     else goToNextField();
@@ -638,18 +870,32 @@ const SHELL_SCRIPT = String.raw`
     state.busy = true;
     $('sg-next').textContent = 'Signing…';
     $('sg-next').disabled = true;
-    post({ action: 'sign', details: state.details, declared: true, signature: state.signature, method: state.method, agreed: true })
+    var signing = { action: 'sign', details: state.details, declared: true, signature: state.signature, method: state.method, agreed: true };
+    // Several quotes: what was chosen for each goes with the signature.
+    if (multi) signing.decisions = decisions;
+    post(signing)
       .then(function (data) {
         state.finished = true;
         try { sessionStorage.removeItem(storeKey); } catch (e) {}
+        keep(choicesKey, null);
+        keep(stageKey, null);
         nameSlot.textContent = nameValue();
         nameSlot.classList.remove('sg-name-slot');
         nameSlot.removeAttribute('role');
         nameSlot.removeAttribute('tabindex');
         nameSlot.removeAttribute('aria-label');
         if (data && data.dateLabel) dateSlot.textContent = data.dateLabel;
-        if (data && data.copyEmail) {
-          $('sg-done-copy').textContent = 'Your signed copy of ' + cfg.docLine + ' is being emailed to ' + data.copyEmail + '.';
+        // The server says what was signed and where the copy is going, and the
+        // deposit on what was accepted.
+        if (data && data.copyLine) $('sg-done-copy').textContent = data.copyLine;
+        var depositNote = $('sg-done-deposit');
+        if (depositNote && data && 'deposit' in data) {
+          if (data.deposit) {
+            $('sg-done-amount').textContent = data.deposit.amountLabel;
+            $('sg-done-percent').textContent = data.deposit.percentLabel;
+          } else {
+            depositNote.style.display = 'none';
+          }
         }
         block.classList.remove('sg-live');
         sigSlot.removeAttribute('role');
@@ -677,8 +923,25 @@ const SHELL_SCRIPT = String.raw`
   }
 
   // ── Decline ───────────────────────────────────────────────────────────────
+  function declinedDone() {
+    state.finished = true;
+    keep(choicesKey, null);
+    keep(stageKey, null);
+    $('sg-next').style.display = 'none';
+    $('sg-decline-open').style.display = 'none';
+    $('sg-progress').textContent = 'Declined';
+    block.classList.remove('sg-live');
+    show('sg-declined');
+  }
   $('sg-decline-open').addEventListener('click', function () {
     if (state.busy || state.finished) return;
+    // Several quotes: this button declines the quote in view (or undoes the
+    // choice). Declining them all is offered on the review.
+    if (multi) {
+      if (state.reviewed) openReview();
+      else choose(mine() ? null : 'declined');
+      return;
+    }
     $('sg-decline-error').textContent = '';
     show('sg-decline');
   });
@@ -688,13 +951,8 @@ const SHELL_SCRIPT = String.raw`
     button.disabled = true;
     post({ action: 'decline', reason: $('sg-decline-reason').value })
       .then(function () {
-        state.finished = true;
         hide('sg-decline');
-        $('sg-next').style.display = 'none';
-        $('sg-decline-open').style.display = 'none';
-        $('sg-progress').textContent = 'Declined';
-        block.classList.remove('sg-live');
-        show('sg-declined');
+        declinedDone();
       })
       .catch(function (err) {
         button.disabled = false;
@@ -706,16 +964,31 @@ const SHELL_SCRIPT = String.raw`
   var onward = $('sg-done-next');
   if (onward) onward.addEventListener('click', function () { window.location.reload(); });
 
+  renderQuotes();
   renderSignature();
   refresh();
+  if (autostart) startSigning(goToNextField);
 })();
 `
+
+/** A quote on the link, as the page names it. */
+export interface ShellQuote {
+  /** Its number on the link, from 1. */
+  n: number
+  /** e.g. "Trauma Cleaning Q-1042". */
+  label: string
+}
 
 export interface SigningShellData {
   token: string
   brandLabel: string
+  /** The quote this page shows. */
   documentTitle: string
   reference: string | null
+  /** Every quote on the link, in order. One entry when the link has a single quote. */
+  quotes: ShellQuote[]
+  /** The number of the quote this page shows, from 1. */
+  current: number
   toName: string
   /** Null when the link was sent by text and no email was given. */
   toEmail: string | null
@@ -724,16 +997,20 @@ export interface SigningShellData {
   /** Today's date as it will be written in the Date field. The server sets the real one. */
   dateLabel: string
   consented: boolean
-  /** The deposit asked for after signing, e.g. "$1,650.00" and "50%". Null when there is no pay step. */
+  /**
+   * The deposit asked for after signing, e.g. "$1,650.00" and "50%". Null when
+   * there is no pay step. With several quotes this is the deposit if all are
+   * accepted; the page is told the real one when they sign.
+   */
   deposit: { amountLabel: string; percentLabel: string } | null
 }
 
 type Step = 'view' | 'details' | 'sign' | 'pay'
 
 /** The steps under the bar. `current` past the last step shows them all as done. */
-function stepsHtml(current: Step | 'finished', hasPay: boolean): string {
+function stepsHtml(current: Step | 'finished', hasPay: boolean, several = false): string {
   const steps: { id: Step; label: string }[] = [
-    { id: 'view', label: 'View' },
+    { id: 'view', label: several ? 'Choose' : 'View' },
     { id: 'details', label: 'Your details' },
     { id: 'sign', label: 'Sign' },
     ...(hasPay ? [{ id: 'pay' as const, label: 'Pay deposit' }] : []),
@@ -758,25 +1035,46 @@ export function signingShellHtml(d: SigningShellData): string {
   const docLine = `${d.documentTitle}${d.reference ? ` ${d.reference}` : ''}`
   const pdfUrl = d.pdfUrl
   const who = `${d.toName}${d.toEmail ? ` (${d.toEmail})` : ''}`
+  // Several quotes on the link: each is accepted or declined, then one signature.
+  const several = d.quotes.length > 1
   return `
   <div id="sg-root">
-    <style>${SHELL_CSS}</style>
+    <style>${SHELL_CSS}${several ? SEVERAL_CSS : ''}</style>
     <div id="sg-bar">
       <div class="sg-doc">
-        <div class="sg-brand">${esc(d.brandLabel)}</div>
+        <div class="sg-brand">${several ? `Quote ${d.current} of ${d.quotes.length} · ` : ''}${esc(d.brandLabel)}</div>
         <div class="sg-title">${esc(docLine)}</div>
       </div>
       <span class="sg-progress" id="sg-progress" aria-live="polite"></span>
       <button type="button" class="sg-btn sg-btn-quiet" id="sg-decline-open">Decline</button>
-      <button type="button" class="sg-btn" id="sg-next">Next: your details</button>
+      <button type="button" class="sg-btn" id="sg-next">${several ? 'Accept quote' : 'Next: your details'}</button>
     </div>
-    ${stepsHtml('view', Boolean(d.deposit))}
+    ${stepsHtml('view', Boolean(d.deposit), several)}
+    ${several ? `<nav id="sg-quotes" aria-label="Quotes on this link">${d.quotes
+      .map(q => `<a class="sg-q${q.n === d.current ? ' sg-here' : ''}" href="?doc=${q.n}" data-n="${q.n}"${q.n === d.current ? ' aria-current="page"' : ''}><b>${q.n}</b>${esc(q.label)}<span class="sg-q-state">To decide</span></a>`)
+      .join('')}</nav>` : ''}
+
+    <div class="sg-overlay" id="sg-review" role="dialog" aria-modal="true" aria-labelledby="sg-review-h">
+      <div class="sg-card">
+        <div class="sg-eyebrow">${esc(d.brandLabel)}</div>
+        <h2 id="sg-review-h">Your choices</h2>
+        <div class="sg-choices" id="sg-review-list"></div>
+        <div class="sg-total" id="sg-review-total"></div>
+        <p id="sg-review-sum" aria-live="polite"></p>
+        <textarea class="sg-input" id="sg-review-reason" maxlength="1000" placeholder="Reason (optional)" aria-label="Reason (optional)" style="display:none"></textarea>
+        <div class="sg-error" id="sg-review-error" role="alert"></div>
+        <div class="sg-actions">
+          <button type="button" class="sg-btn sg-btn-quiet" id="sg-review-back">Back to the quotes</button>
+          <button type="button" class="sg-btn" id="sg-review-go" disabled>Continue to sign</button>
+        </div>
+      </div>
+    </div>
 
     <div class="sg-overlay" id="sg-details" role="dialog" aria-modal="true" aria-labelledby="sg-details-h">
       <form class="sg-card sg-card-wide" id="sg-details-form" novalidate>
         <div class="sg-eyebrow">${esc(d.brandLabel)}</div>
         <h2 id="sg-details-h">Your details</h2>
-        <p>Before you sign, tell us who is accepting ${esc(docLine)}. ${esc(d.brandLabel)} uses these details for your invoice and to contact you.</p>
+        <p>Before you sign, tell us who is accepting ${several ? 'the quotes you chose' : esc(docLine)}. ${esc(d.brandLabel)} uses these details for your invoice and to contact you.</p>
 
         <label class="sg-label" for="sg-d-capacity">I am signing as</label>
         <select class="sg-input" id="sg-d-capacity">
@@ -858,15 +1156,17 @@ export function signingShellHtml(d: SigningShellData): string {
     <div class="sg-overlay" id="sg-consent" role="dialog" aria-modal="true" aria-labelledby="sg-consent-h">
       <div class="sg-card">
         <div class="sg-eyebrow">${esc(d.brandLabel)}</div>
-        <h2 id="sg-consent-h">Sign this document</h2>
+        <h2 id="sg-consent-h">${several ? 'Sign what you accepted' : 'Sign this document'}</h2>
         <div class="sg-facts">
-          <div><span>Document:</span> ${esc(docLine)}</div>
+          <div><span>${several ? 'Accepted:' : 'Document:'}</span> <span id="sg-consent-doc" style="color:inherit">${esc(docLine)}</span></div>
           <div><span>For:</span> ${esc(who)}</div>
         </div>
-        <p>You sign at the end of the document, under the name you gave in your details. It takes about a minute, and a signed copy is emailed to you straight away.</p>
+        <p>${several
+          ? 'You sign once, at the end of this quote, under the name you gave in your details. Your signature, name and the date are placed on each quote you accepted. It takes about a minute, and your signed copies are emailed to you straight away.'
+          : 'You sign at the end of the document, under the name you gave in your details. It takes about a minute, and a signed copy is emailed to you straight away.'}</p>
         <label class="sg-check">
           <input type="checkbox" id="sg-agree">
-          <span>I agree to sign this document electronically, and that my electronic signature has the same effect as signing on paper.</span>
+          <span>I agree to sign ${several ? 'these documents' : 'this document'} electronically, and that my electronic signature has the same effect as signing on paper.</span>
         </label>
         <div class="sg-actions">
           <button type="button" class="sg-btn sg-btn-quiet" id="sg-agree-cancel">Not yet</button>
@@ -895,7 +1195,7 @@ export function signingShellHtml(d: SigningShellData): string {
           <input type="text" class="sg-input" id="sg-typed-input" maxlength="80" placeholder="Type your full name" autocomplete="name" aria-label="Type your full name">
           <div class="sg-typed" id="sg-typed-preview" aria-hidden="true"></div>
         </div>
-        <p class="sg-small" style="margin:14px 0 16px">By choosing Adopt and sign, I agree this is my signature on this document.</p>
+        <p class="sg-small" style="margin:14px 0 16px">By choosing Adopt and sign, I agree this is my signature on ${several ? 'each quote I accepted' : 'this document'}.</p>
         <div class="sg-actions">
           <button type="button" class="sg-btn sg-btn-quiet" id="sg-pad-cancel">Cancel</button>
           <button type="button" class="sg-btn" id="sg-adopt" disabled>Adopt and sign</button>
@@ -922,14 +1222,23 @@ export function signingShellHtml(d: SigningShellData): string {
         <h2 id="sg-done-h">Signed. Thank you.</h2>
         <p><span id="sg-done-copy">${d.toEmail
           ? `Your signed copy of ${esc(docLine)} is being emailed to ${esc(d.toEmail)}.`
-          : `Your signed copy of ${esc(docLine)} is ready.`}</span> You can download it now and keep it for your records.</p>
+          : `Your signed copy of ${esc(docLine)} is ready.`}</span> ${several
+          ? 'Each signed quote can be downloaded on the next page; keep them for your records.'
+          : 'You can download it now and keep it for your records.'}</p>
         ${d.deposit
-          ? `<p>The next step is your deposit of <strong>${esc(d.deposit.amountLabel)}</strong> (${esc(d.deposit.percentLabel)}). There is nothing to pay yet: ${esc(d.brandLabel)} will check the details, prepare your invoice and let you know when it is ready.</p>
-        <div class="sg-actions">
+          ? `<p id="sg-done-deposit">The next step is your deposit of <strong id="sg-done-amount">${esc(d.deposit.amountLabel)}</strong> (<span id="sg-done-percent" style="color:inherit">${esc(d.deposit.percentLabel)}</span>). There is nothing to pay yet: ${esc(d.brandLabel)} will check the details, prepare your invoice and let you know when it is ready.</p>`
+          : ''}
+        ${several
+          // Which copies there are depends on what was accepted: the signed page lists them.
+          ? `<div class="sg-actions">
+          <button type="button" class="sg-btn" id="sg-done-next">Continue</button>
+        </div>`
+          : d.deposit
+            ? `<div class="sg-actions">
           <a class="sg-btn sg-btn-quiet" href="${esc(pdfUrl)}">Download signed copy</a>
           <button type="button" class="sg-btn" id="sg-done-next">Continue</button>
         </div>`
-          : `<div class="sg-actions">
+            : `<div class="sg-actions">
           <a class="sg-btn" href="${esc(pdfUrl)}">Download signed copy</a>
         </div>
         <p class="sg-small" style="margin:14px 0 0">You can close this page.</p>`}
@@ -950,6 +1259,9 @@ export function signingShellHtml(d: SigningShellData): string {
       consented: d.consented,
       brandLabel: d.brandLabel,
       docLine,
+      // The quotes on the link and which one this page shows.
+      quotes: d.quotes,
+      current: d.current,
       // Which capacities ask for a company: required, optional or none.
       companyRules: Object.fromEntries(CAPACITIES.map(c => [c.id, companyRule(c.id)])),
     })}</script>
@@ -1109,23 +1421,40 @@ export function signedViewHtml(d: {
   signedAtLabel: string
   /** Null when no deposit was asked for. */
   pay: PayPanel | null
+  /**
+   * Every quote that was on the link, when there was more than one, with what
+   * the signer chose. Accepted quotes link to their signed copy; declined ones
+   * are named but cannot be opened.
+   */
+  quotes?: (ShellQuote & { accepted: boolean })[]
+  /** The number of the quote this page shows, from 1. */
+  current?: number
+  /** False when they are moving between their signed quotes: the pay step is not put in front again. */
+  payOpen?: boolean
 }): string {
   const docLine = `${d.documentTitle}${d.reference ? ` ${d.reference}` : ''}`
   const settled = d.pay ? depositSettled(d.pay) : false
+  const quotes = d.quotes && d.quotes.length > 1 ? d.quotes : null
+  const payOpen = !settled && d.payOpen !== false
   return `
   <div id="sg-root">
-    <style>${SHELL_CSS}</style>
+    <style>${SHELL_CSS}${quotes ? SEVERAL_CSS : ''}</style>
     <div id="sg-bar">
       <div class="sg-doc">
-        <div class="sg-brand">${esc(d.brandLabel)} · Signed</div>
+        <div class="sg-brand">${quotes ? `Quote ${d.current ?? 1} of ${quotes.length} · Signed · ${esc(d.brandLabel)}` : `${esc(d.brandLabel)} · Signed`}</div>
         <div class="sg-title">${esc(docLine)} — signed by ${esc(d.signerName)}, ${esc(d.signedAtLabel)}</div>
       </div>
       <a class="sg-btn${d.pay ? ' sg-btn-quiet' : ''}" href="${esc(d.pdfUrl)}">Download<span class="sg-wide"> signed copy</span></a>
       ${d.pay ? `<button type="button" class="sg-btn" id="sg-pay-open">${settled ? 'Deposit received' : d.pay.stage === 'preparing' ? 'Your deposit' : 'Pay deposit'}</button>` : ''}
     </div>
-    ${stepsHtml(d.pay && !settled ? 'pay' : 'finished', Boolean(d.pay))}
+    ${stepsHtml(d.pay && !settled ? 'pay' : 'finished', Boolean(d.pay), Boolean(quotes))}
+    ${quotes ? `<nav id="sg-quotes" aria-label="Quotes on this link">${quotes
+      .map(q => q.accepted
+        ? `<a class="sg-q${q.n === d.current ? ' sg-here' : ''}" href="?doc=${q.n}&amp;view=1"${q.n === d.current ? ' aria-current="page"' : ''}><b>${q.n}</b>${esc(q.label)}<span class="sg-q-state sg-yes">Signed</span></a>`
+        : `<span class="sg-q sg-off"><b>${q.n}</b>${esc(q.label)}<span class="sg-q-state sg-no">Declined</span></span>`)
+      .join('')}</nav>` : ''}
     ${d.pay ? `
-    <div class="sg-overlay${settled ? '' : ' sg-on'}" id="sg-pay" role="dialog" aria-modal="true" aria-labelledby="sg-pay-h">
+    <div class="sg-overlay${payOpen ? ' sg-on' : ''}" id="sg-pay" role="dialog" aria-modal="true" aria-labelledby="sg-pay-h">
       <div class="sg-card">
         <div id="sg-pay-body" aria-live="polite">${payPanelHtml(d.pay)}</div>
         <div class="sg-actions" style="margin-top:18px">

@@ -17,6 +17,12 @@
  *                        to pay, until a person has done that. After it: what to
  *                        do in Xero, then a ready-to-pay message to send yourself.
  *
+ * One link can carry several quotes from the same job (tick boxes in the send
+ * window). The client accepts or declines each and signs once; the strip then
+ * shows what they chose for each quote, and the deposit is on the accepted
+ * total. The whole strip sits under the first quote on the link, with a short
+ * line under the others.
+ *
  * The From address is decided on the server from the job's trading name and is
  * only shown here. Either way a person decides what goes to the client
  * (docs/ai-product-principles.md); nothing is sent without that, and the
@@ -68,6 +74,47 @@ export interface SigningSummary {
   signer_details?: unknown
   /** The Xero contact the invoice was made out to at the check. */
   xero_contact_id?: string | null
+  /**
+   * The quotes on the link, in order. One link can carry several: the client
+   * accepts or declines each and signs once. While the link is open every
+   * decision is pending. Once signed, quote_total above is the accepted total.
+   */
+  items?: SigningItem[]
+}
+
+export interface SigningItem {
+  position: number
+  document_id: string | null
+  document_title: string
+  reference: string | null
+  /** Inc GST. Null for staff who are not shown money. */
+  quote_total: number | null
+  decision: 'pending' | 'accepted' | 'declined'
+}
+
+function itemsOf(request: SigningSummary): SigningItem[] {
+  return request.items?.length
+    ? request.items
+    : [{
+        position: 0,
+        document_id: request.document_id,
+        document_title: request.document_title,
+        reference: request.reference,
+        quote_total: request.quote_total,
+        decision: request.status === 'signed' ? 'accepted' : request.status === 'declined' ? 'declined' : 'pending',
+      }]
+}
+
+function itemName(item: Pick<SigningItem, 'document_title' | 'reference'>): string {
+  return `${item.document_title}${item.reference ? ` ${item.reference}` : ''}`
+}
+
+/** True when this document was signed for: it must not be offered for sending again. */
+export function signedFor(request: SigningSummary | null, documentId: string): boolean {
+  if (!request || request.status !== 'signed') return false
+  const items = itemsOf(request)
+  if (items.length <= 1) return true
+  return items.some(i => i.document_id === documentId && i.decision === 'accepted')
 }
 
 /** What the check offers for who the invoice is made out to (GET /api/signing/[id]). */
@@ -113,9 +160,23 @@ interface JobSigning {
   invoice: SigningInvoice | null
 }
 
+/** Another quote on the same job that can go on the same link. */
+interface OtherQuote {
+  documentId: string
+  title: string
+  reference: string | null
+  createdAt: string
+  /** Inc GST. Null for staff who are not shown money. */
+  total: number | null
+  hasTotal: boolean
+}
+
 interface Preview {
   title: string
   reference: string | null
+  /** The job's other quotes that have not been accepted yet. */
+  others?: OtherQuote[]
+  maxQuotes?: number
   blockers: string[]
   sender: { brandLabel: string; from: string; replyTo: string | null; usesBrandAddress: boolean } | null
   defaults: { toEmail: string; toName: string; subject: string; message: string }
@@ -157,13 +218,18 @@ function loadJobSigning(jobId: string): Promise<JobSigning> {
   return pending
 }
 
+// One link can hold several quotes, so a change made under one quote's row
+// (sent, cancelled, checked) must show under the others too.
+const CHANGED = 'bh-signing-changed'
+
 /** Signing requests for a job, with its Xero invoice status. Pass null to skip (rows that are not quotes). */
 export function useJobSigning(jobId: string | null) {
   const [state, setState] = useState<JobSigning>(NOTHING)
 
+  /** Reload this row and every other row showing the same job. */
   const reload = useCallback(async () => {
     if (!jobId) return
-    setState(await loadJobSigning(jobId))
+    window.dispatchEvent(new CustomEvent(CHANGED, { detail: jobId }))
   }, [jobId])
 
   useEffect(() => {
@@ -174,21 +240,30 @@ export function useJobSigning(jobId: string | null) {
         if (live) setState(next)
       })
     }
+    const onChanged = (event: Event) => {
+      if ((event as CustomEvent<string>).detail === jobId) load()
+    }
     load()
     // The client signs and pays somewhere else; pick it up when staff come back to the tab.
     window.addEventListener('focus', load)
+    window.addEventListener(CHANGED, onChanged)
     return () => {
       live = false
       window.removeEventListener('focus', load)
+      window.removeEventListener(CHANGED, onChanged)
     }
   }, [jobId])
 
   return { requests: state.requests, invoice: state.invoice, reload }
 }
 
-/** The request that matters for a document: the newest one that was not cancelled, else the newest. */
+/**
+ * The request that matters for a document: the newest one holding it that was
+ * not cancelled, else the newest. A link can hold several quotes, so the same
+ * request can be the current one for more than one document.
+ */
 export function currentSigning(requests: SigningSummary[], documentId: string): SigningSummary | null {
-  const mine = requests.filter(r => r.document_id === documentId)
+  const mine = requests.filter(r => itemsOf(r).some(i => i.document_id === documentId))
   return mine.find(r => r.status !== 'voided') ?? mine[0] ?? null
 }
 
@@ -245,6 +320,8 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
   const [created, setCreated] = useState<CreatedLink | null>(null)
   const [pasteText, setPasteText] = useState('')
   const [copied, setCopied] = useState('')
+  /** Other quotes from the job ticked to go on the same link. */
+  const [alsoIds, setAlsoIds] = useState<string[]>([])
 
   useEffect(() => {
     let live = true
@@ -280,13 +357,27 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
     return () => window.removeEventListener('keydown', onKey)
   }, [close, sending])
 
-  const waiting = preview?.requests.find(r => r.status === 'sent' || r.status === 'viewed') ?? null
+  // The quotes going on this link: the one the window was opened from, then any others ticked.
+  const others = preview?.others ?? []
+  const also = others.filter(o => alsoIds.includes(o.documentId))
+  const documentIds = [documentId, ...also.map(o => o.documentId)]
+  const several = documentIds.length > 1
+  const maxQuotes = preview?.maxQuotes ?? 6
+  const hasTotal = Boolean(preview?.hasTotal) || also.some(o => o.hasTotal)
+  // Null for staff who are not shown money.
+  const linkTotal = preview?.total == null && also.every(o => o.total == null)
+    ? null
+    : Math.round(((preview?.total ?? 0) + also.reduce((sum, o) => sum + (o.total ?? 0), 0)) * 100) / 100
+  // A link still waiting that holds any of these quotes is replaced by the new one.
+  const waiting = preview?.requests.find(r =>
+    (r.status === 'sent' || r.status === 'viewed') && itemsOf(r).some(i => i.document_id != null && documentIds.includes(i.document_id)),
+  ) ?? null
   const blocked = !preview || preview.blockers.length > 0 || !preview.sender
   const emailTyped = toEmail.trim()
   const emailOk = /^\S+@\S+\.\S+$/.test(emailTyped)
   const nameOk = toName.trim().length >= 2
   const depositChoice = readDeposit(depositText)
-  const depositDue = depositOf(preview?.total ?? null, depositChoice.percent)
+  const depositDue = depositOf(linkTotal, depositChoice.percent)
   const ready = !blocked && nameOk && depositChoice.ok && (
     mode === 'link'
       ? !emailTyped || emailOk
@@ -303,8 +394,8 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(
           mode === 'link'
-            ? { mode, documentId, toName, toEmail, depositPercent: depositChoice.percent }
-            : { mode, documentId, toName, toEmail, subject, message, depositPercent: depositChoice.percent },
+            ? { mode, documentIds, toName, toEmail, depositPercent: depositChoice.percent }
+            : { mode, documentIds, toName, toEmail, subject, message, depositPercent: depositChoice.percent },
         ),
       })
       const data = await res.json().catch(() => ({}))
@@ -441,6 +532,42 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
               The client views the quote, gives their details (who they are signing as, legal name, date of birth, home address, mobile and email) and signs it on the same page. You then check who signed and create the invoice; they are shown how to pay once the invoice is approved in Xero.
             </div>
 
+            {others.length > 0 && (
+              <fieldset style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px', margin: '0 0 14px' }}>
+                <legend style={{ ...fieldLabel, marginBottom: 0, padding: '0 4px' }}>Quotes on this link</legend>
+                {[{ documentId, title: preview.title, reference: preview.reference, total: preview.total, createdAt: '' }, ...others].map(q => {
+                  const first = q.documentId === documentId
+                  const ticked = first || alsoIds.includes(q.documentId)
+                  const full = !ticked && documentIds.length >= maxQuotes
+                  return (
+                    // The app styles every label as a small upper-case heading; these are lines to read.
+                    <label key={q.documentId} style={{
+                      display: 'flex', gap: 8, alignItems: 'flex-start', padding: '4px 0', margin: 0,
+                      fontSize: 13, fontWeight: 400, letterSpacing: 'normal', textTransform: 'none', lineHeight: 1.45,
+                      color: 'var(--text)', cursor: first || full ? 'default' : 'pointer', opacity: full ? 0.5 : 1,
+                    }}>
+                      <input
+                        type="checkbox" checked={ticked} disabled={first || full || sending} style={{ marginTop: 3 }}
+                        onChange={e => setAlsoIds(ids => e.target.checked ? [...ids, q.documentId] : ids.filter(id => id !== q.documentId))}
+                      />
+                      <span>
+                        <span style={{ fontWeight: 600 }}>{q.title}{q.reference ? ` ${q.reference}` : ''}</span>
+                        {q.total != null && <> · {money(q.total)} inc GST</>}
+                        <span style={{ color: 'var(--text-muted)' }}>
+                          {first ? ' · this quote' : q.createdAt ? ` · saved ${when(q.createdAt)}` : ''}
+                        </span>
+                      </span>
+                    </label>
+                  )
+                })}
+                <div style={{ ...helpText, marginTop: 6 }}>
+                  {several
+                    ? 'The client sees each quote on the one link and chooses Accept or Decline for each. They sign once, and the signature goes on every quote they accepted. One deposit is asked for, on the total of what they accepted.'
+                    : 'Tick another quote from this job to send it on the same link. The client can accept one and decline another, signs once, and pays one deposit on what they accepted.'}
+                </div>
+              </fieldset>
+            )}
+
             <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
               {tab('link', 'Link and passcode')}
               {tab('email', 'Email from here')}
@@ -489,26 +616,27 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
                   id="sfs-deposit" inputMode="decimal" autoComplete="off" maxLength={6}
                   style={{ ...fieldInput, width: 84, textAlign: 'right' }}
                   value={depositText}
-                  disabled={!preview.hasTotal}
+                  disabled={!hasTotal}
                   onChange={e => setDepositText(e.target.value)}
                   aria-describedby="sfs-deposit-help"
                 />
                 <span style={{ fontSize: 14, color: 'var(--text)' }}>%</span>
-                {depositDue != null && preview.total != null && (
+                {depositDue != null && linkTotal != null && (
                   <span style={{ fontSize: 14, color: 'var(--text)' }}>
-                    = <strong>{money(depositDue)}</strong> of {money(preview.total)} inc GST
+                    = <strong>{money(depositDue)}</strong> of {money(linkTotal)} inc GST{several ? ' if they accept every quote' : ''}
                   </span>
                 )}
               </div>
               <div id="sfs-deposit-help" style={{ ...helpText, marginTop: 6 }}>
-                {!preview.hasTotal ? (
-                  <>This quote has no total, so the client is not asked for a deposit.</>
+                {!hasTotal ? (
+                  <>{several ? 'These quotes have no totals' : 'This quote has no total'}, so the client is not asked for a deposit.</>
                 ) : !depositChoice.ok ? (
                   <span style={{ color: '#F87171' }}>Enter a percentage between 1 and 100, or leave it empty for no deposit.</span>
                 ) : depositChoice.percent == null ? (
                   <>No deposit: the client&apos;s page ends at the signed copy.</>
                 ) : (
                   <>
+                    {several && <>The percentage is taken of the total of the quotes they accept, so the deposit is less if they decline one. </>}
                     After signing, the client is told this deposit comes next, but is shown no way to pay yet.
                     {' '}Our quotes ask for {preview.defaultDepositPercent}%: if you change it, check the quote&apos;s payment terms say the same.
                     {' '}{preview.xeroConnected
@@ -542,6 +670,7 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
                   <textarea id="sfs-message" style={{ ...fieldInput, minHeight: 190, resize: 'vertical', lineHeight: 1.5 }} value={message} onChange={e => setMessage(e.target.value)} maxLength={4000} />
                 </div>
                 <div style={{ ...helpText, marginBottom: 14 }}>
+                  {several && <span style={{ color: '#FBBF24' }}>Your subject and message name only the first quote; change them if you want to mention the others. </span>}
                   The client gets a private link with a View document button under your message. They see and sign the quote as it is saved right now; changes made after sending are not included. Once signed, they are emailed the signed PDF with its signature docket, and the job moves to Accepted.
                 </div>
               </>
@@ -550,8 +679,11 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
             {waiting && (
               <div style={{ fontSize: 12, color: 'var(--text)', background: 'rgba(255,107,53,0.08)', border: '1px solid rgba(255,107,53,0.35)', borderRadius: 8, padding: '10px 12px', marginBottom: 14, lineHeight: 1.5 }}>
                 {waiting.delivery_method === 'link'
-                  ? <>A link for this quote was already created on {when(waiting.sent_at)} and has not been signed. A new one replaces it, so the earlier link will stop working.</>
-                  : <>This quote was already sent to {waiting.to_email} on {when(waiting.sent_at)} and has not been signed. A new one replaces that link, so the earlier email will stop working.</>}
+                  ? <>A link for {several ? 'one of these quotes' : 'this quote'} was already created on {when(waiting.sent_at)} and has not been signed. A new one replaces it, so the earlier link will stop working.</>
+                  : <>{several ? 'One of these quotes' : 'This quote'} was already sent to {waiting.to_email} on {when(waiting.sent_at)} and has not been signed. A new one replaces that link, so the earlier email will stop working.</>}
+                {itemsOf(waiting).length > 1 && (
+                  <> The earlier link held {itemsOf(waiting).map(itemName).join(' and ')}: all of it stops working, so tick every quote you still want the client to have.</>
+                )}
               </div>
             )}
 
@@ -687,12 +819,73 @@ function InvoiceContactChoice({ requestId, pick, onPick }: {
   )
 }
 
+/**
+ * Under a quote that shares its link with another: one line saying so, and
+ * where the link is up to for this quote. The check, the invoice and the
+ * deposit belong to the link as a whole and are shown once, under its first quote.
+ */
+function SharedLinkLine({ request, item, home }: { request: SigningSummary; item: SigningItem; home: SigningItem }) {
+  let label = 'On a shared link'
+  let color = 'var(--text-muted)'
+  let detail = ''
+  if (request.status === 'sent' || request.status === 'viewed') {
+    label = request.status === 'viewed' ? 'Opened, not signed' : request.delivery_method === 'link' ? 'Link created' : 'Sent for signing'
+    color = request.status === 'viewed' ? '#FBBF24' : '#60A5FA'
+    detail = 'The client has not signed yet.'
+  }
+  if (request.status === 'signed') {
+    const accepted = item.decision === 'accepted'
+    label = accepted ? 'Accepted and signed' : 'Declined by the client'
+    color = accepted ? '#34D399' : '#F87171'
+    detail = accepted
+      ? `by ${request.signer_name ?? request.to_name} on ${when(request.signed_at)}.`
+      : `on ${when(request.signed_at)}, when they signed for the rest of the link. It is not invoiced. Use Send to client to send it again.`
+  }
+  if (request.status === 'declined') {
+    label = 'Declined'
+    color = '#F87171'
+    detail = `on ${when(request.declined_at)}, with every quote on the link.`
+  }
+  if (request.status === 'voided') {
+    label = 'Cancelled'
+    detail = `on ${when(request.voided_at)}.`
+  }
+  if (request.passcode_locked_at && request.status !== 'voided') {
+    label = 'Locked'
+    color = '#F87171'
+    detail = 'The wrong passcode was entered five times, so the link no longer opens.'
+  }
+  return (
+    <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)', fontSize: 12, lineHeight: 1.5 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <span style={{ fontWeight: 700, color, border: `1px solid ${color}`, borderRadius: 999, padding: '1px 8px', fontSize: 11, whiteSpace: 'nowrap' }}>
+          {label}
+        </span>
+        <span style={{ color: 'var(--text)', flex: '1 1 200px' }}>{detail}</span>
+        {request.status === 'signed' && item.decision === 'accepted' && (
+          <a href={`/api/signing/${request.id}/pdf?doc=${item.position + 1}`} target="_blank" rel="noopener noreferrer" className="btn btn-secondary" style={{ fontSize: 11, padding: '5px 10px', textDecoration: 'none' }}>
+            Signed PDF
+          </a>
+        )}
+      </div>
+      <div style={{ color: 'var(--text-muted)', marginTop: 4 }}>
+        Sent on one link with {itemName(home)}. The signer, the check before invoicing and the deposit are shown under that quote.
+      </div>
+    </div>
+  )
+}
+
 /** Where a saved quote's signing is up to, with the few things staff can do about it. */
-export function SigningStatus({ request, invoice, onChanged }: {
+export function SigningStatus({ request, invoice, onChanged, documentId }: {
   request: SigningSummary
   /** The job's Xero invoice, when a signed quote on the job has a deposit. */
   invoice: SigningInvoice | null
   onChanged: () => void
+  /**
+   * The saved quote this is shown under. A link can hold several quotes: the
+   * whole strip is shown under the first of them and a short line under the rest.
+   */
+  documentId?: string
 }) {
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
@@ -730,6 +923,16 @@ export function SigningStatus({ request, invoice, onChanged }: {
     }
   }
 
+  // The quotes on the link. With several, the strip lives under the first one
+  // that still has its saved document; the others get one line each.
+  const items = itemsOf(request)
+  const several = items.length > 1
+  const home = items.find(i => i.document_id) ?? items[0]
+  const here = documentId ? items.find(i => i.document_id === documentId) : undefined
+  if (several && here && here !== home) return <SharedLinkLine request={request} item={here} home={home} />
+  const acceptedList = items.filter(i => i.decision === 'accepted')
+  const declinedList = items.filter(i => i.decision === 'declined')
+
   const byLink = request.delivery_method === 'link'
   const waiting = request.status === 'sent' || request.status === 'viewed'
   const locked = Boolean(request.passcode_locked_at) && request.status !== 'voided'
@@ -757,6 +960,7 @@ export function SigningStatus({ request, invoice, onChanged }: {
     label = 'Signed'
     color = '#34D399'
     detail = `by ${request.signer_name ?? request.to_name}${signerEmail ? ` (${signerEmail})` : ''} on ${when(request.signed_at)}.`
+    if (several) detail += ` Accepted ${acceptedList.length} of the ${items.length} quotes on the link.`
   }
   if (request.status === 'declined') {
     label = 'Declined'
@@ -833,9 +1037,12 @@ export function SigningStatus({ request, invoice, onChanged }: {
         )}
         {request.status === 'signed' && (
           <>
-            <a href={`/api/signing/${request.id}/pdf`} target="_blank" rel="noopener noreferrer" className="btn btn-secondary" style={{ ...small, textDecoration: 'none' }}>
-              Signed PDF
-            </a>
+            {/* With several quotes each accepted one has its own signed PDF, listed below. */}
+            {!several && (
+              <a href={`/api/signing/${request.id}/pdf`} target="_blank" rel="noopener noreferrer" className="btn btn-secondary" style={{ ...small, textDecoration: 'none' }}>
+                Signed PDF
+              </a>
+            )}
             <button type="button" className="btn btn-secondary" style={small} disabled={!!busy}
               onClick={() => act('deliver', signerEmail ? 'Signed copy emailed.' : 'Signed copy emailed to the office.')}>
               {busy === 'deliver' ? 'Sending…' : signerEmail ? 'Email signed copy again' : 'Email signed copy to office'}
@@ -862,6 +1069,36 @@ export function SigningStatus({ request, invoice, onChanged }: {
         {request.status === 'signed' && request.delivered_at && !request.delivery_error && ` Signed copy emailed ${when(request.delivered_at)}.`}
         {request.status === 'signed' && !request.delivered_at && !request.delivery_error && ' Signed copy is being emailed.'}
       </div>
+      {several && (
+        <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)' }}>
+          <div style={{ fontWeight: 700, color: 'var(--text)', marginBottom: 2 }}>Quotes on this link</div>
+          {items.map(item => {
+            const decided = request.status === 'signed' || request.status === 'declined'
+            const accepted = item.decision === 'accepted'
+            return (
+              <div key={item.position} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '3px 0', color: 'var(--text)' }}>
+                <span style={{ flex: '1 1 200px' }}>
+                  {item.position + 1}. {itemName(item)}
+                  {item.quote_total != null && <span style={{ color: 'var(--text-muted)' }}> · {money(item.quote_total)} inc GST</span>}
+                </span>
+                <span style={{ fontWeight: 700, color: !decided ? 'var(--text-muted)' : accepted ? '#34D399' : '#F87171' }}>
+                  {!decided ? (request.status === 'voided' ? 'Cancelled' : 'Waiting') : accepted ? 'Accepted and signed' : 'Declined'}
+                </span>
+                {request.status === 'signed' && accepted && (
+                  <a href={`/api/signing/${request.id}/pdf?doc=${item.position + 1}`} target="_blank" rel="noopener noreferrer" className="btn btn-secondary" style={{ ...small, textDecoration: 'none' }}>
+                    Signed PDF
+                  </a>
+                )}
+              </div>
+            )
+          })}
+          {waiting && (
+            <div style={{ color: 'var(--text-muted)', marginTop: 2 }}>
+              The client chooses Accept or Decline for each, then signs once. Nothing shows here until they sign or decline the link.
+            </div>
+          )}
+        </div>
+      )}
       {request.status === 'signed' && request.delivery_error && (
         request.delivered_at ? (
           <div style={{ color: 'var(--text-muted)', marginTop: 4 }}>
@@ -886,10 +1123,30 @@ export function SigningStatus({ request, invoice, onChanged }: {
           <div style={{ color: 'var(--text)' }}>
             <div><span style={{ color: 'var(--text-muted)' }}>Signed by:</span> {request.signer_name ?? request.to_name}{!signerDetails && request.to_email ? ` (${request.to_email})` : ''}, {when(request.signed_at)}</div>
             {signerDetails && <SignerDetailsBlock details={signerDetails} />}
-            <div>
-              <span style={{ color: 'var(--text-muted)' }}>Accepted:</span> {request.document_title}{request.reference ? ` ${request.reference}` : ''}
-              {request.quote_total != null && <>, {money(request.quote_total)} inc GST</>}
-            </div>
+            {several ? (
+              <>
+                {acceptedList.map(item => (
+                  <div key={item.position}>
+                    <span style={{ color: 'var(--text-muted)' }}>Accepted:</span> {itemName(item)}
+                    {item.quote_total != null && <>, {money(item.quote_total)} inc GST</>}
+                  </div>
+                ))}
+                {declinedList.map(item => (
+                  <div key={item.position}>
+                    <span style={{ color: '#F87171' }}>Declined, not to be invoiced:</span> {itemName(item)}
+                    {item.quote_total != null && <>, {money(item.quote_total)} inc GST</>}
+                  </div>
+                ))}
+                {request.quote_total != null && (
+                  <div><span style={{ color: 'var(--text-muted)' }}>Total accepted:</span> <strong>{money(request.quote_total)}</strong> inc GST</div>
+                )}
+              </>
+            ) : (
+              <div>
+                <span style={{ color: 'var(--text-muted)' }}>Accepted:</span> {request.document_title}{request.reference ? ` ${request.reference}` : ''}
+                {request.quote_total != null && <>, {money(request.quote_total)} inc GST</>}
+              </div>
+            )}
             {due != null && request.deposit_percent != null && (
               <div><span style={{ color: 'var(--text-muted)' }}>Deposit to ask for:</span> {money(due)} ({percentLabel(Number(request.deposit_percent))})</div>
             )}

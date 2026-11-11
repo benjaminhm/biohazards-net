@@ -409,6 +409,21 @@ export interface DocketData {
   signedAt: string
   signerIp: string | null
   signerUserAgent: string | null
+  /**
+   * Every quote that was on the link, with what the signer chose, when the link
+   * carried more than one. The docket then lists them all in place of the one
+   * document, and is the same page on each signed copy.
+   */
+  quotes?: DocketQuote[]
+}
+
+export interface DocketQuote {
+  title: string
+  reference: string | null
+  /** e.g. "$3,300.00". Null when the quote has no total. */
+  totalLabel: string | null
+  docSha256: string
+  accepted: boolean
 }
 
 /**
@@ -466,6 +481,26 @@ export function docketHtml(d: DocketData): string {
         row('Email', text(d.toEmail)),
         row('Identity check', identity),
       ]
+  // One quote: the document signed. Several: every quote on the link and what
+  // the signer chose for it, so each signed copy carries the whole decision.
+  const several = (d.quotes?.length ?? 0) > 1
+  const documentSection = several
+    ? `<h3>Quotes on this link</h3>
+    <table>
+      ${d.quotes!.map((q, i) => row(
+        `${i + 1}. ${q.title}${q.reference ? ` ${q.reference}` : ''}`,
+        `<strong>${q.accepted ? 'Accepted and signed' : 'Declined, not signed'}</strong>${q.totalLabel ? ` · ${esc(q.totalLabel)} including GST` : ''}` +
+          `<br><span class="sd-mono">${esc(q.docSha256)}</span>`,
+      )).join('\n      ')}
+      ${row('Docket ID', `<span class="sd-mono">${esc(d.requestId)}</span>`)}
+    </table>`
+    : `<h3>Document</h3>
+    <table>
+      ${row('Document', text(d.documentTitle))}
+      ${row('Reference', text(d.reference))}
+      ${row('Docket ID', `<span class="sd-mono">${esc(d.requestId)}</span>`)}
+      ${row('Document fingerprint (SHA-256)', `<span class="sd-mono">${esc(d.docSha256)}</span>`)}
+    </table>`
   return `
   <section class="sign-docket">
     <style>
@@ -499,13 +534,7 @@ export function docketHtml(d: DocketData): string {
     <h2>Signature docket</h2>
     <p class="sd-sub">Record of electronic signing · ${esc(d.brandLabel)}</p>
 
-    <h3>Document</h3>
-    <table>
-      ${row('Document', text(d.documentTitle))}
-      ${row('Reference', text(d.reference))}
-      ${row('Docket ID', `<span class="sd-mono">${esc(d.requestId)}</span>`)}
-      ${row('Document fingerprint (SHA-256)', `<span class="sd-mono">${esc(d.docSha256)}</span>`)}
-    </table>
+    ${documentSection}
 
     <h3>Sent</h3>
     <table>
@@ -530,8 +559,12 @@ export function docketHtml(d: DocketData): string {
     </table>
 
     <p class="sd-note">
-      The fingerprint identifies the document exactly as it was sent for signing, before the
-      signature, name and date were added. Times are Brisbane time (AEST, UTC+10).${s ? `
+      ${several
+        ? `Each fingerprint (SHA-256) identifies that quote exactly as it was sent, before the signature, name and
+      date were added. One signature was given for the accepted quotes and placed on each of them; declined
+      quotes were not signed.`
+        : `The fingerprint identifies the document exactly as it was sent for signing, before the
+      signature, name and date were added.`} Times are Brisbane time (AEST, UTC+10).${s ? `
       The signer's details are as the signer gave them under the declaration above; they were not
       checked against identity documents.` : ''}
     </p>

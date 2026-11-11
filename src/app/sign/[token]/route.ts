@@ -11,6 +11,10 @@
  * once signed the same link shows the signed document, a download button and,
  * when a deposit was asked for, the pay step.
  *
+ * A link can carry several quotes. Each is its own page, ?doc=2 for the second
+ * and so on; the client accepts or declines each and signs once. Once signed,
+ * only the quotes they accepted can be opened.
+ *
  * A route handler rather than a page because the document is already a full
  * HTML page with its own print styles.
  *
@@ -27,8 +31,9 @@ import {
   linkState,
   signedDateLabel,
 } from '@/lib/signing/core'
+import { acceptedItems, itemLine, pickItem, readDocNumber, totalOf } from '@/lib/signing/items'
 import { depositAmount, money, percentLabel } from '@/lib/signing/pay'
-import { findSigningRequestByToken, loadPayPanel, signedDocumentHtml } from '@/lib/signing/store'
+import { findSigningRequestByToken, loadItemHtml, loadItems, loadPayPanel, signedDocumentHtml } from '@/lib/signing/store'
 import { passcodeGatePage, signedViewHtml, signingMessagePage, signingShellHtml } from '@/lib/signing/shell'
 
 const HEADERS = {
@@ -78,12 +83,22 @@ export async function GET(req: Request, { params }: { params: Promise<{ token: s
     return page(signingMessagePage('This document was declined', `${row.brand_label} has been told. If that was a mistake, please contact us.`))
   }
 
+  // Which quote on the link this page shows.
+  const query = new URL(req.url).searchParams
+  const items = await loadItems(supabase, row)
+  const at = pickItem(items, readDocNumber(query.get('doc')), state === 'signed')
+  const item = items[at]
+  const several = items.length > 1
+  const quotes = items.map((i, index) => ({ n: index + 1, label: itemLine(i) }))
+
   // On a document host the signed copy is /<token>/pdf, so "sign" never shows in the address.
-  const pdfUrl = req.headers.get('x-subdomain') === 'document' ? `/${token}/pdf` : `/api/sign/${token}/pdf`
+  const pdfBase = req.headers.get('x-subdomain') === 'document' ? `/${token}/pdf` : `/api/sign/${token}/pdf`
+  const pdfUrl = several ? `${pdfBase}?doc=${at + 1}` : pdfBase
 
   if (state === 'signed') {
     try {
-      const signedHtml = signedDocumentHtml(row)
+      const accepted = acceptedItems(items)
+      const signedHtml = signedDocumentHtml(row, await loadItemHtml(supabase, row, item))
       const pay = await loadPayPanel(supabase, row).catch(err => {
         console.error('[signing] pay step failed to load', row.id, err)
         return null
@@ -96,10 +111,14 @@ export async function GET(req: Request, { params }: { params: Promise<{ token: s
             pay,
             pdfUrl,
             brandLabel: row.brand_label,
-            documentTitle: row.document_title,
-            reference: row.reference,
+            documentTitle: item.document_title,
+            reference: item.reference,
             signerName: row.signer_name ?? row.to_name,
             signedAtLabel: docketTime(row.signed_at),
+            quotes: quotes.map((q, index) => ({ ...q, accepted: accepted.includes(items[index]) })),
+            current: at + 1,
+            // Moving between their signed quotes: do not put the pay step in front each time.
+            payOpen: query.get('view') !== '1',
           }),
         ),
       )
@@ -109,18 +128,29 @@ export async function GET(req: Request, { params }: { params: Promise<{ token: s
     }
   }
 
-  const due = depositAmount(row.quote_total, row.deposit_percent)
+  let html: string
+  try {
+    html = await loadItemHtml(supabase, row, item)
+  } catch (err) {
+    console.error('[signing] quote failed to load', row.id, at, err)
+    return page(signingMessagePage('This document could not be opened', `Please try again in a minute, or contact ${row.brand_label}.`), 500)
+  }
+  // While the link is open the deposit shown is on everything; the page is
+  // told the deposit on what was accepted when they review and when they sign.
+  const due = depositAmount(several ? totalOf(items) : row.quote_total, row.deposit_percent)
   return page(
     insertAtBodyEnd(
-      row.frozen_html,
+      html,
       signingShellHtml({
         deposit: due != null && row.deposit_percent != null
           ? { amountLabel: money(due), percentLabel: percentLabel(Number(row.deposit_percent)) }
           : null,
         token,
         brandLabel: row.brand_label,
-        documentTitle: row.document_title,
-        reference: row.reference,
+        documentTitle: item.document_title,
+        reference: item.reference,
+        quotes,
+        current: at + 1,
         toName: row.to_name,
         toEmail: row.to_email,
         pdfUrl,

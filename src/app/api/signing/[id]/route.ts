@@ -35,7 +35,16 @@ import { seesFinancials } from '@/lib/agent/jobSnapshot'
 import { getStaffFirstName } from '@/lib/clerkDisplayName'
 import { newSigningToken, paymentReadyMessage, signedDateLabel, signingExpiry } from '@/lib/signing/core'
 import { addressLine, readSignerDetails } from '@/lib/signing/details'
-import { SIGNING_SUMMARY_COLUMNS, deliverSignedCopy, documentLine, loadPayPanel, staffSummary } from '@/lib/signing/store'
+import { itemLine, listLine } from '@/lib/signing/items'
+import {
+  SIGNING_SUMMARY_COLUMNS,
+  deliverSignedCopy,
+  documentLine,
+  loadItems,
+  loadPayPanel,
+  staffSummary,
+  withItemSummaries,
+} from '@/lib/signing/store'
 import type { SigningRequestRow } from '@/lib/signing/store'
 import { sendSigningInviteEmail } from '@/lib/signing/email'
 import { signingLinks } from '@/lib/signing/links'
@@ -154,7 +163,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   const freshSummary = async () => {
     const { data: fresh } = await supabase.from('signing_requests').select(SIGNING_SUMMARY_COLUMNS).eq('id', id).maybeSingle()
-    return fresh ? staffSummary(fresh as unknown as object, financials) : null
+    if (!fresh) return null
+    const [withItems] = await withItemSummaries(supabase, [fresh as unknown as Parameters<typeof withItemSummaries>[1][number]])
+    return staffSummary(withItems, financials)
   }
   const summary = async () => NextResponse.json({ request: await freshSummary() })
   const waiting = row.status === 'sent' || row.status === 'viewed'
@@ -193,7 +204,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         subject: row.subject,
         message: row.message,
         brandLabel: row.brand_label,
-        documentLine: documentLine(row),
+        documentLine: listLine((await loadItems(supabase, row)).map(itemLine)) || documentLine(row),
         signUrl: links.page,
         expiresLabel: signedDateLabel(expiresAt.toISOString()),
       })

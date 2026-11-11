@@ -64,6 +64,20 @@ import {
   tidyMobile,
   type SignerDetails,
 } from '@/lib/signing/details'
+import {
+  MAX_QUOTES_PER_LINK,
+  acceptedItems,
+  decisionsProblem,
+  itemLine,
+  listLine,
+  pickItem,
+  quotesSummary,
+  readDecisions,
+  readDocNumber,
+  totalOf,
+  withDecisions,
+  type ItemLike,
+} from '@/lib/signing/items'
 import { xeroPayUrl } from '@/lib/xero/payments'
 import { documentHostTradingName } from '@/lib/tradingNames'
 
@@ -276,6 +290,8 @@ test('the signing page cannot be broken out of by a name', () => {
     brandLabel: 'Forensic Cleaning QLD',
     documentTitle: 'Trauma <Cleaning>',
     reference: 'BCQ-1',
+    quotes: [{ n: 1, label: 'Trauma <Cleaning> BCQ-1' }],
+    current: 1,
     toName: '</script><script>alert(1)</script>',
     toEmail: 'jane@example.com',
     pdfUrl: `/api/sign/${'A'.repeat(43)}/pdf`,
@@ -451,6 +467,8 @@ test('with no client email on the link, the page names no address until the sign
     brandLabel: 'Forensic Cleaning QLD',
     documentTitle: 'Trauma Cleaning',
     reference: 'BCQ-1',
+    quotes: [{ n: 1, label: 'Trauma Cleaning BCQ-1' }],
+    current: 1,
     toName: 'Jane Smith',
     toEmail: null,
     pdfUrl: `/${'A'.repeat(43)}/pdf`,
@@ -476,6 +494,8 @@ function shellFor(deposit: { amountLabel: string; percentLabel: string } | null)
     brandLabel: 'Forensic Cleaning QLD',
     documentTitle: 'Trauma Cleaning',
     reference: 'BCQ-1',
+    quotes: [{ n: 1, label: 'Trauma Cleaning BCQ-1' }],
+    current: 1,
     toName: 'Jane Smith',
     toEmail: 'jane@example.com',
     pdfUrl: `/${TOKEN}/pdf`,
@@ -529,7 +549,8 @@ test('the document is in view on arrival: nothing covers it until the client cho
 test('with a deposit the steps end at Pay deposit, and the signed message says there is nothing to pay yet', () => {
   const shell = shellFor({ amountLabel: '$1,650.00', percentLabel: '50%' })
   assert.match(shell, /<li data-step="pay"><b>4<\/b>Pay deposit<\/li><\/ol>/)
-  assert.match(shell, /The next step is your deposit of <strong>\$1,650\.00<\/strong> \(50%\)\. There is nothing to pay yet: Forensic Cleaning QLD will check the details, prepare your invoice and let you know when it is ready\./)
+  // The amount and percentage sit in their own elements: the page is told the deposit on what was accepted when it is signed.
+  assert.match(shell, /The next step is your deposit of <strong id="sg-done-amount">\$1,650\.00<\/strong> \(<span id="sg-done-percent"[^>]*>50%<\/span>\)\. There is nothing to pay yet: Forensic Cleaning QLD will check the details, prepare your invoice and let you know when it is ready\./)
   assert.match(shell, /id="sg-done-next">Continue</)
   assert.doesNotMatch(shell, /Next: pay deposit/)
 })
@@ -1025,4 +1046,227 @@ test('the Your details step asks for each detail and carries the declaration', (
   assert.match(shell, /action: 'sign', details: state\.details, declared: true,/)
   // The name in the document is no longer typed there.
   assert.doesNotMatch(shell, /Your full name|sg-name"/)
+})
+
+// ── Several quotes on one link ───────────────────────────────────────────────
+
+/** A contents clearance quote and a surface cleaning quote sent together, as the client's link holds them. */
+function twoQuotes(first: ItemLike['decision'] = 'pending', second: ItemLike['decision'] = 'pending'): ItemLike[] {
+  return [
+    { position: 0, document_title: 'Contents Clearance', reference: 'CCQ-7', quote_total: 3300, decision: first },
+    { position: 1, document_title: 'Surface Area Cleaning', reference: 'SACQ-7', quote_total: 1100.1, decision: second },
+  ]
+}
+
+test('the client\'s choices are one per quote, each accepted or declined, and nothing else', () => {
+  assert.deepEqual(readDecisions(['accepted', 'declined'], 2), ['accepted', 'declined'])
+  // Too few, too many, undecided, or not a choice at all.
+  assert.equal(readDecisions(['accepted'], 2), null)
+  assert.equal(readDecisions(['accepted', 'declined', 'accepted'], 2), null)
+  assert.equal(readDecisions(['accepted', null], 2), null)
+  assert.equal(readDecisions(['accepted', 'pending'], 2), null)
+  assert.equal(readDecisions(['accepted', 'ACCEPTED'], 2), null)
+  assert.equal(readDecisions('accepted,declined', 2), null)
+  assert.equal(readDecisions(undefined, 2), null)
+  assert.equal(MAX_QUOTES_PER_LINK, 6)
+})
+
+test('the signature goes on the accepted quotes only, and the deposit is on their total', () => {
+  const chosen = withDecisions(twoQuotes(), ['accepted', 'declined'])
+  assert.deepEqual(acceptedItems(chosen).map(itemLine), ['Contents Clearance CCQ-7'])
+  assert.equal(totalOf(acceptedItems(chosen)), 3300)
+  assert.equal(decisionsProblem(chosen), null)
+
+  const summary = quotesSummary(chosen, 50)
+  assert.deepEqual(summary.items, [
+    { n: 1, label: 'Contents Clearance CCQ-7', totalLabel: '$3,300.00', decision: 'accepted' },
+    { n: 2, label: 'Surface Area Cleaning SACQ-7', totalLabel: '$1,100.10', decision: 'declined' },
+  ])
+  assert.equal(summary.acceptedTotalLabel, '$3,300.00')
+  assert.equal(summary.depositLabel, '$1,650.00')
+  assert.equal(summary.percentLabel, '50%')
+
+  // Both accepted: one deposit on the two together, to the cent.
+  const both = quotesSummary(withDecisions(twoQuotes(), ['accepted', 'accepted']), 50)
+  assert.equal(both.acceptedTotalLabel, '$4,400.10')
+  assert.equal(both.depositLabel, '$2,200.05')
+
+  // No deposit was asked for on the link.
+  const noDeposit = quotesSummary(chosen, null)
+  assert.equal(noDeposit.acceptedTotalLabel, '$3,300.00')
+  assert.equal(noDeposit.depositLabel, null)
+  assert.equal(noDeposit.percentLabel, null)
+
+  // An accepted quote with no total adds nothing, and alone leaves nothing to take a deposit on.
+  const unpriced: ItemLike[] = [{ position: 0, document_title: 'Quote', reference: null, quote_total: null, decision: 'accepted' }, twoQuotes()[1]]
+  assert.equal(totalOf(acceptedItems(withDecisions(unpriced, ['accepted', 'declined']))), null)
+  assert.equal(quotesSummary(withDecisions(unpriced, ['accepted', 'declined']), 50).depositLabel, null)
+})
+
+test('a link with several quotes cannot be signed until each has a choice and one is accepted', () => {
+  assert.match(decisionsProblem(twoQuotes('accepted', 'pending')) ?? '', /Choose Accept or Decline for each quote/)
+  assert.match(decisionsProblem(twoQuotes('declined', 'declined')) ?? '', /nothing to sign/)
+  assert.equal(decisionsProblem(twoQuotes('declined', 'accepted')), null)
+  // Declining them all leaves nothing accepted: that is declining the link.
+  assert.deepEqual(acceptedItems(twoQuotes('declined', 'declined')), [])
+})
+
+test('a link with one quote works as it always did: signing accepts it', () => {
+  const one: ItemLike[] = [twoQuotes()[0]]
+  assert.equal(decisionsProblem(one), null)
+  // The page sends no choices for a single quote, and whatever it sends is not needed.
+  assert.deepEqual(withDecisions(one, null).map(i => i.decision), ['accepted'])
+  assert.deepEqual(acceptedItems(one).length, 1)
+  // Signed before quotes had their own rows, or its row was never updated: still the accepted quote.
+  assert.deepEqual(acceptedItems([{ ...one[0], decision: 'pending' }]).length, 1)
+  assert.deepEqual(acceptedItems([{ ...one[0], decision: 'declined' }]).length, 0)
+})
+
+test('the page number in the address picks the quote, and a signed link never shows a declined one as signed', () => {
+  assert.equal(readDocNumber('2'), 2)
+  assert.equal(readDocNumber(null), null)
+  assert.equal(readDocNumber('2; drop'), null)
+  assert.equal(readDocNumber('-1'), null)
+
+  const open = twoQuotes()
+  assert.equal(pickItem(open, null, false), 0)
+  assert.equal(pickItem(open, 2, false), 1)
+  // Not a quote on this link: the first one.
+  assert.equal(pickItem(open, 9, false), 0)
+  assert.equal(pickItem(open, 0, false), 0)
+
+  const signed = twoQuotes('declined', 'accepted')
+  // Without a number, the first quote they accepted.
+  assert.equal(pickItem(signed, null, true), 1)
+  // Asking for the declined one gives the accepted one instead.
+  assert.equal(pickItem(signed, 1, true), 1)
+  assert.equal(pickItem(signed, 2, true), 1)
+})
+
+test('quotes are named in a sentence the way a person would say them', () => {
+  assert.equal(listLine([]), '')
+  assert.equal(listLine(['A']), 'A')
+  assert.equal(listLine(['A', 'B']), 'A and B')
+  assert.equal(listLine(['A', 'B', 'C']), 'A, B and C')
+  assert.equal(itemLine({ document_title: 'Quote', reference: null }), 'Quote')
+})
+
+test('with several quotes the docket lists every quote and what was chosen, the same on each signed copy', () => {
+  const base = {
+    requestId: '11111111-2222-4333-8444-555555555555',
+    brandLabel: 'Hoarding Clearance QLD',
+    fromAddress: 'Hoarding Clearance QLD <admin@example.com>',
+    sentByName: 'Ben',
+    toName: 'Jordan Example',
+    toEmail: null,
+    deliveryMethod: 'link' as const,
+    passcodeVerifiedAt: '2026-11-11T01:00:10Z',
+    signerName: 'Jordan Example',
+    signatureMethod: 'drawn' as const,
+    signaturePng: png(),
+    sentAt: '2026-11-11T00:00:00Z',
+    firstViewedAt: '2026-11-11T01:00:12Z',
+    consentedAt: '2026-11-11T01:00:30Z',
+    signedAt: '2026-11-11T01:02:03Z',
+    signerIp: '203.0.113.7',
+    signerUserAgent: 'Mozilla/5.0',
+    quotes: [
+      { title: 'Contents <Clearance>', reference: 'CCQ-7', totalLabel: '$3,300.00', docSha256: 'a'.repeat(64), accepted: true },
+      { title: 'Surface Area Cleaning', reference: 'SACQ-7', totalLabel: '$1,100.10', docSha256: 'b'.repeat(64), accepted: false },
+    ],
+  }
+  const onFirst = docketHtml({ ...base, documentTitle: 'Contents <Clearance>', reference: 'CCQ-7', docSha256: 'a'.repeat(64) })
+  assert.match(onFirst, /<h3>Quotes on this link<\/h3>/)
+  assert.match(onFirst, /1\. Contents &lt;Clearance&gt; CCQ-7<\/th><td><strong>Accepted and signed<\/strong> · \$3,300\.00 including GST<br><span class="sd-mono">a{64}</)
+  assert.match(onFirst, /2\. Surface Area Cleaning SACQ-7<\/th><td><strong>Declined, not signed<\/strong> · \$1,100\.10 including GST<br><span class="sd-mono">b{64}</)
+  assert.match(onFirst, /One signature was given for the accepted quotes and placed on each of them; declined\s+quotes were not signed\./)
+  assert.doesNotMatch(onFirst, /<h3>Document<\/h3>|<Clearance>/)
+  // The docket does not depend on which signed copy it is attached to.
+  const onAnother = docketHtml({ ...base, documentTitle: 'Something else', reference: 'X-1', docSha256: 'c'.repeat(64) })
+  assert.equal(onAnother, onFirst)
+
+  // One quote on the link: the docket is the single-document one, as before.
+  const single = docketHtml({ ...base, documentTitle: 'Contents Clearance', reference: 'CCQ-7', docSha256: 'a'.repeat(64), quotes: [base.quotes[0]] })
+  assert.match(single, /<h3>Document<\/h3>/)
+  assert.doesNotMatch(single, /Quotes on this link|Declined, not signed/)
+})
+
+function severalShell(current: number): string {
+  return signingShellHtml({
+    token: TOKEN,
+    brandLabel: 'Hoarding Clearance QLD',
+    documentTitle: current === 1 ? 'Contents Clearance' : 'Surface Area <Cleaning>',
+    reference: current === 1 ? 'CCQ-7' : 'SACQ-7',
+    quotes: [{ n: 1, label: 'Contents Clearance CCQ-7' }, { n: 2, label: 'Surface Area <Cleaning> SACQ-7' }],
+    current,
+    toName: 'Jordan Example',
+    toEmail: null,
+    pdfUrl: `/${TOKEN}/pdf?doc=${current}`,
+    dateLabel: '11 November 2026',
+    consented: false,
+    deposit: { amountLabel: '$2,200.05', percentLabel: '50%' },
+  })
+}
+
+test('a link with several quotes shows one at a time, with a strip to move between them and a choice for each', () => {
+  const second = severalShell(2)
+  // The quote number comes first, so a narrow screen cuts the brand name short, not the number.
+  assert.match(second, /<div class="sg-brand">Quote 2 of 2 · Hoarding Clearance QLD<\/div>/)
+  // The strip: both quotes, the one in view marked, each a link to its own page.
+  assert.match(second, /<nav id="sg-quotes" aria-label="Quotes on this link"><a class="sg-q" href="\?doc=1" data-n="1"><b>1<\/b>Contents Clearance CCQ-7<span class="sg-q-state">To decide<\/span><\/a><a class="sg-q sg-here" href="\?doc=2" data-n="2" aria-current="page"><b>2<\/b>Surface Area &lt;Cleaning&gt; SACQ-7<span class="sg-q-state">To decide<\/span><\/a><\/nav>/)
+  // The first step is choosing, and the buttons accept or decline the quote in view.
+  assert.match(second, /<li data-step="view" class="sg-now" aria-current="step"><b>1<\/b>Choose<\/li>/)
+  assert.match(second, /id="sg-decline-open">Decline<\/button>/)
+  assert.match(second, /id="sg-next">Accept quote<\/button>/)
+  // Nothing is in front of the quote on arrival, including the review.
+  assert.doesNotMatch(second, /class="sg-overlay sg-on"/)
+  assert.match(second, /id="sg-review-h">Your choices</)
+  assert.match(second, /id="sg-consent-h">Sign what you accepted</)
+  assert.match(second, /Your signature, name and the date are placed on each quote you accepted\./)
+  assert.match(second, /I agree this is my signature on each quote I accepted\./)
+  // The script is told the quotes as data that cannot end the script element.
+  assert.match(second, /"quotes":\[\{"n":1,"label":"Contents Clearance CCQ-7"\},\{"n":2,"label":"Surface Area \\u003cCleaning\\u003e SACQ-7"\}\],"current":2/)
+  // The totals are asked of the server, and the choices go with the signature.
+  assert.match(second, /action: 'review', decisions: decisions/)
+  assert.match(second, /if \(multi\) signing\.decisions = decisions;/)
+  // After signing, the copies are on the next page (which ones depends on what was accepted).
+  assert.match(second, /Each signed quote can be downloaded on the next page/)
+  assert.doesNotMatch(second, /Download signed copy/)
+
+  // One quote on the link: no strip, no choosing, the page as it was.
+  const one = shellFor(null)
+  assert.doesNotMatch(one, /<nav id="sg-quotes"|Quote 1 of 1|>Choose</)
+  assert.match(one, /id="sg-next">Next: your details<\/button>/)
+  assert.match(one, /"quotes":\[\{"n":1,"label":"Trauma Cleaning BCQ-1"\}\],"current":1/)
+})
+
+test('once signed, each accepted quote can be opened and downloaded, and a declined one cannot', () => {
+  const base = {
+    token: TOKEN,
+    pdfUrl: `/${TOKEN}/pdf?doc=2`,
+    brandLabel: 'Hoarding Clearance QLD',
+    documentTitle: 'Surface Area Cleaning',
+    reference: 'SACQ-7',
+    signerName: 'Jordan Example',
+    signedAtLabel: '11 Nov 2026',
+    current: 2,
+    quotes: [
+      { n: 1, label: 'Contents <Clearance> CCQ-7', accepted: false },
+      { n: 2, label: 'Surface Area Cleaning SACQ-7', accepted: true },
+      { n: 3, label: 'Biohazard Cleaning BCQ-7', accepted: true },
+    ],
+  }
+  const view = signedViewHtml({ ...base, pay: panel() })
+  // The quote number comes first, so a narrow screen cuts the brand name short, not the number.
+  assert.match(view, /<div class="sg-brand">Quote 2 of 3 · Signed · Hoarding Clearance QLD<\/div>/)
+  // Declined: named, not a link.
+  assert.match(view, /<span class="sg-q sg-off"><b>1<\/b>Contents &lt;Clearance&gt; CCQ-7<span class="sg-q-state sg-no">Declined<\/span><\/span>/)
+  assert.doesNotMatch(view, /href="\?doc=1/)
+  // Accepted: a link to its signed page.
+  assert.match(view, /<a class="sg-q sg-here" href="\?doc=2&amp;view=1" aria-current="page"><b>2<\/b>Surface Area Cleaning SACQ-7<span class="sg-q-state sg-yes">Signed<\/span><\/a>/)
+  assert.match(view, /<a class="sg-q" href="\?doc=3&amp;view=1"><b>3<\/b>Biohazard Cleaning BCQ-7<span class="sg-q-state sg-yes">Signed<\/span><\/a>/)
+  assert.match(view, new RegExp(`href="/${TOKEN}/pdf\\?doc=2">Download`))
+  // Arriving, the pay step is in front; moving between signed quotes it is not put there again.
+  assert.match(view, /class="sg-overlay sg-on" id="sg-pay"/)
+  assert.match(signedViewHtml({ ...base, pay: panel(), payOpen: false }), /class="sg-overlay" id="sg-pay"/)
 })

@@ -124,10 +124,15 @@ export interface SignedCopyEmail {
   bcc: string | null
   toName: string
   brandLabel: string
+  /** What was signed: one quote, or each accepted quote ("A and B"). */
   documentLine: string
-  pdf: Buffer | null
-  pdfFilename: string
-  /** Used when the PDF could not be attached. */
+  /** Quotes on the same link that the signer declined. Empty when there were none. */
+  declinedLine: string
+  /** How many quotes were signed. */
+  signedCount: number
+  /** One signed PDF for each accepted quote. Empty when they could not be made. */
+  pdfs: { filename: string; content: Buffer }[]
+  /** Used when the PDFs could not be attached. */
   downloadUrl: string | null
   /**
    * The deposit that comes next. The email only names it: nothing can be paid
@@ -147,9 +152,17 @@ export interface SignedCopyEmail {
  */
 export async function sendSignedCopyEmail(data: SignedCopyEmail): Promise<{ usedSharedAddress: boolean }> {
   const first = data.toName.trim().split(/\s+/)[0] || 'there'
-  const where = data.pdf
-    ? 'Your signed copy is attached to this email as a PDF. The last page is the signature docket, which records when and how it was signed.'
-    : 'You can download your signed copy using the button below. The last page is the signature docket, which records when and how it was signed.'
+  const hasPdf = data.pdfs.length > 0
+  const several = data.signedCount > 1
+  const docket = several
+    ? 'The last page of each is the signature docket, which records when and how it was signed and what you chose for each quote.'
+    : 'The last page is the signature docket, which records when and how it was signed.'
+  const where = hasPdf
+    ? `${several ? 'Your signed copies are attached to this email as PDFs, one for each quote you accepted.' : 'Your signed copy is attached to this email as a PDF.'} ${docket}`
+    : `You can download your signed ${several ? 'copies' : 'copy'} using the button below. ${docket}`
+  const declinedLine = data.declinedLine
+    ? `Not signed, because you declined: ${data.declinedLine}.`
+    : ''
   const depositLine = data.deposit
     ? `The next step is your deposit of ${data.deposit.amountLabel} (${data.deposit.percentLabel}). There is nothing to pay yet: we are checking the details and preparing your invoice, and will let you know when it is ready.`
     : ''
@@ -164,7 +177,11 @@ export async function sendSignedCopyEmail(data: SignedCopyEmail): Promise<{ used
         Hi ${esc(first)}, thank you for signing <strong>${esc(data.documentLine)}</strong>.
       </p>
       <p style="font-size: 15px; color: #333; line-height: 1.6; margin: 0 0 16px;">${esc(where)}</p>
-      ${!data.pdf && data.downloadUrl ? `<div style="margin: 8px 0 16px;">${button(data.downloadUrl, 'Download signed copy')}</div>` : ''}
+      ${!hasPdf && data.downloadUrl ? `<div style="margin: 8px 0 16px;">${button(data.downloadUrl, several ? 'Download signed copies' : 'Download signed copy')}</div>` : ''}
+      ${declinedLine ? `
+      <p style="font-size: 15px; color: #333; line-height: 1.6; margin: 0 0 16px;">
+        ${esc(declinedLine)}
+      </p>` : ''}
       ${data.deposit ? `
       <p style="font-size: 15px; color: #333; line-height: 1.6; margin: 0 0 16px;">
         ${esc(depositLine)}
@@ -178,7 +195,8 @@ export async function sendSignedCopyEmail(data: SignedCopyEmail): Promise<{ used
     `Hi ${first}, thank you for signing ${data.documentLine}.`,
     '',
     where,
-    ...(!data.pdf && data.downloadUrl ? ['', data.downloadUrl] : []),
+    ...(!hasPdf && data.downloadUrl ? ['', data.downloadUrl] : []),
+    ...(declinedLine ? ['', declinedLine] : []),
     ...(data.deposit ? ['', depositLine] : []),
     '',
     closing,
@@ -193,7 +211,7 @@ export async function sendSignedCopyEmail(data: SignedCopyEmail): Promise<{ used
     text,
     ...(data.replyTo ? { replyTo: data.replyTo } : {}),
     ...(data.bcc && data.bcc.toLowerCase() !== data.to.toLowerCase() ? { bcc: data.bcc } : {}),
-    ...(data.pdf ? { attachments: [{ filename: data.pdfFilename, content: data.pdf }] } : {}),
+    ...(hasPdf ? { attachments: data.pdfs } : {}),
   }
   try {
     await send({ from: data.from, ...payload })
@@ -221,11 +239,11 @@ export async function sendSignedCopyToOfficeEmail(data: {
   jobId: string
   documentLine: string
   signerName: string
-  pdf: Buffer | null
-  pdfFilename: string
+  /** One signed PDF for each accepted quote. Empty when they could not be made. */
+  pdfs: { filename: string; content: Buffer }[]
 }): Promise<void> {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.biohazards.net'
-  const where = data.pdf
+  const where = data.pdfs.length
     ? 'The signed copy is attached. No client email was given when the link was created, so it has not been emailed to them.'
     : 'No client email was given when the link was created, so the signed copy has not been emailed to them. The PDF could not be attached; download it from the quote in Documents.'
   const html = shell(
@@ -245,7 +263,7 @@ export async function sendSignedCopyToOfficeEmail(data: {
     subject: `Signed: ${data.documentLine} — ${data.signerName}`,
     html,
     text: `${data.signerName} signed ${data.documentLine}.\n\n${where}\n\n${appUrl}/jobs/${data.jobId}`,
-    ...(data.pdf ? { attachments: [{ filename: data.pdfFilename, content: data.pdf }] } : {}),
+    ...(data.pdfs.length ? { attachments: data.pdfs } : {}),
   })
 }
 

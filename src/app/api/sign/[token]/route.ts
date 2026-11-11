@@ -8,9 +8,17 @@
  *                           back tidied, or say which field is wrong. Nothing is saved:
  *                           the details are saved with the signature
  *   { action: 'consent' }   they agreed to sign electronically
- *   { action: 'sign', details, declared, signature, method, agreed }
- *                           the name signed under is the legal name in their details
+ *   { action: 'review', decisions }
+ *                           a link with several quotes: what they chose for each
+ *                           (accepted or declined, in order) comes back with the
+ *                           accepted total and the deposit on it. Nothing is saved
+ *   { action: 'sign', details, declared, signature, method, agreed, decisions? }
+ *                           the name signed under is the legal name in their details.
+ *                           With several quotes, `decisions` says which are accepted:
+ *                           the one signature goes on each of those, the others are
+ *                           recorded as declined, and the deposit is on the accepted total
  *   { action: 'decline', reason }
+ *                           declines the link: every quote on it
  *   { action: 'pay' }       after signing: the pay step as it stands now (the page
  *                           asks again while it is open, so the payment details
  *                           and "deposit received" appear without a reload)
@@ -40,10 +48,20 @@ import {
 } from '@/lib/signing/core'
 import { DECLARATION_VERSION, cleanSignerDetails, declarationText } from '@/lib/signing/details'
 import type { SignerDetails } from '@/lib/signing/details'
+import { acceptedItems, decisionsProblem, itemLine, listLine, quotesSummary, readDecisions, totalOf, withDecisions } from '@/lib/signing/items'
 import { signingLinks } from '@/lib/signing/links'
-import { depositSettled } from '@/lib/signing/pay'
+import { depositAmount, depositSettled, money, percentLabel } from '@/lib/signing/pay'
 import { payPanelHtml } from '@/lib/signing/shell'
-import { afterDeclined, afterSigned, findSigningRequestByToken, loadPayPanel, recordAcceptance, signerEmail } from '@/lib/signing/store'
+import {
+  afterDeclined,
+  afterSigned,
+  findSigningRequestByToken,
+  loadItems,
+  loadPayPanel,
+  recordAcceptance,
+  saveDecisions,
+  signerEmail,
+} from '@/lib/signing/store'
 import type { SigningRequestRow } from '@/lib/signing/store'
 
 export const maxDuration = 60
@@ -184,6 +202,20 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
     return NextResponse.json({ ok: true, details: checked.details }, { headers: { 'Cache-Control': 'private, no-store' } })
   }
 
+  const CHOOSE_AGAIN = 'Please reload this page and choose Accept or Decline for each quote.'
+
+  // Several quotes: the page shows the client what they chose, with the sums
+  // done here (lib/signing/items.ts) so the page has no copy of them.
+  if (action === 'review') {
+    const items = await loadItems(supabase, row)
+    const decisions = readDecisions(body.decisions, items.length)
+    if (!decisions) return NextResponse.json({ error: CHOOSE_AGAIN }, { status: 400 })
+    return NextResponse.json(
+      { ok: true, summary: quotesSummary(withDecisions(items, decisions), row.deposit_percent) },
+      { headers: { 'Cache-Control': 'private, no-store' } },
+    )
+  }
+
   if (action === 'sign') {
     if (body.agreed !== true) {
       return NextResponse.json({ error: 'Please agree to sign electronically first.' }, { status: 400 })
@@ -200,6 +232,21 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
     const signatureProblem = signaturePngError(body.signature)
     if (signatureProblem) return NextResponse.json({ error: signatureProblem }, { status: 400 })
     const method = body.method === 'typed' ? 'typed' : 'drawn'
+
+    // What is being signed. One quote on the link: that quote. Several: the
+    // ones the page says they accepted; the signature goes on each of those and
+    // on no other, and the deposit is worked out on their total.
+    const sent = await loadItems(supabase, row)
+    const several = sent.length > 1
+    let items = withDecisions(sent, null)
+    if (several) {
+      const decisions = readDecisions(body.decisions, sent.length)
+      if (!decisions) return NextResponse.json({ error: CHOOSE_AGAIN }, { status: 400 })
+      items = withDecisions(sent, decisions)
+      const problem = decisionsProblem(items)
+      if (problem) return NextResponse.json({ error: problem }, { status: 400 })
+    }
+    const accepted = acceptedItems(items)
     // The name signed under is the legal name they declared. The declaration is
     // kept word for word, so later changes to the wording never alter this record.
     const name = checked.details.legalName
@@ -222,6 +269,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
         signer_user_agent: (req.headers.get('user-agent') ?? '').slice(0, 500) || null,
         first_viewed_at: row.first_viewed_at ?? nowIso,
         consented_at: row.consented_at ?? nowIso,
+        // From here the total on the link is the total of what was accepted,
+        // so the deposit, the staff check and the pay step all work from it.
+        ...(several ? { quote_total: totalOf(accepted) } : {}),
         updated_at: nowIso,
       })
       .eq('id', row.id)
@@ -237,12 +287,49 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
     // Someone else (or a second tap) got there first.
     if (!signed) return NextResponse.json({ error: CLOSED_MESSAGE.signed }, { status: 409 })
 
-    const info = await recordAcceptance(supabase, signed)
-    const links = await signingLinks(signed.trading_name, token)
-    after(() => afterSigned(supabase, signed, info, { page: links.page, pdf: links.pdf }))
+    // Only the request that recorded the signature writes the choices. With
+    // several quotes they decide what was signed, so if they cannot be saved
+    // the signature is taken back and the client is asked to try again.
+    const saved = await saveDecisions(supabase, items, nowIso)
+    if (!saved && several) {
+      await supabase
+        .from('signing_requests')
+        .update({
+          status: 'viewed',
+          signed_at: null,
+          signer_name: null,
+          signer_details: null,
+          signature_png: null,
+          signature_method: null,
+          quote_total: row.quote_total,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', row.id)
+        .eq('status', 'signed')
+        .eq('signed_at', signed.signed_at as string)
+      return NextResponse.json({ error: 'Could not record your signature. Please try again.' }, { status: 500 })
+    }
 
-    // copyEmail: where the signed copy is going, so the page can say so.
-    return NextResponse.json({ ok: true, dateLabel: signedDateLabel(nowIso), copyEmail: signerEmail(signed) })
+    const info = await recordAcceptance(supabase, signed, accepted)
+    const links = await signingLinks(signed.trading_name, token)
+    after(() => afterSigned(supabase, signed, items, info, { page: links.page, pdf: links.pdf }))
+
+    // What the page says next: what was signed and where the copy is going,
+    // and the deposit on what was accepted.
+    const copyTo = signerEmail(signed)
+    const signedLine = listLine(accepted.map(itemLine))
+    const copies = accepted.length > 1 ? 'copies' : 'copy'
+    const due = depositAmount(signed.quote_total, signed.deposit_percent)
+    return NextResponse.json({
+      ok: true,
+      dateLabel: signedDateLabel(nowIso),
+      copyLine: copyTo
+        ? `Your signed ${copies} of ${signedLine} ${accepted.length > 1 ? 'are' : 'is'} being emailed to ${copyTo}.`
+        : `Your signed ${copies} of ${signedLine} ${accepted.length > 1 ? 'are' : 'is'} ready.`,
+      deposit: due != null && signed.deposit_percent != null
+        ? { amountLabel: money(due), percentLabel: percentLabel(Number(signed.deposit_percent)) }
+        : null,
+    })
   }
 
   if (action === 'decline') {
@@ -262,7 +349,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
       .maybeSingle()
     const declined = updated as SigningRequestRow | null
     if (!declined) return NextResponse.json({ error: 'This link can no longer be used.' }, { status: 409 })
-    after(() => afterDeclined(declined))
+    // Declining the link declines every quote on it.
+    const items = (await loadItems(supabase, declined)).map(i => ({ ...i, decision: 'declined' as const }))
+    await saveDecisions(supabase, items, nowIso)
+    after(() => afterDeclined(declined, items))
     return NextResponse.json({ ok: true })
   }
 

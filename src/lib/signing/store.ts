@@ -26,6 +26,8 @@ import {
   signedDateLabel,
 } from '@/lib/signing/core'
 import { readSignerDetails } from '@/lib/signing/details'
+import { acceptedItems, itemLine, listLine } from '@/lib/signing/items'
+import type { ItemDecision } from '@/lib/signing/items'
 import { fillSignSlots } from '@/lib/signing/slots'
 import { renderPdf } from '@/lib/signing/pdf'
 import { sendSignedCopyEmail, sendSignedCopyToOfficeEmail, sendSigningDeclinedEmail } from '@/lib/signing/email'
@@ -111,11 +113,166 @@ export const SIGNING_SUMMARY_COLUMNS =
  * are shown money: they are the ones who do the check.
  */
 export function staffSummary<T extends object>(row: T, financials: boolean): T {
-  return financials ? row : { ...row, quote_total: null, signer_details: null }
+  if (financials) return row
+  const items = (row as { items?: SigningItemSummary[] }).items
+  return {
+    ...row,
+    quote_total: null,
+    signer_details: null,
+    ...(items ? { items: items.map(i => ({ ...i, quote_total: null })) } : {}),
+  }
 }
 
 export function documentLine(row: Pick<SigningRequestRow, 'document_title' | 'reference'>): string {
   return `${row.document_title}${row.reference ? ` ${row.reference}` : ''}`
+}
+
+// ── The quotes on a link ─────────────────────────────────────────────────────
+
+/**
+ * One quote on a link (signing_request_items). A link can carry several; the
+ * client accepts or declines each and signs once. The quote's HTML is not
+ * loaded with it (see loadItemHtml): it is large, and most callers need only
+ * one quote's.
+ */
+export interface SigningItemRow {
+  /** Null when the items table is not there yet and this was made from the request itself. */
+  id: string | null
+  request_id: string
+  /** Order on the link, from 0. */
+  position: number
+  document_id: string | null
+  document_type: string
+  document_title: string
+  reference: string | null
+  /** Inc GST. */
+  quote_total: number | null
+  doc_sha256: string
+  decision: ItemDecision
+  signed_pdf_path: string | null
+}
+
+const ITEM_COLUMNS =
+  'id, request_id, position, document_id, document_type, document_title, reference, quote_total, doc_sha256, decision, signed_pdf_path'
+
+function decisionFromStatus(status: string): ItemDecision {
+  return status === 'signed' ? 'accepted' : status === 'declined' ? 'declined' : 'pending'
+}
+
+/** A link's one quote, read from the request itself: how every link was stored before it could carry several. */
+function itemFromRequest(row: SigningRequestRow): SigningItemRow {
+  return {
+    id: null,
+    request_id: row.id,
+    position: 0,
+    document_id: row.document_id,
+    document_type: row.document_type,
+    document_title: row.document_title,
+    reference: row.reference,
+    quote_total: row.quote_total,
+    doc_sha256: row.doc_sha256,
+    decision: decisionFromStatus(row.status),
+    signed_pdf_path: row.signed_pdf_path,
+  }
+}
+
+/**
+ * The quotes on a link, in order. Never empty and never throws: if the items
+ * cannot be read (or the table is not there yet), the link has the one quote
+ * held on the request.
+ */
+export async function loadItems(supabase: ServiceClient, row: SigningRequestRow): Promise<SigningItemRow[]> {
+  const { data, error } = await supabase
+    .from('signing_request_items')
+    .select(ITEM_COLUMNS)
+    .eq('request_id', row.id)
+    .order('position', { ascending: true })
+  const list = error ? [] : ((data ?? []) as unknown as SigningItemRow[])
+  return list.length ? list : [itemFromRequest(row)]
+}
+
+/** One quote exactly as it was sent. */
+export async function loadItemHtml(supabase: ServiceClient, row: SigningRequestRow, item: SigningItemRow): Promise<string> {
+  if (!item.id) return row.frozen_html
+  const { data, error } = await supabase.from('signing_request_items').select('frozen_html').eq('id', item.id).maybeSingle()
+  const html = (data as { frozen_html?: string } | null)?.frozen_html
+  if (error || !html) {
+    // The first quote's HTML is also on the request.
+    if (item.position === 0) return row.frozen_html
+    throw new Error('The quote could not be loaded')
+  }
+  return html
+}
+
+/**
+ * Write what the client chose for each quote. Called once, by whoever recorded
+ * the signature (or the decline). False when it could not be saved.
+ */
+export async function saveDecisions(supabase: ServiceClient, items: SigningItemRow[], at: string): Promise<boolean> {
+  for (const decision of ['accepted', 'declined'] as const) {
+    const ids = items.filter(i => i.id && i.decision === decision).map(i => i.id as string)
+    if (!ids.length) continue
+    const { error } = await supabase
+      .from('signing_request_items')
+      .update({ decision, decided_at: at, updated_at: at })
+      .in('id', ids)
+    if (error) {
+      console.error('[signing] saving the quote decisions failed', items[0]?.request_id, error.message)
+      return false
+    }
+  }
+  return true
+}
+
+/** What the staff screens are given about each quote on a link. */
+export interface SigningItemSummary {
+  position: number
+  document_id: string | null
+  document_title: string
+  reference: string | null
+  quote_total: number | null
+  decision: ItemDecision
+}
+
+interface SummaryLike {
+  id: string
+  document_id: string | null
+  document_title: string
+  reference: string | null
+  quote_total: number | null
+  status: string
+}
+
+/** Summary rows with the quotes on each link. A link with no stored items has the one quote on the request. */
+export async function withItemSummaries<T extends SummaryLike>(
+  supabase: ServiceClient,
+  requests: T[],
+): Promise<(T & { items: SigningItemSummary[] })[]> {
+  const byRequest = new Map<string, SigningItemSummary[]>()
+  if (requests.length) {
+    const { data, error } = await supabase
+      .from('signing_request_items')
+      .select('request_id, position, document_id, document_title, reference, quote_total, decision')
+      .in('request_id', requests.map(r => r.id))
+      .order('position', { ascending: true })
+    if (!error) {
+      for (const raw of (data ?? []) as unknown as (SigningItemSummary & { request_id: string })[]) {
+        const { request_id, ...item } = raw
+        byRequest.set(request_id, [...(byRequest.get(request_id) ?? []), item])
+      }
+    }
+  }
+  return requests.map(r => ({
+    ...r,
+    items: byRequest.get(r.id) ?? [{
+      position: 0,
+      document_id: r.document_id,
+      document_title: r.document_title,
+      reference: r.reference,
+      quote_total: r.quote_total,
+      decision: decisionFromStatus(r.status),
+    }],
+  }))
 }
 
 /**
@@ -147,28 +304,44 @@ export async function findSigningRequestByToken(
   return (data as SigningRequestRow | null) ?? null
 }
 
-/** The document with the signer's signature, name and date in its fields. */
-export function signedDocumentHtml(row: SigningRequestRow): string {
+/**
+ * A quote with the signer's signature, name and date in its fields. `html` is
+ * the quote as it was sent (loadItemHtml); the one signature goes on every
+ * quote the signer accepted, so the caller passes only accepted quotes.
+ */
+export function signedDocumentHtml(row: SigningRequestRow, html: string): string {
   if (row.status !== 'signed' || !row.signature_png || !row.signer_name || !row.signed_at) {
     throw new Error('This document has not been signed')
   }
-  return fillSignSlots(row.frozen_html, {
+  return fillSignSlots(html, {
     signaturePng: row.signature_png,
     name: row.signer_name,
     dateLabel: signedDateLabel(row.signed_at),
   })
 }
 
-/** The signed document followed by its signature docket: what the PDF is made from. */
-export function signedCopyHtml(row: SigningRequestRow): string {
+/**
+ * A signed quote followed by the signature docket: what the PDF is made from.
+ * When the link carried several quotes the docket lists them all with what the
+ * signer chose, and is the same on each signed copy.
+ */
+export function signedCopyHtml(row: SigningRequestRow, items: SigningItemRow[], item: SigningItemRow, html: string): string {
+  const accepted = acceptedItems(items)
   return insertAtBodyEnd(
-    signedDocumentHtml(row),
+    signedDocumentHtml(row, html),
     docketHtml({
       requestId: row.id,
       brandLabel: row.brand_label,
-      documentTitle: row.document_title,
-      reference: row.reference,
-      docSha256: row.doc_sha256,
+      documentTitle: item.document_title,
+      reference: item.reference,
+      docSha256: item.doc_sha256,
+      quotes: items.map(i => ({
+        title: i.document_title,
+        reference: i.reference,
+        totalLabel: i.quote_total != null ? money(Number(i.quote_total)) : null,
+        docSha256: i.doc_sha256,
+        accepted: accepted.includes(i),
+      })),
       fromAddress: row.from_address,
       sentByName: row.sent_by_name,
       toName: row.to_name,
@@ -189,7 +362,7 @@ export function signedCopyHtml(row: SigningRequestRow): string {
   )
 }
 
-export function signedPdfFilename(row: Pick<SigningRequestRow, 'document_title' | 'reference'>): string {
+export function signedPdfFilename(row: { document_title: string; reference: string | null }): string {
   const base = (row.reference?.trim() || row.document_title.trim() || 'Quote')
     .replace(/[^A-Za-z0-9 ._-]+/g, ' ')
     .replace(/\s+/g, ' ')
@@ -199,26 +372,48 @@ export function signedPdfFilename(row: Pick<SigningRequestRow, 'document_title' 
 }
 
 /**
- * The signed PDF: from storage when it is already there, otherwise rendered now
- * and stored. A signed copy can always be produced again from the row, so a
- * failed upload is logged and the PDF is still returned.
+ * The signed PDF of one accepted quote: from storage when it is already there,
+ * otherwise rendered now and stored. A signed copy can always be produced
+ * again from the record, so a failed upload is logged and the PDF is still
+ * returned. A declined quote has no signed copy.
  */
-export async function ensureSignedPdf(supabase: ServiceClient, row: SigningRequestRow): Promise<Buffer> {
-  if (row.signed_pdf_path) {
-    const { data } = await supabase.storage.from(SIGNED_BUCKET).download(row.signed_pdf_path)
+export async function ensureSignedPdf(
+  supabase: ServiceClient,
+  row: SigningRequestRow,
+  items: SigningItemRow[],
+  item: SigningItemRow,
+): Promise<Buffer> {
+  if (!acceptedItems(items).includes(item)) throw new Error('This quote was not accepted, so it has no signed copy')
+  if (item.signed_pdf_path) {
+    const { data } = await supabase.storage.from(SIGNED_BUCKET).download(item.signed_pdf_path)
     if (data) return Buffer.from(await data.arrayBuffer())
   }
-  const pdf = await renderPdf(signedCopyHtml(row))
-  const path = `${row.org_id}/${row.job_id}/${row.id}.pdf`
+  const html = await loadItemHtml(supabase, row, item)
+  const pdf = await renderPdf(signedCopyHtml(row, items, item, html))
+  // A link with one quote keeps the path it always had.
+  const name = items.length === 1 ? row.id : `${row.id}-${item.position + 1}`
+  const path = `${row.org_id}/${row.job_id}/${name}.pdf`
   const { error } = await supabase.storage
     .from(SIGNED_BUCKET)
     .upload(path, pdf, { contentType: 'application/pdf', upsert: true })
   if (error) {
     console.error('[signing] storing signed PDF failed', row.id, error.message)
-  } else if (row.signed_pdf_path !== path) {
-    await supabase.from('signing_requests').update({ signed_pdf_path: path }).eq('id', row.id)
+  } else if (item.signed_pdf_path !== path) {
+    if (item.id) await supabase.from('signing_request_items').update({ signed_pdf_path: path }).eq('id', item.id)
+    if (items.length === 1) await supabase.from('signing_requests').update({ signed_pdf_path: path }).eq('id', row.id)
   }
   return pdf
+}
+
+/** Attachment names for several signed copies: two quotes with the same reference must not collide. */
+function attachmentNames(items: { document_title: string; reference: string | null }[]): string[] {
+  const seen = new Map<string, number>()
+  return items.map(item => {
+    const name = signedPdfFilename(item)
+    const count = (seen.get(name) ?? 0) + 1
+    seen.set(name, count)
+    return count === 1 ? name : name.replace(/\.pdf$/, ` (${count}).pdf`)
+  })
 }
 
 /**
@@ -240,19 +435,30 @@ export async function deliverSignedCopy(
   row: SigningRequestRow,
   links: { page: string; pdf: string } | null,
 ): Promise<{ ok: true; attached: boolean } | { ok: false; error: string }> {
-  const downloadUrl = links?.pdf ?? null
+  const items = await loadItems(supabase, row)
+  const accepted = acceptedItems(items)
+  const declined = items.filter(i => !accepted.includes(i))
+  const signedLine = listLine(accepted.map(itemLine)) || documentLine(row)
+  // With several signed copies, the client's page is where each can be downloaded.
+  const downloadUrl = links ? (accepted.length > 1 ? links.page : links.pdf) : null
   const due = depositAmount(row.quote_total, row.deposit_percent)
   const deposit = links && due != null && row.deposit_percent != null
     ? { amountLabel: money(due), percentLabel: percentLabel(Number(row.deposit_percent)) }
     : null
-  let pdf: Buffer | null = null
+  const names = attachmentNames(accepted)
+  const pdfs: { filename: string; content: Buffer }[] = []
   let pdfError = ''
-  try {
-    pdf = await ensureSignedPdf(supabase, row)
-  } catch (err) {
-    pdfError = err instanceof Error ? err.message : 'PDF could not be made'
-    console.error('[signing] signed PDF failed', row.id, err)
+  for (const [i, item] of accepted.entries()) {
+    try {
+      pdfs.push({ filename: names[i], content: await ensureSignedPdf(supabase, row, items, item) })
+    } catch (err) {
+      pdfError = err instanceof Error ? err.message : 'PDF could not be made'
+      console.error('[signing] signed PDF failed', row.id, item.position, err)
+    }
   }
+  // Every signed copy, or none: an email with one of two attached would read as complete.
+  const complete = accepted.length > 0 && pdfs.length === accepted.length
+  const attached = complete ? pdfs : []
 
   const fail = async (error: string) => {
     await supabase
@@ -262,7 +468,7 @@ export async function deliverSignedCopy(
     return { ok: false as const, error }
   }
 
-  if (!pdf && !downloadUrl) return fail(`Signed PDF could not be made: ${pdfError}`)
+  if (!complete && !downloadUrl) return fail(`Signed PDF could not be made: ${pdfError || 'no accepted quote found'}`)
 
   const office = row.reply_to || process.env.NOTIFY_EMAIL || null
   const copyTo = signerEmail(row)
@@ -276,9 +482,10 @@ export async function deliverSignedCopy(
         bcc: office,
         toName: row.signer_name || row.to_name,
         brandLabel: row.brand_label,
-        documentLine: documentLine(row),
-        pdf,
-        pdfFilename: signedPdfFilename(row),
+        documentLine: signedLine,
+        declinedLine: listLine(declined.map(itemLine)),
+        signedCount: Math.max(1, accepted.length),
+        pdfs: attached,
         downloadUrl,
         deposit,
       })
@@ -291,10 +498,9 @@ export async function deliverSignedCopy(
         to: office,
         brandLabel: row.brand_label,
         jobId: row.job_id,
-        documentLine: documentLine(row),
+        documentLine: signedLine,
         signerName: row.signer_name || row.to_name,
-        pdf,
-        pdfFilename: signedPdfFilename(row),
+        pdfs: attached,
       })
       notes.push(`No client email was given, so the signed copy went to ${office} to pass on.`)
     }
@@ -303,7 +509,7 @@ export async function deliverSignedCopy(
     return fail(err instanceof Error ? err.message : 'Email could not be sent')
   }
 
-  if (!pdf) notes.push(`The PDF could not be attached (${pdfError}); a download link was sent instead.`)
+  if (!complete) notes.push(`The PDF could not be attached (${pdfError}); a download link was sent instead.`)
   await supabase
     .from('signing_requests')
     .update({
@@ -312,7 +518,7 @@ export async function deliverSignedCopy(
       updated_at: new Date().toISOString(),
     })
     .eq('id', row.id)
-  return { ok: true, attached: Boolean(pdf) }
+  return { ok: true, attached: complete }
 }
 
 const POST_ACCEPTANCE = new Set(['accepted', 'scheduled', 'underway', 'completed', 'report_sent', 'paid'])
@@ -321,11 +527,14 @@ const POST_ACCEPTANCE = new Set(['accepted', 'scheduled', 'underway', 'completed
  * A signature is an acceptance: record it the same way the quote link and the
  * portal do, so the job moves to Accepted. The Xero invoice is built from these
  * records, but only once staff have checked the signed request.
- * Returns false when this document already had an acceptance on file.
+ * One record for each quote the signer accepted, and none for a quote they
+ * declined, so a declined quote is never invoiced.
+ * `recorded` is false when every accepted quote already had an acceptance on file.
  */
 export async function recordAcceptance(
   supabase: ServiceClient,
   row: SigningRequestRow,
+  accepted: SigningItemRow[],
 ): Promise<{ recorded: boolean; jobType: string; siteAddress: string }> {
   const { data: job } = await supabase
     .from('jobs')
@@ -334,24 +543,25 @@ export async function recordAcceptance(
     .maybeSingle()
 
   let recorded = false
-  if (row.document_id) {
+  for (const item of accepted) {
+    if (!item.document_id) continue
     const { error } = await supabase.from('quote_acceptances').insert({
       org_id: row.org_id,
       account_id: null,
       contact_id: null,
       job_id: row.job_id,
-      document_id: row.document_id,
+      document_id: item.document_id,
       contact_name: row.signer_name || row.to_name,
       contact_email: signerEmail(row) ?? '',
-      quote_total: row.quote_total,
-      quote_reference: row.reference || row.document_title,
+      quote_total: item.quote_total,
+      quote_reference: item.reference || item.document_title,
       terms_version: 'e-signature',
       ip: (row.signer_ip ?? '').slice(0, 100),
       user_agent: (row.signer_user_agent ?? '').slice(0, 500),
     })
     if (!error) recorded = true
     else if (!(error.code === '23505' || /duplicate key/i.test(error.message))) {
-      console.error('[signing] recording acceptance failed', row.id, error.message)
+      console.error('[signing] recording acceptance failed', row.id, item.position, error.message)
     }
   }
 
@@ -382,6 +592,7 @@ export async function recordAcceptance(
 export async function afterSigned(
   supabase: ServiceClient,
   row: SigningRequestRow,
+  items: SigningItemRow[],
   info: { jobType: string; siteAddress: string },
   links: { page: string; pdf: string },
 ): Promise<void> {
@@ -389,16 +600,26 @@ export async function afterSigned(
     deliverSignedCopy(supabase, row, links).catch(err => {
       console.error('[signing] signed copy failed', row.id, err)
     }),
-    tellStaffSigned(row, info),
+    tellStaffSigned(row, items, info),
   ])
 }
 
+/**
+ * The staff alert. `items` are the quotes on the link with what the signer
+ * chose; the total on the row is already the total of the accepted ones.
+ */
 async function tellStaffSigned(
   row: SigningRequestRow,
+  items: SigningItemRow[],
   info: { jobType: string; siteAddress: string },
 ): Promise<void> {
   const clientName = row.signer_name || row.to_name
-  const reference = row.reference || row.document_title
+  const accepted = acceptedItems(items)
+  const declined = items.filter(i => !accepted.includes(i))
+  const reference = listLine(accepted.map(i => i.reference || i.document_title)) || row.reference || row.document_title
+  const declinedNote = declined.length
+    ? ` Declined on the same link, and not to be invoiced: ${listLine(declined.map(itemLine))}.`
+    : ''
   try {
     await sendQuoteAcceptedEmail({
       jobId: row.job_id,
@@ -408,7 +629,7 @@ async function tellStaffSigned(
       reference,
       total: row.quote_total ?? 0,
       contactEmail: signerEmail(row) ?? undefined,
-      checkNote: staffCheckNote(row.quote_total, row.deposit_percent),
+      checkNote: staffCheckNote(row.quote_total, row.deposit_percent) + declinedNote,
     })
   } catch (err) {
     console.error('[signing] staff email failed', row.id, err)
@@ -432,7 +653,7 @@ async function tellStaffSigned(
       await twilio(sid, authToken).messages.create({
         from: fromNum,
         to,
-        body: `Quote signed: ${clientName}${row.to_email ? ` (${row.to_email})` : ''} — ${reference}${total}${info.siteAddress ? ` — ${info.siteAddress}` : ''}.${depositText} Not invoiced yet: check it and create the invoice. ${appUrl}/jobs/${row.job_id}`,
+        body: `Quote signed: ${clientName}${row.to_email ? ` (${row.to_email})` : ''} — ${reference}${total}${info.siteAddress ? ` — ${info.siteAddress}` : ''}.${declined.length ? ` Declined: ${listLine(declined.map(i => i.reference || i.document_title))}.` : ''}${depositText} Not invoiced yet: check it and create the invoice. ${appUrl}/jobs/${row.job_id}`,
       })
     } catch (err) {
       console.error('[signing] staff sms failed', row.id, err)
@@ -453,9 +674,10 @@ export async function loadPayPanel(supabase: ServiceClient, row: SigningRequestR
   const deposit = depositAmount(row.quote_total, row.deposit_percent)
   if (row.status !== 'signed' || deposit == null || row.deposit_percent == null || row.quote_total == null) return null
 
-  const [bank, pay, signed] = await Promise.all([
+  const [bank, pay, items, signed] = await Promise.all([
     loadBankDetails(supabase, row.org_id),
     jobPayState(supabase, row.org_id, row.job_id),
+    loadItems(supabase, row),
     supabase
       .from('signing_requests')
       .select('quote_total, deposit_percent')
@@ -483,7 +705,11 @@ export async function loadPayPanel(supabase: ServiceClient, row: SigningRequestR
     percent: Number(row.deposit_percent),
     deposit,
     total: Number(row.quote_total),
-    reference: paymentReference(row.reference, row.signer_name || row.to_name),
+    // The reference of a quote they accepted: it is on the signed copy they hold.
+    reference: paymentReference(
+      acceptedItems(items).find(i => i.reference?.trim())?.reference ?? row.reference,
+      row.signer_name || row.to_name,
+    ),
     bank: bank.details,
     cardUrl: live ? pay.payUrl : null,
     invoiceNumber: live ? pay.invoiceNumber : '',
@@ -493,8 +719,8 @@ export async function loadPayPanel(supabase: ServiceClient, row: SigningRequestR
   }
 }
 
-/** Tell the team a client declined. */
-export async function afterDeclined(row: SigningRequestRow): Promise<void> {
+/** Tell the team a client declined the link: every quote on it. */
+export async function afterDeclined(row: SigningRequestRow, items: SigningItemRow[]): Promise<void> {
   const to = row.reply_to || process.env.NOTIFY_EMAIL
   if (!to) return
   try {
@@ -502,7 +728,7 @@ export async function afterDeclined(row: SigningRequestRow): Promise<void> {
       to,
       brandLabel: row.brand_label,
       jobId: row.job_id,
-      documentLine: documentLine(row),
+      documentLine: listLine(items.map(itemLine)) || documentLine(row),
       clientName: row.to_name,
       clientEmail: row.to_email,
       reason: row.decline_reason,

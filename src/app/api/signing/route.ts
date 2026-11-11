@@ -8,15 +8,19 @@
  *                      request, in /api/signing/[id], is what creates it)
  * GET  ?documentId=…   what the send window shows before sending: who it is
  *                      from, the starting wording, the quote total for the
- *                      deposit, and anything stopping it
+ *                      deposit, anything stopping it, and the job's other
+ *                      quotes that can go on the same link
  * POST                 two ways to get it to the client:
- *                        { mode: 'link', documentId, toName, toEmail?, depositPercent? }
+ *                        { mode: 'link', documentIds, toName, toEmail?, depositPercent? }
  *                          creates a private link and a passcode and hands both
  *                          back with a message to paste; the system sends nothing
- *                        { mode: 'email', documentId, toEmail, toName, subject, message, depositPercent? }
+ *                        { mode: 'email', documentIds, toEmail, toName, subject, message, depositPercent? }
  *                          the system emails the link from the brand address
- *                      depositPercent is the share of the quote total the client
- *                      is asked to pay after signing; empty means no pay step.
+ *                      documentIds are the quotes on the link, in order, all
+ *                      from one job (documentId, for one quote, still works).
+ *                      The client accepts or declines each and signs once.
+ *                      depositPercent is the share of the accepted total the
+ *                      client is asked to pay after signing; empty means no pay step.
  *
  * Full-access staff only. The From address always comes from the job's trading
  * name, never from the request. Either way a person decides what goes to the
@@ -42,7 +46,12 @@ import {
   signingExpiry,
 } from '@/lib/signing/core'
 import { prepareSigning } from '@/lib/signing/prepare'
-import { SIGNING_SUMMARY_COLUMNS, staffSummary } from '@/lib/signing/store'
+import type { PreparedSigning } from '@/lib/signing/prepare'
+import { MAX_QUOTES_PER_LINK, listLine, totalOf } from '@/lib/signing/items'
+import { isAcceptableQuoteType } from '@/lib/acceptableQuotes'
+import { DOC_TYPE_LABELS } from '@/lib/types'
+import type { DocType } from '@/lib/types'
+import { SIGNING_SUMMARY_COLUMNS, staffSummary, withItemSummaries } from '@/lib/signing/store'
 import { sendSigningInviteEmail } from '@/lib/signing/email'
 import { documentHostStatus, signingLinks } from '@/lib/signing/links'
 import { DEFAULT_DEPOSIT_PERCENT, depositAmount, parseDepositPercent } from '@/lib/signing/pay'
@@ -73,18 +82,48 @@ export async function GET(req: Request) {
   if (documentId) {
     const prepared = await prepareSigning(supabase, orgId, documentId, await staffName(userId))
     if (!prepared) return NextResponse.json({ error: 'Document not found' }, { status: 404 })
+    // Every request on the job, with the quotes on each: the window warns when
+    // a link still waiting holds any quote about to be sent again.
     const { data: requests } = await supabase
       .from('signing_requests')
       .select(SIGNING_SUMMARY_COLUMNS)
       .eq('org_id', orgId)
-      .eq('document_id', documentId)
+      .eq('job_id', prepared.jobId)
       .order('sent_at', { ascending: false })
-    const [hostStatus, bank, xeroConnection] = await Promise.all([
+    const [hostStatus, bank, xeroConnection, otherDocs, acceptances, summaries] = await Promise.all([
       documentHostStatus(prepared.tradingName),
       loadBankDetails(supabase, orgId),
       xeroConfigured() ? loadXeroConnection(supabase, orgId).catch(() => null) : Promise.resolve(null),
+      supabase
+        .from('documents')
+        .select('id, type, content, created_at')
+        .eq('job_id', prepared.jobId)
+        .neq('id', documentId)
+        .order('created_at', { ascending: false }),
+      supabase.from('quote_acceptances').select('document_id').eq('job_id', prepared.jobId),
+      withItemSummaries(supabase, (requests ?? []) as unknown as Parameters<typeof withItemSummaries>[1]),
     ])
+    // The job's other quotes that can go on the same link: quotes not yet
+    // accepted. Each is checked properly (and frozen) when the link is created.
+    const taken = new Set(((acceptances.data ?? []) as { document_id: string | null }[]).map(a => a.document_id))
+    const others = ((otherDocs.data ?? []) as { id: string; type: string; content: Record<string, unknown> | null; created_at: string }[])
+      .filter(d => isAcceptableQuoteType(d.type) && !taken.has(d.id))
+      .map(d => {
+        const content = d.content ?? {}
+        const total = typeof content.total === 'number' ? content.total : null
+        return {
+          documentId: d.id,
+          title: DOC_TYPE_LABELS[d.type as DocType] ?? 'Quote',
+          reference: typeof content.reference === 'string' && content.reference.trim() ? content.reference.trim() : null,
+          createdAt: d.created_at,
+          total: financials ? total : null,
+          hasTotal: (total ?? 0) > 0,
+        }
+      })
     return NextResponse.json({
+      documentId,
+      others,
+      maxQuotes: MAX_QUOTES_PER_LINK,
       linkHost: hostStatus.liveHost,
       pendingLinkHost: hostStatus.pendingHost,
       // For the deposit the client is asked to pay after signing.
@@ -105,7 +144,7 @@ export async function GET(req: Request) {
           }
         : null,
       defaults: prepared.defaults,
-      requests: ((requests ?? []) as unknown as object[]).map(r => staffSummary(r, financials)),
+      requests: summaries.map(r => staffSummary(r, financials)),
     })
   }
 
@@ -123,7 +162,7 @@ export async function GET(req: Request) {
 
     // Where the job's Xero invoice is up to, once a quote has been signed: the
     // staff check creates it, and the deposit is watched from then on.
-    const list = (requests ?? []) as unknown as { status: string; quote_total: number | null; deposit_percent: number | null }[]
+    const list = await withItemSummaries(supabase, (requests ?? []) as unknown as Parameters<typeof withItemSummaries>[1])
     const hasSigned = financials && list.some(r => r.status === 'signed')
     let invoice: {
       xeroConnected: boolean
@@ -167,7 +206,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
   }
   const byLink = body.mode === 'link'
-  const documentId = typeof body.documentId === 'string' ? body.documentId : ''
+  // The quotes on the link, in the order the client sees them.
+  const asked = Array.isArray(body.documentIds) ? body.documentIds : [body.documentId]
+  const documentIds = [...new Set(asked.filter((v): v is string => typeof v === 'string' && Boolean(v)))]
+  if (!documentIds.length) return NextResponse.json({ error: 'Document not found' }, { status: 404 })
+  if (documentIds.length > MAX_QUOTES_PER_LINK) {
+    return NextResponse.json({ error: `One link can carry up to ${MAX_QUOTES_PER_LINK} quotes.` }, { status: 400 })
+  }
   const toEmail = typeof body.toEmail === 'string' ? body.toEmail.trim().toLowerCase() : ''
   const toName = cleanSignerName(body.toName)
   const subject = byLink ? '' : typeof body.subject === 'string' ? body.subject.replace(/[\r\n]+/g, ' ').trim() : ''
@@ -195,14 +240,28 @@ export async function POST(req: Request) {
   if (!depositChoice.ok) return NextResponse.json({ error: depositChoice.error }, { status: 400 })
 
   const sentByName = await staffName(userId)
-  const prepared = await prepareSigning(supabase, orgId, documentId, sentByName)
-  if (!prepared) return NextResponse.json({ error: 'Document not found' }, { status: 404 })
-  if (prepared.blockers.length || !prepared.sender) {
-    return NextResponse.json({ error: prepared.blockers[0] ?? 'This quote cannot be sent yet.' }, { status: 409 })
+  // Each quote is checked and frozen here; nothing from the browser is trusted for what it says.
+  const all = await Promise.all(documentIds.map(id => prepareSigning(supabase, orgId, id, sentByName)))
+  if (all.some(p => !p)) return NextResponse.json({ error: 'Document not found' }, { status: 404 })
+  const quotes = all as PreparedSigning[]
+  const prepared = quotes[0]
+  const several = quotes.length > 1
+  const lineOf = (p: PreparedSigning) => `${p.title}${p.reference ? ` ${p.reference}` : ''}`
+  if (quotes.some(p => p.jobId !== prepared.jobId)) {
+    return NextResponse.json({ error: 'The quotes on one link must all be from the same job.' }, { status: 400 })
   }
+  for (const p of quotes) {
+    if (p.blockers.length || !p.sender) {
+      const why = p.blockers[0] ?? 'This quote cannot be sent yet.'
+      return NextResponse.json({ error: several ? `${lineOf(p)}: ${why}` : why }, { status: 409 })
+    }
+  }
+  if (!prepared.sender) return NextResponse.json({ error: 'This quote cannot be sent yet.' }, { status: 409 })
   const sender = prepared.sender
-  // A deposit is a share of the quote total, so a quote with no total has no pay step.
-  const depositPercent = depositAmount(prepared.total, depositChoice.percent) != null ? depositChoice.percent : null
+  // While the link is open its total is every quote on it; once signed, the accepted ones.
+  const total = several ? totalOf(quotes.map(p => ({ quote_total: p.total }))) : prepared.total
+  // A deposit is a share of the total, so quotes with no total have no pay step.
+  const depositPercent = depositAmount(total, depositChoice.percent) != null ? depositChoice.percent : null
   if (depositChoice.percent != null && depositPercent == null) {
     return NextResponse.json(
       { error: 'This quote has no total, so a deposit cannot be worked out. Clear the deposit, or add the total to the quote first.' },
@@ -226,7 +285,7 @@ export async function POST(req: Request) {
       document_type: prepared.documentType,
       document_title: prepared.title,
       reference: prepared.reference,
-      quote_total: prepared.total,
+      quote_total: total,
       frozen_html: prepared.frozenHtml,
       doc_sha256: sha256Hex(prepared.frozenHtml),
       trading_name: prepared.tradingName,
@@ -258,6 +317,36 @@ export async function POST(req: Request) {
   }
   const createdId = (created as unknown as { id: string }).id
 
+  // The quotes on the link, each frozen as it is now.
+  const { error: itemsError } = await supabase.from('signing_request_items').insert(
+    quotes.map((p, position) => ({
+      request_id: createdId,
+      org_id: orgId,
+      job_id: prepared.jobId,
+      position,
+      document_id: p.documentId,
+      document_type: p.documentType,
+      document_title: p.title,
+      reference: p.reference,
+      quote_total: p.total,
+      frozen_html: p.frozenHtml,
+      doc_sha256: sha256Hex(p.frozenHtml),
+    })),
+  )
+  if (itemsError) {
+    console.error('[signing] saving the quotes on the link failed', createdId, itemsError.message)
+    // One quote is also held on the request itself, so that link still works.
+    // Several cannot be: nothing has gone to the client, so leave no record.
+    if (several) {
+      await supabase.from('signing_requests').delete().eq('id', createdId)
+      const notMigrated = /does not exist|schema cache/i.test(itemsError.message)
+      return NextResponse.json(
+        { error: notMigrated ? 'Sending several quotes on one link is not set up yet: migration 072 needs to be applied.' : `Could not save the quotes (${itemsError.message}). Nothing has gone to the client.` },
+        { status: 500 },
+      )
+    }
+  }
+
   const links = await signingLinks(prepared.tradingName, token)
   if (!byLink) {
     try {
@@ -268,7 +357,7 @@ export async function POST(req: Request) {
         subject,
         message,
         brandLabel: sender.brandLabel,
-        documentLine: `${prepared.title}${prepared.reference ? ` ${prepared.reference}` : ''}`,
+        documentLine: listLine(quotes.map(lineOf)),
         signUrl: links.page,
         expiresLabel: signedDateLabel(expiresAt.toISOString()),
       })
@@ -283,17 +372,29 @@ export async function POST(req: Request) {
     }
   }
 
-  // The new link replaces any earlier one still waiting on this document, so
-  // the client cannot sign an out-of-date version.
+  // The new link replaces any earlier one still waiting that holds any of
+  // these quotes, so the client cannot sign an out-of-date version. An earlier
+  // link is replaced whole, even if it also held a quote that is not on this one.
+  const voided = { status: 'voided', voided_at: now.toISOString(), voided_by: userId, updated_at: now.toISOString() }
+  const { data: holding } = await supabase
+    .from('signing_request_items')
+    .select('request_id')
+    .eq('org_id', orgId)
+    .in('document_id', documentIds)
+  const earlier = [...new Set(((holding ?? []) as { request_id: string }[]).map(h => h.request_id))].filter(id => id !== createdId)
+  if (earlier.length) {
+    await supabase.from('signing_requests').update(voided).eq('org_id', orgId).in('id', earlier).in('status', ['sent', 'viewed'])
+  }
   await supabase
     .from('signing_requests')
-    .update({ status: 'voided', voided_at: now.toISOString(), voided_by: userId, updated_at: now.toISOString() })
+    .update(voided)
     .eq('org_id', orgId)
-    .eq('document_id', prepared.documentId)
+    .in('document_id', documentIds)
     .in('status', ['sent', 'viewed'])
     .neq('id', createdId)
 
-  const request = staffSummary(created as unknown as object, seesFinancials(guard.role))
+  const [withItems] = await withItemSummaries(supabase, [created as unknown as Parameters<typeof withItemSummaries>[1][number]])
+  const request = staffSummary(withItems, seesFinancials(guard.role))
   if (byLink && passcode) {
     return NextResponse.json({
       request,

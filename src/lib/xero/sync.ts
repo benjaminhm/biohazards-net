@@ -137,10 +137,32 @@ async function signedLinks(supabase: Supabase, jobId: string): Promise<SignedLin
     console.error('[xero] reading signed links failed', jobId, error.message)
     return []
   }
-  return ((data ?? []) as { id: string; document_id: string | null; invoice_confirmed_at: string | null }[]).map(r => ({
+  const links = (data ?? []) as { id: string; document_id: string | null; invoice_confirmed_at: string | null }[]
+  // A link can carry several quotes; the ones it accepted are its quotes. A
+  // link with no stored quotes has the one on the request itself.
+  const accepted = new Map<string, string[]>()
+  if (links.length) {
+    const { data: items, error: itemsError } = await supabase
+      .from('signing_request_items')
+      .select('request_id, document_id, decision')
+      .in('request_id', links.map(l => l.id))
+    if (!itemsError) {
+      const rows = (items ?? []) as { request_id: string; document_id: string | null; decision: string }[]
+      const counts = new Map<string, number>()
+      for (const item of rows) counts.set(item.request_id, (counts.get(item.request_id) ?? 0) + 1)
+      for (const item of rows) {
+        // On a link with one quote, signing is accepting it.
+        const isAccepted = item.decision === 'accepted' || (counts.get(item.request_id) === 1 && item.decision !== 'declined')
+        const list = accepted.get(item.request_id) ?? []
+        if (isAccepted && item.document_id) list.push(item.document_id)
+        accepted.set(item.request_id, list)
+      }
+    }
+  }
+  return links.map(r => ({
     id: r.id,
     confirmed: Boolean(r.invoice_confirmed_at),
-    documentIds: r.document_id ? [r.document_id] : [],
+    documentIds: accepted.get(r.id) ?? (r.document_id ? [r.document_id] : []),
   }))
 }
 
