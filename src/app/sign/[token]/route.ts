@@ -1,10 +1,14 @@
 /*
- * GET /sign/[token] — the client's private signing link.
+ * GET /sign/[token] — the client's private document link.
  *
- * Public: the long random token in the link is the only way in, and only its
- * hash is stored. Serves the document exactly as it was sent (not the live
- * document), with the signing controls around it. Once signed, the same link
- * shows the signed document and a download button.
+ * Reached as document.<brand>.com.au/<token> where the brand has a document
+ * host (proxy.ts rewrites it here), or as /sign/<token> on the app address.
+ *
+ * Public: the long random token in the link is the way in, and only its hash
+ * is stored. A link staff sent themselves also asks for its passcode first.
+ * Serves the document exactly as it was sent (not the live document), with the
+ * signing controls around it. Once signed, the same link shows the signed
+ * document and a download button.
  *
  * A route handler rather than a page because the document is already a full
  * HTML page with its own print styles.
@@ -14,9 +18,16 @@
  */
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
-import { insertAtBodyEnd, linkState, docketTime, signedDateLabel } from '@/lib/signing/core'
+import {
+  PASSCODE_LENGTH,
+  docketTime,
+  insertAtBodyEnd,
+  isUnlocked,
+  linkState,
+  signedDateLabel,
+} from '@/lib/signing/core'
 import { findSigningRequestByToken, signedDocumentHtml } from '@/lib/signing/store'
-import { signedBannerHtml, signingMessagePage, signingShellHtml } from '@/lib/signing/shell'
+import { passcodeGatePage, signedBannerHtml, signingMessagePage, signingShellHtml } from '@/lib/signing/shell'
 
 const HEADERS = {
   'Content-Type': 'text/html; charset=utf-8',
@@ -29,29 +40,44 @@ function page(html: string, status = 200): NextResponse {
   return new NextResponse(html, { status, headers: HEADERS })
 }
 
-export async function GET(_req: Request, { params }: { params: Promise<{ token: string }> }) {
+export async function GET(req: Request, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params
   const supabase = createServiceClient()
   const row = await findSigningRequestByToken(supabase, token)
   if (!row) {
     return page(
-      signingMessagePage('This link is not valid', 'Please check the link in your email, or reply to that email and we will send a new one.'),
+      signingMessagePage('This link is not valid', 'Please check the link you were sent, or contact us and we will send a new one.'),
       404,
     )
   }
 
   const state = linkState(row, new Date())
-  const contact = `Please reply to the email from ${row.brand_label} if you need a new one.`
+  const contact = `Please contact ${row.brand_label} if you need a new one.`
 
+  // These say nothing about the document, so they come before the passcode.
   if (state === 'voided') {
     return page(signingMessagePage('This link is no longer in use', `It has been replaced or cancelled. ${contact}`), 410)
   }
   if (state === 'expired') {
     return page(signingMessagePage('This link has expired', contact), 410)
   }
-  if (state === 'declined') {
-    return page(signingMessagePage('This document was declined', `${row.brand_label} has been told. If that was a mistake, reply to the email you received.`))
+  if (state === 'locked') {
+    return page(
+      signingMessagePage('This link has been locked', `The wrong passcode was entered too many times. Please contact ${row.brand_label} for a new link.`),
+      423,
+    )
   }
+
+  if (!isUnlocked(req.headers.get('cookie'), token, row.passcode)) {
+    return page(passcodeGatePage({ token, brandLabel: row.brand_label, length: PASSCODE_LENGTH }))
+  }
+
+  if (state === 'declined') {
+    return page(signingMessagePage('This document was declined', `${row.brand_label} has been told. If that was a mistake, please contact us.`))
+  }
+
+  // On a document host the signed copy is /<token>/pdf, so "sign" never shows in the address.
+  const pdfUrl = req.headers.get('x-subdomain') === 'document' ? `/${token}/pdf` : `/api/sign/${token}/pdf`
 
   if (state === 'signed') {
     try {
@@ -59,7 +85,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ token: 
         insertAtBodyEnd(
           signedDocumentHtml(row),
           signedBannerHtml({
-            token,
+            pdfUrl,
             brandLabel: row.brand_label,
             documentTitle: row.document_title,
             reference: row.reference,
@@ -70,7 +96,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ token: 
       )
     } catch (err) {
       console.error('[signing] signed view failed', row.id, err)
-      return page(signingMessagePage('This document has been signed', 'A signed copy was emailed to you.'))
+      return page(signingMessagePage('This document has been signed', 'Please contact us if you need a copy.'))
     }
   }
 
@@ -84,6 +110,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ token: 
         reference: row.reference,
         toName: row.to_name,
         toEmail: row.to_email,
+        pdfUrl,
         dateLabel: signedDateLabel(new Date().toISOString()),
         consented: Boolean(row.consented_at),
       }),

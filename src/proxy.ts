@@ -23,6 +23,10 @@
  * Custom domains (e.g. app.brisbanebiohazardcleaning.com.au):
  *   Sets x-org-host so getOrgId can resolve orgs.custom_domain.
  *
+ *   document.<brand>.com.au — documents sent to a client to view or sign.
+ *   /<private code> is the document, /<private code>/pdf the signed copy.
+ *   Nothing else is reachable on this host.
+ *
  *   accounts.<brand>.com.au — commercial trade account portal.
  *   Matched before the custom-domain branch and deliberately does NOT set
  *   x-org-host. Only /portal and /api/portal are reachable on this host.
@@ -39,7 +43,8 @@
  */
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
-import { accountsHostTradingName, isNotesCaptureHost, isPhotoCaptureHost } from '@/lib/tradingNames'
+import { accountsHostTradingName, documentHostTradingName, isNotesCaptureHost, isPhotoCaptureHost, tradingNameLabel } from '@/lib/tradingNames'
+import { DOCUMENT_HOST_HEADER, isSigningTokenShape } from '@/lib/signing/hostShape'
 import {
   STAFF_COOKIE,
   STAFF_SESSION_MAX_AGE,
@@ -108,6 +113,31 @@ export async function proxy(request: NextRequest) {
     pathname === '/portal' || pathname.startsWith('/portal/') || pathname.startsWith('/api/portal')
   const isPhotoPath =
     pathname === '/photo' || pathname.startsWith('/photo/') || pathname === '/api/photo' || pathname.startsWith('/api/photo/')
+
+  // Client document links: document.<brand>.com.au/<private code>. The address
+  // deliberately says "document", not "sign", and nothing else is reachable here.
+  const documentBrand = documentHostTradingName(host)
+  if (documentBrand) {
+    requestHeaders.set('x-subdomain', 'document')
+    const parts = pathname.split('/').filter(Boolean)
+    if (parts.length === 0) {
+      const brand = tradingNameLabel(documentBrand) ?? 'Documents'
+      return new NextResponse(
+        `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${brand}</title></head><body style="margin:0;background:#d6e2f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#111"><div style="max-width:480px;margin:12vh auto 0;padding:0 16px"><div style="background:#fff;border-radius:14px;padding:28px 24px"><h1 style="font-size:20px;margin:0 0 10px">${brand}</h1><p style="font-size:15px;line-height:1.55;color:#333;margin:0">To open your document, use the link you were sent.</p></div></div></body></html>`,
+        { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', [DOCUMENT_HOST_HEADER]: '1' } },
+      )
+    }
+    if (isSigningTokenShape(parts[0]) && (parts.length === 1 || (parts.length === 2 && parts[1] === 'pdf'))) {
+      const url = request.nextUrl.clone()
+      url.pathname = parts.length === 1 ? `/sign/${parts[0]}` : `/api/sign/${parts[0]}/pdf`
+      return NextResponse.rewrite(url, { request: { headers: requestHeaders } })
+    }
+    // The page reports back here (view, passcode, sign, decline).
+    if (parts.length === 3 && parts[0] === 'api' && parts[1] === 'sign' && request.method === 'POST') {
+      return NextResponse.next({ request: { headers: requestHeaders } })
+    }
+    return new NextResponse('Not found', { status: 404 })
+  }
 
   const notesHost = isNotesCaptureHost(host)
   if (notesHost || isPhotoCaptureHost(host)) {

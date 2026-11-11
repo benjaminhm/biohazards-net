@@ -2,12 +2,16 @@
  * Send a saved quote to the client to sign, and show where it is up to.
  *
  *   useJobSigning        the signing requests on a job (one fetch shared by every row)
- *   SendForSigningModal  the send window: who it is from, who it goes to, the wording
- *   SigningStatus        the strip under a saved quote: sent / opened / signed / declined
+ *   SendForSigningModal  the send window, with two ways to get the quote to the client:
+ *                          Link and passcode  creates a private link, a passcode and a
+ *                                             message to paste into your own text or email
+ *                          Email from here    the system emails the link from the brand address
+ *   SigningStatus        the strip under a saved quote: link created / sent / opened / signed / declined
  *
  * The From address is decided on the server from the job's trading name and is
- * only shown here. A person reads the wording and presses Send
- * (docs/ai-product-principles.md); nothing is sent without that.
+ * only shown here. Either way a person decides what goes to the client
+ * (docs/ai-product-principles.md); nothing is sent without that, and the
+ * message to paste is fixed wording, not AI.
  */
 'use client'
 
@@ -24,7 +28,8 @@ export interface SigningSummary {
   brand_label: string
   from_address: string
   reply_to: string | null
-  to_email: string
+  /** Null when staff sent the link themselves and gave no email. */
+  to_email: string | null
   to_name: string
   sent_at: string
   sent_by_name: string | null
@@ -37,6 +42,10 @@ export interface SigningSummary {
   voided_at: string | null
   delivered_at: string | null
   delivery_error: string | null
+  /** email = the system emailed the link. link = staff sent the link and passcode themselves. */
+  delivery_method: 'email' | 'link'
+  passcode: string | null
+  passcode_locked_at: string | null
 }
 
 interface Preview {
@@ -46,6 +55,18 @@ interface Preview {
   sender: { brandLabel: string; from: string; replyTo: string | null; usesBrandAddress: boolean } | null
   defaults: { toEmail: string; toName: string; subject: string; message: string }
   requests: SigningSummary[]
+  /** The brand's document host when links will open there. */
+  linkHost: string | null
+  /** The brand's document host when it is not connected yet. */
+  pendingLinkHost: string | null
+}
+
+interface CreatedLink {
+  url: string
+  host: string
+  pendingHost: string | null
+  passcode: string
+  message: string
 }
 
 // Every saved-quote row on a job asks for the same list; share one request.
@@ -112,20 +133,31 @@ const fieldInput: CSSProperties = {
   width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8,
   border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 14,
 }
+const helpText: CSSProperties = { fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }
+const codeText: CSSProperties = {
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontWeight: 700, letterSpacing: '0.18em',
+}
+
+type Mode = 'link' | 'email'
 
 export function SendForSigningModal({ documentId, onClose, onSent }: {
   documentId: string
   onClose: () => void
+  /** Something was created or sent: the list under the quote should reload. */
   onSent: () => void
 }) {
   const [preview, setPreview] = useState<Preview | null>(null)
   const [loadError, setLoadError] = useState('')
+  const [mode, setMode] = useState<Mode>('link')
   const [toName, setToName] = useState('')
   const [toEmail, setToEmail] = useState('')
   const [subject, setSubject] = useState('')
   const [message, setMessage] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
+  const [created, setCreated] = useState<CreatedLink | null>(null)
+  const [pasteText, setPasteText] = useState('')
+  const [copied, setCopied] = useState('')
 
   useEffect(() => {
     let live = true
@@ -149,19 +181,29 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
     return () => { live = false }
   }, [documentId])
 
+  // Once a link exists, closing by any route must still refresh the quote's status.
+  const close = created ? onSent : onClose
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !sending) onClose()
+      if (e.key === 'Escape' && !sending) close()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, sending])
+  }, [close, sending])
 
   const waiting = preview?.requests.find(r => r.status === 'sent' || r.status === 'viewed') ?? null
   const blocked = !preview || preview.blockers.length > 0 || !preview.sender
-  const ready = !blocked && toName.trim().length >= 2 && /\S+@\S+\.\S+/.test(toEmail.trim()) && subject.trim() && message.trim()
+  const emailTyped = toEmail.trim()
+  const emailOk = /^\S+@\S+\.\S+$/.test(emailTyped)
+  const nameOk = toName.trim().length >= 2
+  const ready = !blocked && nameOk && (
+    mode === 'link'
+      ? !emailTyped || emailOk
+      : emailOk && Boolean(subject.trim()) && Boolean(message.trim())
+  )
 
-  async function send() {
+  async function submit() {
     if (!ready || sending) return
     setSending(true)
     setError('')
@@ -169,25 +211,60 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
       const res = await fetch('/api/signing', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ documentId, toName, toEmail, subject, message }),
+        body: JSON.stringify(
+          mode === 'link'
+            ? { mode, documentId, toName, toEmail }
+            : { mode, documentId, toName, toEmail, subject, message },
+        ),
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.error ?? 'Could not send')
-      onSent()
+      if (!res.ok) throw new Error(data?.error ?? 'That did not work')
+      if (mode === 'link') {
+        if (!data.link) throw new Error('The link was not returned. Please try again.')
+        setCreated(data.link as CreatedLink)
+        setPasteText((data.link as CreatedLink).message)
+        setSending(false)
+      } else {
+        onSent()
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not send')
+      setError(err instanceof Error ? err.message : 'That did not work')
       setSending(false)
     }
   }
 
+  function copy(what: string, text: string) {
+    navigator.clipboard.writeText(text).then(
+      () => {
+        setCopied(what)
+        setTimeout(() => setCopied(current => (current === what ? '' : current)), 2000)
+      },
+      () => setCopied('failed'),
+    )
+  }
+
   const docLine = preview ? `${preview.title}${preview.reference ? ` ${preview.reference}` : ''}` : ''
+  const tab = (value: Mode, label: string) => (
+    <button
+      type="button"
+      onClick={() => { setMode(value); setError('') }}
+      aria-pressed={mode === value}
+      disabled={sending}
+      style={{
+        flex: 1, padding: '9px 10px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer',
+        border: mode === value ? '1px solid var(--accent)' : '1px solid var(--border)',
+        background: mode === value ? 'rgba(255,107,53,0.12)' : 'transparent',
+        color: 'var(--text)',
+      }}
+    >{label}</button>
+  )
 
   return (
     <div
       role="dialog"
       aria-modal="true"
       aria-labelledby="send-signing-title"
-      onClick={e => { if (e.target === e.currentTarget && !sending) onClose() }}
+      onClick={e => { if (e.target === e.currentTarget && !sending) close() }}
       style={{
         position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 220,
         display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
@@ -199,10 +276,12 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 14 }}>
           <div>
-            <div id="send-signing-title" style={{ fontWeight: 700, fontSize: 18, color: 'var(--text)' }}>Send for signing</div>
+            <div id="send-signing-title" style={{ fontWeight: 700, fontSize: 18, color: 'var(--text)' }}>
+              {created ? 'Link and passcode ready' : 'Send for signing'}
+            </div>
             {docLine && <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }}>{docLine}</div>}
           </div>
-          <button type="button" onClick={onClose} disabled={sending} aria-label="Close"
+          <button type="button" onClick={close} disabled={sending} aria-label="Close"
             style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 20, cursor: 'pointer', lineHeight: 1, padding: 4 }}>
             ✕
           </button>
@@ -211,7 +290,56 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
         {loadError && <div role="alert" style={{ fontSize: 13, color: '#F87171' }}>{loadError}</div>}
         {!preview && !loadError && <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Preparing the document…</div>}
 
-        {preview && (
+        {created && (
+          <>
+            <div style={{ ...helpText, color: 'var(--text)', marginBottom: 12 }}>
+              Nothing has been sent. Copy the message into a text or an email and send it yourself. You can edit it here first.
+            </div>
+            <label htmlFor="sfs-paste" style={fieldLabel}>Message to send</label>
+            <textarea
+              id="sfs-paste"
+              style={{ ...fieldInput, minHeight: 170, resize: 'vertical', lineHeight: 1.5 }}
+              value={pasteText}
+              onChange={e => setPasteText(e.target.value)}
+            />
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '10px 0 14px' }}>
+              <button type="button" className="btn btn-primary" style={{ fontSize: 13, padding: '9px 16px' }} onClick={() => copy('message', pasteText)}>
+                {copied === 'message' ? '✓ Copied' : 'Copy message'}
+              </button>
+              <button type="button" className="btn btn-secondary" style={{ fontSize: 13, padding: '9px 14px' }} onClick={() => copy('link', created.url)}>
+                {copied === 'link' ? '✓ Copied' : 'Copy link only'}
+              </button>
+              <button type="button" className="btn btn-secondary" style={{ fontSize: 13, padding: '9px 14px' }} onClick={() => copy('code', created.passcode)}>
+                {copied === 'code' ? '✓ Copied' : 'Copy passcode only'}
+              </button>
+            </div>
+            {copied === 'failed' && (
+              <div role="alert" style={{ fontSize: 12, color: '#F87171', marginBottom: 10 }}>
+                Could not copy. Select the message above and copy it by hand.
+              </div>
+            )}
+            <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px', marginBottom: 12 }}>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Passcode</div>
+              <div style={{ ...codeText, fontSize: 24, color: 'var(--text)' }}>{created.passcode}</div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6, wordBreak: 'break-all' }}>{created.url}</div>
+            </div>
+            <div style={{ ...helpText, marginBottom: 14 }}>
+              <div>The link is shown this once and cannot be shown again. If it is lost, create a new one.</div>
+              <div>The passcode stays on the quote in Documents, so you can repeat it to the client.</div>
+              <div>For a sensitive job, send the link and the passcode separately, for example the link by email and the passcode by text.</div>
+              {created.pendingHost && (
+                <div style={{ color: '#FBBF24' }}>
+                  {created.pendingHost} is not connected yet, so this link opens on {created.host}.
+                </div>
+              )}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button type="button" className="btn btn-secondary" onClick={close} style={{ fontSize: 13, padding: '9px 18px' }}>Done</button>
+            </div>
+          </>
+        )}
+
+        {preview && !created && (
           <>
             {preview.blockers.length > 0 && (
               <div role="alert" style={{ fontSize: 13, color: '#F87171', background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.35)', borderRadius: 8, padding: '10px 12px', marginBottom: 14, lineHeight: 1.5 }}>
@@ -219,11 +347,26 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
               </div>
             )}
 
-            {preview.sender && (
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+              {tab('link', 'Link and passcode')}
+              {tab('email', 'Email from here')}
+            </div>
+
+            {mode === 'link' && (
+              <div style={{ ...helpText, marginBottom: 14 }}>
+                Creates a private link and a 4-character passcode, with a message to paste into your own text or email. Nothing is sent from here.
+                {preview.linkHost && <> The link opens on {preview.linkHost}.</>}
+                {preview.pendingLinkHost && (
+                  <span style={{ color: '#FBBF24' }}> {preview.pendingLinkHost} is not connected yet, so for now the link opens on the app address.</span>
+                )}
+              </div>
+            )}
+
+            {mode === 'email' && preview.sender && (
               <div style={{ marginBottom: 14 }}>
                 <span style={fieldLabel}>From</span>
                 <div style={{ fontSize: 14, color: 'var(--text)', wordBreak: 'break-word' }}>{preview.sender.from}</div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4, lineHeight: 1.5 }}>
+                <div style={{ ...helpText, marginTop: 4 }}>
                   {!preview.sender.usesBrandAddress && (
                     <>Sent under the {preview.sender.brandLabel} name from the shared address, because {preview.sender.brandLabel} does not have its own sending address set up. </>
                   )}
@@ -240,35 +383,52 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
                 <input id="sfs-name" style={fieldInput} value={toName} onChange={e => setToName(e.target.value)} maxLength={120} autoComplete="off" />
               </div>
               <div style={{ flex: '1 1 220px' }}>
-                <label htmlFor="sfs-email" style={fieldLabel}>Signer email</label>
+                <label htmlFor="sfs-email" style={fieldLabel}>{mode === 'link' ? 'Signer email (optional)' : 'Signer email'}</label>
                 <input id="sfs-email" type="email" style={fieldInput} value={toEmail} onChange={e => setToEmail(e.target.value)} autoComplete="off" />
               </div>
             </div>
-            <div style={{ marginBottom: 12 }}>
-              <label htmlFor="sfs-subject" style={fieldLabel}>Subject</label>
-              <input id="sfs-subject" style={fieldInput} value={subject} onChange={e => setSubject(e.target.value)} maxLength={200} />
-            </div>
-            <div style={{ marginBottom: 12 }}>
-              <label htmlFor="sfs-message" style={fieldLabel}>Message</label>
-              <textarea id="sfs-message" style={{ ...fieldInput, minHeight: 190, resize: 'vertical', lineHeight: 1.5 }} value={message} onChange={e => setMessage(e.target.value)} maxLength={4000} />
-            </div>
 
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 14 }}>
-              The client gets a private link with a Review and sign button under your message. They sign the quote as it is saved right now; changes made after sending are not included. Once signed, they are emailed the signed PDF with its signature docket, and the job moves to Accepted.
-            </div>
+            {mode === 'link' && (
+              <div style={{ ...helpText, marginBottom: 14 }}>
+                {emailTyped
+                  ? 'Once signed, the signed PDF with its signature docket is emailed to this address, and the job moves to Accepted.'
+                  : 'With no email, the client downloads their signed copy when they sign, the office inbox is emailed the PDF to pass on, and the job moves to Accepted.'}
+                {' '}They sign the quote as it is saved right now; changes made afterwards are not included.
+              </div>
+            )}
+
+            {mode === 'email' && (
+              <>
+                <div style={{ marginBottom: 12 }}>
+                  <label htmlFor="sfs-subject" style={fieldLabel}>Subject</label>
+                  <input id="sfs-subject" style={fieldInput} value={subject} onChange={e => setSubject(e.target.value)} maxLength={200} />
+                </div>
+                <div style={{ marginBottom: 12 }}>
+                  <label htmlFor="sfs-message" style={fieldLabel}>Message</label>
+                  <textarea id="sfs-message" style={{ ...fieldInput, minHeight: 190, resize: 'vertical', lineHeight: 1.5 }} value={message} onChange={e => setMessage(e.target.value)} maxLength={4000} />
+                </div>
+                <div style={{ ...helpText, marginBottom: 14 }}>
+                  The client gets a private link with a Review and sign button under your message. They sign the quote as it is saved right now; changes made after sending are not included. Once signed, they are emailed the signed PDF with its signature docket, and the job moves to Accepted.
+                </div>
+              </>
+            )}
 
             {waiting && (
               <div style={{ fontSize: 12, color: 'var(--text)', background: 'rgba(255,107,53,0.08)', border: '1px solid rgba(255,107,53,0.35)', borderRadius: 8, padding: '10px 12px', marginBottom: 14, lineHeight: 1.5 }}>
-                This quote was already sent to {waiting.to_email} on {when(waiting.sent_at)} and has not been signed. Sending again replaces that link, so the earlier email will stop working.
+                {waiting.delivery_method === 'link'
+                  ? <>A link for this quote was already created on {when(waiting.sent_at)} and has not been signed. A new one replaces it, so the earlier link will stop working.</>
+                  : <>This quote was already sent to {waiting.to_email} on {when(waiting.sent_at)} and has not been signed. A new one replaces that link, so the earlier email will stop working.</>}
               </div>
             )}
 
             {error && <div role="alert" style={{ fontSize: 13, color: '#F87171', marginBottom: 12, lineHeight: 1.5 }}>{error}</div>}
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-              <button type="button" className="btn btn-secondary" onClick={onClose} disabled={sending} style={{ fontSize: 13, padding: '9px 16px' }}>Cancel</button>
-              <button type="button" className="btn btn-primary" onClick={send} disabled={!ready || sending} style={{ fontSize: 13, padding: '9px 18px' }}>
-                {sending ? 'Sending…' : 'Send for signing'}
+              <button type="button" className="btn btn-secondary" onClick={close} disabled={sending} style={{ fontSize: 13, padding: '9px 16px' }}>Cancel</button>
+              <button type="button" className="btn btn-primary" onClick={submit} disabled={!ready || sending} style={{ fontSize: 13, padding: '9px 18px' }}>
+                {mode === 'link'
+                  ? sending ? 'Creating…' : 'Create link and passcode'
+                  : sending ? 'Sending…' : 'Send email'}
               </button>
             </div>
           </>
@@ -276,14 +436,6 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
       </div>
     </div>
   )
-}
-
-const STATUS_STYLE: Record<SigningSummary['status'], { label: string; color: string }> = {
-  sent: { label: 'Sent for signing', color: '#60A5FA' },
-  viewed: { label: 'Opened, not signed', color: '#FBBF24' },
-  signed: { label: 'Signed', color: '#34D399' },
-  declined: { label: 'Declined', color: '#F87171' },
-  voided: { label: 'Cancelled', color: 'var(--text-muted)' },
 }
 
 /** Where a saved quote's signing is up to, with the few things staff can do about it. */
@@ -315,30 +467,62 @@ export function SigningStatus({ request, onChanged }: { request: SigningSummary;
     }
   }
 
-  const style = STATUS_STYLE[request.status]
+  const byLink = request.delivery_method === 'link'
   const waiting = request.status === 'sent' || request.status === 'viewed'
+  const locked = Boolean(request.passcode_locked_at) && request.status !== 'voided'
+  const who = request.to_email ?? request.to_name
   const small: CSSProperties = { fontSize: 11, padding: '5px 10px' }
 
+  let label = ''
+  let color = 'var(--text-muted)'
   let detail = ''
-  if (request.status === 'sent') detail = `to ${request.to_email} on ${when(request.sent_at)}. Not opened yet.`
-  if (request.status === 'viewed') detail = `by ${request.to_email} on ${when(request.first_viewed_at)}. Sent ${when(request.sent_at)}.`
-  if (request.status === 'signed') detail = `by ${request.signer_name ?? request.to_name} (${request.to_email}) on ${when(request.signed_at)}.`
-  if (request.status === 'declined') detail = `by ${request.to_email} on ${when(request.declined_at)}.${request.decline_reason ? ` "${request.decline_reason}"` : ''}`
-  if (request.status === 'voided') detail = `on ${when(request.voided_at)}. Was sent to ${request.to_email}.`
+  if (request.status === 'sent') {
+    label = byLink ? 'Link created' : 'Sent for signing'
+    color = '#60A5FA'
+    detail = byLink
+      ? `for ${request.to_name} on ${when(request.sent_at)}. Not opened yet.`
+      : `to ${request.to_email} on ${when(request.sent_at)}. Not opened yet.`
+  }
+  if (request.status === 'viewed') {
+    label = 'Opened, not signed'
+    color = '#FBBF24'
+    detail = `by ${who} on ${when(request.first_viewed_at)}. ${byLink ? 'Link created' : 'Sent'} ${when(request.sent_at)}.`
+  }
+  if (request.status === 'signed') {
+    label = 'Signed'
+    color = '#34D399'
+    detail = `by ${request.signer_name ?? request.to_name}${request.to_email ? ` (${request.to_email})` : ''} on ${when(request.signed_at)}.`
+  }
+  if (request.status === 'declined') {
+    label = 'Declined'
+    color = '#F87171'
+    detail = `by ${who} on ${when(request.declined_at)}.${request.decline_reason ? ` "${request.decline_reason}"` : ''}`
+  }
+  if (request.status === 'voided') {
+    label = 'Cancelled'
+    detail = `on ${when(request.voided_at)}. Was for ${who}.`
+  }
+  if (locked) {
+    label = 'Locked'
+    color = '#F87171'
+    detail = `The wrong passcode was entered five times, so the link for ${request.to_name} no longer opens. Use Send to sign to create a new one.`
+  }
 
   return (
     <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)', fontSize: 12, lineHeight: 1.5 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <span style={{ fontWeight: 700, color: style.color, border: `1px solid ${style.color}`, borderRadius: 999, padding: '1px 8px', fontSize: 11, whiteSpace: 'nowrap' }}>
-          {style.label}
+        <span style={{ fontWeight: 700, color, border: `1px solid ${color}`, borderRadius: 999, padding: '1px 8px', fontSize: 11, whiteSpace: 'nowrap' }}>
+          {label}
         </span>
         <span style={{ color: 'var(--text)', flex: '1 1 200px' }}>{detail}</span>
         {waiting && (
           <>
-            <button type="button" className="btn btn-secondary" style={small} disabled={!!busy}
-              onClick={() => act('resend', 'Sent again with a new link.')}>
-              {busy === 'resend' ? 'Sending…' : 'Send again'}
-            </button>
+            {!byLink && !locked && (
+              <button type="button" className="btn btn-secondary" style={small} disabled={!!busy}
+                onClick={() => act('resend', 'Sent again with a new link.')}>
+                {busy === 'resend' ? 'Sending…' : 'Send again'}
+              </button>
+            )}
             {confirmCancel ? (
               <>
                 <button type="button" style={{ ...small, borderRadius: 6, border: 'none', background: '#EF4444', color: '#fff', fontWeight: 700, cursor: 'pointer' }}
@@ -358,21 +542,36 @@ export function SigningStatus({ request, onChanged }: { request: SigningSummary;
               Signed PDF
             </a>
             <button type="button" className="btn btn-secondary" style={small} disabled={!!busy}
-              onClick={() => act('deliver', 'Signed copy emailed.')}>
-              {busy === 'deliver' ? 'Sending…' : 'Email signed copy again'}
+              onClick={() => act('deliver', request.to_email ? 'Signed copy emailed.' : 'Signed copy emailed to the office.')}>
+              {busy === 'deliver' ? 'Sending…' : request.to_email ? 'Email signed copy again' : 'Email signed copy to office'}
             </button>
           </>
         )}
       </div>
       <div style={{ color: 'var(--text-muted)', marginTop: 4, wordBreak: 'break-word' }}>
-        From {request.from_address}{request.sent_by_name ? `, sent by ${request.sent_by_name}` : ''}.
+        {byLink ? (
+          <>
+            Link created{request.sent_by_name ? ` by ${request.sent_by_name}` : ''} to send yourself; not sent from here.
+            {request.passcode && request.status !== 'voided' && (
+              <> Passcode <span style={{ ...codeText, color: 'var(--text)' }}>{request.passcode}</span>.</>
+            )}
+          </>
+        ) : (
+          <>From {request.from_address}{request.sent_by_name ? `, sent by ${request.sent_by_name}` : ''}.</>
+        )}
         {request.status === 'signed' && request.delivered_at && !request.delivery_error && ` Signed copy emailed ${when(request.delivered_at)}.`}
         {request.status === 'signed' && !request.delivered_at && !request.delivery_error && ' Signed copy is being emailed.'}
       </div>
       {request.status === 'signed' && request.delivery_error && (
-        <div role="alert" style={{ color: '#F87171', marginTop: 4 }}>
-          {request.delivered_at ? request.delivery_error : `The signed copy has not been emailed to the client: ${request.delivery_error}`}
-        </div>
+        request.delivered_at ? (
+          <div style={{ color: 'var(--text-muted)', marginTop: 4 }}>
+            Signed copy emailed {when(request.delivered_at)}. {request.delivery_error}
+          </div>
+        ) : (
+          <div role="alert" style={{ color: '#F87171', marginTop: 4 }}>
+            The signed copy has not been emailed: {request.delivery_error}
+          </div>
+        )
       )}
       {note && <div style={{ color: 'var(--text-muted)', marginTop: 4 }}>{note}</div>}
       {error && <div role="alert" style={{ color: '#F87171', marginTop: 4 }}>{error}</div>}

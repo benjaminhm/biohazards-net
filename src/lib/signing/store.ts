@@ -20,7 +20,7 @@ import {
 } from '@/lib/signing/core'
 import { fillSignSlots } from '@/lib/signing/slots'
 import { renderPdf } from '@/lib/signing/pdf'
-import { sendSignedCopyEmail, sendSigningDeclinedEmail } from '@/lib/signing/email'
+import { sendSignedCopyEmail, sendSignedCopyToOfficeEmail, sendSigningDeclinedEmail } from '@/lib/signing/email'
 
 type ServiceClient = ReturnType<typeof createServiceClient>
 
@@ -43,7 +43,8 @@ export interface SigningRequestRow {
   brand_label: string
   from_address: string
   reply_to: string | null
-  to_email: string
+  /** Null when staff sent the link themselves and gave no email. */
+  to_email: string | null
   to_name: string
   subject: string
   message: string
@@ -66,16 +67,23 @@ export interface SigningRequestRow {
   signed_pdf_path: string | null
   delivered_at: string | null
   delivery_error: string | null
+  /** email = the system emailed the link. link = staff sent the link and passcode themselves. */
+  delivery_method: 'email' | 'link'
+  passcode: string | null
+  passcode_attempts: number
+  passcode_verified_at: string | null
+  passcode_locked_at: string | null
 }
 
 /**
  * What the staff screens get. Leaves out the document HTML, the signature image
  * and the link hash: none are needed to show status, and the first two are big.
+ * The passcode is included so staff can repeat it to the client.
  */
 export const SIGNING_SUMMARY_COLUMNS =
   'id, job_id, document_id, status, document_type, document_title, reference, brand_label, from_address, reply_to, ' +
   'to_email, to_name, subject, message, sent_at, sent_by_name, expires_at, first_viewed_at, signed_at, signer_name, ' +
-  'declined_at, decline_reason, voided_at, delivered_at, delivery_error'
+  'declined_at, decline_reason, voided_at, delivered_at, delivery_error, delivery_method, passcode, passcode_locked_at'
 
 export function documentLine(row: Pick<SigningRequestRow, 'document_title' | 'reference'>): string {
   return `${row.document_title}${row.reference ? ` ${row.reference}` : ''}`
@@ -117,6 +125,8 @@ export function signedCopyHtml(row: SigningRequestRow): string {
       sentByName: row.sent_by_name,
       toName: row.to_name,
       toEmail: row.to_email,
+      deliveryMethod: row.delivery_method === 'link' ? 'link' : 'email',
+      passcodeVerifiedAt: row.passcode_verified_at,
       signerName: row.signer_name!,
       signatureMethod: row.signature_method ?? 'drawn',
       signaturePng: row.signature_png!,
@@ -163,10 +173,12 @@ export async function ensureSignedPdf(supabase: ServiceClient, row: SigningReque
 }
 
 /**
- * Email the signed copy to the client, with the brand inbox on BCC. If the PDF
- * cannot be made, the email still goes with a download link when there is one,
- * so the client is never left with nothing. The outcome is written on the row
- * so staff can see a copy that did not go and send it again.
+ * Email the signed copy to the client, with the brand inbox on BCC. With no
+ * client email on the request (a link sent by text), it goes to the office
+ * inbox to pass on. If the PDF cannot be made, the email still goes with a
+ * download link when there is one, so nobody is left with nothing. The outcome
+ * is written on the row so staff can see a copy that did not go and send it
+ * again.
  */
 export async function deliverSignedCopy(
   supabase: ServiceClient,
@@ -192,29 +204,49 @@ export async function deliverSignedCopy(
 
   if (!pdf && !downloadUrl) return fail(`Signed PDF could not be made: ${pdfError}`)
 
+  const office = row.reply_to || process.env.NOTIFY_EMAIL || null
+  const notes: string[] = []
   try {
-    await sendSignedCopyEmail({
-      from: row.from_address,
-      replyTo: row.reply_to,
-      to: row.to_email,
-      bcc: row.reply_to || process.env.NOTIFY_EMAIL || null,
-      toName: row.signer_name || row.to_name,
-      brandLabel: row.brand_label,
-      documentLine: documentLine(row),
-      pdf,
-      pdfFilename: signedPdfFilename(row),
-      downloadUrl,
-    })
+    if (row.to_email) {
+      const sent = await sendSignedCopyEmail({
+        from: row.from_address,
+        replyTo: row.reply_to,
+        to: row.to_email,
+        bcc: office,
+        toName: row.signer_name || row.to_name,
+        brandLabel: row.brand_label,
+        documentLine: documentLine(row),
+        pdf,
+        pdfFilename: signedPdfFilename(row),
+        downloadUrl,
+      })
+      if (sent.usedSharedAddress) {
+        notes.push(`Sent under the ${row.brand_label} name from the shared address, because the brand address was refused.`)
+      }
+    } else {
+      if (!office) return fail('There is no client email on this request and no office inbox set to send the signed copy to.')
+      await sendSignedCopyToOfficeEmail({
+        to: office,
+        brandLabel: row.brand_label,
+        jobId: row.job_id,
+        documentLine: documentLine(row),
+        signerName: row.signer_name || row.to_name,
+        pdf,
+        pdfFilename: signedPdfFilename(row),
+      })
+      notes.push(`No client email was given, so the signed copy went to ${office} to pass on.`)
+    }
   } catch (err) {
     console.error('[signing] signed copy email failed', row.id, err)
     return fail(err instanceof Error ? err.message : 'Email could not be sent')
   }
 
+  if (!pdf) notes.push(`The PDF could not be attached (${pdfError}); a download link was sent instead.`)
   await supabase
     .from('signing_requests')
     .update({
       delivered_at: new Date().toISOString(),
-      delivery_error: pdf ? null : `Sent with a download link; the PDF could not be attached: ${pdfError}`.slice(0, 500),
+      delivery_error: notes.length ? notes.join(' ').slice(0, 500) : null,
       updated_at: new Date().toISOString(),
     })
     .eq('id', row.id)
@@ -247,7 +279,7 @@ export async function recordAcceptance(
       job_id: row.job_id,
       document_id: row.document_id,
       contact_name: row.signer_name || row.to_name,
-      contact_email: row.to_email,
+      contact_email: row.to_email ?? '',
       quote_total: row.quote_total,
       quote_reference: row.reference || row.document_title,
       terms_version: 'e-signature',
@@ -266,7 +298,7 @@ export async function recordAcceptance(
       .update({
         status: 'accepted',
         updated_at: new Date().toISOString(),
-        ...(!(job.client_email as string | null)?.trim() ? { client_email: row.to_email } : {}),
+        ...(row.to_email && !(job.client_email as string | null)?.trim() ? { client_email: row.to_email } : {}),
       })
       .eq('id', row.job_id)
   }
@@ -297,7 +329,7 @@ export async function afterSigned(
       jobType: info.jobType,
       reference,
       total: row.quote_total ?? 0,
-      contactEmail: row.to_email,
+      contactEmail: row.to_email ?? undefined,
     })
   } catch (err) {
     console.error('[signing] staff email failed', row.id, err)
@@ -316,7 +348,7 @@ export async function afterSigned(
       await twilio(sid, authToken).messages.create({
         from: fromNum,
         to,
-        body: `Quote signed: ${clientName} (${row.to_email}) — ${reference}${money}${info.siteAddress ? ` — ${info.siteAddress}` : ''}.`,
+        body: `Quote signed: ${clientName}${row.to_email ? ` (${row.to_email})` : ''} — ${reference}${money}${info.siteAddress ? ` — ${info.siteAddress}` : ''}.`,
       })
     } catch (err) {
       console.error('[signing] staff sms failed', row.id, err)

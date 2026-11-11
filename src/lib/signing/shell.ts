@@ -477,7 +477,10 @@ export interface SigningShellData {
   documentTitle: string
   reference: string | null
   toName: string
-  toEmail: string
+  /** Null when the link was sent by text and no email was given. */
+  toEmail: string | null
+  /** Where this client downloads the signed copy (differs by host). */
+  pdfUrl: string
   /** Today's date as it will be written in the Date field. The server sets the real one. */
   dateLabel: string
   consented: boolean
@@ -486,7 +489,8 @@ export interface SigningShellData {
 /** Everything added to the document page while it is waiting to be signed. */
 export function signingShellHtml(d: SigningShellData): string {
   const docLine = `${d.documentTitle}${d.reference ? ` ${d.reference}` : ''}`
-  const pdfUrl = `/api/sign/${encodeURIComponent(d.token)}/pdf`
+  const pdfUrl = d.pdfUrl
+  const who = `${d.toName}${d.toEmail ? ` (${d.toEmail})` : ''}`
   return `
   <div id="sg-root">
     <style>${SHELL_CSS}</style>
@@ -506,9 +510,9 @@ export function signingShellHtml(d: SigningShellData): string {
         <h2 id="sg-consent-h">Please review and sign</h2>
         <div class="sg-facts">
           <div><span>Document:</span> ${esc(docLine)}</div>
-          <div><span>For:</span> ${esc(d.toName)} (${esc(d.toEmail)})</div>
+          <div><span>For:</span> ${esc(who)}</div>
         </div>
-        <p>Read the document, then sign at the end. It takes about a minute, and a signed copy is emailed to you straight away.</p>
+        <p>Read the document, then sign at the end. It takes about a minute, and ${d.toEmail ? 'a signed copy is emailed to you straight away' : 'you can download your signed copy straight away'}.</p>
         <label class="sg-check">
           <input type="checkbox" id="sg-agree">
           <span>I agree to sign this document electronically, and that my electronic signature has the same effect as signing on paper.</span>
@@ -564,7 +568,9 @@ export function signingShellHtml(d: SigningShellData): string {
       <div class="sg-card">
         <div class="sg-eyebrow">${esc(d.brandLabel)}</div>
         <h2 id="sg-done-h">Signed. Thank you.</h2>
-        <p>Your signed copy of ${esc(docLine)} is being emailed to ${esc(d.toEmail)}. You can also download it now.</p>
+        <p>${d.toEmail
+          ? `Your signed copy of ${esc(docLine)} is being emailed to ${esc(d.toEmail)}. You can also download it now.`
+          : `Download your signed copy of ${esc(docLine)} now and keep it for your records.`}</p>
         <div class="sg-actions">
           <a class="sg-btn" href="${esc(pdfUrl)}" style="text-decoration:none;display:inline-block">Download signed copy</a>
         </div>
@@ -593,7 +599,7 @@ export function signingShellHtml(d: SigningShellData): string {
 
 /** Bar shown above a document that has already been signed from this link. */
 export function signedBannerHtml(d: {
-  token: string
+  pdfUrl: string
   brandLabel: string
   documentTitle: string
   reference: string | null
@@ -609,10 +615,89 @@ export function signedBannerHtml(d: {
         <div class="sg-brand">${esc(d.brandLabel)} · Signed</div>
         <div class="sg-title">${esc(docLine)} — signed by ${esc(d.signerName)}, ${esc(d.signedAtLabel)}</div>
       </div>
-      <a class="sg-btn" href="/api/sign/${encodeURIComponent(d.token)}/pdf" style="text-decoration:none">Download signed copy</a>
+      <a class="sg-btn" href="${esc(d.pdfUrl)}" style="text-decoration:none">Download signed copy</a>
     </div>
     <script>${FIT_SCRIPT}</script>
   </div>`
+}
+
+// No backticks or dollar-braces in here either (see SHELL_SCRIPT).
+const GATE_SCRIPT = String.raw`
+(function () {
+  var cfg = JSON.parse(document.getElementById('pg-config').textContent);
+  var form = document.getElementById('pg-form');
+  var input = document.getElementById('pg-code');
+  var button = document.getElementById('pg-open');
+  var msg = document.getElementById('pg-msg');
+  function clean() { return input.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+  input.addEventListener('input', function () {
+    input.value = clean().slice(0, cfg.length);
+    button.disabled = input.value.length < cfg.length;
+  });
+  form.addEventListener('submit', function (event) {
+    event.preventDefault();
+    if (clean().length < cfg.length || button.disabled) return;
+    button.disabled = true;
+    msg.textContent = '';
+    fetch('/api/sign/' + cfg.token, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'unlock', code: clean() })
+    }).then(function (res) {
+      return res.json().catch(function () { return {}; }).then(function (data) { return { ok: res.ok, data: data }; });
+    }).then(function (result) {
+      if (result.ok) { window.location.reload(); return; }
+      msg.textContent = (result.data && result.data.error) || 'That did not work. Please try again.';
+      if (result.data && result.data.locked) {
+        input.disabled = true;
+        return;
+      }
+      input.value = '';
+      input.focus();
+    }).catch(function () {
+      msg.textContent = 'Could not check the passcode. Check your connection and try again.';
+      button.disabled = false;
+    });
+  });
+  input.focus();
+})();
+`
+
+/**
+ * Shown before the document when the link has a passcode. Says nothing about
+ * the document or the client: someone holding only the link learns the brand
+ * name and no more.
+ */
+export function passcodeGatePage(d: { token: string; brandLabel: string; length: number }): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>${esc(d.brandLabel)}</title>
+</head>
+<body style="margin:0;background:#d6e2f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#111">
+  <div style="max-width:420px;margin:12vh auto 0;padding:0 16px">
+    <form id="pg-form" autocomplete="off" style="background:#fff;border-radius:14px;padding:28px 24px;box-shadow:0 8px 40px rgba(0,0,0,0.12)">
+      <div style="font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#FF6B35;margin-bottom:6px">${esc(d.brandLabel)}</div>
+      <h1 style="font-size:20px;margin:0 0 8px">Enter your passcode</h1>
+      <p style="font-size:15px;line-height:1.5;color:#333;margin:0 0 18px">
+        <label for="pg-code">To open your document, enter the ${d.length}-character passcode you were given with this link.</label>
+      </p>
+      <input id="pg-code" name="code" type="text" inputmode="text" autocapitalize="characters" autocorrect="off" spellcheck="false" autocomplete="off" maxlength="${d.length}"
+        style="display:block;width:100%;box-sizing:border-box;padding:14px 12px;border:1px solid #98a2b3;border-radius:10px;font:700 28px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:0.4em;text-align:center;text-transform:uppercase;color:#111;background:#fff">
+      <div id="pg-msg" role="alert" style="color:#b91c1c;font-size:14px;line-height:1.45;min-height:20px;margin:10px 0 8px"></div>
+      <button id="pg-open" type="submit" disabled
+        style="display:block;width:100%;border:none;border-radius:10px;padding:14px;font:700 16px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#FF6B35;color:#fff;cursor:pointer">Open document</button>
+      <p style="font-size:12px;color:#666;line-height:1.5;margin:14px 0 0">No passcode? Contact ${esc(d.brandLabel)} and we will send it to you.</p>
+    </form>
+  </div>
+  <style>#pg-open:disabled { opacity: 0.5; cursor: default; }</style>
+  <script type="application/json" id="pg-config">${scriptJson({ token: d.token, length: d.length })}</script>
+  <script>${GATE_SCRIPT}</script>
+</body>
+</html>`
 }
 
 /** A plain page for links that can no longer be used. */

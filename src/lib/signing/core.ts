@@ -7,7 +7,8 @@
  *
  * Server only (Node crypto). The signature fields themselves live in slots.ts.
  */
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto'
+import { isSigningTokenShape } from '@/lib/signing/hostShape'
 import { tradingNameOption } from '@/lib/tradingNames'
 import type { TradingNameId } from '@/lib/tradingNames'
 
@@ -31,9 +32,7 @@ export function newSigningToken(): { token: string; hash: string } {
   return { token, hash: sha256Hex(token) }
 }
 
-export function isSigningTokenShape(token: string): boolean {
-  return /^[A-Za-z0-9_-]{43}$/.test(token)
-}
+export { isSigningTokenShape }
 
 /** Hash of a token from a link, or null when it is not even the right shape. */
 export function hashSigningTokenSafe(token: string): string | null {
@@ -45,15 +44,123 @@ export function signingExpiry(from: Date): Date {
 }
 
 /** What the client's link can do right now. */
-export type LinkState = 'open' | 'signed' | 'declined' | 'voided' | 'expired'
+export type LinkState = 'open' | 'signed' | 'declined' | 'voided' | 'expired' | 'locked'
 
-export function linkState(row: { status: string; expires_at: string }, now: Date): LinkState {
+export function linkState(
+  row: { status: string; expires_at: string; passcode_locked_at?: string | null },
+  now: Date,
+): LinkState {
+  if (row.status === 'voided') return 'voided'
+  // Too many wrong passcodes shuts the link whatever else is true of it.
+  if (row.passcode_locked_at) return 'locked'
   if (row.status === 'signed') return 'signed'
   if (row.status === 'declined') return 'declined'
-  if (row.status === 'voided') return 'voided'
   const expires = new Date(row.expires_at).getTime()
   if (Number.isNaN(expires) || expires <= now.getTime()) return 'expired'
   return 'open'
+}
+
+// ── Passcode for links staff send themselves ────────────────────────────────
+
+/*
+ * Letters and digits that cannot be mistaken for each other when read off a
+ * text message or said over the phone (no 0/O, 1/I/L), and no vowels, so a
+ * code never spells a word. 28 characters, 4 long: about 600,000 codes, with
+ * five tries allowed and the private link needed before any try counts.
+ */
+export const PASSCODE_ALPHABET = 'BCDFGHJKMNPQRSTVWXYZ23456789'
+export const PASSCODE_LENGTH = 4
+export const PASSCODE_MAX_ATTEMPTS = 5
+/** How long a browser stays let in after the right passcode. */
+export const UNLOCK_SECONDS = 12 * 60 * 60
+
+export function newPasscode(): string {
+  let code = ''
+  for (let i = 0; i < PASSCODE_LENGTH; i++) code += PASSCODE_ALPHABET[randomInt(PASSCODE_ALPHABET.length)]
+  return code
+}
+
+/** What the client typed, as it is compared: upper case, no spaces or dashes. */
+export function normalizePasscode(value: unknown): string {
+  if (typeof value !== 'string') return ''
+  return value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16)
+}
+
+function sameText(a: string, b: string): boolean {
+  return timingSafeEqual(Buffer.from(sha256Hex(a), 'hex'), Buffer.from(sha256Hex(b), 'hex'))
+}
+
+export type PasscodeResult =
+  | { ok: true; patch: { passcode_attempts: number; passcode_verified_at: string } }
+  | { ok: false; locked: boolean; triesLeft: number; patch: { passcode_attempts: number; passcode_locked_at?: string } }
+
+/**
+ * Judge one passcode try and say what to write back. A right code clears the
+ * count; the fifth wrong one in a row locks the link.
+ */
+export function passcodeAttempt(
+  row: { passcode: string; passcode_attempts: number; passcode_verified_at: string | null },
+  entered: unknown,
+  now: Date,
+): PasscodeResult {
+  if (sameText(normalizePasscode(entered), row.passcode)) {
+    return { ok: true, patch: { passcode_attempts: 0, passcode_verified_at: row.passcode_verified_at ?? now.toISOString() } }
+  }
+  const attempts = row.passcode_attempts + 1
+  const locked = attempts >= PASSCODE_MAX_ATTEMPTS
+  return {
+    ok: false,
+    locked,
+    triesLeft: Math.max(0, PASSCODE_MAX_ATTEMPTS - attempts),
+    patch: { passcode_attempts: attempts, ...(locked ? { passcode_locked_at: now.toISOString() } : {}) },
+  }
+}
+
+/** Cookie that remembers this browser entered the right passcode for this link. */
+export function unlockCookieName(token: string): string {
+  return `bh_doc_${sha256Hex(token).slice(0, 16)}`
+}
+
+/** Cannot be worked out from the link alone: it needs the passcode too. */
+export function unlockCookieValue(token: string, passcode: string): string {
+  return sha256Hex(`unlock:${token}:${passcode}`)
+}
+
+/** True when the link has no passcode, or this browser has already entered it. */
+export function isUnlocked(cookieHeader: string | null, token: string, passcode: string | null): boolean {
+  if (!passcode) return true
+  const name = unlockCookieName(token)
+  for (const part of (cookieHeader ?? '').split(';')) {
+    const at = part.indexOf('=')
+    if (at < 0 || part.slice(0, at).trim() !== name) continue
+    if (sameText(part.slice(at + 1).trim(), unlockCookieValue(token, passcode))) return true
+  }
+  return false
+}
+
+// ── Where the client's link points ───────────────────────────────────────────
+
+export interface SigningLinks {
+  /** The page the client opens. */
+  page: string
+  /** Their signed copy, once signed. */
+  pdf: string
+  host: string
+}
+
+/**
+ * On a brand's document host the address is just the private code, with no
+ * "sign" in it; otherwise the link is on the app address.
+ */
+export function buildSigningLinks(token: string, appUrl: string, documentHost: string | null): SigningLinks {
+  if (documentHost) {
+    const base = `https://${documentHost}`
+    return { page: `${base}/${token}`, pdf: `${base}/${token}/pdf`, host: documentHost }
+  }
+  const base = appUrl.replace(/\/+$/, '')
+  let host = base
+  try { host = new URL(base).host } catch { /* keep as written */ }
+  return { page: `${base}/sign/${token}`, pdf: `${base}/api/sign/${token}/pdf`, host }
 }
 
 export function isEmail(value: string): boolean {
@@ -128,7 +235,7 @@ export function defaultMessage(data: {
   return [
     `Hi ${first},`,
     '',
-    `Please find our ${data.title.toLowerCase()}${site ? ` for ${site}` : ''}.`,
+    `Please find our quote${site ? ` for ${site}` : ''}: ${data.title}.`,
     '',
     'You can read it and sign online using the button below. Once you have signed, a copy is emailed to you for your records.',
     '',
@@ -137,6 +244,32 @@ export function defaultMessage(data: {
     'Kind regards,',
     ...(data.staffFirstName.trim() ? [data.staffFirstName.trim()] : []),
     data.brandLabel,
+  ].join('\n')
+}
+
+/**
+ * The message staff copy into their own text or email when they send the link
+ * themselves. Fixed wording, short enough for a text; they can edit it before
+ * sending.
+ */
+export function linkMessage(data: {
+  clientName: string
+  siteAddress: string | null
+  staffFirstName: string
+  brandLabel: string
+  link: string
+  passcode: string
+}): string {
+  const first = data.clientName.trim().split(/\s+/)[0] || 'there'
+  const site = data.siteAddress?.trim()
+  return [
+    `Hi ${first}, here is your quote from ${data.brandLabel}${site ? ` for ${site}` : ''} to review and sign:`,
+    data.link,
+    '',
+    `Passcode: ${data.passcode}`,
+    '',
+    'Kind regards,',
+    data.staffFirstName.trim() || data.brandLabel,
   ].join('\n')
 }
 
@@ -221,7 +354,11 @@ export interface DocketData {
   fromAddress: string
   sentByName: string | null
   toName: string
-  toEmail: string
+  /** Null when the link went by text and no email was given. */
+  toEmail: string | null
+  /** email = the system emailed the link. link = staff sent the link and passcode themselves. */
+  deliveryMethod: 'email' | 'link'
+  passcodeVerifiedAt: string | null
   signerName: string
   signatureMethod: 'drawn' | 'typed'
   signaturePng: string
@@ -243,6 +380,25 @@ export function docketHtml(d: DocketData): string {
     `<tr><th>${esc(label)}</th><td>${value}</td></tr>`
   const text = (value: string | null | undefined) => esc((value ?? '').trim() || '—')
   const how = d.signatureMethod === 'typed' ? 'Typed and adopted by the signer' : 'Drawn by the signer'
+  const byStaff = d.deliveryMethod === 'link'
+  const staff = text(d.sentByName ? `${d.sentByName}, ${d.brandLabel}` : d.brandLabel)
+  // The docket only claims what the system saw. A link staff sent themselves
+  // was not delivered by the system, so it does not say where it was sent.
+  const sentRows = byStaff
+    ? [
+        row('Prepared by', staff),
+        row('Given to the signer', 'Private link and passcode, sent to the signer by staff'),
+        row('Link created', esc(docketTime(d.sentAt))),
+      ]
+    : [
+        row('Sent by', staff),
+        row('Sent from', text(d.fromAddress)),
+        row('Sent to', text(`${d.toName} <${d.toEmail ?? ''}>`)),
+        row('Sent', esc(docketTime(d.sentAt))),
+      ]
+  const identity = byStaff
+    ? 'Private link, opened with a passcode entered by the signer'
+    : 'Private signing link emailed to the address above'
   return `
   <section class="sign-docket">
     <style>
@@ -285,23 +441,21 @@ export function docketHtml(d: DocketData): string {
 
     <h3>Sent</h3>
     <table>
-      ${row('Sent by', text(d.sentByName ? `${d.sentByName}, ${d.brandLabel}` : d.brandLabel))}
-      ${row('Sent from', text(d.fromAddress))}
-      ${row('Sent to', text(`${d.toName} <${d.toEmail}>`))}
-      ${row('Sent', esc(docketTime(d.sentAt)))}
+      ${sentRows.join('\n      ')}
     </table>
 
     <h3>Signer</h3>
     <table>
       ${row('Name', text(d.signerName))}
       ${row('Email', text(d.toEmail))}
-      ${row('Identity check', 'Private signing link emailed to the address above')}
+      ${row('Identity check', identity)}
       ${row('Signature', `<div class="sd-sig"><img src="${esc(d.signaturePng)}" alt="Signature"></div>`)}
       ${row('Signature type', esc(how))}
     </table>
 
     <h3>Trail</h3>
     <table>
+      ${byStaff ? row('Passcode entered', esc(docketTime(d.passcodeVerifiedAt))) : ''}
       ${row('Document opened', esc(docketTime(d.firstViewedAt)))}
       ${row('Agreed to sign electronically', esc(docketTime(d.consentedAt)))}
       ${row('Signed', esc(docketTime(d.signedAt)))}

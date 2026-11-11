@@ -1,12 +1,14 @@
 /*
  * POST /api/sign/[token] — what the client's signing page reports.
  *
+ *   { action: 'unlock', code }   the passcode for a link staff sent themselves
  *   { action: 'view' }      the document was opened in a browser
  *   { action: 'consent' }   they agreed to sign electronically
  *   { action: 'sign', name, signature, method, agreed }
  *   { action: 'decline', reason }
  *
- * Public: the token in the path is the credential. Everything the page sends is
+ * Public: the token in the path is the credential, plus the passcode where the
+ * link has one (five wrong tries locks the link). Everything the page sends is
  * checked again here, the date is set by the server, and a document can be
  * signed once only (the update is conditional on it still being open).
  *
@@ -18,12 +20,18 @@ import { after, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import {
   DECLINE_REASON_MAX,
+  UNLOCK_SECONDS,
   cleanSignerName,
+  isUnlocked,
   linkState,
+  passcodeAttempt,
   signaturePngError,
   signedDateLabel,
   signerNameError,
+  unlockCookieName,
+  unlockCookieValue,
 } from '@/lib/signing/core'
+import { signingLinks } from '@/lib/signing/links'
 import { afterDeclined, afterSigned, findSigningRequestByToken, recordAcceptance } from '@/lib/signing/store'
 import type { SigningRequestRow } from '@/lib/signing/store'
 
@@ -31,11 +39,14 @@ export const maxDuration = 60
 
 const MAX_BODY_CHARS = 700_000
 
+const LOCKED_MESSAGE = 'The wrong passcode was entered too many times, so this link has been locked. Please contact us for a new link.'
+
 const CLOSED_MESSAGE: Record<string, string> = {
   signed: 'This document has already been signed.',
   declined: 'This document was declined and can no longer be signed.',
-  voided: 'This link is no longer in use. Please reply to the email you received for a new one.',
-  expired: 'This link has expired. Please reply to the email you received for a new one.',
+  voided: 'This link is no longer in use. Please contact us for a new one.',
+  expired: 'This link has expired. Please contact us for a new one.',
+  locked: LOCKED_MESSAGE,
 }
 
 export async function POST(req: Request, { params }: { params: Promise<{ token: string }> }) {
@@ -58,8 +69,56 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
   const now = new Date()
   const nowIso = now.toISOString()
   const state = linkState(row, now)
+
+  if (action === 'unlock') {
+    if (state === 'voided' || state === 'expired') {
+      return NextResponse.json({ error: CLOSED_MESSAGE[state] }, { status: 409 })
+    }
+    if (state === 'locked') return NextResponse.json({ error: LOCKED_MESSAGE, locked: true }, { status: 423 })
+    if (!row.passcode) return NextResponse.json({ ok: true })
+
+    const result = passcodeAttempt(
+      { passcode: row.passcode, passcode_attempts: row.passcode_attempts, passcode_verified_at: row.passcode_verified_at },
+      body.code,
+      now,
+    )
+    // Only counts if nobody else's try landed in between, so tries cannot be
+    // raced past the limit.
+    const { data: saved, error } = await supabase
+      .from('signing_requests')
+      .update({ ...result.patch, updated_at: nowIso })
+      .eq('id', row.id)
+      .eq('passcode_attempts', row.passcode_attempts)
+      .is('passcode_locked_at', null)
+      .select('id')
+      .maybeSingle()
+    if (error || !saved) {
+      return NextResponse.json({ error: 'Could not check the passcode. Please try again.' }, { status: 409 })
+    }
+    if (!result.ok) {
+      if (result.locked) return NextResponse.json({ error: LOCKED_MESSAGE, locked: true }, { status: 423 })
+      const left = result.triesLeft
+      return NextResponse.json(
+        { error: `That passcode is not right. ${left} ${left === 1 ? 'try' : 'tries'} left.` },
+        { status: 401 },
+      )
+    }
+    const res = NextResponse.json({ ok: true })
+    res.cookies.set(unlockCookieName(token), unlockCookieValue(token, row.passcode), {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      path: '/',
+      maxAge: UNLOCK_SECONDS,
+    })
+    return res
+  }
+
   if (state !== 'open') {
-    return NextResponse.json({ error: CLOSED_MESSAGE[state] ?? 'This link can no longer be used.' }, { status: 409 })
+    return NextResponse.json({ error: CLOSED_MESSAGE[state] ?? 'This link can no longer be used.' }, { status: state === 'locked' ? 423 : 409 })
+  }
+  if (!isUnlocked(req.headers.get('cookie'), token, row.passcode)) {
+    return NextResponse.json({ error: 'Please enter your passcode first. Reload this page to do that.' }, { status: 401 })
   }
 
   if (action === 'view') {
@@ -129,8 +188,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
     if (!signed) return NextResponse.json({ error: CLOSED_MESSAGE.signed }, { status: 409 })
 
     const info = await recordAcceptance(supabase, signed)
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.biohazards.net'
-    after(() => afterSigned(supabase, signed, info, `${appUrl}/api/sign/${token}/pdf`))
+    const links = await signingLinks(signed.trading_name, token)
+    after(() => afterSigned(supabase, signed, info, links.pdf))
 
     return NextResponse.json({ ok: true, dateLabel: signedDateLabel(nowIso) })
   }

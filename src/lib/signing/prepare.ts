@@ -31,6 +31,7 @@ export interface PreparedSigning {
   reference: string | null
   total: number | null
   tradingName: TradingNameId | null
+  siteAddress: string | null
   /** Null when the job has no trading name yet. */
   sender: ResolvedSender | null
   frozenHtml: string
@@ -131,6 +132,7 @@ export async function prepareSigning(
     reference,
     total,
     tradingName,
+    siteAddress: ((job.site_address as string | null) ?? '').trim() || null,
     sender,
     frozenHtml,
     blockers,

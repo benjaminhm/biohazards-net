@@ -2,8 +2,10 @@
  * POST /api/signing/[id] — staff actions on one signing request.
  *
  *   { action: 'void' }     cancel a request the client has not signed; the link stops working
- *   { action: 'resend' }   email the same message again with a fresh link (the old link stops working)
- *   { action: 'deliver' }  email the signed copy again (e.g. after a failed delivery)
+ *   { action: 'resend' }   email the same message again with a fresh link (the old link stops working);
+ *                          only for requests the system emailed
+ *   { action: 'deliver' }  email the signed copy again (e.g. after a failed delivery); with no
+ *                          client email on the request it goes to the office inbox
  *
  * Full-access staff only, and only for requests in their own organisation.
  */
@@ -13,6 +15,7 @@ import { newSigningToken, signedDateLabel, signingExpiry } from '@/lib/signing/c
 import { SIGNING_SUMMARY_COLUMNS, deliverSignedCopy, documentLine } from '@/lib/signing/store'
 import type { SigningRequestRow } from '@/lib/signing/store'
 import { sendSigningInviteEmail } from '@/lib/signing/email'
+import { signingLinks } from '@/lib/signing/links'
 
 export const maxDuration = 60
 
@@ -54,6 +57,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   if (action === 'resend') {
     if (!waiting) return NextResponse.json({ error: 'Only a request that is still waiting can be sent again.' }, { status: 409 })
+    if (row.delivery_method === 'link' || !row.to_email) {
+      return NextResponse.json({ error: 'This one was a link you sent yourself. Create a new link instead.' }, { status: 409 })
+    }
     // Only the hash of a link is kept, so sending again means a new link.
     const { token, hash } = newSigningToken()
     const expiresAt = signingExpiry(now)
@@ -63,7 +69,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       .eq('id', id)
       .in('status', ['sent', 'viewed'])
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.biohazards.net'
+    const links = await signingLinks(row.trading_name, token)
     try {
       await sendSigningInviteEmail({
         from: row.from_address,
@@ -73,7 +79,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         message: row.message,
         brandLabel: row.brand_label,
         documentLine: documentLine(row),
-        signUrl: `${appUrl}/sign/${token}`,
+        signUrl: links.page,
         expiresLabel: signedDateLabel(expiresAt.toISOString()),
       })
     } catch (err) {

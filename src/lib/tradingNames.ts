@@ -39,6 +39,13 @@ export interface TradingNameOption {
    * (e.g. photo.forensiccleaningqld.com.au).
    */
   photoHost?: string
+  /**
+   * Host where clients open a document they have been sent to view or sign
+   * (e.g. document.forensiccleaningqld.com.au/<private code>). Only those
+   * pages are reachable on it. Links fall back to the app address until the
+   * host is connected in Vercel and DNS (lib/signing/links.ts checks).
+   */
+  documentHost?: string
 }
 
 /** Default reply-to on Authorisation to Proceed when Settings email is empty. */
@@ -61,6 +68,7 @@ export const TRADING_NAME_OPTIONS: TradingNameOption[] = [
     useWordmark: true,
     accountsHost: 'accounts.forensiccleaningqld.com.au',
     photoHost: 'photo.forensiccleaningqld.com.au',
+    documentHost: 'document.forensiccleaningqld.com.au',
   },
   {
     id: 'hoarding_cleaning_qld',
@@ -89,6 +97,14 @@ export function accountsHostTradingName(host: string | null | undefined): Tradin
   const normalised = (host ?? '').split(':')[0].trim().toLowerCase()
   if (!normalised) return null
   const match = TRADING_NAME_OPTIONS.find(o => o.accountsHost?.toLowerCase() === normalised)
+  return match?.id ?? null
+}
+
+/** Map a request host to the trading brand whose client document links it serves. */
+export function documentHostTradingName(host: string | null | undefined): TradingNameId | null {
+  const normalised = (host ?? '').split(':')[0].trim().toLowerCase()
+  if (!normalised) return null
+  const match = TRADING_NAME_OPTIONS.find(o => o.documentHost?.toLowerCase() === normalised)
   return match?.id ?? null
 }
 

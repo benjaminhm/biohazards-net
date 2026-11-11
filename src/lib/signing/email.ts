@@ -131,7 +131,14 @@ export interface SignedCopyEmail {
   downloadUrl: string | null
 }
 
-export async function sendSignedCopyEmail(data: SignedCopyEmail): Promise<void> {
+/**
+ * The signed copy is the client's record, so it must not be lost to a sending
+ * problem. If the brand's own address is refused (its domain is not verified
+ * with the mail provider), it is sent once more under the same brand name from
+ * the shared address, with replies still going to the brand inbox. The
+ * invitation never does this: there a person approved the From line they saw.
+ */
+export async function sendSignedCopyEmail(data: SignedCopyEmail): Promise<{ usedSharedAddress: boolean }> {
   const first = data.toName.trim().split(/\s+/)[0] || 'there'
   const where = data.pdf
     ? 'Your signed copy is attached to this email as a PDF. The last page is the signature docket, which records when and how it was signed.'
@@ -161,14 +168,65 @@ export async function sendSignedCopyEmail(data: SignedCopyEmail): Promise<void> 
     data.brandLabel,
   ].join('\n')
 
-  await send({
-    from: data.from,
+  const payload = {
     to: data.to,
     subject: `Signed: ${data.documentLine}`,
     html,
     text,
     ...(data.replyTo ? { replyTo: data.replyTo } : {}),
     ...(data.bcc && data.bcc.toLowerCase() !== data.to.toLowerCase() ? { bcc: data.bcc } : {}),
+    ...(data.pdf ? { attachments: [{ filename: data.pdfFilename, content: data.pdf }] } : {}),
+  }
+  try {
+    await send({ from: data.from, ...payload })
+    return { usedSharedAddress: false }
+  } catch (err) {
+    const shared = `${data.brandLabel} <${sharedAddress()}>`
+    if (shared === data.from) throw err
+    console.error('[signing] brand address refused, using the shared address', err)
+    await send({ from: shared, ...payload })
+    return { usedSharedAddress: true }
+  }
+}
+
+function sharedAddress(): string {
+  return process.env.RESEND_FROM_ACCOUNTS || process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev'
+}
+
+/**
+ * Internal: the signed copy for the office to pass on, when the link was sent
+ * by text and there is no client email to send it to. Not sent to the client.
+ */
+export async function sendSignedCopyToOfficeEmail(data: {
+  to: string
+  brandLabel: string
+  jobId: string
+  documentLine: string
+  signerName: string
+  pdf: Buffer | null
+  pdfFilename: string
+}): Promise<void> {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.biohazards.net'
+  const where = data.pdf
+    ? 'The signed copy is attached. No client email was given when the link was created, so it has not been emailed to them.'
+    : 'No client email was given when the link was created, so the signed copy has not been emailed to them. The PDF could not be attached; download it from the quote in Documents.'
+  const html = shell(
+    data.brandLabel,
+    'Quote signed',
+    `
+      <p style="font-size: 15px; color: #333; line-height: 1.6; margin: 0 0 16px;">
+        ${esc(data.signerName)} signed <strong>${esc(data.documentLine)}</strong>.
+      </p>
+      <p style="font-size: 15px; color: #333; line-height: 1.6; margin: 0 0 24px;">${esc(where)}</p>
+      ${button(`${appUrl}/jobs/${data.jobId}`, 'Open job')}
+    `,
+  )
+  await send({
+    from: `biohazards.net <${sharedAddress()}>`,
+    to: data.to,
+    subject: `Signed: ${data.documentLine} — ${data.signerName}`,
+    html,
+    text: `${data.signerName} signed ${data.documentLine}.\n\n${where}\n\n${appUrl}/jobs/${data.jobId}`,
     ...(data.pdf ? { attachments: [{ filename: data.pdfFilename, content: data.pdf }] } : {}),
   })
 }
@@ -180,18 +238,19 @@ export async function sendSigningDeclinedEmail(data: {
   jobId: string
   documentLine: string
   clientName: string
-  clientEmail: string
+  clientEmail: string | null
   reason: string | null
 }): Promise<void> {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.biohazards.net'
-  const fromEmail = process.env.RESEND_FROM_ACCOUNTS || process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev'
+  const fromEmail = sharedAddress()
   const reason = data.reason?.trim() || 'No reason given.'
+  const who = `${data.clientName}${data.clientEmail ? ` (${data.clientEmail})` : ''}`
   const html = shell(
     data.brandLabel,
     'Quote declined',
     `
       <p style="font-size: 15px; color: #333; line-height: 1.6; margin: 0 0 16px;">
-        ${esc(data.clientName)} (${esc(data.clientEmail)}) declined to sign <strong>${esc(data.documentLine)}</strong>.
+        ${esc(who)} declined to sign <strong>${esc(data.documentLine)}</strong>.
       </p>
       <div style="background: #f9f9f9; border-radius: 10px; padding: 16px 20px; margin-bottom: 24px; font-size: 14px; color: #333; line-height: 1.6; white-space: pre-wrap;">${esc(reason)}</div>
       ${button(`${appUrl}/jobs/${data.jobId}`, 'Open job')}
@@ -202,6 +261,6 @@ export async function sendSigningDeclinedEmail(data: {
     to: data.to,
     subject: `Quote declined — ${data.clientName} — ${data.documentLine}`,
     html,
-    text: `${data.clientName} (${data.clientEmail}) declined to sign ${data.documentLine}.\n\n${reason}\n\n${appUrl}/jobs/${data.jobId}`,
+    text: `${who} declined to sign ${data.documentLine}.\n\n${reason}\n\n${appUrl}/jobs/${data.jobId}`,
   })
 }
