@@ -59,6 +59,7 @@ export const TRADING_NAME_OPTIONS: TradingNameOption[] = [
     short: 'BCQ',
     // Letterhead email/logo stay whatever is on company_profile (Settings).
     // Auth-to-proceed reply falls back via DEFAULT_AUTH_REPLY_EMAIL.
+    documentHost: 'document.biohazardcleaningqld.com.au',
   },
   {
     id: 'forensic_cleaning_qld',
@@ -74,8 +75,10 @@ export const TRADING_NAME_OPTIONS: TradingNameOption[] = [
     id: 'hoarding_cleaning_qld',
     label: 'Hoarding Cleaning QLD',
     short: 'HCQ',
-    // No brand email, logo, or domains yet: email falls back to Settings.
+    // No brand email or logo yet: email falls back to Settings.
     useWordmark: true,
+    // The brand has no domain of its own name; its documents use the Hoarding Clearance QLD one.
+    documentHost: 'document.hoardingclearanceqld.com.au',
   },
 ]
 

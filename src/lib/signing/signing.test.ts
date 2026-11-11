@@ -348,9 +348,13 @@ test('on a document host the address is just the private code, with no "sign" in
   assert.equal(plain.host, 'app.biohazards.net')
 })
 
-test('only the FCQ document host is treated as a document host', () => {
+test('each brand has its own document host, and nothing else is treated as one', () => {
   assert.equal(documentHostTradingName('document.forensiccleaningqld.com.au'), 'forensic_cleaning_qld')
   assert.equal(documentHostTradingName('Document.ForensicCleaningQLD.com.au:443'), 'forensic_cleaning_qld')
+  assert.equal(documentHostTradingName('document.biohazardcleaningqld.com.au'), 'brisbane_biohazard_cleaning')
+  assert.equal(documentHostTradingName('document.hoardingclearanceqld.com.au'), 'hoarding_cleaning_qld')
+  assert.equal(documentHostTradingName('biohazardcleaningqld.com.au'), null)
+  assert.equal(documentHostTradingName('www.hoardingclearanceqld.com.au'), null)
   assert.equal(documentHostTradingName('accounts.forensiccleaningqld.com.au'), null)
   assert.equal(documentHostTradingName('app.biohazards.net'), null)
   assert.equal(documentHostTradingName(null), null)
