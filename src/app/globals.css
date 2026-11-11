@@ -338,6 +338,11 @@ label {
   to   { opacity: 1; transform: translateY(0); }
 }
 
+/* Staff notepad (components/Notepad.tsx) stays off anything printed from the page */
+@media print {
+  .notepad { display: none !important; }
+}
+
 /* Google Places Autocomplete (New) — fill the same width as sibling inputs */
 gmp-place-autocomplete {
   display: block;

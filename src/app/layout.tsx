@@ -6,6 +6,7 @@
  *   UserProvider    — custom user context (role, capabilities, org membership)
  *   PreviewBanner   — shows when an admin is simulating member capabilities
  *   ServiceWorkerRegistration — registers /sw.js for PWA offline support
+ *   Notepad         — floating private notepad for desk staff, on every page
  *
  * Staff sign-in is a host-only magic-link cookie (bh_staff), read by /api/me.
  *
@@ -20,6 +21,7 @@ import './globals.css'
 import ServiceWorkerRegistration from '@/components/ServiceWorkerRegistration'
 import { UserProvider } from '@/lib/userContext'
 import PreviewBanner from '@/components/PreviewBanner'
+import Notepad from '@/components/Notepad'
 import { isTradingNameId, tradingNameOption } from '@/lib/tradingNames'
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -105,6 +107,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <PreviewBanner />
           <ServiceWorkerRegistration />
           {children}
+          <Notepad />
         </UserProvider>
       </body>
     </html>
