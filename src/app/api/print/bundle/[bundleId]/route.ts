@@ -6,6 +6,7 @@ import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import { buildComposedBundleHTML } from '@/lib/printDocument'
 import { applyTradingBrand, isTradingNameId } from '@/lib/tradingNames'
+import { companyProfileForJob } from '@/lib/companyProfile'
 import type { DocType } from '@/lib/types'
 
 export async function GET(_req: Request, { params }: { params: Promise<{ bundleId: string }> }) {
@@ -34,8 +35,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ bundleI
     })
   }
 
-  const [companyRes, photosRes, jobRes, docsRes] = await Promise.all([
-    supabase.from('company_profile').select('*').limit(1).maybeSingle(),
+  const [companyProfile, photosRes, jobRes, docsRes] = await Promise.all([
+    companyProfileForJob(supabase, jobId),
     supabase.from('photos').select('*').eq('job_id', jobId).order('uploaded_at', { ascending: true }),
     supabase
       .from('jobs')
@@ -63,7 +64,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ bundleI
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.biohazards.net'
   const printUrl = `${appUrl}/api/print/bundle/${bundleId}`
   const tradingName = isTradingNameId(jobRes.data?.trading_name) ? jobRes.data.trading_name : null
-  const company = applyTradingBrand(companyRes.data ?? null, tradingName)
+  const company = applyTradingBrand(companyProfile, tradingName)
 
   const html = buildComposedBundleHTML(
     parts,

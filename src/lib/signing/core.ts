@@ -9,7 +9,7 @@
  */
 import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto'
 import { isSigningTokenShape } from '@/lib/signing/hostShape'
-import { tradingNameOption } from '@/lib/tradingNames'
+import { tradingNameOption, tradingSendingEmail } from '@/lib/tradingNames'
 import type { TradingNameId } from '@/lib/tradingNames'
 
 export const SIGNING_LINK_DAYS = 30
@@ -188,9 +188,11 @@ export interface ResolvedSender {
 /**
  * A quote always goes out under the job's trading name. The address follows the
  * same order as the trade portal (lib/portal/email.ts): the override while a
- * brand domain is unverified in Resend, then the brand's own address, then the
- * shared address. The display name is the brand either way, and replies go to
- * the brand's inbox (or the Settings email) rather than the shared address.
+ * brand domain is unverified in Resend, then the brand's own address when its
+ * domain is verified, then the shared address. The display name is the brand
+ * either way, and replies go to the brand's inbox (or, for a brand with none,
+ * the Settings email of the job's own organisation) rather than the shared
+ * address.
  */
 export function resolveSender(
   tradingName: TradingNameId,
@@ -200,9 +202,10 @@ export function resolveSender(
   const option = tradingNameOption(tradingName)
   const brandLabel = option?.label ?? 'Biohazard Cleaning QLD'
   const brandEmail = option?.email?.trim() || ''
+  const sendingEmail = tradingSendingEmail(tradingName) ?? ''
   const fromEmail =
     env.RESEND_FROM_ACCOUNTS?.trim() ||
-    brandEmail ||
+    sendingEmail ||
     env.RESEND_FROM_EMAIL?.trim() ||
     'onboarding@resend.dev'
   const settingsEmail = (companyEmail ?? '').trim()
@@ -212,7 +215,7 @@ export function resolveSender(
     from: `${brandLabel} <${fromEmail}>`,
     fromEmail,
     replyTo,
-    usesBrandAddress: Boolean(brandEmail) && fromEmail === brandEmail,
+    usesBrandAddress: Boolean(sendingEmail) && fromEmail === sendingEmail,
   }
 }
 

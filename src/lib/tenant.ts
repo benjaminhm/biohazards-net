@@ -8,7 +8,7 @@
  * Resolution order:
  *   1. custom_domain exact match (e.g. app.brisbanebiohazardcleaning.com.au)
  *   2. subdomain match on biohazards.net (e.g. brisbane.biohazards.net)
- *   3. Single-row fallback — for single-tenant deployments
+ * No match means no tenant (null).
  *
  * For authenticated API routes, use lib/org.ts instead.
  */
@@ -19,8 +19,7 @@ const PLATFORM_DOMAIN = 'biohazards.net'
 
 /**
  * Resolve a CompanyProfile from an incoming hostname.
- * Checks custom_domain first, then subdomain.
- * Falls back to the single platform profile if no match.
+ * Checks custom_domain first, then subdomain. Null when neither matches.
  */
 export async function getTenantByHost(host: string): Promise<CompanyProfile | null> {
   const db = createServiceClient()
@@ -52,14 +51,9 @@ export async function getTenantByHost(host: string): Promise<CompanyProfile | nu
     }
   }
 
-  // Fall back to the platform's own profile (single row)
-  const { data: fallback } = await db
-    .from('company_profile')
-    .select('*')
-    .limit(1)
-    .single()
-
-  return fallback ?? null
+  // No match: there is no tenant for this host. Never fall back to "the first
+  // profile" here; with several organisations that is someone else's company.
+  return null
 }
 
 /**

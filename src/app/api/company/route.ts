@@ -112,15 +112,20 @@ export async function PATCH(req: NextRequest) {
     else body.phone = r.value
   }
 
+  // /api/company is a public path in the proxy (GET serves branding to signed-out
+  // pages), so saving must check the session itself and only ever touch the
+  // signed-in person's own organisation.
   const { userId } = await auth()
-  const { orgId } = await getOrgId(req, userId ?? null)
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const { orgId } = await getOrgId(req, userId)
+  if (!orgId) return NextResponse.json({ error: 'No organisation' }, { status: 403 })
 
-  let existingQuery = supabase.from('company_profile').select('id')
-  if (orgId) {
-    existingQuery = existingQuery.eq('org_id', orgId)
-  }
-
-  const { data: existing } = await existingQuery.limit(1).single()
+  const { data: existing } = await supabase
+    .from('company_profile')
+    .select('id')
+    .eq('org_id', orgId)
+    .limit(1)
+    .maybeSingle()
 
   let data, error
 
@@ -134,7 +139,7 @@ export async function PATCH(req: NextRequest) {
   } else {
     ;({ data, error } = await supabase
       .from('company_profile')
-      .insert({ ...body, org_id: orgId ?? undefined })
+      .insert({ ...body, org_id: orgId })
       .select()
       .single())
   }

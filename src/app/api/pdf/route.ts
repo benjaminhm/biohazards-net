@@ -25,6 +25,7 @@ import {
   mergeQuoteLineItemsIntoDocContent,
 } from '@/lib/quoteLineItemsForDocuments'
 import { applyTradingBrand, isTradingNameId } from '@/lib/tradingNames'
+import { companyProfileForJob } from '@/lib/companyProfile'
 import type { DocType } from '@/lib/types'
 
 export const runtime = 'nodejs'
@@ -78,18 +79,18 @@ export async function POST(req: Request) {
       }
     }
 
-    const [photosRes, companyRes, jobRes] = await Promise.all([
+    const [photosRes, companyProfile, jobRes] = await Promise.all([
       jobId
         ? supabase.from('photos').select('*').eq('job_id', jobId).order('uploaded_at', { ascending: true })
         : Promise.resolve({ data: [] }),
-      supabase.from('company_profile').select('*').limit(1).maybeSingle(),
+      companyProfileForJob(supabase, jobId),
       jobId
         ? supabase.from('jobs').select('assessment_data,site_address,trading_name').eq('id', jobId).maybeSingle()
         : Promise.resolve({ data: null }),
     ])
 
     const tradingName = isTradingNameId(jobRes.data?.trading_name) ? jobRes.data.trading_name : null
-    const company = applyTradingBrand(companyRes.data ?? null, tradingName)
+    const company = applyTradingBrand(companyProfile, tradingName)
 
     const buffer: Buffer = await renderToBuffer(createElement(JobPDFDocument, {
       type,

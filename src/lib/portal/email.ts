@@ -12,7 +12,7 @@
  * RESEND_FROM_ACCOUNTS overrides it while a brand domain is unverified.
  */
 import { Resend } from 'resend'
-import { tradingNameOption } from '@/lib/tradingNames'
+import { tradingNameOption, tradingSendingEmail } from '@/lib/tradingNames'
 import type { TradingNameId } from '@/lib/tradingNames'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
@@ -55,7 +55,7 @@ function fromAddress(tradingName: TradingNameId): string {
   const option = tradingNameOption(tradingName)
   const address =
     process.env.RESEND_FROM_ACCOUNTS ||
-    option?.email ||
+    tradingSendingEmail(tradingName) ||
     process.env.RESEND_FROM_EMAIL ||
     'onboarding@resend.dev'
   return `${option?.label ?? 'Accounts'} <${address}>`

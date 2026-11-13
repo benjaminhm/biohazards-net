@@ -20,8 +20,19 @@ export interface TradingNameOption {
   label: string
   /** Staff shorthand for headings where the full name is too long (Job Manager). Not printed on documents. */
   short: string
-  /** When set, overrides company_profile.email on client-facing documents. */
+  /**
+   * The brand's own inbox. When set it is the email printed on client-facing
+   * documents (in place of company_profile.email) and where client replies and
+   * the office copy of a signed quote go.
+   */
   email?: string
+  /**
+   * True once the brand's domain is verified with the mail provider (Resend),
+   * so mail is sent from `email`. Until then mail goes out under the brand's
+   * name from the shared address, and replies still come to `email`: Resend
+   * refuses a send from an unverified domain outright.
+   */
+  sendsFromEmail?: boolean
   /**
    * When true, do not inherit company_profile.logo_url — use a typographic
    * wordmark (company name) on documents instead. Swap for a real asset later
@@ -49,7 +60,7 @@ export interface TradingNameOption {
 }
 
 /** Default reply-to on Authorisation to Proceed when Settings email is empty. */
-export const DEFAULT_AUTH_REPLY_EMAIL = 'admin@brisbanebiohazardcleaning.com.au'
+export const DEFAULT_AUTH_REPLY_EMAIL = 'admin@biohazardcleaningqld.com.au'
 
 export const TRADING_NAME_OPTIONS: TradingNameOption[] = [
   {
@@ -57,8 +68,9 @@ export const TRADING_NAME_OPTIONS: TradingNameOption[] = [
     id: 'brisbane_biohazard_cleaning',
     label: 'Biohazard Cleaning QLD',
     short: 'BCQ',
-    // Letterhead email/logo stay whatever is on company_profile (Settings).
-    // Auth-to-proceed reply falls back via DEFAULT_AUTH_REPLY_EMAIL.
+    // The logo stays whatever is on company_profile (Settings). The domain is
+    // not verified in Resend yet, so mail is sent from the shared address.
+    email: 'admin@biohazardcleaningqld.com.au',
     documentHost: 'document.biohazardcleaningqld.com.au',
   },
   {
@@ -66,6 +78,7 @@ export const TRADING_NAME_OPTIONS: TradingNameOption[] = [
     label: 'Forensic Cleaning QLD',
     short: 'FCQ',
     email: 'admin@forensiccleaningqld.com.au',
+    sendsFromEmail: true,
     useWordmark: true,
     accountsHost: 'accounts.forensiccleaningqld.com.au',
     photoHost: 'photo.forensiccleaningqld.com.au',
@@ -76,7 +89,10 @@ export const TRADING_NAME_OPTIONS: TradingNameOption[] = [
     id: 'hoarding_cleaning_qld',
     label: 'Hoarding Clearance QLD',
     short: 'HCQ',
-    // No brand email or logo yet: email falls back to Settings.
+    // The domain is not verified in Resend yet, so mail is sent from the shared
+    // address. It also had no mail (MX) records when this address was set
+    // (Nov 2026): replies bounce until the mailbox is set up.
+    email: 'admin@hoardingclearanceqld.com.au',
     useWordmark: true,
     documentHost: 'document.hoardingclearanceqld.com.au',
   },
@@ -135,6 +151,12 @@ export function accountsPortalBaseUrl(id: TradingNameId | null | undefined): str
   const appUrl = process.env.NEXT_PUBLIC_APP_URL
   if (appUrl && /localhost|127\.0\.0\.1/.test(appUrl)) return appUrl
   return null
+}
+
+/** The brand address mail can be sent from, or null when it must go from the shared address. */
+export function tradingSendingEmail(id: TradingNameId | null | undefined): string | null {
+  const option = tradingNameOption(id)
+  return (option?.sendsFromEmail && option.email?.trim()) || null
 }
 
 export function tradingNameLabel(id: TradingNameId | null | undefined): string | null {

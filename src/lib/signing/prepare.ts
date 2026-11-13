@@ -79,7 +79,8 @@ export async function prepareSigning(
       .eq('id', doc.job_id)
       .eq('org_id', orgId)
       .maybeSingle(),
-    supabase.from('company_profile').select('email').limit(1).maybeSingle(),
+    // This organisation's own Settings email: where replies go for a brand with no inbox of its own.
+    supabase.from('company_profile').select('email').eq('org_id', orgId).limit(1).maybeSingle(),
     supabase.from('quote_acceptances').select('accepted_at').eq('document_id', documentId).maybeSingle(),
   ])
   const job = jobRes.data

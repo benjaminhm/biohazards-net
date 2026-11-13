@@ -9,6 +9,7 @@
  * difference is authorisation and which action-bar buttons make sense.
  */
 import { applyTradingBrand, isTradingNameId } from '@/lib/tradingNames'
+import { companyProfileForJob } from '@/lib/companyProfile'
 import { buildPrintHTML } from '@/lib/printDocument'
 import {
   fetchQuoteLineItemsMergeContext,
@@ -105,8 +106,8 @@ export interface RenderDocumentOptions {
 export async function renderDocumentHtml(options: RenderDocumentOptions): Promise<string> {
   const { supabase, doc, imagesParam, viewerUrl, includeClientContact, showQuoteAccept, forSigning } = options
 
-  const [companyRes, photosRes, jobRes] = await Promise.all([
-    supabase.from('company_profile').select('*').limit(1).maybeSingle(),
+  const [companyProfile, photosRes, jobRes] = await Promise.all([
+    companyProfileForJob(supabase, doc.job_id),
     supabase.from('photos').select('*').eq('job_id', doc.job_id).order('uploaded_at', { ascending: true }),
     supabase
       .from('jobs')
@@ -119,7 +120,7 @@ export async function renderDocumentHtml(options: RenderDocumentOptions): Promis
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.biohazards.net'
   const tradingName = isTradingNameId(jobRes.data?.trading_name) ? jobRes.data.trading_name : null
-  const company = applyTradingBrand(companyRes.data ?? null, tradingName)
+  const company = applyTradingBrand(companyProfile, tradingName)
 
   let docContent: Record<string, unknown> = (doc.content ?? {}) as Record<string, unknown>
   const docType = doc.type as DocType

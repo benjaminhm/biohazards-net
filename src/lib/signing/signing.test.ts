@@ -105,17 +105,17 @@ test('FCQ quotes go from the FCQ address and replies come back to it', () => {
   assert.equal(sender.usesBrandAddress, true)
 })
 
-test('a brand with no address of its own keeps its name, uses the shared address, and replies go to Settings', () => {
-  for (const [id, label] of [
-    ['hoarding_cleaning_qld', 'Hoarding Clearance QLD'],
-    ['brisbane_biohazard_cleaning', 'Biohazard Cleaning QLD'],
+test('BCQ and HCQ replies come back to their own inbox whatever Settings says, sent from the shared address until the domain is verified', () => {
+  for (const [id, label, inbox] of [
+    ['brisbane_biohazard_cleaning', 'Biohazard Cleaning QLD', 'admin@biohazardcleaningqld.com.au'],
+    ['hoarding_cleaning_qld', 'Hoarding Clearance QLD', 'admin@hoardingclearanceqld.com.au'],
   ] as const) {
-    const sender = resolveSender(id, { RESEND_FROM_EMAIL: 'shared@example.com' }, ' office@example.com ')
+    const sender = resolveSender(id, { RESEND_FROM_EMAIL: 'shared@example.com' }, 'office@example.com')
     assert.equal(sender.from, `${label} <shared@example.com>`)
-    assert.equal(sender.replyTo, 'office@example.com')
+    assert.equal(sender.replyTo, inbox)
     assert.equal(sender.usesBrandAddress, false)
+    assert.equal(resolveSender(id, {}, null).replyTo, inbox)
   }
-  assert.equal(resolveSender('hoarding_cleaning_qld', {}, null).replyTo, null)
 })
 
 test('the unverified-domain override changes the address but not the brand name or the reply address', () => {

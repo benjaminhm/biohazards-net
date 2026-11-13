@@ -12,14 +12,15 @@ Reference for humans and agents working on `biohazards-net`. Update when orgs ch
 
 | Organisation              | Slug                     | Notes                                      |
 |----------------------------|--------------------------|--------------------------------------------|
-| Brisbane Biohazard Cleaning | `brisbanebiohazardcleaning` | **Production org — real company, real data.** Treat as non-disposable; no test deletes here. |
-| SD Company                 | `sdcompany`              | **Test / sandbox** — safe to remove when delete tooling or manual cleanup exists. |
-| Test Cleaning Co           | `testcleaningco`         | **Test / sandbox** — same as above. |
+| Brisbane Biohazard Cleaning | `brisbanebiohazardcleaning` | **Production org — real company, real data.** The only org in the database. |
+
+On 14 Nov 2026 the 12 other orgs (Mackay Biohazard Cleaning, SD Company, Test Cleaning Co and nine other test orgs) were deleted with all their data. Mackay's `company_profile` row was being picked up by unscoped `company_profile` lookups, which put its email on this org's signing requests. The app runs as one org; the `org_id` structure is kept.
+
+**Rule:** never read `company_profile` without an `org_id`. Document routes with no signed-in user take the org from the job (`lib/companyProfile.ts`).
 
 ## TODO (product / engineering)
 
 - [ ] **Delete vs disable:** Keep **Disable** for production safety; add **Delete** only with guards (e.g. no users / no jobs) or soft-delete — see team discussion.
-- [ ] **Test org cleanup:** When ready, remove or archive **SD Company** and **Test Cleaning Co** without touching **Brisbane Biohazard Cleaning** data.
 - [ ] **Optional UX:** Platform admin table — filter “active only”, or tag rows as test vs production (manual flag or naming convention).
 
 ## Platform admin: Pending vs provision invite
