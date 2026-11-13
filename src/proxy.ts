@@ -17,23 +17,21 @@
  *   notes.biohazards.net     — the job notepad on its own host. / is /photo/notes;
  *                              same PIN session and path limits as photo.
  *
- *   [slug].biohazards.net    — public company website (no auth).
- *                              Sets x-org-slug and rewrites to /site/*.
- *
- * Custom domains (e.g. app.brisbanebiohazardcleaning.com.au):
- *   Sets x-org-host so getOrgId can resolve orgs.custom_domain.
- *
  *   document.<brand>.com.au — documents sent to a client to view or sign.
  *   /<private code> is the document, /<private code>/pdf the signed copy.
  *   Nothing else is reachable on this host.
  *
  *   accounts.<brand>.com.au — commercial trade account portal.
- *   Matched before the custom-domain branch and deliberately does NOT set
- *   x-org-host. Only /portal and /api/portal are reachable on this host.
+ *   Only /portal and /api/portal are reachable on this host.
  *   The portal has its own bh_portal cookie.
  *
+ * There is one company. The host never decides whose data a request sees: that
+ * comes from the signed-in person's membership (lib/org.ts). Any other
+ * [name].biohazards.net is a 404 (there are no per-company websites), and any
+ * other host that reaches this deployment (a Vercel preview address, for
+ * example) is the staff app and needs a staff session like app.biohazards.net.
+ *
  * Public routes (no staff session required):
- *   - All [slug].biohazards.net requests (public websites)
  *   - /login, /accept/:id
  *   - /sign/:token, /api/sign/:token (client signing link; the token is the credential)
  *   - /api/auth/*, /api/print, /api/sms/inbound, /api/public/*
@@ -51,7 +49,6 @@ import {
   browserOrigin,
   isDevHost,
   isSecureStaffRequest,
-  isStaffAppHost,
   signStaffToken,
   staffSessionIsStale,
   verifyStaffToken,
@@ -74,7 +71,6 @@ function isPublicPath(pathname: string): boolean {
   if (pathname === '/api/webhooks/voip') return true
   if (pathname === '/api/webhooks/website-enquiry') return true
   if (pathname.startsWith('/api/public/')) return true
-  if (pathname.startsWith('/site')) return true
   if (pathname === '/portal' || pathname.startsWith('/portal/')) return true
   if (pathname.startsWith('/api/portal')) return true
   if (pathname === '/photo' || pathname.startsWith('/photo/')) return true
@@ -100,14 +96,8 @@ export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   const subdomainMatch = host.match(/^([^.]+)\.biohazards\.net$/)
-  const slug = subdomainMatch ? subdomainMatch[1] : null
-  const hostNoPort = host.split(':')[0].toLowerCase()
+  const slug = subdomainMatch ? subdomainMatch[1].toLowerCase() : null
   const isLocalDev = isDevHost(host)
-  const isCustomDomain =
-    !isLocalDev &&
-    !isStaffAppHost(host) &&
-    !host.endsWith('.biohazards.net') &&
-    host !== 'biohazards.net'
 
   const isPortalPath =
     pathname === '/portal' || pathname.startsWith('/portal/') || pathname.startsWith('/api/portal')
@@ -188,31 +178,22 @@ export async function proxy(request: NextRequest) {
     }
   } else if (isPortalPath) {
     return new NextResponse('Not found', { status: 404 })
-  } else if (isCustomDomain) {
-    requestHeaders.set('x-org-host', host)
   } else if (slug === 'platform') {
     const redirectUrl = new URL(request.url)
     redirectUrl.protocol = 'https:'
     redirectUrl.host = 'app.biohazards.net'
     redirectUrl.pathname = '/'
     return NextResponse.redirect(redirectUrl)
+  } else if (slug && !RESERVED_SUBDOMAINS.has(slug)) {
+    // There are no per-company websites: an unknown subdomain is nothing.
+    return new NextResponse('Not found', { status: 404 })
   } else if (slug === 'app' || slug === 'login' || !slug) {
     requestHeaders.set('x-subdomain', 'app')
-  } else if (slug && !RESERVED_SUBDOMAINS.has(slug)) {
-    requestHeaders.set('x-org-slug', slug)
-    requestHeaders.set('x-subdomain', 'site')
-
-    if (!pathname.startsWith('/site') && !pathname.startsWith('/api')) {
-      const url = request.nextUrl.clone()
-      url.pathname = `/site${pathname === '/' ? '' : pathname}`
-      return NextResponse.rewrite(url, { request: { headers: requestHeaders } })
-    }
   }
 
   const onAccountsHost = !!accountsBrand && !portalOnAppOrigin
-  const onPublicSite = !!slug && !RESERVED_SUBDOMAINS.has(slug) && slug !== 'app' && slug !== 'platform'
   let renewSession: { token: string; secure: boolean } | null = null
-  if (!onAccountsHost && !onPublicSite && !isPublicPath(pathname)) {
+  if (!onAccountsHost && !isPublicPath(pathname)) {
     const raw = request.cookies.get(STAFF_COOKIE)?.value
     const session = raw ? await verifyStaffToken(raw) : null
     if (!session) {

@@ -1,15 +1,15 @@
 /*
  * app/api/company/route.ts
  *
- * GET   /api/company — fetch company profile for the current tenant
+ * GET   /api/company — the signed-in person's company profile
  * PATCH /api/company — upsert company profile (update if exists, insert if not)
  *
- * GET resolution order (most specific to least):
- *   1. x-org-slug header (marketing subdomain / site)
- *   2. Authenticated: getOrgId (membership or platform impersonation) → company_profile.org_id
- *   3. x-tenant-host legacy lookup (subdomain / custom_domain on company_profile)
+ * Both need a signed-in member of staff and only ever touch their own
+ * organisation. /api/company is a public path in the proxy, so each handler
+ * checks the session itself. Signed out, GET answers { company: null }.
  *
- * Never use an unscoped limit(1) on company_profile — that returned an arbitrary tenant.
+ * Never read company_profile without an org_id, and never take the
+ * organisation from the host or a header: both are chosen by the sender.
  *
  * PGRST116 is the Supabase error code for "no rows found" on a .single() call —
  * treated as a valid empty result rather than an error.
@@ -23,82 +23,42 @@ import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import { normalizeOptionalPhoneField } from '@/lib/phone'
 
-function extractSubdomain(host: string): string | null {
-  // brisbanebiohazardcleaning.biohazards.net → brisbanebiohazardcleaning
-  // app.brisbanebiohazardcleaning.com.au → null (custom domain lookup instead)
-  const bhMatch = host.match(/^([^.]+)\.biohazards\.net$/)
-  return bhMatch ? bhMatch[1] : null
-}
-
 export async function GET(req: NextRequest) {
-  const supabase = createServiceClient()
-  const tenantHost = req.headers.get('x-tenant-host')
-  const orgSlugHeader = req.headers.get('x-org-slug')
-
-  // If we have an org slug from middleware, try to find company_profile by org_id
-  if (orgSlugHeader && orgSlugHeader !== 'app' && orgSlugHeader !== 'admin') {
-    const { data: org } = await supabase
-      .from('orgs')
-      .select('id')
-      .eq('slug', orgSlugHeader)
-      .eq('is_active', true)
-      .single()
-
-    if (org?.id) {
-      const { data, error } = await supabase
-        .from('company_profile')
-        .select('*')
-        .eq('org_id', org.id)
-        .limit(1)
-        .single()
-
-      if (!error || error.code === 'PGRST116') {
-        return NextResponse.json({ company: data ?? null })
-      }
-    }
-  }
-
-  // Main app (app.biohazards.net, localhost): tenant from membership or impersonation
   const { userId } = await auth()
-  if (userId) {
-    const { orgId } = await getOrgId(req, userId)
-    if (orgId) {
-      const { data, error } = await supabase
-        .from('company_profile')
-        .select('*')
-        .eq('org_id', orgId)
-        .maybeSingle()
+  if (!userId) return NextResponse.json({ company: null })
+  const { orgId } = await getOrgId(req, userId)
+  if (!orgId) return NextResponse.json({ company: null })
 
-      if (error && error.code !== 'PGRST116') {
-        return NextResponse.json({ error: error.message }, { status: 500 })
-      }
-      return NextResponse.json({ company: data ?? null })
-    }
+  const supabase = createServiceClient()
+  const { data, error } = await supabase
+    .from('company_profile')
+    .select('*')
+    .eq('org_id', orgId)
+    .maybeSingle()
+
+  if (error && error.code !== 'PGRST116') {
+    return NextResponse.json({ error: error.message }, { status: 500 })
   }
-
-  // Legacy: company_profile matched by subdomain / custom_domain (no auth context)
-  if (tenantHost) {
-    let query = supabase.from('company_profile').select('*')
-    const subdomain = extractSubdomain(tenantHost)
-    if (subdomain) {
-      query = query.eq('subdomain', subdomain)
-    } else {
-      query = query.eq('custom_domain', tenantHost)
-    }
-    const { data, error } = await query.maybeSingle()
-
-    if (error && error.code !== 'PGRST116') {
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-    return NextResponse.json({ company: data ?? null })
-  }
-
-  return NextResponse.json({ company: null })
+  return NextResponse.json({ company: data ?? null })
 }
 
 export async function PATCH(req: NextRequest) {
+  // Checked before the body is read, so a signed-out request learns nothing.
+  const { userId } = await auth()
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const { orgId } = await getOrgId(req, userId)
+  if (!orgId) return NextResponse.json({ error: 'No organisation' }, { status: 403 })
+
   const supabase = createServiceClient()
-  const body = (await req.json()) as Record<string, unknown>
+  let body: Record<string, unknown>
+  try {
+    body = (await req.json()) as Record<string, unknown>
+  } catch {
+    return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
+  }
+  // Which row and which organisation are decided here, never by the request.
+  delete body.id
+  delete body.org_id
   for (const key of ['subdomain', 'custom_domain']) {
     const value = body[key]
     if (typeof value === 'string') {
@@ -111,14 +71,6 @@ export async function PATCH(req: NextRequest) {
     if (r.value === undefined) delete body.phone
     else body.phone = r.value
   }
-
-  // /api/company is a public path in the proxy (GET serves branding to signed-out
-  // pages), so saving must check the session itself and only ever touch the
-  // signed-in person's own organisation.
-  const { userId } = await auth()
-  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const { orgId } = await getOrgId(req, userId)
-  if (!orgId) return NextResponse.json({ error: 'No organisation' }, { status: 403 })
 
   const { data: existing } = await supabase
     .from('company_profile')
