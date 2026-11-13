@@ -19,7 +19,6 @@
  * org by platform admins (`orgs.features.show_quick_feedback === false`).
  * Knowledge Base appears in the tile grid when `orgs.features.training_education` is true (platform org toggle).
  * Job Manager is the first tile and Job Records is the second. At ≥900px with 5+ tiles, the grid is 3 columns.
- * When `website_card` is on, a Marketing Manager tile is added to the grid.
  * When `consultation` is on, a Consultation tile is added to the grid.
  * Brain Dump tile appears only for org admins; its list is per-admin-private
  * (owner_user_id on every row — two admins in the same org never see each other's items).
@@ -122,10 +121,6 @@ export default function HomePage() {
   const trainingPortalEnabled =
     !userLoading && ctxOrg != null && ctxOrg.features?.training_education === true
 
-  /** Platform org Marketing Manager toggle — tile on home only when true (default off). */
-  const websiteCardEnabled =
-    !userLoading && ctxOrg != null && ctxOrg.features?.website_card === true
-
   /** Platform org Consultation toggle — tile on home only when true (default off). */
   const consultationEnabled =
     !userLoading && ctxOrg != null && ctxOrg.features?.consultation === true
@@ -166,15 +161,6 @@ export default function HomePage() {
           label: 'Knowledge Base',
           sub: 'Courses & resources',
           color: '#F59E0B',
-        }]
-      : []),
-    ...(websiteCardEnabled
-      ? [{
-          href: '/marketing',
-          icon: '🌐',
-          label: 'Marketing Manager',
-          sub: 'Public site & marketing',
-          color: '#06B6D4',
         }]
       : []),
     ...(consultationEnabled
@@ -290,7 +276,7 @@ export default function HomePage() {
 
       <OrgAdminHealthCard />
 
-      {/* ── Dashboard tiles — Job / Team / Inventory (+ Knowledge Base + Marketing Manager when enabled); 3 cols on wide desktop when 5+ tiles ── */}
+      {/* ── Dashboard tiles — Job / Team / Inventory (+ Knowledge Base when enabled); 3 cols on wide desktop when 5+ tiles ── */}
       <div style={{
         flex: 1,
         padding: '12px 20px 20px',

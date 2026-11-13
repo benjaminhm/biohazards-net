@@ -13,7 +13,7 @@ import type { createServiceClient } from '@/lib/supabase'
 import { isAcceptableQuoteType } from '@/lib/acceptableQuotes'
 import { documentInOrg } from '@/lib/documentAccess'
 import { renderDocumentHtml } from '@/lib/documentRender'
-import { isTradingNameId } from '@/lib/tradingNames'
+import { isTradingNameId, tradingNameShortList } from '@/lib/tradingNames'
 import type { TradingNameId } from '@/lib/tradingNames'
 import { DOC_TYPE_LABELS } from '@/lib/types'
 import type { DocType } from '@/lib/types'
@@ -93,7 +93,7 @@ export async function prepareSigning(
 
   const tradingName = isTradingNameId(job.trading_name) ? job.trading_name : null
   if (!tradingName) {
-    blockers.push('Choose the trading name on the job first (BCQ, FCQ or HCQ), so the quote goes out under the right brand.')
+    blockers.push(`Choose the trading name on the job first (${tradingNameShortList()}), so the quote goes out under the right brand.`)
   }
   const sender = tradingName
     ? resolveSender(

@@ -1,22 +1,23 @@
 /*
- * Per-job trading names under one ABN.
+ * Per-job trading names ("brands") under one ABN.
  *
  * company_profile stays the org source of truth for shared details (ABN, address,
  * phone, licence, logo). applyTradingBrand() overlays the job's trading name
  * (display name + brand email) for composed / printed client documents.
+ *
+ * Adding a brand is one entry in BRANDS below. The ids, the TypeScript type,
+ * the pickers, the queue headings, the portal terms and the validation on every
+ * write all come from that list, and the database accepts any id (migration 073).
+ * Outside the code a new brand still needs its domains connected: the document
+ * and accounts hosts in Vercel and DNS, and the email domain in Resend before
+ * sendsFromEmail is turned on.
+ *
+ * Never change or remove an id that jobs or accounts already use: the id is
+ * what is stored on them.
  */
 import type { CompanyProfile } from '@/lib/types'
 
-export const TRADING_NAME_IDS = [
-  'brisbane_biohazard_cleaning',
-  'forensic_cleaning_qld',
-  'hoarding_cleaning_qld',
-] as const
-
-export type TradingNameId = (typeof TRADING_NAME_IDS)[number]
-
-export interface TradingNameOption {
-  id: TradingNameId
+interface BrandDetails {
   label: string
   /** Staff shorthand for headings where the full name is too long (Job Manager). Not printed on documents. */
   short: string
@@ -62,7 +63,8 @@ export interface TradingNameOption {
 /** Default reply-to on Authorisation to Proceed when Settings email is empty. */
 export const DEFAULT_AUTH_REPLY_EMAIL = 'admin@biohazardcleaningqld.com.au'
 
-export const TRADING_NAME_OPTIONS: TradingNameOption[] = [
+/** The one list of brands, in the order staff see them. */
+const BRANDS = [
   {
     // Stored id predates the rename to Biohazard Cleaning QLD; existing jobs reference it.
     id: 'brisbane_biohazard_cleaning',
@@ -96,10 +98,28 @@ export const TRADING_NAME_OPTIONS: TradingNameOption[] = [
     useWordmark: true,
     documentHost: 'document.hoardingclearanceqld.com.au',
   },
-]
+] as const satisfies readonly ({ id: string } & BrandDetails)[]
+
+/** The id stored on jobs and accounts (jobs.trading_name, client_accounts.trading_name). */
+export type TradingNameId = (typeof BRANDS)[number]['id']
+
+export interface TradingNameOption extends BrandDetails {
+  id: TradingNameId
+}
+
+export const TRADING_NAME_OPTIONS: TradingNameOption[] = [...BRANDS]
+
+export const TRADING_NAME_IDS: readonly TradingNameId[] = TRADING_NAME_OPTIONS.map(o => o.id)
 
 export function isTradingNameId(value: unknown): value is TradingNameId {
   return typeof value === 'string' && (TRADING_NAME_IDS as readonly string[]).includes(value)
+}
+
+/** The staff shorthands as a phrase, e.g. "BCQ, FCQ or HCQ". */
+export function tradingNameShortList(): string {
+  const shorts = TRADING_NAME_OPTIONS.map(o => o.short)
+  if (shorts.length <= 1) return shorts.join('')
+  return `${shorts.slice(0, -1).join(', ')} or ${shorts[shorts.length - 1]}`
 }
 
 export function tradingNameOption(id: TradingNameId | null | undefined): TradingNameOption | null {

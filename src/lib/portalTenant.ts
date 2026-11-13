@@ -4,8 +4,8 @@
  * Resolve which org and trading brand an accounts-portal request belongs to,
  * before any session exists (the login form needs this to find a contact).
  *
- * lib/org.ts cannot be used here: it resolves a tenant from x-org-host or Clerk
- * membership, and the accounts host sets neither. The brand comes from the host
+ * lib/org.ts cannot be used here: it resolves the org from a signed-in member
+ * of staff, and a portal visitor is not one. The brand comes from the host
  * via middleware's x-portal-trading-name header; the org comes from
  * ACCOUNTS_PORTAL_ORG_SLUG, following the same env-gating pattern as
  * JOB_INBOUND_EMAIL_ORG_SLUGS.

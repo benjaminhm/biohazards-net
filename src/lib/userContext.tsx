@@ -31,7 +31,7 @@ interface UserCtx {
   caps: TeamCapabilities
   org_id: string | null
   has_org: boolean
-  /** Tenant org; `show_quick_feedback`, `training_education`, `website_card` (Marketing Manager tile), `consultation` (Consultation tile). */
+  /** Tenant org; `show_quick_feedback`, `training_education`, `consultation` (Consultation tile). */
   org: { name: string; slug: string; features?: Record<string, boolean> } | null
   loading: boolean
   previewMode: boolean

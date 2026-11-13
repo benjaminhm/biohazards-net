@@ -18,6 +18,15 @@ On 14 Nov 2026 the 12 other orgs (Mackay Biohazard Cleaning, SD Company, Test Cl
 
 **Rule:** never read `company_profile` without an `org_id`. Document routes with no signed-in user take the org from the job (`lib/companyProfile.ts`).
 
+## One company, several brands
+
+The business is one organisation with several trading names ("brands": BCQ, FCQ, HCQ, more to come). Organisations are not how a new face is added.
+
+- **A new brand is one entry** in the list in `src/lib/tradingNames.ts`. The ids, the pickers, the queue headings, the portal terms and the checks on every save come from that list. The database no longer lists the allowed ids (migration 073). Outside the code a brand still needs its domains connected (document and accounts hosts in Vercel and DNS) and its email domain verified in Resend before `sendsFromEmail` is turned on.
+- **The organisation comes from who is signed in**, through their membership (`getOrgId` in `lib/org.ts`). It never comes from the address a request was made to or from a request header.
+- **There are no per-company websites.** Until 14 Nov 2026, `[slug].biohazards.net` served a public site for the org with that slug, and requests to `/api/...` on such an address skipped the staff sign-in check and took the org from the slug. Signed out, `brisbanebiohazardcleaning.biohazards.net/api/jobs` returned the current jobs with client contact details. That routing, the `/site` pages, Marketing Manager, the Public Website section in Settings and the custom-domain lookup (`orgs.custom_domain`) were removed. Any `[name].biohazards.net` that is not one of ours is now a 404.
+- The `orgs.slug`, `orgs.custom_domain`, `company_profile.subdomain`, `custom_domain`, `services`, `areas_served` and `website_live` columns and the `website_card` feature flag are still in the database and are no longer read.
+
 ## TODO (product / engineering)
 
 - [ ] **Delete vs disable:** Keep **Disable** for production safety; add **Delete** only with guards (e.g. no users / no jobs) or soft-delete — see team discussion.
@@ -54,7 +63,7 @@ These are **different** flows; mixing them up causes confusion (e.g. “invite i
 
 ## Disabled organisations (`is_active = false`)
 
-- Tenant resolution (`getOrgId` / `getOrgResultForUser`) **excludes** inactive orgs — users lose org context until re-enabled.
+- Tenant resolution (`getOrgId`) **excludes** inactive orgs — users lose org context until re-enabled.
 - **Claude / Anthropic** routes that handle job or document data require **Clerk auth** and an **active** org match (`build-document`, `chat-document`, `edit-document`, `generate/[type]`, job SmartFill extract routes). Inactive orgs cannot send that data to the API.
 - **Platform admin nudge** (`/api/admin/actions/nudge`) is unchanged — platform staff only, not tenant data paths.
 - **`POST /api/extract`** (public SmartFill on intake) does not load org rows from the DB; it only formats pasted text. Disable org policy does not apply the same way there.

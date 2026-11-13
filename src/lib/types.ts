@@ -15,6 +15,7 @@
  */
 
 import type { FixedCharges, RecordSummary } from '@/lib/fixedCharges'
+import type { TradingNameId } from '@/lib/tradingNames'
 
 export type JobStatus =
   | 'lead'
@@ -1313,8 +1314,8 @@ export interface PhoneEntry {
   number: string
 }
 
-/** Trading name used on this job's client-facing documents (same ABN). */
-export type JobTradingName = 'brisbane_biohazard_cleaning' | 'forensic_cleaning_qld' | 'hoarding_cleaning_qld'
+/** Trading name used on this job's client-facing documents (same ABN). The brands are listed in lib/tradingNames.ts. */
+export type JobTradingName = TradingNameId
 
 export interface Job {
   id: string
@@ -2601,7 +2602,7 @@ export interface Org {
   custom_domain?: string
   plan: 'solo' | 'team' | 'business'
   seat_limit: number
-  /** Platform-tunable flags: `show_quick_feedback`, `training_education`, `website_card` (public site / marketing entry on home), `consultation` (Consultation home tile), etc. */
+  /** Platform-tunable flags: `show_quick_feedback`, `training_education`, `consultation` (Consultation home tile), etc. */
   features: Record<string, boolean>
   is_active: boolean
   created_at: string
