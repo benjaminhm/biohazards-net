@@ -17,6 +17,9 @@
  *   notes.biohazards.net     — the job notepad on its own host. / is /photo/notes;
  *                              same PIN session and path limits as photo.
  *
+ *   newjob.biohazards.net    — the phone new-job form on its own host. / is
+ *                              /photo/newjob; same PIN session and path limits as photo.
+ *
  *   document.<brand>.com.au — documents sent to a client to view or sign.
  *   /<private code> is the document, /<private code>/pdf the signed copy.
  *   Nothing else is reachable on this host.
@@ -41,7 +44,7 @@
  */
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
-import { accountsHostTradingName, documentHostTradingName, isNotesCaptureHost, isPhotoCaptureHost, tradingNameLabel } from '@/lib/tradingNames'
+import { accountsHostTradingName, documentHostTradingName, isNewJobCaptureHost, isNotesCaptureHost, isPhotoCaptureHost, tradingNameLabel } from '@/lib/tradingNames'
 import { DOCUMENT_HOST_HEADER, isSigningTokenShape } from '@/lib/signing/hostShape'
 import {
   STAFF_COOKIE,
@@ -79,7 +82,7 @@ function isPublicPath(pathname: string): boolean {
   return false
 }
 
-const RESERVED_SUBDOMAINS = new Set(['www', 'app', 'login', 'platform', 'admin', 'accounts', 'photo', 'notes'])
+const RESERVED_SUBDOMAINS = new Set(['www', 'app', 'login', 'platform', 'admin', 'accounts', 'photo', 'notes', 'newjob'])
 
 function isSharedAsset(pathname: string): boolean {
   return (
@@ -130,14 +133,17 @@ export async function proxy(request: NextRequest) {
   }
 
   const notesHost = isNotesCaptureHost(host)
-  if (notesHost || isPhotoCaptureHost(host)) {
+  const newJobHost = isNewJobCaptureHost(host)
+  if (notesHost || newJobHost || isPhotoCaptureHost(host)) {
     requestHeaders.set('x-subdomain', 'photo')
     if (isSharedAsset(pathname)) {
       return NextResponse.next({ request: { headers: requestHeaders } })
     }
     const shortPaths: Record<string, string> = notesHost
       ? { '/': '/photo/notes' }
-      : { '/': '/photo', '/bulk': '/photo/bulk', '/notes': '/photo/notes' }
+      : newJobHost
+        ? { '/': '/photo/newjob' }
+        : { '/': '/photo', '/bulk': '/photo/bulk', '/notes': '/photo/notes' }
     if (shortPaths[pathname]) {
       const url = request.nextUrl.clone()
       url.pathname = shortPaths[pathname]

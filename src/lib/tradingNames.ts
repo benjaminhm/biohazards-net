@@ -163,6 +163,11 @@ export function isNotesCaptureHost(host: string | null | undefined): boolean {
   return (host ?? '').split(':')[0].trim().toLowerCase() === 'notes.biohazards.net'
 }
 
+/** True when the request host is the phone new-job form (newjob.biohazards.net). */
+export function isNewJobCaptureHost(host: string | null | undefined): boolean {
+  return (host ?? '').split(':')[0].trim().toLowerCase() === 'newjob.biohazards.net'
+}
+
 /** Absolute base URL of a brand's accounts portal, for links in emails. */
 export function accountsPortalBaseUrl(id: TradingNameId | null | undefined): string | null {
   const host = tradingNameOption(id)?.accountsHost

@@ -61,9 +61,13 @@ interface Props {
   sourceText?: string
   onSourceText?: (text: string) => void
   defaultOpen?: boolean
+  /** Extraction route. The phone new-job form uses its PIN-checked one. */
+  endpoint?: string
+  /** Called when the route answers 401, so the page can ask for sign-in again. */
+  onSignedOut?: () => void
 }
 
-export default function SmartFill({ onApply, sourceText, onSourceText, defaultOpen = false }: Props) {
+export default function SmartFill({ onApply, sourceText, onSourceText, defaultOpen = false, endpoint = '/api/extract', onSignedOut }: Props) {
   const [open, setOpen] = useState(defaultOpen)
   const [pastedText, setPastedText] = useState(sourceText ?? '')
   const [extracting, setExtracting] = useState(false)
@@ -132,11 +136,15 @@ export default function SmartFill({ onApply, sourceText, onSourceText, defaultOp
     setExtracted(null)
     setError('')
     try {
-      const res = await fetch('/api/extract', {
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: pastedText }),
       })
+      if (res.status === 401 && onSignedOut) {
+        onSignedOut()
+        return
+      }
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
       setExtracted(data.extracted)

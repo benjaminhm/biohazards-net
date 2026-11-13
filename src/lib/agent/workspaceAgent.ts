@@ -75,15 +75,8 @@ import {
   photoPatch,
   sameJson,
 } from './patchDraft'
-import {
-  describeNewJob,
-  duplicateSearchTerms,
-  findDuplicates,
-  normalizeNewJob,
-  type DuplicateCandidate,
-  type NewJobProposal,
-  type PossibleDuplicate,
-} from './newJobDraft'
+import { describeNewJob, normalizeNewJob, type NewJobProposal } from './newJobDraft'
+import { likelyDuplicateJobs } from './newJobDuplicates'
 import type { AssessmentData, JobStatus } from '@/lib/types'
 
 type Supabase = ReturnType<typeof createServiceClient>
@@ -671,26 +664,6 @@ const openJob: WsTool = {
   },
 }
 
-async function likelyDuplicates(ctx: WsContext, p: NewJobProposal): Promise<PossibleDuplicate[]> {
-  const { name, street } = duplicateSearchTerms(p)
-  const ors = [
-    ...(p.client_phone ? [`client_phone.eq."${p.client_phone}"`] : []),
-    ...(p.client_email && !/[",()]/.test(p.client_email) ? [`client_email.ilike."${p.client_email}"`] : []),
-    ...(name ? [`client_name.ilike.%${name}%`] : []),
-    ...(street ? [`site_address.ilike.%${street}%`] : []),
-  ]
-  const cols = 'id, job_code, client_name, client_phone, client_phones, client_email, site_address, status'
-  const base = () => ctx.supabase.from('jobs').select(cols).eq('org_id', ctx.orgId).is('archived_at', null)
-  const [byFields, byOtherPhones] = await Promise.all([
-    ors.length ? base().or(ors.join(',')).order('created_at', { ascending: false }).limit(300) : null,
-    p.client_phone ? base().contains('client_phones', [{ number: p.client_phone }]).limit(20) : null,
-  ])
-  if (byFields?.error) throw byFields.error
-  const seen = new Set<string>()
-  const rows = [...(byFields?.data ?? []), ...(byOtherPhones?.data ?? [])].filter(r => (seen.has(r.id) ? false : (seen.add(r.id), true)))
-  return findDuplicates(p, rows as DuplicateCandidate[])
-}
-
 const draftNewJob: WsTool = {
   name: 'draft_new_job',
   description:
@@ -714,7 +687,7 @@ const draftNewJob: WsTool = {
     } catch (e) {
       throw new ToolError(e instanceof Error ? e.message : 'Invalid details')
     }
-    const duplicates = await likelyDuplicates(ctx, proposed)
+    const duplicates = await likelyDuplicateJobs(ctx.supabase, ctx.orgId, proposed)
     const dupView = duplicates.map(d => ({ job_code: d.job_code, job_id: d.id, client: d.client_name, site: d.site_address, status: d.status, why: d.reasons.join(', ') }))
     if (duplicates.length && input.ignore_duplicates !== true) {
       return { drafted: false, possible_duplicates: dupView, next: 'Tell the staff member and offer the existing job (open_job). Draft again with ignore_duplicates only if they confirm it is different.' }
