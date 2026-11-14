@@ -66,7 +66,10 @@ import type { ContentsClearanceQuoteContent } from '@/lib/contentsClearanceQuote
 import { fillBiohazardCleaningEngagement, fillContentsClearanceEngagement, fillSurfaceAreaCleaningEngagement } from '@/lib/quoteEngagement'
 import { SURFACE_AREA_ESTIMATE_NOTE, SURFACE_AREA_LABOUR_NOTE, type SurfaceAreaCleaningQuoteContent } from '@/lib/surfaceAreaCleaningQuote'
 import {
+  BIOHAZARD_CONTENTS_NOTE,
+  BIOHAZARD_DISPOSAL_LABEL,
   BIOHAZARD_ESTIMATE_NOTE,
+  biohazardContentsLabel,
   BIOHAZARD_LABOUR_NOTE,
   BIOHAZARD_TRAVEL_NOTE,
   type BiohazardCleaningQuoteContent,
@@ -4139,8 +4142,18 @@ function buildBiohazardCleaningMid(
     has_secondary: c.has_secondary,
     mobilisation_fee: c.mobilisation_fee,
     extra_labels: (c.extra_lines ?? []).map(line => line.label),
+    contents_m3: c.contents_m3,
+    contents_disposal_fee: c.contents_disposal_fee,
   })
   const phases = groupBiohazardScope(c.scope_of_work ?? [])
+  const contentsRow = (c.contents_m3 ?? 0) > 0
+    ? `<tr>
+        <td>${esc(biohazardContentsLabel(c.contents_items ?? ''))}</td>
+        <td class="r">${esc(clearanceQty(c.contents_m3, 'm³'))}</td>
+        <td class="r">${esc(`${fmtMoney(c.contents_rate_per_m3)} / m³`)}</td>
+        <td class="r">${fmtMoney(c.contents_amount)}</td>
+      </tr>`
+    : ''
   const measuredRows = (label: string, amount: number, rate: number, m2: number, rooms: BiohazardCleaningQuoteContent['rooms']) => `
     <tr>
       <td>${esc(label)}</td>
@@ -4160,6 +4173,9 @@ function buildBiohazardCleaningMid(
   const fixed: { label: string; quantity: string; rate: string; amount: number }[] = []
   if ((c.mobilisation_fee ?? 0) > 0) {
     fixed.push({ label: 'Mobilisation', quantity: '1 fee', rate: fmtMoney(c.mobilisation_fee), amount: c.mobilisation_fee })
+  }
+  if ((c.contents_disposal_fee ?? 0) > 0) {
+    fixed.push({ label: BIOHAZARD_DISPOSAL_LABEL, quantity: '1 fee', rate: fmtMoney(c.contents_disposal_fee), amount: c.contents_disposal_fee })
   }
   fixed.push({
     label: 'Labour',
@@ -4225,10 +4241,12 @@ function buildBiohazardCleaningMid(
       <tbody>
         ${measuredRows(c.has_secondary ? 'Primary zone (decontamination)' : 'Surface', c.area_amount, c.rate_per_m2, c.estimated_m2, c.rooms ?? [])}
         ${c.has_secondary ? measuredRows('Secondary zone (odour and insects)', c.secondary_amount, c.secondary_rate_per_m2, c.secondary_m2, c.secondary_rooms ?? []) : ''}
+        ${contentsRow}
         ${travel}
       </tbody>
     </table>
     <div class="bcq-foot-note">${esc(BIOHAZARD_ESTIMATE_NOTE)} Travel: ${esc(BIOHAZARD_TRAVEL_NOTE)}</div>
+    ${contentsRow ? `<div class="bcq-foot-note">${esc(BIOHAZARD_CONTENTS_NOTE)}</div>` : ''}
     <div class="label" style="margin-top:18px">Fixed items</div>
     ${clearanceTable('Quantity', fixed)}
     ${c.mobilisation_reason ? `<div class="bcq-foot-note">${esc(c.mobilisation_reason)}</div>` : ''}

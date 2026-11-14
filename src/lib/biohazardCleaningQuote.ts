@@ -119,6 +119,21 @@ export const BIOHAZARD_ESTIMATE_NOTE =
 
 export const BIOHAZARD_TRAVEL_NOTE = 'The return drive between our base and the job address.'
 
+/** Printed under the measured items when affected contents are on the quote. */
+export const BIOHAZARD_CONTENTS_NOTE =
+  'Affected contents volume is an estimate. The volume removed is measured on the day.'
+
+export const BIOHAZARD_CONTENTS_LABEL = 'Affected contents removal'
+export const BIOHAZARD_DISPOSAL_LABEL = 'Disposal fee'
+
+/** Added when printing if the inclusions do not already cover the affected contents. */
+export const BIOHAZARD_CONTENTS_INCLUSION_LINE =
+  'Removal of affected contents at the rate per cubic metre on this quote, and their disposal at the disposal fee on this quote.'
+
+/** Added when printing if the assumptions do not already cover the cubic metres. */
+export const BIOHAZARD_CONTENTS_ASSUMPTION_LINE =
+  'Cubic metres of affected contents on this quote are an estimate. The volume removed is measured on the day, at the rate per cubic metre on this quote.'
+
 /** Fixed lines staff often add. They start at a rate of zero. */
 export const BIOHAZARD_EXTRA_LINE_PRESETS = [
   { label: 'Clinical waste bins', unit: 'bins' },
@@ -182,6 +197,14 @@ export interface BiohazardCleaningCapture extends JobOnlyClauses {
   secondary_rate_per_m2: number | null
   /** Areas inspected and considered non-affected. Fills [other zones] in the exclusions. */
   other_zones: string[]
+  /** Affected contents taken away, for example mattress, carpet, couch. Not a contents clearance. */
+  contents_items: string[]
+  /** Estimated cubic metres of affected contents. Blank or zero stays off the quote. */
+  contents_m3: number | null
+  /** Ex GST, per cubic metre. */
+  contents_rate_per_m3: number | null
+  /** Ex GST. One fee for disposing of the affected contents. Blank or zero stays off the quote. */
+  contents_disposal_fee: number | null
   /** Labour days the client is buying. Required before the quote is generated. */
   labour_days: number | null
   /** Ex GST. Blank uses the schema rate. */
@@ -232,7 +255,7 @@ export interface BiohazardCleaningLine {
   unit: string
   rate: number
   amount: number
-  kind: 'surface' | 'secondary' | 'travel' | 'mobilisation' | 'labour' | 'coh' | 'atp' | 'lab' | 'extra'
+  kind: 'surface' | 'secondary' | 'contents' | 'disposal' | 'travel' | 'mobilisation' | 'labour' | 'coh' | 'atp' | 'lab' | 'extra'
 }
 
 export interface BiohazardCleaningFigures {
@@ -242,6 +265,12 @@ export interface BiohazardCleaningFigures {
   secondary_amount: number
   /** True when the secondary zone is on the quote. */
   has_secondary: boolean
+  contents_m3: number
+  contents_rate_per_m3: number
+  contents_amount: number
+  contents_disposal_fee: number
+  /** True when the affected contents volume or the disposal fee is on the quote. */
+  has_contents: boolean
   travel_km: number
   labour_days: number
   mobilisation_fee: number
@@ -281,6 +310,13 @@ export interface BiohazardCleaningQuoteContent {
   secondary_rooms: { name: string; detail: string; area_m2: number; length_m: number; width_m: number; height_m: number }[]
   has_secondary: boolean
   other_zones: string
+  /** For example "mattress, carpet and couch". */
+  contents_items: string
+  contents_m3: number
+  contents_rate_per_m3: number
+  contents_amount: number
+  contents_disposal_fee: number
+  has_contents: boolean
   travel_km: number
   rate_per_km: number
   travel_amount: number
@@ -419,6 +455,19 @@ export const BIOHAZARD_AREA_SUGGESTIONS = [
   'hallway',
 ] as const
 
+export const BIOHAZARD_CONTENTS_SUGGESTIONS = [
+  'mattress',
+  'bed base',
+  'bedding',
+  'carpet',
+  'underlay',
+  'couch',
+  'armchair',
+  'clothing',
+  'curtains',
+  'rug',
+] as const
+
 export const SECONDARY_CONTAMINATION_SUGGESTIONS = [
   'odour',
   'flies',
@@ -442,6 +491,10 @@ export function emptyBiohazardCleaningCapture(): BiohazardCleaningCapture {
     secondary_rooms: [],
     secondary_rate_per_m2: null,
     other_zones: [],
+    contents_items: [],
+    contents_m3: null,
+    contents_rate_per_m3: null,
+    contents_disposal_fee: null,
     labour_days: null,
     rate_per_m2: null,
     rate_per_km: null,
@@ -632,6 +685,12 @@ export function normalizeBiohazardCleaningCapture(raw: unknown): BiohazardCleani
     other_zones: Array.isArray(o.other_zones)
       ? o.other_zones.filter((item): item is string => typeof item === 'string')
       : [],
+    contents_items: Array.isArray(o.contents_items)
+      ? o.contents_items.filter((item): item is string => typeof item === 'string')
+      : [],
+    contents_m3: qty(o.contents_m3),
+    contents_rate_per_m3: qty(o.contents_rate_per_m3),
+    contents_disposal_fee: qty(o.contents_disposal_fee),
     labour_days: qty(o.labour_days),
     rate_per_m2: qty(o.rate_per_m2),
     rate_per_km: qty(o.rate_per_km),
@@ -701,6 +760,20 @@ export function resolvedOtherZone(capture: Pick<BiohazardCleaningCapture, 'other
   return joinBiohazardNames(resolvedOtherZones(capture))
 }
 
+export function resolvedContentsItems(capture: Pick<BiohazardCleaningCapture, 'contents_items'>): string[] {
+  return cleanNames(capture.contents_items ?? [])
+}
+
+/** For example "mattress, carpet and couch". */
+export function resolvedContentsItem(capture: Pick<BiohazardCleaningCapture, 'contents_items'>): string {
+  return joinBiohazardNames(resolvedContentsItems(capture))
+}
+
+/** "Affected contents removal: mattress and carpet", or the bare label when no items are named. */
+export function biohazardContentsLabel(items: string): string {
+  return items.trim() ? `${BIOHAZARD_CONTENTS_LABEL}: ${items.trim()}` : BIOHAZARD_CONTENTS_LABEL
+}
+
 export function secondaryZoneInUse(capture: Pick<BiohazardCleaningCapture, 'secondary_zone' | 'secondary_contaminations' | 'secondary_objective' | 'secondary_m2' | 'secondary_rooms'>): boolean {
   return Boolean(
     (capture.secondary_zone ?? '').trim()
@@ -716,6 +789,11 @@ export function biohazardCleaningFigures(capture: BiohazardCleaningCapture): Bio
   const secondary_rate_per_m2 = round2(quantityOrZero(capture.secondary_rate_per_m2))
   const secondary_amount = round2(secondary_m2 * secondary_rate_per_m2)
   const has_secondary = secondaryZoneInUse(capture)
+  const contents_m3 = round2(quantityOrZero(capture.contents_m3))
+  const contents_rate_per_m3 = round2(quantityOrZero(capture.contents_rate_per_m3))
+  const contents_amount = round2(contents_m3 * contents_rate_per_m3)
+  const contents_disposal_fee = round2(quantityOrZero(capture.contents_disposal_fee))
+  const has_contents = contents_m3 > 0 || contents_disposal_fee > 0
   const travel_km = round2(quantityOrZero(capture.travel_km))
   const labour_days = Math.round(quantityOrZero(capture.labour_days))
   const mobilisation_fee = capture.mobilisation_waived ? 0 : round2(quantityOrZero(capture.mobilisation_fee))
@@ -730,6 +808,12 @@ export function biohazardCleaningFigures(capture: BiohazardCleaningCapture): Bio
   ]
   if (has_secondary) {
     lines.push({ label: 'Secondary zone', quantity: secondary_m2, unit: 'm²', rate: secondary_rate_per_m2, amount: secondary_amount, kind: 'secondary' })
+  }
+  if (contents_m3 > 0) {
+    lines.push({ label: biohazardContentsLabel(resolvedContentsItem(capture)), quantity: contents_m3, unit: 'm³', rate: contents_rate_per_m3, amount: contents_amount, kind: 'contents' })
+  }
+  if (contents_disposal_fee > 0) {
+    lines.push({ label: BIOHAZARD_DISPOSAL_LABEL, quantity: 1, unit: 'fee', rate: contents_disposal_fee, amount: contents_disposal_fee, kind: 'disposal' })
   }
   if (travel_km > 0 || rate_per_km > 0) {
     lines.push({ label: 'Travel', quantity: travel_km, unit: 'km', rate: rate_per_km, amount: travel_amount, kind: 'travel' })
@@ -761,6 +845,11 @@ export function biohazardCleaningFigures(capture: BiohazardCleaningCapture): Bio
     secondary_rate_per_m2,
     secondary_amount,
     has_secondary,
+    contents_m3,
+    contents_rate_per_m3,
+    contents_amount,
+    contents_disposal_fee,
+    has_contents,
     travel_km,
     labour_days,
     mobilisation_fee,
@@ -935,6 +1024,12 @@ export function biohazardCleaningQuoteContent(input: {
     secondary_rooms: secondaryRooms,
     has_secondary: figures.has_secondary,
     other_zones: otherZones,
+    contents_items: figures.has_contents ? resolvedContentsItem(capture) : '',
+    contents_m3: figures.contents_m3,
+    contents_rate_per_m3: figures.contents_rate_per_m3,
+    contents_amount: figures.contents_amount,
+    contents_disposal_fee: figures.contents_disposal_fee,
+    has_contents: figures.has_contents,
     travel_km: figures.travel_km,
     rate_per_km: figures.rate_per_km,
     travel_amount: figures.travel_amount,

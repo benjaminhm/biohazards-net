@@ -99,6 +99,9 @@ export default function BiohazardCleaningRecordSection({
         {carried('Call-out fee (ex GST) ($)', record.mobilisation_fee, figures.mobilisation_fee, '0.01', v => patch({ mobilisation_fee: v }))}
         {carried('Travel (km)', record.travel_km, figures.travel_km, '0.1', v => patch({ travel_km: v }))}
         {carried('Rate per km (ex GST) ($)', record.rate_per_km, figures.rate_per_km, '0.01', v => patch({ rate_per_km: v }))}
+        {figures.has_contents && carried('Affected contents removed (m³)', record.contents_m3, figures.contents_m3, '0.1', v => patch({ contents_m3: v }))}
+        {figures.has_contents && carried('Rate per m³ (ex GST) ($)', record.contents_rate_per_m3, figures.contents_rate_per_m3, '0.01', v => patch({ contents_rate_per_m3: v }))}
+        {figures.has_contents && carried('Disposal fee (ex GST) ($)', record.contents_disposal_fee, figures.contents_disposal_fee, '0.01', v => patch({ contents_disposal_fee: v }))}
         {quote.coh_rap && carried('COH/RAP fee (ex GST) ($)', record.coh_rap_fee, quote.coh_rap_fee, '0.01', v => patch({ coh_rap_fee: v }))}
         {(quote.extra_lines ?? []).filter(line => line.label.trim()).map(line => (
           <div key={line.id}>

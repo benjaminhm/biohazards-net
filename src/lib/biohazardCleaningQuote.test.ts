@@ -618,3 +618,43 @@ test('BCQ-20261026-355F keeps the total and deposit, and prints matching zone ro
   assert.match(html, /Forensic Cleaning QLD — Confidential · BCQ-20261026-355F · Page/)
   assert.match(html, /bcq-sign/)
 })
+
+test('affected contents are m³ × rate plus one disposal fee, and stay off a quote that has none', () => {
+  const without = biohazardCleaningFigures(normalizeBiohazardCleaningCapture({ labour_days: 1, rate_per_labour_day: 600 }))
+  assert.equal(without.has_contents, false)
+  assert.equal(without.lines.some(line => line.kind === 'contents' || line.kind === 'disposal'), false)
+
+  const capture = normalizeBiohazardCleaningCapture({
+    labour_days: 1,
+    rate_per_labour_day: 600,
+    contents_items: ['mattress', 'carpet', 'Mattress'],
+    contents_m3: 2.5,
+    contents_rate_per_m3: 120,
+    contents_disposal_fee: 180,
+  })
+  const figures = biohazardCleaningFigures(capture)
+  assert.deepEqual(
+    figures.lines.filter(line => line.kind === 'contents' || line.kind === 'disposal').map(line => [line.label, line.quantity, line.unit, line.rate, line.amount]),
+    [
+      ['Affected contents removal: mattress and carpet', 2.5, 'm³', 120, 300],
+      ['Disposal fee', 1, 'fee', 180, 180],
+    ],
+  )
+  assert.equal(figures.subtotal, 1080)
+  assert.equal(figures.gst, 108)
+  assert.equal(figures.total, 1188)
+
+  const content = biohazardCleaningQuoteContent({ reference: 'Q1', clientName: 'A', siteAddress: '1 St', capture })
+  assert.equal(content.contents_items, 'mattress and carpet')
+  assert.equal(content.contents_amount, 300)
+  assert.equal(content.contents_disposal_fee, 180)
+  assert.equal(content.total, 1188)
+
+  const html = buildPrintHTML('biohazard_cleaning_quote', content as unknown as Record<string, unknown>, [], [], null, 'job-1', 'http://localhost')
+  assert.match(html, /Affected contents removal: mattress and carpet/)
+  assert.match(html, /2\.5 m³/)
+  assert.match(html, /\$120\.00 \/ m³/)
+  assert.match(html, /Disposal fee/)
+  assert.match(html, /Removal of affected contents at the rate per cubic metre/)
+  assert.match(html, /Cubic metres of affected contents on this quote are an estimate/)
+})

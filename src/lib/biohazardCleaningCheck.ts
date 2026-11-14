@@ -190,6 +190,8 @@ const FIELD_TEXT: Record<string, string> = {
   lab_tests: 'Laboratory testing is on the quote, but the number of tests or the rate per test is blank.',
   lab_testing: 'COH verification needs laboratory testing as well as ATP testing.',
   atp_testing: 'COH verification needs ATP testing as well as laboratory testing.',
+  contents_m3: 'Affected contents have a rate per m³ or items listed, but no cubic metres.',
+  contents_rate: 'Affected contents have cubic metres, but no rate per m³.',
   description: 'The site findings are blank.',
   objective: 'The objective is blank.',
 }
@@ -439,6 +441,10 @@ export function biohazardRuleFlags(
     if (!capture.mobilisation_waived && figures.mobilisation_fee > 0 && saysFree) rule('callout_conflict', clause)
   }
 
+  if (figures.contents_m3 <= 0 && (figures.contents_rate_per_m3 > 0 || (capture.contents_items ?? []).some(item => item.trim()))) {
+    rule('missing_field', 'quantities', 'contents_m3')
+  }
+  if (figures.contents_m3 > 0 && figures.contents_rate_per_m3 <= 0) rule('missing_field', 'quantities', 'contents_rate')
   if (figures.rate_per_km > 0 && figures.travel_km <= 0) rule('travel_incomplete', 'quantities')
   if (figures.rate_per_m2 > 0 && figures.estimated_m2 <= 0) rule('surface_incomplete', 'quantities')
   if (secondaryZoneInUse(capture) && figures.secondary_m2 <= 0) rule('surface_incomplete', 'quantities', 'secondary')
@@ -540,6 +546,9 @@ export function biohazardCheckPayload(
       rate_per_km: figures.rate_per_km,
       labour_days: figures.labour_days,
       rate_per_labour_day: figures.rate_per_labour_day,
+      affected_contents_m3: figures.contents_m3,
+      affected_contents_rate_per_m3: figures.contents_rate_per_m3,
+      affected_contents_disposal_fee: figures.contents_disposal_fee,
       call_out_fee: figures.mobilisation_fee,
       call_out_waived: capture.mobilisation_waived,
       call_out_reason: capture.mobilisation_waived ? capture.mobilisation_reason.trim() : '',

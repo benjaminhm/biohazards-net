@@ -42,6 +42,7 @@ import {
   normalizeBiohazardCleaningCapture,
   normalizeBiohazardCleaningClauses,
   BIOHAZARD_AREA_SUGGESTIONS,
+  BIOHAZARD_CONTENTS_SUGGESTIONS,
   BIOHAZARD_TYPE_SUGGESTIONS,
   SECONDARY_CONTAMINATION_SUGGESTIONS,
   resolvedAreaAffected,
@@ -1233,6 +1234,63 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
             style={INPUT}
           />
         </div>
+      </div>
+
+      <div style={SECTION}>
+        <div style={LABEL}>Affected contents removal</div>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+          Contents affected by the biohazard that are taken away, such as a mattress, carpet, a couch, or clothing. Cubic metres × rate, plus one disposal fee. Leave blank to keep it off the quote.
+        </div>
+        <NameList
+          names={capture.contents_items}
+          onChange={contents_items => patch({ contents_items })}
+          suggestions={BIOHAZARD_CONTENTS_SUGGESTIONS}
+          placeholder="Add an item"
+        />
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginTop: 10 }}>
+          <div>
+            <label style={LABEL}>Estimated volume (m³)</label>
+            <input
+              type="number"
+              min={0}
+              step="0.1"
+              value={capture.contents_m3 ?? ''}
+              onChange={e => patch({ contents_m3: numberOrNull(e.target.value) })}
+              placeholder="0"
+              style={INPUT}
+            />
+          </div>
+          <div>
+            <label style={LABEL}>Rate per m³ ($)</label>
+            <input
+              type="number"
+              min={0}
+              step="0.01"
+              value={capture.contents_rate_per_m3 ?? ''}
+              onChange={e => patch({ contents_rate_per_m3: numberOrNull(e.target.value) })}
+              placeholder="0.00"
+              style={INPUT}
+            />
+          </div>
+          <div>
+            <label style={LABEL}>Disposal fee ($)</label>
+            <input
+              type="number"
+              min={0}
+              step="0.01"
+              value={capture.contents_disposal_fee ?? ''}
+              onChange={e => patch({ contents_disposal_fee: numberOrNull(e.target.value) })}
+              placeholder="0.00"
+              style={INPUT}
+            />
+          </div>
+        </div>
+        {figures.has_contents && (
+          <div style={HINT}>
+            {figures.contents_m3.toLocaleString('en-AU', { maximumFractionDigits: 2 })} m³ × {formatAud(figures.contents_rate_per_m3)} = {formatAud(figures.contents_amount)}
+            {figures.contents_disposal_fee > 0 ? ` + ${formatAud(figures.contents_disposal_fee)} disposal = ${formatAud(figures.contents_amount + figures.contents_disposal_fee)}` : ''} ex GST
+          </div>
+        )}
       </div>
 
       <div style={SECTION}>

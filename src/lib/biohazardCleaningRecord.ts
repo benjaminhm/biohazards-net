@@ -2,12 +2,14 @@
  * Biohazard Cleaning Record — what the biohazard cleaning actually came to.
  *
  * Staff enter the measured square metres per zone and the tests done. Rates,
- * labour, call-out fee, travel, COH/RAP and extra lines are carried over from
+ * labour, call-out fee, travel, affected contents, COH/RAP and extra lines are carried over from
  * the Biohazard Cleaning Quote: a blank field takes the quote's figure. A quote
  * with no square metres and no tests is fixed price and needs no record.
  */
 import type { AssessmentData } from '@/lib/types'
 import {
+  BIOHAZARD_CONTENTS_LABEL,
+  BIOHAZARD_DISPOSAL_LABEL,
   biohazardCleaningFigures,
   joinBiohazardNames,
   normalizeBiohazardCleaningCapture,
@@ -37,12 +39,16 @@ export interface BiohazardCleaningRecordCapture extends FixedChargeFields {
   lab_rate: number | null
   travel_km: number | null
   rate_per_km: number | null
+  /** Cubic metres of affected contents removed. Blank takes the quote's estimate. */
+  contents_m3: number | null
+  contents_rate_per_m3: number | null
+  contents_disposal_fee: number | null
   coh_rap_fee: number | null
   /** Ex GST amount by quote extra line id. Missing follows the quote line. */
   extra_amounts: Record<string, number | null>
 }
 
-export type BiohazardRecordLineKind = 'zone' | 'labour' | 'travel' | 'callout' | 'testing' | 'other'
+export type BiohazardRecordLineKind = 'zone' | 'contents' | 'disposal' | 'labour' | 'travel' | 'callout' | 'testing' | 'other'
 
 export interface BiohazardRecordLine {
   kind: BiohazardRecordLineKind
@@ -108,6 +114,9 @@ export function normalizeBiohazardCleaningRecord(raw: unknown): BiohazardCleanin
     mobilisation_fee: numberOrNull(o.mobilisation_fee),
     travel_km: numberOrNull(o.travel_km),
     rate_per_km: numberOrNull(o.rate_per_km),
+    contents_m3: numberOrNull(o.contents_m3),
+    contents_rate_per_m3: numberOrNull(o.contents_rate_per_m3),
+    contents_disposal_fee: numberOrNull(o.contents_disposal_fee),
     coh_rap_fee: numberOrNull(o.coh_rap_fee),
     extra_amounts: Object.fromEntries(Object.entries(extras).map(([id, amount]) => [id, numberOrNull(amount)])),
   }
@@ -178,6 +187,11 @@ export function biohazardRecordSummary(
     const typed = record.other_zones.find(z => z.name.toLowerCase() === name.toLowerCase())
     if (typed?.m2 != null && typed.rate_per_m2 != null) zone(sentenceStart(name), typed.m2, typed.rate_per_m2, false)
   }
+
+  const contentsM3 = record.contents_m3 ?? figures.contents_m3
+  const perM3 = record.contents_rate_per_m3 ?? figures.contents_rate_per_m3
+  push('contents', `${BIOHAZARD_CONTENTS_LABEL} (${quantityText(contentsM3)} m³ × ${formatAud(perM3)})`, contentsM3 * perM3)
+  push('disposal', BIOHAZARD_DISPOSAL_LABEL, record.contents_disposal_fee ?? figures.contents_disposal_fee)
 
   const charges = fixedCharges(record, {
     labour_days: figures.labour_days,
