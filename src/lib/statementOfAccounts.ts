@@ -25,9 +25,16 @@ export interface StatementOfAccountsCapture {
   /** Invoice 1: the estimate invoice the deposit was paid against. */
   invoice_number: string
   invoice_url: string
-  /** Invoice 2 (or credit note): the difference between the actual total and the estimate. */
+  /** Invoice 2: what came in higher than the estimate. Older statements also kept a credit note here. */
   invoice2_number: string
   invoice2_url: string
+  /** Credit note: what came in lower than the estimate. */
+  credit_note_number: string
+  /** Drafts raised in Xero from the statement, and their last known Xero status. */
+  xero_invoice2_id: string
+  xero_invoice2_status: string
+  xero_credit_note_id: string
+  xero_credit_note_status: string
   deposit_taken: boolean
   /** Dollars received. Includes GST when the statement charges GST. */
   deposit_amount: number | null
@@ -85,6 +92,11 @@ export function emptyStatementCapture(): StatementOfAccountsCapture {
     invoice_url: '',
     invoice2_number: '',
     invoice2_url: '',
+    credit_note_number: '',
+    xero_invoice2_id: '',
+    xero_invoice2_status: '',
+    xero_credit_note_id: '',
+    xero_credit_note_status: '',
     deposit_taken: false,
     deposit_amount: null,
     deposit_includes_gst: true,
@@ -131,6 +143,11 @@ export function normalizeStatementCapture(raw: unknown): StatementOfAccountsCapt
       : (originalNumber ? textField(o.original_invoice_url) : textField(o.new_invoice_url) || textField(o.original_invoice_url)),
     invoice2_number: v2 ? textField(o.invoice2_number) : (originalNumber ? newNumber : ''),
     invoice2_url: v2 ? textField(o.invoice2_url) : (originalNumber ? textField(o.new_invoice_url) : ''),
+    credit_note_number: textField(o.credit_note_number),
+    xero_invoice2_id: textField(o.xero_invoice2_id),
+    xero_invoice2_status: textField(o.xero_invoice2_status),
+    xero_credit_note_id: textField(o.xero_credit_note_id),
+    xero_credit_note_status: textField(o.xero_credit_note_status),
     deposit_taken: v2 ? (amount ?? 0) > 0 : o.deposit_taken === true,
     deposit_amount: v2 || o.deposit_taken === true ? amount : null,
     deposit_includes_gst: o.deposit_includes_gst !== false,
@@ -754,6 +771,7 @@ export function statementV2Figures(
     invoice_url: capture.invoice_url.trim(),
     invoice2_number: capture.invoice2_number.trim(),
     invoice2_url: capture.invoice2_url.trim(),
+    credit_note_number: capture.credit_note_number.trim(),
     estimate_total: estimates.length > 0 ? round2(quoted) : null,
     problems,
     estimates,
@@ -783,6 +801,7 @@ export function statementV2Content(f: StatementV2Figures, reference: string, sit
     invoice_url: f.invoice_url,
     invoice2_number: f.invoice2_number,
     invoice2_url: f.invoice2_url,
+    credit_note_number: f.credit_note_number,
     estimate_total: f.estimate_total,
     adjustment_lines: f.adjustment_lines,
     problems: f.problems,
@@ -812,6 +831,7 @@ export interface StatementV2Presentation {
 }
 
 export interface StatementV2Invoice {
+  kind: 'invoice1' | 'invoice2' | 'credit_note'
   heading: string
   detail: string
   /** Positive is still to pay on this invoice. Negative is a credit. */
@@ -821,7 +841,7 @@ export interface StatementV2Invoice {
   amountShown: number
   payHref: string | null
   payLabel: string | null
-  /** Invoice 2 only: each quote's actual against its estimate, then any adjustment. */
+  /** Invoice 2 and the credit note: each quote's actual against its estimate, then any adjustment. */
   breakdown: StatementV2AdjustmentRow[]
 }
 
@@ -842,22 +862,69 @@ export function breakdownTotal(invoice: Pick<StatementV2Invoice, 'amount' | 'bre
 }
 
 type StatementV2Split = Pick<StatementOfAccountsV2Content,
-  'charges_gst' | 'total_inc' | 'deposit' | 'deposit_date' | 'invoice1_paid_in_full' | 'adjustment' | 'adjustment_reason' | 'invoice_number' | 'invoice_url' | 'invoice2_number' | 'invoice2_url' | 'estimate_total' | 'adjustment_lines'>
+  'charges_gst' | 'total_inc' | 'deposit' | 'deposit_date' | 'invoice1_paid_in_full' | 'adjustment' | 'adjustment_reason' | 'invoice_number' | 'invoice_url' | 'invoice2_number' | 'invoice2_url' | 'credit_note_number' | 'estimate_total' | 'adjustment_lines'>
 
 export const STATEMENT_INVOICES_NOTE =
-  'The original estimate was invoiced on invoice 1 and the deposit was paid against it. Invoice 2 covers the difference between the final figures and the estimate, or is a credit note when the final figures came in lower. Together they make up the balance.'
+  'The original estimate was invoiced on invoice 1 and the deposit was paid against it. Invoice 2 covers what came in higher than the estimate, and a credit note what came in lower. Together they make up the balance.'
 
 export const STATEMENT_INVOICES_NOTE_PAID_IN_FULL =
-  'The original estimate was invoiced on invoice 1 and paid in full up front. Invoice 2 covers the difference between the final figures and the estimate, or is a credit note when the final figures came in lower.'
+  'The original estimate was invoiced on invoice 1 and paid in full up front. Invoice 2 covers what came in higher than the estimate, and a credit note what came in lower.'
 
 export function statementInvoicesNote(c: Pick<StatementOfAccountsV2Content, 'invoice1_paid_in_full'>): string {
   return c.invoice1_paid_in_full ? STATEMENT_INVOICES_NOTE_PAID_IN_FULL : STATEMENT_INVOICES_NOTE
 }
 
+export interface StatementV2Adjustment {
+  /** Inc GST (or no GST). Positive on invoice 2, negative on the credit note. */
+  amount: number
+  rows: StatementV2AdjustmentRow[]
+}
+
+type StatementV2AdjustmentInput = Pick<StatementOfAccountsV2Content, 'charges_gst' | 'total_inc' | 'adjustment' | 'adjustment_reason' | 'estimate_total' | 'adjustment_lines'>
+
+/**
+ * The actual total less the estimate, plus any adjustment, split by sign:
+ * quotes that came in higher (and a positive adjustment) go on invoice 2,
+ * quotes that came in lower (and a negative adjustment) on a credit note.
+ * The two always add up to `net`; a cent of GST rounding goes on invoice 2.
+ */
+export function statementV2Adjustments(c: StatementV2AdjustmentInput): { invoice2: StatementV2Adjustment | null; credit_note: StatementV2Adjustment | null; net: number } {
+  const estimate = c.estimate_total
+  if (estimate == null || estimate <= 0.004) return { invoice2: null, credit_note: null, net: 0 }
+  const basis = (ex: number) => c.charges_gst ? round2(ex * 1.1) : round2(ex)
+  const rows: StatementV2AdjustmentRow[] = (c.adjustment_lines ?? []).map(line => {
+    const difference_ex = round2(line.actual_ex - line.estimate_ex)
+    const difference_inc = round2(basis(line.actual_ex) - basis(line.estimate_ex))
+    return { label: line.label, actual_ex: line.actual_ex, estimate_ex: line.estimate_ex, difference_ex, gst: round2(difference_inc - difference_ex), difference_inc }
+  })
+  if (c.adjustment != null) {
+    const difference_ex = c.charges_gst ? round2(c.adjustment / 1.1) : c.adjustment
+    rows.push({
+      label: `Adjustment (${c.adjustment_reason.trim() || 'adjustment'})`,
+      actual_ex: null,
+      estimate_ex: null,
+      difference_ex,
+      gst: round2(c.adjustment - difference_ex),
+      difference_inc: c.adjustment,
+    })
+  }
+  const net = round2(c.total_inc - estimate + (c.adjustment ?? 0))
+  const up = rows.filter(row => row.difference_inc > 0.004)
+  const down = rows.filter(row => row.difference_inc < -0.004)
+  const sum = (list: StatementV2AdjustmentRow[]) => round2(list.reduce((total, row) => total + row.difference_inc, 0))
+  if (up.length > 0 && down.length > 0) {
+    const credit = sum(down)
+    return { invoice2: { amount: round2(net - credit), rows: up }, credit_note: { amount: credit, rows: down }, net }
+  }
+  if (Math.abs(net) <= 0.004) return { invoice2: null, credit_note: null, net: 0 }
+  const single = { amount: net, rows }
+  return net > 0 ? { invoice2: single, credit_note: null, net } : { invoice2: null, credit_note: single, net }
+}
+
 /**
  * The balance as it is billed in Xero: invoice 1 is the estimate less the
- * deposit; invoice 2 (or a credit note) is the actual total less the estimate,
- * plus any adjustment. The two always add up to the balance.
+ * deposit; invoice 2 and a credit note carry the actual total less the
+ * estimate, plus any adjustment. Together they always add up to the balance.
  */
 export function statementV2Invoices(c: StatementV2Split): StatementV2Invoice[] {
   const estimate = c.estimate_total
@@ -871,6 +938,7 @@ export function statementV2Invoices(c: StatementV2Split): StatementV2Invoice[] {
   const invoice1 = round2(estimate - c.deposit)
   const paidOn = c.deposit_date?.trim() ? ` on ${longDate(c.deposit_date)}` : ''
   const invoices: StatementV2Invoice[] = [c.invoice1_paid_in_full ? {
+    kind: 'invoice1',
     heading: `${title('Invoice 1', c.invoice_number)} · estimate`,
     detail: `Original estimate ${formatAud(estimate)}${gstNote}, paid in full${paidOn}.`,
     amount: 0,
@@ -880,6 +948,7 @@ export function statementV2Invoices(c: StatementV2Split): StatementV2Invoice[] {
     payLabel: null,
     breakdown: [],
   } : {
+    kind: 'invoice1',
     heading: `${title('Invoice 1', c.invoice_number)} · estimate`,
     detail: `Original estimate ${formatAud(estimate)}${c.deposit > 0.004 ? ` less deposit paid ${formatAud(c.deposit)}` : ''}${gstNote}.`,
     amount: invoice1,
@@ -888,36 +957,45 @@ export function statementV2Invoices(c: StatementV2Split): StatementV2Invoice[] {
     ...pay(c.invoice_url, invoice1),
     breakdown: [],
   }]
-  const basis = (ex: number) => c.charges_gst ? round2(ex * 1.1) : round2(ex)
-  const breakdown: StatementV2AdjustmentRow[] = (c.adjustment_lines ?? []).map(line => {
-    const difference_ex = round2(line.actual_ex - line.estimate_ex)
-    const difference_inc = round2(basis(line.actual_ex) - basis(line.estimate_ex))
-    return { label: line.label, actual_ex: line.actual_ex, estimate_ex: line.estimate_ex, difference_ex, gst: round2(difference_inc - difference_ex), difference_inc }
-  })
-  if (c.adjustment != null) {
-    const difference_ex = c.charges_gst ? round2(c.adjustment / 1.1) : c.adjustment
-    breakdown.push({
-      label: `Adjustment (${c.adjustment_reason.trim() || 'adjustment'})`,
-      actual_ex: null,
-      estimate_ex: null,
-      difference_ex,
-      gst: round2(c.adjustment - difference_ex),
-      difference_inc: c.adjustment,
+  const { invoice2, credit_note, net } = statementV2Adjustments(c)
+  if (invoice2 && credit_note) {
+    invoices.push({
+      kind: 'invoice2',
+      heading: `${title('Invoice 2', c.invoice2_number)} · adjustment to actual`,
+      detail: `What came in higher than the original estimate${gstNote}.`,
+      amount: invoice2.amount,
+      amountLabel: 'To pay',
+      amountShown: invoice2.amount,
+      ...pay(c.invoice2_url, invoice2.amount),
+      breakdown: invoice2.rows,
+    }, {
+      kind: 'credit_note',
+      heading: `${title('Credit note', c.credit_note_number)} · adjustment to actual`,
+      detail: `What came in lower than the original estimate${gstNote}.`,
+      amount: credit_note.amount,
+      amountLabel: 'Credit',
+      amountShown: -credit_note.amount,
+      payHref: null,
+      payLabel: null,
+      breakdown: credit_note.rows,
     })
+    return invoices
   }
-  const invoice2 = round2(c.total_inc - estimate + (c.adjustment ?? 0))
-  if (Math.abs(invoice2) > 0.004 || c.invoice2_number?.trim()) {
+  const single = invoice2 ?? credit_note
+  if (single || c.invoice2_number?.trim()) {
+    const credit = net < -0.004
     const adjustment = c.adjustment == null
       ? ''
       : `, ${c.adjustment < 0 ? 'less' : 'plus'} ${c.adjustment_reason.trim() || 'adjustment'} ${formatAud(Math.abs(c.adjustment))}`
     invoices.push({
-      heading: `${title(invoice2 < -0.004 ? 'Credit note' : 'Invoice 2', c.invoice2_number)} · adjustment to actual`,
+      kind: credit ? 'credit_note' : 'invoice2',
+      heading: `${credit ? title('Credit note', c.credit_note_number?.trim() || c.invoice2_number) : title('Invoice 2', c.invoice2_number)} · adjustment to actual`,
       detail: `Actual job total ${formatAud(c.total_inc)} less the original estimate ${formatAud(estimate)}${adjustment}${gstNote}.`,
-      amount: invoice2,
-      amountLabel: invoice2 > 0.004 ? 'To pay' : invoice2 < -0.004 ? 'Credit' : 'Nil',
-      amountShown: Math.abs(invoice2),
-      ...pay(c.invoice2_url, invoice2),
-      breakdown,
+      amount: net,
+      amountLabel: net > 0.004 ? 'To pay' : credit ? 'Credit' : 'Nil',
+      amountShown: Math.abs(net),
+      ...pay(c.invoice2_url, net),
+      breakdown: single?.rows ?? [],
     })
   }
   return invoices

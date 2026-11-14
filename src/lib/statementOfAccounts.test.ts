@@ -13,6 +13,7 @@ import {
   statementV2Content,
   statementV2Figures,
   statementV2Invoices,
+  statementV2Adjustments,
   statementV2Rows,
   breakdownTotal,
   StatementReconciliationError,
@@ -22,6 +23,8 @@ import { surveySummary, cdrSummary } from '@/lib/agent/recordSummaries'
 import { surfaceAreaCaptureFigures, emptySurfaceAreaCleaningCapture } from '@/lib/surfaceAreaCleaningQuote'
 import { emptyBiohazardCleaningCapture } from '@/lib/biohazardCleaningQuote'
 import { buildPrintHTML } from '@/lib/printDocument'
+import { statementXeroDocs } from '@/lib/xero/statementDocs'
+import { DEFAULT_XERO_SETTINGS } from '@/lib/xero/invoice'
 
 /** Model 1 figures for the fixture, as they were stored on statements issued before model 2. */
 const V1_FIGURES = {
@@ -491,4 +494,34 @@ test('model 2: invoice 1 paid in full takes the whole estimate and says so', () 
   assert.match(html, /paid in full up front/)
   assert.equal(/deposit/i.test(html.slice(html.indexOf('<body'))), false)
   assert.deepEqual(statementV2Figures(v2Job({ invoice1_paid_in_full: true })).problems, ['Enter the date invoice 1 was paid.'])
+})
+
+test('model 2: increases go on invoice 2 and decreases on a credit note, adding up to the difference', () => {
+  const f = statementV2Figures(v2Job({ deposit_amount: 1000, deposit_date: '2026-11-02', manual_adjustment: 220, manual_adjustment_reason: 'extra tip run', credit_note_number: 'CN-7' }))
+  const { invoice2, credit_note, net } = statementV2Adjustments(f)
+  assert.ok(invoice2 && credit_note)
+  assert.deepEqual(invoice2.rows.map(row => row.label), ['Adjustment (extra tip run)'])
+  assert.deepEqual(credit_note.rows.map(row => row.label), ['Surface area cleaning (SACQ)', 'Biohazard cleaning (BCQ)'])
+  assert.ok(credit_note.amount < 0)
+  assert.equal(Math.round((invoice2.amount + credit_note.amount) * 100) / 100, net)
+  const invoices = statementV2Invoices(f)
+  assert.deepEqual(invoices.map(inv => inv.kind), ['invoice1', 'invoice2', 'credit_note'])
+  assert.match(invoices[2].heading, /^Credit note CN-7/)
+  assert.equal(invoices[2].amountShown, -credit_note.amount)
+  const docs = statementXeroDocs(f, DEFAULT_XERO_SETTINGS)
+  assert.deepEqual(docs.map(doc => [doc.kind, doc.lines.length]), [['invoice2', 1], ['credit_note', 2]])
+  assert.deepEqual(docs[0].lines[0], { Description: 'Adjustment (extra tip run)', Quantity: 1, UnitAmount: 200, AccountCode: '200', TaxType: 'OUTPUT' })
+  assert.match(docs[1].lines[1].Description, /^Biohazard cleaning \(BCQ\): final \$2,100\.00, estimate \$2,200\.00 \(ex GST\)$/)
+  assert.equal(docs[1].lines[1].UnitAmount, 100)
+})
+
+test('model 2: all decreases make one credit note, and an older statement keeps its number in invoice 2', () => {
+  const f = statementV2Figures(v2Job({ deposit_amount: 1000, deposit_date: '2026-11-02', invoice2_number: 'CN-OLD' }))
+  const { invoice2, credit_note } = statementV2Adjustments(f)
+  assert.equal(invoice2, null)
+  assert.ok(credit_note)
+  const last = statementV2Invoices(f).at(-1)
+  assert.equal(last?.kind, 'credit_note')
+  assert.match(last?.heading ?? '', /^Credit note CN-OLD/)
+  assert.deepEqual(statementXeroDocs(f, DEFAULT_XERO_SETTINGS).map(doc => doc.kind), ['credit_note'])
 })

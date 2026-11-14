@@ -39,7 +39,7 @@ import {
 
 type Supabase = ReturnType<typeof createServiceClient>
 
-export type XeroSyncTrigger = 'quote_accepted' | 'portal_quote_accepted' | 'quote_edited' | 'staff_confirmed'
+export type XeroSyncTrigger = 'quote_accepted' | 'portal_quote_accepted' | 'quote_edited' | 'staff_confirmed' | 'statement_raised'
 
 /**
  * Who the invoice is made out to, as staff chose at the check: a contact
@@ -184,7 +184,7 @@ async function acceptedQuotes(supabase: Supabase, jobId: string): Promise<Accept
   })
 }
 
-async function findOrCreateContact(
+export async function findOrCreateContact(
   supabase: Supabase,
   conn: XeroConnection,
   input: ContactInput,

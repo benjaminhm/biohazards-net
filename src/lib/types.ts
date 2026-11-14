@@ -1222,6 +1222,12 @@ export interface AssessmentData {
     invoice_url?: string
     invoice2_number?: string
     invoice2_url?: string
+    credit_note_number?: string
+    /** Drafts raised in Xero from the statement, and their last known Xero status. */
+    xero_invoice2_id?: string
+    xero_invoice2_status?: string
+    xero_credit_note_id?: string
+    xero_credit_note_status?: string
     deposit_taken: boolean
     deposit_amount: number | null
     deposit_includes_gst: boolean
@@ -2474,6 +2480,8 @@ export interface StatementOfAccountsV2Content {
   /** Invoice 2 or credit note for the difference between actual and estimate. Absent on statements issued before it. */
   invoice2_number?: string
   invoice2_url?: string
+  /** Credit note for what came in lower than the estimate. Absent on statements issued before it. */
+  credit_note_number?: string
   /** Sum of the quotes in the statement's GST basis, as invoiced on invoice 1. Null without quotes. */
   estimate_total?: number | null
   /** Actual against estimate per quote, ex GST, where they differ. Invoice 2 is made of these. */

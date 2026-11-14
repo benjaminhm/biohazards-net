@@ -18,6 +18,7 @@ import {
   type StatementOfAccountsCapture,
 } from '@/lib/statementOfAccounts'
 import type { XeroDepositResult, XeroInvoicePaid } from '@/lib/xero/payments'
+import type { StatementDocResult } from '@/lib/xero/statementDocs'
 
 interface Props {
   job: Job
@@ -55,6 +56,11 @@ const CARD: CSSProperties = {
 
 const HEADING: CSSProperties = { fontWeight: 800, fontSize: 13, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 12 }
 
+const XERO_VIEW = {
+  invoice2: (id: string) => `https://go.xero.com/AccountsReceivable/View.aspx?InvoiceID=${encodeURIComponent(id)}`,
+  credit_note: (id: string) => `https://go.xero.com/AccountsReceivable/ViewCreditNote.aspx?creditNoteID=${encodeURIComponent(id)}`,
+}
+
 const HINT: CSSProperties = { marginTop: 6, padding: 0, border: 'none', background: 'none', color: 'var(--accent)', fontSize: 12, fontWeight: 700, cursor: 'pointer' }
 
 function capturesEqual(a: StatementOfAccountsCapture, b: StatementOfAccountsCapture): boolean {
@@ -66,6 +72,7 @@ function capturesEqual(a: StatementOfAccountsCapture, b: StatementOfAccountsCapt
     && a.invoice_url === b.invoice_url
     && a.invoice2_number === b.invoice2_number
     && a.invoice2_url === b.invoice2_url
+    && a.credit_note_number === b.credit_note_number
     && a.charges_gst === b.charges_gst
     && a.invoice1_paid_in_full === b.invoice1_paid_in_full
     && [...a.ignored_quotes].sort().join() === [...b.ignored_quotes].sort().join()
@@ -90,6 +97,10 @@ export default function StatementOfAccountsTab({ job, onJobUpdate }: Props) {
   const [savedFlash, setSavedFlash] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [xeroPaid, setXeroPaid] = useState<XeroInvoicePaid | null>(null)
+  const [xeroConnected, setXeroConnected] = useState(false)
+  const [raising, setRaising] = useState(false)
+  const [raiseNotes, setRaiseNotes] = useState<string[]>([])
+  const [raiseError, setRaiseError] = useState('')
 
   useEffect(() => {
     setCapture(saved)
@@ -100,7 +111,9 @@ export default function StatementOfAccountsTab({ job, onJobUpdate }: Props) {
     fetch(`/api/jobs/${job.id}/xero-deposit`)
       .then(res => (res.ok ? res.json() as Promise<XeroDepositResult> : null))
       .then(result => {
-        if (!live || !result?.connected || !result.invoice) return
+        if (!live || !result?.connected) return
+        setXeroConnected(true)
+        if (!result.invoice) return
         const paid = result.invoice
         setXeroPaid(paid)
         setCapture(prev => prev.deposit_amount == null
@@ -162,6 +175,39 @@ export default function StatementOfAccountsTab({ job, onJobUpdate }: Props) {
     const ok = await save()
     if (ok) router.push(`/jobs/${job.id}/docs/statement_of_accounts?compose=1`)
   }
+
+  async function raiseInXero() {
+    setRaiseError('')
+    setRaiseNotes([])
+    if (figures.problems.length > 0) {
+      setRaiseError(figures.problems[0])
+      return
+    }
+    if (isDirty && !(await save())) return
+    setRaising(true)
+    try {
+      const res = await fetch(`/api/jobs/${job.id}/statement-xero`, { method: 'POST' })
+      const data = (await res.json().catch(() => ({}))) as { job?: Job | null; results?: StatementDocResult[]; error?: string }
+      if (data.job) onJobUpdate(data.job)
+      setRaiseNotes((data.results ?? []).map(result => result.note))
+      if (!res.ok) setRaiseError(data.error || `Xero failed (${res.status})`)
+    } catch (e) {
+      setRaiseError(e instanceof Error ? e.message : 'Xero failed')
+    } finally {
+      setRaising(false)
+    }
+  }
+
+  const adjustmentDocs = invoices.filter(invoice => invoice.kind !== 'invoice1' && Math.abs(invoice.amount) > 0.004)
+  const xeroDrafts = [
+    ...(capture.xero_invoice2_id ? [{ kind: 'invoice2' as const, id: capture.xero_invoice2_id, label: `Invoice 2 ${capture.invoice2_number}`.trim(), status: capture.xero_invoice2_status }] : []),
+    ...(capture.xero_credit_note_id ? [{ kind: 'credit_note' as const, id: capture.xero_credit_note_id, label: `Credit note ${capture.credit_note_number}`.trim(), status: capture.xero_credit_note_status }] : []),
+  ]
+  const raiseLabel = raising
+    ? 'Working with Xero…'
+    : xeroDrafts.length > 0
+      ? 'Update from the statement in Xero'
+      : `Create ${adjustmentDocs.map(invoice => (invoice.kind === 'credit_note' ? 'credit note' : 'invoice 2')).join(' and ')} in Xero (draft)`
 
   const amountsNote = capture.charges_gst ? 'Inc GST' : 'No GST'
 
@@ -235,6 +281,31 @@ export default function StatementOfAccountsTab({ job, onJobUpdate }: Props) {
               )}
             </div>
           ))}
+          {xeroConnected && (adjustmentDocs.length > 0 || xeroDrafts.length > 0) && (
+            <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+              <button type="button" className="btn btn-primary" disabled={raising || saving} onClick={() => void raiseInXero()} style={{ padding: '10px 14px', fontWeight: 700 }}>
+                {raiseLabel}
+              </button>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
+                Drafts only. Check and approve them in Xero, and allocate a credit note against invoice 1 there. Once invoice 2 is approved, press again to add its pay link.
+              </div>
+              {xeroDrafts.length > 0 && (
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 8, fontSize: 13 }}>
+                  {xeroDrafts.map(draft => (
+                    <a key={draft.kind} href={XERO_VIEW[draft.kind](draft.id)} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', fontWeight: 700 }}>
+                      Open {draft.label} in Xero{draft.status ? ` (${draft.status.toLowerCase()})` : ''}
+                    </a>
+                  ))}
+                </div>
+              )}
+              {raiseNotes.length > 0 && (
+                <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 13 }}>
+                  {raiseNotes.map(note => <li key={note}>{note}</li>)}
+                </ul>
+              )}
+              {raiseError && <div style={{ color: '#F87171', fontSize: 13, marginTop: 8 }} role="alert">{raiseError}</div>}
+            </div>
+          )}
         </section>
       )}
 
@@ -362,8 +433,12 @@ export default function StatementOfAccountsTab({ job, onJobUpdate }: Props) {
               <input type="url" value={capture.invoice2_url} onChange={e => patch({ invoice2_url: e.target.value })} placeholder="https://" style={INPUT} />
             </div>
           </div>
+          <div>
+            <label style={LABEL}>Credit note number</label>
+            <input type="text" value={capture.credit_note_number} onChange={e => patch({ credit_note_number: e.target.value })} placeholder="CN-0001" style={INPUT} />
+          </div>
           <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-            Create invoice 2 (or a credit note) in Xero for the difference shown above, then enter its number and link here.
+            The Xero button above fills these in. Type them only for an invoice or credit note made in Xero by hand.
           </div>
         </div>
       </section>
