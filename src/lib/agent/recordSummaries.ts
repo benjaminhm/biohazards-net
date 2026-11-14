@@ -26,6 +26,10 @@ export interface RecordSummaryView {
   rate_per_labour_day_ex_gst: number | null
   labour_amount_ex_gst: number | null
   callout_fee_ex_gst: number | null
+  /** Contents Disposal Record: kilometres × rate per km. Absent on the House Survey. */
+  distance_km?: number | null
+  rate_per_km_ex_gst?: number | null
+  distance_amount_ex_gst?: number | null
   total_ex_gst: number | null
   gst: number | null
   total_inc_gst: number | null
@@ -91,10 +95,15 @@ export function bcqRecordSummary(ad: AssessmentData | null | undefined): Biohaza
   }
 }
 
-/** Contents removal (counted m³ × rate), labour, call-out fee and GST, as the Contents Disposal Record summary shows them. */
+/** Contents removal (counted m³ × rate), distance (km × rate), labour, call-out fee and GST, as the Contents Disposal Record summary shows them. */
 export function cdrSummary(ad: AssessmentData | null | undefined): RecordSummaryView {
   if (ad?.disposal_manifest_capture == null) return summaryView('Contents removal', 'm³', null)
   const capture = mergedDisposalManifestCapture(ad)
   const r = disposalRecordSummary({ ...capture, loads: capture.loads.filter(loadHasContent) }, quoteDisposalLink(ad))
-  return summaryView('Contents removal', 'm³', { quantity: r.volume_m3, rate: r.rate_per_m3, charges: r.charges, summary: r.summary })
+  return {
+    ...summaryView('Contents removal', 'm³', { quantity: r.volume_m3, rate: r.rate_per_m3, charges: r.charges, summary: r.summary }),
+    distance_km: r.distance_km,
+    rate_per_km_ex_gst: r.rate_per_km,
+    distance_amount_ex_gst: r.summary.distance_ex ?? 0,
+  }
 }

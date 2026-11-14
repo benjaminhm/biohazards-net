@@ -1908,7 +1908,8 @@ function wdmRecordSummary(c: WasteDisposalManifestContent): string {
   const rate = saved ? saved.rate_per_m3 : (c.totals?.cost_per_m3 ?? null)
   const charges = saved?.charges ?? fixedCharges({}, null)
   const summary = saved?.summary ?? recordSummary(volume, rate, charges)
-  return recordSummaryHtml('Contents removal', volume == null ? '' : formatM3(volume), rate, charges, summary, false)
+  const distance = saved?.distance_km != null && saved.rate_per_km != null ? { km: saved.distance_km, rate: saved.rate_per_km } : null
+  return recordSummaryHtml('Contents removal', volume == null ? '' : formatM3(volume), rate, charges, summary, false, distance)
 }
 
 // ── 1. Quote ──────────────────────────────────────────────────────────────────
@@ -3579,7 +3580,15 @@ function biohazardRecordHtml(r: BiohazardRecordSummary | undefined): string {
  * Quantity × rate, labour, call-out fee, then totals and GST. Same six lines on the survey and the disposal record.
  * The disposal record follows the Contents Clearance Quote, so its labour is the amount only.
  */
-function recordSummaryHtml(quantityLabel: string, quantity: string, rate: number | null, charges: FixedCharges, s: RecordSummary, labourBreakdown = true): string {
+function recordSummaryHtml(
+  quantityLabel: string,
+  quantity: string,
+  rate: number | null,
+  charges: FixedCharges,
+  s: RecordSummary,
+  labourBreakdown = true,
+  distance: { km: number; rate: number } | null = null,
+): string {
   const money = (n: number | null) => (n == null ? '—' : esc(formatAud(n)))
   const quantityDetail = quantity && rate != null ? ` (${esc(`${quantity} × ${formatAud(rate)}`)})` : ''
   const labourDetail = labourBreakdown ? ` (${esc(`${labourDaysText(charges.labour_days)} × ${formatAud(charges.rate_per_labour_day)}`)})` : ''
@@ -3589,6 +3598,7 @@ function recordSummaryHtml(quantityLabel: string, quantity: string, rate: number
       <table>
         <tbody>
           <tr><td>${esc(quantityLabel)}${quantityDetail}</td><td class="r">${money(s.quantity_ex)}</td></tr>
+          ${distance ? `<tr><td>Distance (${esc(`${distance.km} km × ${formatAud(distance.rate)}`)})</td><td class="r">${money(s.distance_ex ?? 0)}</td></tr>` : ''}
           <tr><td>Labour${labourDetail}</td><td class="r">${money(s.labour_ex)}</td></tr>
           <tr><td>Call-out fee</td><td class="r">${money(s.mobilisation_ex)}</td></tr>
           <tr><td><strong>Total ex GST</strong></td><td class="r"><strong>${money(s.total_ex)}</strong></td></tr>

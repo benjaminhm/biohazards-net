@@ -2446,6 +2446,7 @@ export default function DisposalManifestCaptureTab({ job, photos, onJobUpdate, o
           rate={record.rate_per_m3}
           charges={record.charges}
           summary={record.summary}
+          distance={{ km: record.distance_km, rate: record.rate_per_km }}
         />
       </div>
 

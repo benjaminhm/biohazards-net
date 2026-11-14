@@ -94,6 +94,42 @@ test('the record summary is counted volume at the rate, plus labour and the call
   assert.equal(waived?.charges.mobilisation_fee, 0)
 })
 
+test('the record summary charges the return-trip km at the quote rate per km, once per trip', () => {
+  const trip = { ...emptyDisposalLoad(), distance_km: 34.4, vehicles: [{ ...emptyDisposalVehicle('ute'), waste_sqm: 4 }] }
+  const sameTrip = { ...emptyDisposalLoad(), distance_km: 0, vehicles: [{ ...emptyDisposalVehicle('trailer'), waste_sqm: 6 }] }
+  const ad = {
+    contents_clearance_quote: { ...quote, rate_per_km: 3, maximum_man_days: 1, rate_per_labour_day: 600, mobilisation_fee: 0 },
+    disposal_manifest_capture: { loads: [trip, sameTrip, { ...trip }, { ...sameTrip }] },
+  } as unknown as AssessmentData
+  const link = quoteDisposalLink(ad)
+  assert.equal(link?.rate_per_km, 3)
+  const record = disposalRecordSummary(mergedDisposalManifestCapture(ad), link)
+  assert.equal(record.distance_km, 68.8)
+  assert.equal(record.rate_per_km, 3)
+  assert.equal(record.summary.distance_ex, 206.4)
+  assert.equal(record.summary.total_ex, 20 * 85 + 206.4 + 600)
+
+  const typed = disposalRecordSummary({ ...mergedDisposalManifestCapture(ad), rate_per_km: 2 }, link)
+  assert.equal(typed.summary.distance_ex, 137.6)
+
+  const noKm = disposalRecordSummary({ ...mergedDisposalManifestCapture(ad), loads: [{ ...trip, distance_km: null }] }, link)
+  assert.equal(noKm.distance_km, null)
+  assert.equal(noKm.summary.distance_ex, undefined)
+
+  const html = buildPrintHTML(
+    'waste_disposal_manifest',
+    { title: 'Contents Disposal Record', reference: 'CDR-TEST', loads: [], summary: record } as unknown as Record<string, unknown>,
+    [],
+    [],
+    null,
+    'job',
+    'http://localhost',
+    undefined,
+    { screenActionBar: false },
+  )
+  assert.match(html, /Distance \(68\.8 km × \$3\.00\)<\/td><td class="r">\$206\.40/)
+})
+
 test('no quote leaves the disposal record alone', () => {
   assert.equal(quoteDisposalLink({} as AssessmentData), null)
   assert.equal(disposalCaptureWithQuote({} as AssessmentData).cost_per_m3, null)

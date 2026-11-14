@@ -134,6 +134,7 @@ export function emptyDisposalManifestCapture(): DisposalManifestCapture {
     labour_days: null,
     rate_per_labour_day: null,
     mobilisation_fee: null,
+    rate_per_km: null,
   }
 }
 
@@ -154,6 +155,7 @@ export function mergedDisposalManifestCapture(ad: AssessmentData | null | undefi
     labour_days: nonNegativeOrNull(rawRecord.labour_days),
     rate_per_labour_day: nonNegativeOrNull(rawRecord.rate_per_labour_day),
     mobilisation_fee: nonNegativeOrNull(rawRecord.mobilisation_fee),
+    rate_per_km: nonNegativeOrNull(rawRecord.rate_per_km),
   }
 }
 
@@ -168,6 +170,8 @@ export interface QuoteDisposalLink {
   tip_lng: number | null
   /** Labour and call-out fee for blank record fields. A waived call-out is 0. */
   charges: FixedChargeDefaults
+  /** The quote's rate per kilometre, for a blank record rate. */
+  rate_per_km: number | null
 }
 
 export function quoteDisposalLink(ad: AssessmentData | null | undefined): QuoteDisposalLink | null {
@@ -182,29 +186,40 @@ export function quoteDisposalLink(ad: AssessmentData | null | undefined): QuoteD
     rate_per_labour_day: figures.rate_per_labour_day,
     mobilisation_fee: quote.mobilisation_waived ? 0 : figures.mobilisation_fee,
   }
-  const hasCharges = charges.labour_days > 0 || charges.mobilisation_fee > 0
+  const rate_per_km = figures.rate_per_km > 0 ? figures.rate_per_km : null
+  const hasCharges = charges.labour_days > 0 || charges.mobilisation_fee > 0 || rate_per_km != null
   if (rate == null && m3 == null && !tip && !hasCharges) return null
-  return { rate_per_m3: rate, quoted_m3: m3, tip_address: tip, tip_lat: quote.tip_lat, tip_lng: quote.tip_lng, charges }
+  return { rate_per_m3: rate, quoted_m3: m3, tip_address: tip, tip_lat: quote.tip_lat, tip_lng: quote.tip_lng, charges, rate_per_km }
 }
 
 export interface DisposalRecordSummary {
   /** Counted cubic metres across loads. Null until a volume is recorded. */
   volume_m3: number | null
   rate_per_m3: number | null
+  /** Return-trip kilometres across loads (from the tip receipts). Null until a distance is recorded. */
+  distance_km: number | null
+  rate_per_km: number | null
   charges: FixedCharges
   summary: RecordSummary
 }
 
-/** Counted volume at the rate per m³, plus labour and the call-out fee. Skip, trailer, ute and tip dollars are not part of it. */
+/**
+ * Counted volume at the rate per m³, the kilometres at the rate per km, labour
+ * and the call-out fee: the same lines the Contents Clearance Quote prices.
+ * Skip, trailer, ute and tip dollars are not part of it.
+ */
 export function disposalRecordSummary(
-  capture: Pick<DisposalManifestCapture, 'loads' | 'cost_per_m3' | 'labour_days' | 'rate_per_labour_day' | 'mobilisation_fee'>,
+  capture: Pick<DisposalManifestCapture, 'loads' | 'cost_per_m3' | 'labour_days' | 'rate_per_labour_day' | 'mobilisation_fee' | 'rate_per_km'>,
   link: QuoteDisposalLink | null,
 ): DisposalRecordSummary {
   const totals = computeDisposalTotals(capture.loads)
   const volume_m3 = totals.volume_recorded > 0 ? totals.volume_m3 : null
   const rate_per_m3 = effectiveCostPerM3(capture, link)
+  const distance_km = totals.distance_recorded > 0 ? totals.distance_km : null
+  const rate_per_km = capture.rate_per_km ?? link?.rate_per_km ?? null
+  const distance_ex = distance_km != null && rate_per_km != null ? distance_km * rate_per_km : 0
   const charges = fixedCharges(capture, link?.charges ?? null)
-  return { volume_m3, rate_per_m3, charges, summary: recordSummary(volume_m3, rate_per_m3, charges) }
+  return { volume_m3, rate_per_m3, distance_km, rate_per_km, charges, summary: recordSummary(volume_m3, rate_per_m3, charges, distance_ex) }
 }
 
 /** A blank disposal rate follows the quote. A typed rate stays. */

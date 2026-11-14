@@ -9,13 +9,14 @@ function money(n: number | null): string {
   return n == null ? '—' : formatAud(n)
 }
 
-/** Quantity × rate, labour, call-out fee, then totals and GST. */
+/** Quantity × rate, distance, labour, call-out fee, then totals and GST. */
 export default function RecordSummaryTable({
   quantityLabel,
   quantity,
   rate,
   charges,
   summary,
+  distance,
 }: {
   quantityLabel: string
   /** Formatted quantity, e.g. "42 m²". Blank leaves the detail off. */
@@ -23,6 +24,8 @@ export default function RecordSummaryTable({
   rate: number | null
   charges: FixedCharges
   summary: RecordSummary
+  /** Contents Disposal Record only: return-trip kilometres and the rate per km. */
+  distance?: { km: number | null; rate: number | null }
 }) {
   return (
     <div style={{ display: 'grid', gap: 6, fontSize: 14 }}>
@@ -33,6 +36,17 @@ export default function RecordSummaryTable({
         </span>
         <span>{money(summary.quantity_ex)}</span>
       </div>
+      {distance && (
+        <div style={ROW}>
+          <span>
+            Distance
+            {distance.km != null && distance.rate != null
+              ? <span style={MUTED}> ({distance.km} km × {formatAud(distance.rate)})</span>
+              : <span style={MUTED}> ({distance.km == null ? 'no kilometres yet' : 'no rate per km'})</span>}
+          </span>
+          <span>{distance.km != null && distance.rate != null ? money(summary.distance_ex ?? 0) : '—'}</span>
+        </div>
+      )}
       <div style={ROW}>
         <span>
           Labour

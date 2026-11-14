@@ -2001,6 +2001,8 @@ export interface DisposalManifestCapture {
   rate_per_labour_day?: number | null
   /** Call-out fee, ex GST. */
   mobilisation_fee?: number | null
+  /** Dollars per kilometre, ex GST. Null follows the Contents Clearance Quote. */
+  rate_per_km?: number | null
 }
 
 export interface DisposalManifestTotals {
@@ -2441,6 +2443,9 @@ export interface WasteDisposalManifestContent {
   summary?: {
     volume_m3: number | null
     rate_per_m3: number | null
+    /** Return-trip kilometres and the rate charged on them. Absent on records composed before distance was charged. */
+    distance_km?: number | null
+    rate_per_km?: number | null
     charges: FixedCharges
     summary: RecordSummary
   }

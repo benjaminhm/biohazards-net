@@ -29,6 +29,8 @@ export interface RecordSummary {
   quantity_ex: number | null
   labour_ex: number
   mobilisation_ex: number
+  /** Kilometres × rate per km (Contents Disposal Record). Absent on other records and older saves. */
+  distance_ex?: number
   total_ex: number | null
   gst: number | null
   total_inc: number | null
@@ -49,16 +51,18 @@ export function fixedCharges(fields: FixedChargeFields, defaults: FixedChargeDef
   }
 }
 
-/** Measured quantity at the rate, plus labour and the call-out fee. GST is 10%. */
-export function recordSummary(quantity: number | null, rate: number | null, charges: FixedCharges): RecordSummary {
+/** Measured quantity at the rate, plus labour, the call-out fee and any distance charge. GST is 10%. */
+export function recordSummary(quantity: number | null, rate: number | null, charges: FixedCharges, distanceEx = 0): RecordSummary {
   const quantity_ex = quantity == null || rate == null || !Number.isFinite(rate) || rate < 0 ? null : round2(quantity * rate)
-  const empty = quantity_ex == null && charges.labour_ex <= 0 && charges.mobilisation_ex <= 0
-  const total_ex = empty ? null : round2((quantity_ex ?? 0) + charges.labour_ex + charges.mobilisation_ex)
+  const distance_ex = Number.isFinite(distanceEx) && distanceEx > 0 ? round2(distanceEx) : 0
+  const empty = quantity_ex == null && charges.labour_ex <= 0 && charges.mobilisation_ex <= 0 && distance_ex <= 0
+  const total_ex = empty ? null : round2((quantity_ex ?? 0) + charges.labour_ex + charges.mobilisation_ex + distance_ex)
   const gst = total_ex == null ? null : round2(total_ex * 0.1)
   return {
     quantity_ex,
     labour_ex: charges.labour_ex,
     mobilisation_ex: charges.mobilisation_ex,
+    ...(distance_ex > 0 ? { distance_ex } : {}),
     total_ex,
     gst,
     total_inc: total_ex == null || gst == null ? null : round2(total_ex + gst),

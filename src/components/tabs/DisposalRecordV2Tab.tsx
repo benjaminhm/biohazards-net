@@ -75,7 +75,7 @@ interface Props {
 }
 
 type ContainerType = 'trailer' | 'ute' | 'skip' | 'other'
-type ChargeKey = 'cost_per_m3' | 'labour_days' | 'rate_per_labour_day' | 'mobilisation_fee'
+type ChargeKey = 'cost_per_m3' | 'rate_per_km' | 'labour_days' | 'rate_per_labour_day' | 'mobilisation_fee'
 
 const REMEMBER_KEY = 'cdr-container-sizes'
 
@@ -580,6 +580,7 @@ export default function DisposalRecordV2Tab({ job, photos, onJobUpdate, onPhotos
             })}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
               {chargeField('cost_per_m3', 'Rate per m³ (ex GST)', '1', quoteLink?.rate_per_m3 ?? null)}
+              {chargeField('rate_per_km', 'Rate per km (ex GST)', '0.1', quoteLink?.rate_per_km ?? null)}
               {chargeField('labour_days', 'Labour days', '0.5', quoteLink?.charges.labour_days ?? null)}
               {chargeField('rate_per_labour_day', 'Rate per labour day', '1', quoteLink?.charges.rate_per_labour_day ?? null)}
               {chargeField('mobilisation_fee', 'Call-out fee', '1', quoteLink?.charges.mobilisation_fee ?? null)}
@@ -626,6 +627,7 @@ export default function DisposalRecordV2Tab({ job, photos, onJobUpdate, onPhotos
           rate={record.rate_per_m3}
           charges={record.charges}
           summary={record.summary}
+          distance={{ km: record.distance_km, rate: record.rate_per_km }}
         />
         {notVerified > 0 && (
           <div style={{ marginTop: 12, fontSize: 13, fontWeight: 700, color: '#FBBF24' }}>
