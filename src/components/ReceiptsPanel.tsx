@@ -242,7 +242,6 @@ function ReceiptCard({ jobId, receipt, reading, onRead, onChange, onDelete, load
           inputMode={type === 'number' ? 'decimal' : undefined}
           step={type === 'number' ? '0.01' : undefined}
           value={shown(key)}
-          disabled={confirmed}
           onChange={e => setDraft(prev => ({ ...prev, [key]: e.target.value }))}
           onBlur={() => void saveField(key)}
           style={{ ...INPUT, borderStyle: fromRead ? 'dashed' : 'solid', borderColor: fromRead ? '#FBBF24' : 'var(--border)' }}
@@ -321,7 +320,7 @@ function ReceiptCard({ jobId, receipt, reading, onRead, onChange, onDelete, load
             : receipt.tip_address
               ? receipt.tip_lat == null ? 'The tip address could not be found on the map. Check it, or type the kilometres.' : 'The drive could not be worked out. Type the kilometres.'
               : 'Add the tip address to work out the drive from the site and back.'}
-          {!confirmed && receipt.tip_address && !saving && (
+          {receipt.tip_address && !saving && (
             <button type="button" onClick={() => void patch({ recalc_trip: true })} style={{ marginLeft: 6, border: 'none', background: 'none', color: 'var(--text-muted)', fontSize: 12, fontWeight: 700, textDecoration: 'underline', cursor: 'pointer' }}>
               Work out again
             </button>
@@ -343,12 +342,12 @@ function ReceiptCard({ jobId, receipt, reading, onRead, onChange, onDelete, load
                     <button
                       key={l.photoId}
                       type="button"
-                      disabled={confirmed || saving}
+                      disabled={saving}
                       aria-pressed={on}
                       onClick={() => toggleLoad(l.photoId)}
                       title={elsewhere ? 'Already covered by another receipt' : hint ? 'Suggested' : undefined}
                       style={{
-                        padding: '6px 12px', borderRadius: 999, fontSize: 13, fontWeight: 800, cursor: confirmed ? 'default' : 'pointer',
+                        padding: '6px 12px', borderRadius: 999, fontSize: 13, fontWeight: 800, cursor: 'pointer',
                         border: `${hint ? '2px dashed' : '1px solid'} ${on ? 'var(--accent)' : hint ? '#FBBF24' : 'var(--border)'}`,
                         background: on ? 'var(--accent-dim)' : 'transparent',
                         color: on ? 'var(--accent)' : elsewhere ? 'var(--text-muted)' : 'var(--text)',
@@ -375,8 +374,9 @@ function ReceiptCard({ jobId, receipt, reading, onRead, onChange, onDelete, load
               <span style={{ fontSize: 13, fontWeight: 800, color: '#4ADE80' }}>
                 ✓ Confirmed{receipt.confirmed_by_name ? ` by ${receipt.confirmed_by_name}` : ''}{receipt.confirmed_at ? `, ${formatEventWhen(localStamp(receipt.confirmed_at))}` : ''}
               </span>
+              <span style={{ ...MUTED, fontSize: 12 }}>Changes save as you go and update the loads.</span>
               <button type="button" className="btn btn-ghost" disabled={saving} onClick={() => void patch({ confirmed: false })} style={{ fontSize: 12, padding: '4px 10px' }}>
-                Edit
+                Unconfirm
               </button>
             </>
           ) : (
