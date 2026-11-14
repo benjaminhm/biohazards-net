@@ -223,6 +223,42 @@ export function readSignerDetails(value: unknown): SignerDetails | null {
   return o as SignerDetails
 }
 
+const FIELD_LABELS: Record<string, string> = {
+  capacity: 'who they are signing as',
+  legalName: 'full legal name',
+  dateOfBirth: 'date of birth',
+  street: 'residential address',
+  suburb: 'residential address',
+  state: 'residential address',
+  postcode: 'residential address',
+  mobile: 'mobile number',
+  email: 'email address',
+  companyName: 'company name',
+  companyNumber: 'ABN or ACN',
+  position: 'position in the company',
+  declaration: 'declaration',
+}
+
+/** A details field as staff read it, e.g. "date of birth". */
+export function detailsFieldLabel(field: string): string {
+  return FIELD_LABELS[field] ?? field
+}
+
+/**
+ * A job's site address split into the residential address fields, for a
+ * "same as the property" choice. Only an address that ends in suburb, state
+ * and postcode is split ("12 Smith St, Ipswich QLD 4305"); null otherwise.
+ */
+export function splitAuAddress(value: string | null | undefined): SignerDetailsInput['address'] | null {
+  const raw = (value ?? '').replace(/\s+/g, ' ').trim().replace(/,?\s*Australia$/i, '')
+  const m = /^(.+?),\s*([^,]+?),?\s+(QLD|NSW|VIC|TAS|SA|WA|NT|ACT),?\s+(\d{4})$/i.exec(raw)
+  if (!m) return null
+  const street = m[1].trim()
+  const suburb = m[2].trim()
+  if (street.length < 3 || street.length > 120 || suburb.length < 2 || suburb.length > 60) return null
+  return { street, suburb, state: m[3].toUpperCase(), postcode: m[4] }
+}
+
 export function addressLine(a: SignerDetailsInput['address']): string {
   return `${a.street}, ${a.suburb} ${a.state} ${a.postcode}`
 }

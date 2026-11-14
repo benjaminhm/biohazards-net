@@ -3,10 +3,13 @@
  *
  *   { action: 'unlock', code }   the passcode for a link staff sent themselves
  *   { action: 'view' }      the document was opened in a browser
- *   { action: 'details', details, declared }
+ *   { action: 'start' }     they pressed Accept and the details step opened
+ *   { action: 'details', details, declared, stage? }
  *                           check what they typed on the Your details step and hand it
- *                           back tidied, or say which field is wrong. Nothing is saved:
- *                           the details are saved with the signature
+ *                           back tidied, or say which field is wrong. stage 'about'
+ *                           checks only the first page (About you). The details are
+ *                           saved with the signature; only where the check stopped
+ *                           them is kept, so staff can see who is stuck
  *   { action: 'consent' }   they agreed to sign electronically
  *   { action: 'review', decisions }
  *                           a link with several quotes: what they chose for each
@@ -47,6 +50,7 @@ import {
   unlockCookieValue,
 } from '@/lib/signing/core'
 import { DECLARATION_VERSION, cleanSignerDetails, declarationText } from '@/lib/signing/details'
+import { isPhonePasscode } from '@/lib/signing/phone'
 import type { SignerDetails } from '@/lib/signing/details'
 import { acceptedItems, decisionsProblem, itemLine, listLine, quotesSummary, readDecisions, totalOf, withDecisions } from '@/lib/signing/items'
 import { signingLinks } from '@/lib/signing/links'
@@ -69,7 +73,9 @@ export const maxDuration = 60
 
 const MAX_BODY_CHARS = 700_000
 
-const LOCKED_MESSAGE = 'The wrong passcode was entered too many times, so this link has been locked. Please contact us for a new link.'
+const LOCKED_MESSAGE = 'The wrong passcode or number was entered too many times, so this link has been locked. Please contact us for a new link.'
+
+const ABOUT_STAND_IN_ADDRESS = { street: '1 Stand In Street', suburb: 'Brisbane', state: 'QLD', postcode: '4000' }
 
 const CLOSED_MESSAGE: Record<string, string> = {
   signed: 'This document has already been signed.',
@@ -128,8 +134,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
     if (!result.ok) {
       if (result.locked) return NextResponse.json({ error: LOCKED_MESSAGE, locked: true }, { status: 423 })
       const left = result.triesLeft
+      const wrong = isPhonePasscode(row.passcode)
+        ? 'That is not the number this link was sent to. Enter your mobile number, for example 0412 345 678.'
+        : 'That passcode is not right.'
       return NextResponse.json(
-        { error: `That passcode is not right. ${left} ${left === 1 ? 'try' : 'tries'} left.` },
+        { error: `${wrong} ${left} ${left === 1 ? 'try' : 'tries'} left.` },
         { status: 401 },
       )
     }
@@ -181,6 +190,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
     return NextResponse.json({ ok: true })
   }
 
+  if (action === 'start') {
+    if (!row.sign_started_at) {
+      await supabase.from('signing_requests').update({ sign_started_at: nowIso, updated_at: nowIso }).eq('id', row.id).is('sign_started_at', null)
+    }
+    return NextResponse.json({ ok: true })
+  }
+
   if (action === 'consent') {
     if (!row.consented_at) {
       await supabase
@@ -200,12 +216,26 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
   // The Your details step: one set of rules (lib/signing/details.ts), run here
   // so the page has no copy of them. Nothing is saved until they sign.
   if (action === 'details') {
-    const checked = cleanSignerDetails(body.details, now)
-    if (!checked.ok) return NextResponse.json({ error: checked.error, field: checked.field }, { status: 400 })
-    if (body.declared !== true) {
-      return NextResponse.json({ error: 'Please tick the declaration to continue.', field: 'declaration' }, { status: 400 })
+    // The first page (About you) is checked on its own, with a stand-in address,
+    // so the address on the second page cannot hide a problem on the first.
+    const aboutOnly = body.stage === 'about'
+    const typed = (body.details && typeof body.details === 'object' ? body.details : {}) as Record<string, unknown>
+    const checked = cleanSignerDetails(aboutOnly ? { ...typed, address: ABOUT_STAND_IN_ADDRESS } : body.details, now)
+    const problem = !checked.ok
+      ? { field: checked.field, error: checked.error }
+      : !aboutOnly && body.declared !== true ? { field: 'declaration', error: 'Please tick the declaration to continue.' } : null
+    if (problem) {
+      await supabase
+        .from('signing_requests')
+        .update({ stuck_field: problem.field, stuck_message: problem.error.slice(0, 300), stuck_at: nowIso, updated_at: nowIso })
+        .eq('id', row.id)
+      return NextResponse.json({ error: problem.error, field: problem.field }, { status: 400 })
     }
-    return NextResponse.json({ ok: true, details: checked.details }, { headers: { 'Cache-Control': 'private, no-store' } })
+    if (aboutOnly) return NextResponse.json({ ok: true, partial: true }, { headers: { 'Cache-Control': 'private, no-store' } })
+    if (row.stuck_field) {
+      await supabase.from('signing_requests').update({ stuck_field: null, stuck_message: null, stuck_at: null, updated_at: nowIso }).eq('id', row.id)
+    }
+    return NextResponse.json({ ok: true, details: checked.ok ? checked.details : null }, { headers: { 'Cache-Control': 'private, no-store' } })
   }
 
   const CHOOSE_AGAIN = 'Please reload this page and choose Accept or Decline for each quote.'

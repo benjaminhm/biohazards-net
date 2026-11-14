@@ -1,9 +1,11 @@
 /*
- * GET /api/sign/[token]/pdf — the signer downloads their signed copy (document
- * plus signature docket) from their own private link. Also reached as
- * document.<brand>.com.au/<token>/pdf. Public; the token is the credential,
- * plus the passcode where the link has one, and nothing is served until the
- * document has been signed.
+ * GET /api/sign/[token]/pdf — the quote as a PDF from the client's own private
+ * link. Also reached as document.<brand>.com.au/<token>/pdf. Public; the token
+ * is the credential, plus the passcode (or mobile number) where the link has one.
+ *
+ * While the link is open it is the quote to read before signing, exactly the
+ * saved copy that will be signed, and the first open is recorded so staff can
+ * see it. Once signed it is the signed copy (document plus signature docket).
  *
  * A link with several quotes has one signed copy for each quote the signer
  * accepted: ?doc=2 is the second quote on the link. Without it, the first
@@ -13,7 +15,7 @@ import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import { isUnlocked, linkState } from '@/lib/signing/core'
 import { acceptedItems, pickItem, readDocNumber } from '@/lib/signing/items'
-import { ensureSignedPdf, findSigningRequestByToken, loadItems, signedPdfFilename } from '@/lib/signing/store'
+import { ensureQuotePdf, ensureSignedPdf, findSigningRequestByToken, loadItems, quotePdfFilename, signedPdfFilename } from '@/lib/signing/store'
 
 export const maxDuration = 60
 
@@ -21,7 +23,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ token: s
   const { token } = await params
   const supabase = createServiceClient()
   const row = await findSigningRequestByToken(supabase, token)
-  if (!row || linkState(row, new Date()) !== 'signed') {
+  const state = row ? linkState(row, new Date()) : null
+  if (!row || (state !== 'signed' && state !== 'open')) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
   if (!isUnlocked(req.headers.get('cookie'), token, row.passcode)) {
@@ -32,6 +35,30 @@ export async function GET(req: Request, { params }: { params: Promise<{ token: s
 
   const items = await loadItems(supabase, row)
   const wanted = readDocNumber(new URL(req.url).searchParams.get('doc'))
+  if (state === 'open') {
+    const item = items[pickItem(items, wanted, false)]
+    if (wanted != null && items[wanted - 1] !== item) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    let quote: Buffer
+    try {
+      quote = await ensureQuotePdf(supabase, row, item)
+    } catch (err) {
+      console.error('[signing] quote PDF failed', row.id, err)
+      return NextResponse.json({ error: 'The PDF could not be made just now. Please go back and choose View on this page.' }, { status: 500 })
+    }
+    if (!row.pdf_viewed_at) {
+      const at = new Date().toISOString()
+      await supabase.from('signing_requests').update({ pdf_viewed_at: at, updated_at: at }).eq('id', row.id).is('pdf_viewed_at', null)
+    }
+    return new NextResponse(new Uint8Array(quote), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `inline; filename="${quotePdfFilename(item)}"`,
+        'Cache-Control': 'private, no-store',
+        'X-Robots-Tag': 'noindex, nofollow',
+      },
+    })
+  }
   const item = items[pickItem(items, wanted, true)]
   // Asked for a quote by number: it must be that quote, and one they accepted.
   if (!acceptedItems(items).includes(item) || (wanted != null && items[wanted - 1] !== item)) {

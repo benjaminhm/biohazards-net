@@ -13,6 +13,9 @@ import type { SignerDetails } from '@/lib/signing/details'
 import { isSigningTokenShape } from '@/lib/signing/hostShape'
 import { tradingNameOption, tradingSendingEmail } from '@/lib/tradingNames'
 import type { TradingNameId } from '@/lib/tradingNames'
+import { isPhonePasscode, phonePasscode } from '@/lib/signing/phone'
+
+export { isPhonePasscode, phonePasscode, phonePasscodeLabel } from '@/lib/signing/phone'
 
 export const SIGNING_LINK_DAYS = 30
 export const SIGNATURE_MAX_BYTES = 400_000
@@ -105,7 +108,8 @@ export function passcodeAttempt(
   entered: unknown,
   now: Date,
 ): PasscodeResult {
-  if (sameText(normalizePasscode(entered), row.passcode)) {
+  const given = isPhonePasscode(row.passcode) ? phonePasscode(entered) ?? '' : normalizePasscode(entered)
+  if (sameText(given, row.passcode)) {
     return { ok: true, patch: { passcode_attempts: 0, passcode_verified_at: row.passcode_verified_at ?? now.toISOString() } }
   }
   const attempts = row.passcode_attempts + 1
@@ -275,7 +279,7 @@ export function linkMessage(data: {
     `Hi ${first}, your documents from ${data.brandLabel}${site ? ` for ${site}` : ''} are ready to view here:`,
     data.link,
     '',
-    `Passcode: ${data.passcode}`,
+    isPhonePasscode(data.passcode) ? 'To open it, enter your mobile number (the one this text was sent to).' : `Passcode: ${data.passcode}`,
     '',
     'Kind regards,',
     data.staffFirstName.trim() || data.brandLabel,
@@ -305,7 +309,7 @@ export function paymentReadyMessage(data: {
   return [
     `Hi ${first}, thank you for signing. Your deposit of ${data.depositLabel} to ${data.brandLabel} is ready to pay${ways} here:`,
     data.link,
-    ...(data.passcode ? ['', `Passcode: ${data.passcode}`] : []),
+    ...(data.passcode ? ['', isPhonePasscode(data.passcode) ? 'It opens with your mobile number, as before.' : `Passcode: ${data.passcode}`] : []),
     '',
     'Kind regards,',
     data.staffFirstName.trim() || data.brandLabel,
@@ -398,6 +402,8 @@ export interface DocketData {
   /** email = the system emailed the link. link = staff sent the link and passcode themselves. */
   deliveryMethod: 'email' | 'link'
   passcodeVerifiedAt: string | null
+  /** The link opened with the mobile number it was texted to, not a code. */
+  phoneUnlock?: boolean
   signerName: string
   /** What the signer gave on the Your details step. Null on a request signed before that step. */
   details?: SignerDetails | null
@@ -443,7 +449,7 @@ export function docketHtml(d: DocketData): string {
   const sentRows = byStaff
     ? [
         row('Prepared by', staff),
-        row('Given to the signer', 'Private link and passcode, sent to the signer by staff'),
+        row('Given to the signer', d.phoneUnlock ? 'Private link, texted to the signer by staff' : 'Private link and passcode, sent to the signer by staff'),
         row('Link created', esc(docketTime(d.sentAt))),
       ]
     : [
@@ -453,7 +459,7 @@ export function docketHtml(d: DocketData): string {
         row('Sent', esc(docketTime(d.sentAt))),
       ]
   const identity = byStaff
-    ? 'Private link, opened with a passcode entered by the signer'
+    ? d.phoneUnlock ? 'Private link, opened with the mobile number it was texted to' : 'Private link, opened with a passcode entered by the signer'
     : 'Private signing link emailed to the address above'
   // What the signer said about themselves. The date of birth is kept on the
   // record but not printed: the signed copy is emailed and passed around.
@@ -550,7 +556,7 @@ export function docketHtml(d: DocketData): string {
 
     <h3>Trail</h3>
     <table>
-      ${byStaff ? row('Passcode entered', esc(docketTime(d.passcodeVerifiedAt))) : ''}
+      ${byStaff ? row(d.phoneUnlock ? 'Mobile number entered' : 'Passcode entered', esc(docketTime(d.passcodeVerifiedAt))) : ''}
       ${row('Document opened', esc(docketTime(d.firstViewedAt)))}
       ${row('Agreed to sign electronically', esc(docketTime(d.consentedAt)))}
       ${row('Signed', esc(docketTime(d.signedAt)))}

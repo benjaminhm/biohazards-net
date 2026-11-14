@@ -11,6 +11,11 @@
  * once signed the same link shows the signed document, a download button and,
  * when a deposit was asked for, the pay step.
  *
+ * While the link is open it first shows a short page made for a phone
+ * (lib/signing/landing.ts): the quote as a PDF and an Accept button. ?doc=1 is
+ * the quote on the page, where signing happens; &start=sign opens the details
+ * step straight away, &start=decline the decline window.
+ *
  * A link can carry several quotes. Each is its own page, ?doc=2 for the second
  * and so on; the client accepts or declines each and signs once. Once signed,
  * only the quotes they accepted can be opened.
@@ -35,6 +40,9 @@ import { acceptedItems, itemLine, pickItem, readDocNumber, totalOf } from '@/lib
 import { depositAmount, money, percentLabel } from '@/lib/signing/pay'
 import { findSigningRequestByToken, loadItemHtml, loadItems, loadPayPanel, signedDocumentHtml } from '@/lib/signing/store'
 import { passcodeGatePage, signedViewHtml, signingMessagePage, signingShellHtml } from '@/lib/signing/shell'
+import { signingLandingHtml } from '@/lib/signing/landing'
+import { isPhonePasscode, phonePasscodeLabel } from '@/lib/signing/phone'
+import { splitAuAddress } from '@/lib/signing/details'
 
 const HEADERS = {
   'Content-Type': 'text/html; charset=utf-8',
@@ -76,7 +84,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ token: s
   }
 
   if (!isUnlocked(req.headers.get('cookie'), token, row.passcode)) {
-    return page(passcodeGatePage({ token, brandLabel: row.brand_label, length: PASSCODE_LENGTH }))
+    return page(passcodeGatePage({ token, brandLabel: row.brand_label, length: PASSCODE_LENGTH, phone: isPhonePasscode(row.passcode) }))
   }
 
   if (state === 'declined') {
@@ -128,6 +136,35 @@ export async function GET(req: Request, { params }: { params: Promise<{ token: s
     }
   }
 
+  // While the link is open the deposit shown is on everything; the page is
+  // told the deposit on what was accepted when they review and when they sign.
+  const due = depositAmount(several ? totalOf(items) : row.quote_total, row.deposit_percent)
+  const deposit = due != null && row.deposit_percent != null
+    ? { amountLabel: money(due), percentLabel: percentLabel(Number(row.deposit_percent)) }
+    : null
+  const { data: job } = await supabase.from('jobs').select('site_address').eq('id', row.job_id).maybeSingle()
+  const siteAddress = ((job as { site_address?: string | null } | null)?.site_address ?? '').trim() || null
+
+  if (query.get('doc') == null && query.get('start') == null) {
+    const total = several ? totalOf(items) : null
+    return page(signingLandingHtml({
+      token,
+      brandLabel: row.brand_label,
+      toName: row.to_name,
+      siteAddress,
+      quotes: items.map((i, index) => ({
+        n: index + 1,
+        label: itemLine(i),
+        totalLabel: i.quote_total != null ? money(Number(i.quote_total)) : null,
+      })),
+      totalLabel: total != null ? money(total) : null,
+      deposit,
+      pdfBase,
+      expiresLabel: signedDateLabel(row.expires_at),
+    }))
+  }
+
+  const start = query.get('start')
   let html: string
   try {
     html = await loadItemHtml(supabase, row, item)
@@ -135,16 +172,14 @@ export async function GET(req: Request, { params }: { params: Promise<{ token: s
     console.error('[signing] quote failed to load', row.id, at, err)
     return page(signingMessagePage('This document could not be opened', `Please try again in a minute, or contact ${row.brand_label}.`), 500)
   }
-  // While the link is open the deposit shown is on everything; the page is
-  // told the deposit on what was accepted when they review and when they sign.
-  const due = depositAmount(several ? totalOf(items) : row.quote_total, row.deposit_percent)
   return page(
     insertAtBodyEnd(
       html,
       signingShellHtml({
-        deposit: due != null && row.deposit_percent != null
-          ? { amountLabel: money(due), percentLabel: percentLabel(Number(row.deposit_percent)) }
-          : null,
+        deposit,
+        start: start === 'sign' || start === 'decline' ? start : null,
+        mobile: isPhonePasscode(row.passcode) ? phonePasscodeLabel(row.passcode as string) : '',
+        homeAddress: splitAuAddress(siteAddress),
         token,
         brandLabel: row.brand_label,
         documentTitle: item.document_title,

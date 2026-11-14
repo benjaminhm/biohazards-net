@@ -11,9 +11,11 @@
  *                      deposit, anything stopping it, and the job's other
  *                      quotes that can go on the same link
  * POST                 two ways to get it to the client:
- *                        { mode: 'link', documentIds, toName, toEmail?, depositPercent? }
- *                          creates a private link and a passcode and hands both
- *                          back with a message to paste; the system sends nothing
+ *                        { mode: 'link', documentIds, toName, toEmail?, toPhone?, depositPercent? }
+ *                          creates a private link and hands it back with a message
+ *                          to paste; the system sends nothing. With toPhone the
+ *                          link opens with that mobile number, otherwise with a
+ *                          4-character passcode
  *                        { mode: 'email', documentIds, toEmail, toName, subject, message, depositPercent? }
  *                          the system emails the link from the brand address
  *                      documentIds are the quotes on the link, in order, all
@@ -41,6 +43,7 @@ import {
   linkMessage,
   newPasscode,
   newSigningToken,
+  phonePasscode,
   sha256Hex,
   signedDateLabel,
   signingExpiry,
@@ -221,10 +224,15 @@ export async function POST(req: Request) {
   if (toName.length < 2 || toName.length > SIGNER_NAME_MAX) {
     return NextResponse.json({ error: "Enter the client's name" }, { status: 400 })
   }
+  const phoneTyped = byLink && typeof body.toPhone === 'string' ? body.toPhone.trim() : ''
+  const phoneCode = phoneTyped ? phonePasscode(phoneTyped) : null
   if (byLink) {
     // A link sent by text may have no email with it.
     if (toEmail && !isEmail(toEmail)) {
       return NextResponse.json({ error: "That email address does not look right. Fix it or leave it empty." }, { status: 400 })
+    }
+    if (phoneTyped && !phoneCode) {
+      return NextResponse.json({ error: "That mobile number does not look right, for example 0412 345 678. Fix it or leave it empty for a passcode." }, { status: 400 })
     }
   } else {
     if (!isEmail(toEmail)) return NextResponse.json({ error: "Enter the client's email address" }, { status: 400 })
@@ -272,7 +280,7 @@ export async function POST(req: Request) {
   const now = new Date()
   const expiresAt = signingExpiry(now)
   const { token, hash } = newSigningToken()
-  const passcode = byLink ? newPasscode() : null
+  const passcode = byLink ? phoneCode ?? newPasscode() : null
 
   const { data: created, error: insertError } = await supabase
     .from('signing_requests')

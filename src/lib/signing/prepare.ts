@@ -37,7 +37,7 @@ export interface PreparedSigning {
   frozenHtml: string
   /** Reasons this cannot be sent. Empty when it can. */
   blockers: string[]
-  defaults: { toEmail: string; toName: string; subject: string; message: string }
+  defaults: { toEmail: string; toName: string; toPhone: string; subject: string; message: string }
 }
 
 function unescapeHtml(s: string): string {
@@ -75,7 +75,7 @@ export async function prepareSigning(
   const [jobRes, companyRes, acceptanceRes] = await Promise.all([
     supabase
       .from('jobs')
-      .select('id, org_id, client_name, client_email, site_address, trading_name')
+      .select('id, org_id, client_name, client_email, client_phone, site_address, trading_name')
       .eq('id', doc.job_id)
       .eq('org_id', orgId)
       .maybeSingle(),
@@ -140,6 +140,7 @@ export async function prepareSigning(
     defaults: {
       toEmail: ((job.client_email as string | null) ?? '').trim(),
       toName: clientName,
+      toPhone: ((job.client_phone as string | null) ?? '').trim(),
       subject: defaultSubject(brandLabel || 'us', title, reference),
       message: defaultMessage({
         clientName,

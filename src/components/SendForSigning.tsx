@@ -6,8 +6,10 @@
  *   useJobSigning        the requests on a job, and where the job's Xero invoice
  *                        is up to (one fetch shared by every row)
  *   SendForSigningModal  the send window, with two ways to get the quote to the client:
- *                          Link and passcode  creates a private link, a passcode and a
- *                                             message to paste into your own text or email
+ *                          Link to text       creates a private link and a message to paste
+ *                                             into your own text; the client opens it with
+ *                                             their mobile number (or a passcode when no
+ *                                             mobile is given)
  *                          Email from here    the system emails the link from the brand address
  *                        and the deposit the client is asked to pay after signing
  *   SigningStatus        the strip under a saved quote: link created / sent / opened /
@@ -33,7 +35,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import { depositAmount, money, percentLabel, signedNext } from '@/lib/signing/pay'
-import { addressLine, capacityLabel, formatCompanyNumber, readSignerDetails, shortDate } from '@/lib/signing/details'
+import { addressLine, capacityLabel, detailsFieldLabel, formatCompanyNumber, readSignerDetails, shortDate } from '@/lib/signing/details'
+import { isPhonePasscode, phonePasscodeLabel } from '@/lib/signing/phone'
 import type { SignerDetails } from '@/lib/signing/details'
 
 export interface SigningSummary {
@@ -64,6 +67,12 @@ export interface SigningSummary {
   delivery_method: 'email' | 'link'
   passcode: string | null
   passcode_locked_at: string | null
+  /** How far the client got: opened the PDF, started their details, and where the check last stopped them. */
+  pdf_viewed_at?: string | null
+  sign_started_at?: string | null
+  stuck_field?: string | null
+  stuck_message?: string | null
+  stuck_at?: string | null
   /** Inc GST. Null for staff who are not shown money. */
   quote_total: number | null
   /** Share of the total asked for after signing. Null = no pay step. */
@@ -179,7 +188,7 @@ interface Preview {
   maxQuotes?: number
   blockers: string[]
   sender: { brandLabel: string; from: string; replyTo: string | null; usesBrandAddress: boolean } | null
-  defaults: { toEmail: string; toName: string; subject: string; message: string }
+  defaults: { toEmail: string; toName: string; toPhone: string; subject: string; message: string }
   requests: SigningSummary[]
   /** The brand's document host when links will open there. */
   linkHost: string | null
@@ -312,6 +321,7 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
   const [mode, setMode] = useState<Mode>('link')
   const [toName, setToName] = useState('')
   const [toEmail, setToEmail] = useState('')
+  const [toPhone, setToPhone] = useState('')
   const [subject, setSubject] = useState('')
   const [message, setMessage] = useState('')
   const [depositText, setDepositText] = useState('')
@@ -336,6 +346,7 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
         setPreview(data)
         setToName(data.defaults.toName)
         setToEmail(data.defaults.toEmail)
+        setToPhone(data.defaults.toPhone ?? '')
         setSubject(data.defaults.subject)
         setMessage(data.defaults.message)
         setDepositText(data.hasTotal ? String(data.defaultDepositPercent) : '')
@@ -376,11 +387,13 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
   const emailTyped = toEmail.trim()
   const emailOk = /^\S+@\S+\.\S+$/.test(emailTyped)
   const nameOk = toName.trim().length >= 2
+  const phoneDigits = toPhone.replace(/\D/g, '')
+  const phoneOk = !phoneDigits || /^(0[2-9]\d{8}|61[2-9]\d{8})$/.test(phoneDigits)
   const depositChoice = readDeposit(depositText)
   const depositDue = depositOf(linkTotal, depositChoice.percent)
   const ready = !blocked && nameOk && depositChoice.ok && (
     mode === 'link'
-      ? !emailTyped || emailOk
+      ? (!emailTyped || emailOk) && phoneOk
       : emailOk && Boolean(subject.trim()) && Boolean(message.trim())
   )
 
@@ -394,7 +407,7 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(
           mode === 'link'
-            ? { mode, documentIds, toName, toEmail, depositPercent: depositChoice.percent }
+            ? { mode, documentIds, toName, toEmail, toPhone, depositPercent: depositChoice.percent }
             : { mode, documentIds, toName, toEmail, subject, message, depositPercent: depositChoice.percent },
         ),
       })
@@ -458,7 +471,7 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 14 }}>
           <div>
             <div id="send-signing-title" style={{ fontWeight: 700, fontSize: 18, color: 'var(--text)' }}>
-              {created ? 'Link and passcode ready' : 'Send to client'}
+              {created ? 'Link ready' : 'Send to client'}
             </div>
             {docLine && <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }}>{docLine}</div>}
           </div>
@@ -490,9 +503,11 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
               <button type="button" className="btn btn-secondary" style={{ fontSize: 13, padding: '9px 14px' }} onClick={() => copy('link', created.url)}>
                 {copied === 'link' ? '✓ Copied' : 'Copy link only'}
               </button>
-              <button type="button" className="btn btn-secondary" style={{ fontSize: 13, padding: '9px 14px' }} onClick={() => copy('code', created.passcode)}>
-                {copied === 'code' ? '✓ Copied' : 'Copy passcode only'}
-              </button>
+              {!isPhonePasscode(created.passcode) && (
+                <button type="button" className="btn btn-secondary" style={{ fontSize: 13, padding: '9px 14px' }} onClick={() => copy('code', created.passcode)}>
+                  {copied === 'code' ? '✓ Copied' : 'Copy passcode only'}
+                </button>
+              )}
             </div>
             {copied === 'failed' && (
               <div role="alert" style={{ fontSize: 12, color: '#F87171', marginBottom: 10 }}>
@@ -500,14 +515,29 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
               </div>
             )}
             <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px', marginBottom: 12 }}>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Passcode</div>
-              <div style={{ ...codeText, fontSize: 24, color: 'var(--text)' }}>{created.passcode}</div>
+              {isPhonePasscode(created.passcode) ? (
+                <>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Opens with the client&apos;s mobile number</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text)' }}>{phonePasscodeLabel(created.passcode)}</div>
+                </>
+              ) : (
+                <>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Passcode</div>
+                  <div style={{ ...codeText, fontSize: 24, color: 'var(--text)' }}>{created.passcode}</div>
+                </>
+              )}
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6, wordBreak: 'break-all' }}>{created.url}</div>
             </div>
             <div style={{ ...helpText, marginBottom: 14 }}>
               <div>The link is shown this once and cannot be shown again. If it is lost, create a new one.</div>
-              <div>The passcode stays on the quote in Documents, so you can repeat it to the client.</div>
-              <div>For a sensitive job, send the link and the passcode separately, for example the link by email and the passcode by text.</div>
+              {isPhonePasscode(created.passcode) ? (
+                <div>Text it to that number: the client opens the link by typing their own mobile number. If it goes to anyone else, they will need that number to open it.</div>
+              ) : (
+                <>
+                  <div>The passcode stays on the quote in Documents, so you can repeat it to the client.</div>
+                  <div>For a sensitive job, send the link and the passcode separately, for example the link by email and the passcode by text.</div>
+                </>
+              )}
               {created.pendingHost && (
                 <div style={{ color: '#FBBF24' }}>
                   {created.pendingHost} is not connected yet, so this link opens on {created.host}.
@@ -529,7 +559,7 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
             )}
 
             <div style={{ ...helpText, marginBottom: 12 }}>
-              The client views the quote, gives their details (who they are signing as, legal name, date of birth, home address, mobile and email) and signs it on the same page. You then check who signed and create the invoice; they are shown how to pay once the invoice is approved in Xero.
+              The link opens a short page with the quote as a PDF and an Accept button. The client gives their details (who they are signing as, legal name, date of birth, home address, mobile and email) and signs on their phone. You then check who signed and create the invoice; they are shown how to pay once the invoice is approved in Xero.
             </div>
 
             {others.length > 0 && (
@@ -569,13 +599,13 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
             )}
 
             <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-              {tab('link', 'Link and passcode')}
+              {tab('link', 'Link to text')}
               {tab('email', 'Email from here')}
             </div>
 
             {mode === 'link' && (
               <div style={{ ...helpText, marginBottom: 14 }}>
-                Creates a private link and a 4-character passcode, with a message to paste into your own text or email. Nothing is sent from here.
+                Creates a private link with a message to paste into your own text. The client opens it with their mobile number; leave the mobile empty to use a 4-character passcode instead. Nothing is sent from here.
                 {preview.linkHost && <> The link opens on {preview.linkHost}.</>}
                 {preview.pendingLinkHost && (
                   <span style={{ color: '#FBBF24' }}> {preview.pendingLinkHost} is not connected yet, so for now the link opens on the app address.</span>
@@ -607,6 +637,13 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
                 <label htmlFor="sfs-email" style={fieldLabel}>{mode === 'link' ? 'Signer email (optional)' : 'Signer email'}</label>
                 <input id="sfs-email" type="email" style={fieldInput} value={toEmail} onChange={e => setToEmail(e.target.value)} autoComplete="off" />
               </div>
+              {mode === 'link' && (
+                <div style={{ flex: '1 1 180px' }}>
+                  <label htmlFor="sfs-phone" style={fieldLabel}>Client&apos;s mobile (opens the link)</label>
+                  <input id="sfs-phone" type="tel" style={fieldInput} value={toPhone} onChange={e => setToPhone(e.target.value)} autoComplete="off" placeholder="0412 345 678" />
+                  {!phoneOk && <div style={{ fontSize: 12, color: '#F87171', marginTop: 4 }}>Check the number, for example 0412 345 678.</div>}
+                </div>
+              )}
             </div>
 
             <div style={{ marginBottom: 14 }}>
@@ -953,6 +990,16 @@ export function SigningStatus({ request, invoice, onChanged, documentId }: {
     label = 'Opened, not signed'
     color = '#FBBF24'
     detail = `by ${who} on ${when(request.first_viewed_at)}. ${byLink ? 'Link created' : 'Sent'} ${when(request.sent_at)}.`
+    const steps = [
+      request.pdf_viewed_at ? `opened the PDF ${when(request.pdf_viewed_at)}` : '',
+      request.sign_started_at ? `pressed Accept ${when(request.sign_started_at)}` : '',
+    ].filter(Boolean)
+    if (steps.length) detail += ` They ${steps.join(' and ')}.`
+    if (request.stuck_field) {
+      detail += ` Last stopped at their ${detailsFieldLabel(request.stuck_field)} ${when(request.stuck_at ?? null)}: "${request.stuck_message ?? ''}" Worth a call.`
+    } else if (!request.sign_started_at) {
+      detail += ' Not started signing yet.'
+    }
   }
   const signerDetails = request.status === 'signed' ? readSignerDetails(request.signer_details) : null
   const signerEmail = request.to_email ?? signerDetails?.email ?? null
@@ -1059,8 +1106,9 @@ export function SigningStatus({ request, invoice, onChanged, documentId }: {
         {byLink ? (
           <>
             Link created{request.sent_by_name ? ` by ${request.sent_by_name}` : ''} to send yourself; not sent from here.
-            {request.passcode && request.status !== 'voided' && (
-              <> Passcode <span style={{ ...codeText, color: 'var(--text)' }}>{request.passcode}</span>.</>
+            {request.passcode && request.status !== 'voided' && (isPhonePasscode(request.passcode)
+              ? <> Opens with their mobile <span style={{ color: 'var(--text)' }}>{phonePasscodeLabel(request.passcode)}</span>.</>
+              : <> Passcode <span style={{ ...codeText, color: 'var(--text)' }}>{request.passcode}</span>.</>
             )}
           </>
         ) : (

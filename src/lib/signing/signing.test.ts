@@ -34,6 +34,10 @@ import {
 } from '@/lib/signing/core'
 import { fillSignSlots, hasSignSlots, signatureBlockHtml } from '@/lib/signing/slots'
 import { passcodeGatePage, payPanelHtml, signedViewHtml, signingShellHtml } from '@/lib/signing/shell'
+import type { SigningShellData } from '@/lib/signing/shell'
+import { isPhonePasscode, phonePasscode, phonePasscodeLabel } from '@/lib/signing/phone'
+import { signingLandingHtml } from '@/lib/signing/landing'
+import { splitAuAddress } from '@/lib/signing/details'
 import {
   cleanBankDetails,
   depositAmount,
@@ -488,8 +492,9 @@ test('with no client email on the link, the page names no address until the sign
 
 const TOKEN = 'A'.repeat(43)
 
-function shellFor(deposit: { amountLabel: string; percentLabel: string } | null): string {
+function shellFor(deposit: { amountLabel: string; percentLabel: string } | null, extra: Partial<SigningShellData> = {}): string {
   return signingShellHtml({
+    ...extra,
     token: TOKEN,
     brandLabel: 'Forensic Cleaning QLD',
     documentTitle: 'Trauma Cleaning',
@@ -1029,7 +1034,7 @@ test('the docket prints who signed and in what capacity, but not their date of b
 
 test('the Your details step asks for each detail and carries the declaration', () => {
   const shell = shellFor(null)
-  for (const id of ['sg-d-capacity', 'sg-d-name', 'sg-d-dob', 'sg-d-street', 'sg-d-suburb', 'sg-d-state', 'sg-d-postcode', 'sg-d-mobile', 'sg-d-email', 'sg-d-company-name', 'sg-d-company-number', 'sg-d-position', 'sg-d-declare']) {
+  for (const id of ['sg-d-capacity', 'sg-d-name', 'sg-d-dob-d', 'sg-d-street', 'sg-d-suburb', 'sg-d-state', 'sg-d-postcode', 'sg-d-mobile', 'sg-d-email', 'sg-d-company-name', 'sg-d-company-number', 'sg-d-position', 'sg-d-declare']) {
     assert.match(shell, new RegExp(`id="${id}"`))
     assert.match(shell, new RegExp(`for="${id}"|<input type="checkbox" id="${id}"`))
   }
@@ -1040,6 +1045,12 @@ test('the Your details step asks for each detail and carries the declaration', (
   assert.match(shell, /I understand Forensic Cleaning QLD will rely on these details/)
   // The company fields stay out of the way until the capacity asks for them.
   assert.match(shell, /id="sg-d-company" style="display:none"/)
+  // Two pages: About you, then Where you live, with the date of birth in three number boxes.
+  assert.match(shell, /<div id="sg-d-page1">/)
+  assert.match(shell, /<div id="sg-d-page2" style="display:none">/)
+  assert.match(shell, /<input type="hidden" id="sg-d-dob">/)
+  for (const id of ['sg-d-dob-d', 'sg-d-dob-m', 'sg-d-dob-y']) assert.match(shell, new RegExp(`id="${id}" maxlength="\\d" inputmode="numeric"`))
+  assert.match(shell, /action: 'details', stage: 'about', details: typedDetails\(\)/)
   assert.match(shell, /"companyRules":\{"owner":"none","tenant":"none","agent":"optional","executor":"none","company_officer":"required"\}/)
   // The page sends what was typed to be checked, and the checked details with the signature.
   assert.match(shell, /action: 'details', details: typedDetails\(\), declared:/)
@@ -1288,4 +1299,110 @@ test('the opened alert names the client, the quote, the total and the job, and s
     openedAlertSms({ ...input, clientName: ' ', clientEmail: null, total: null, siteAddress: '' }),
     'Quote opened: The client — BCQ-104. Not signed yet. https://app.biohazards.net/jobs/j1',
   )
+})
+
+// ── Phone-first links ────────────────────────────────────────────────────────
+
+/** The inline scripts on a page, so a test can prove they still parse. */
+function scriptsOf(html: string): string[] {
+  return [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1])
+}
+
+test('a texted link opens with the mobile number, typed any usual way', () => {
+  assert.equal(phonePasscode('0412 345 678'), '412345678')
+  assert.equal(phonePasscode('+61 412 345 678'), '412345678')
+  assert.equal(phonePasscode('61412345678'), '412345678')
+  assert.equal(phonePasscode('+61 (0) 412 345 678'), '412345678')
+  assert.equal(phonePasscode('412345678'), '412345678')
+  assert.equal(phonePasscode('07 3123 4567'), '731234567')
+  assert.equal(phonePasscode('0412 345'), null)
+  assert.equal(phonePasscode('0012 345 678'), null)
+  assert.equal(isPhonePasscode('412345678'), true)
+  // A random code is never 9 digits, so the kept value says which kind a link has.
+  assert.equal(isPhonePasscode(newPasscode()), false)
+  assert.equal(phonePasscodeLabel('412345678'), '0412 345 678')
+  assert.equal(phonePasscodeLabel('731234567'), '07 3123 4567')
+
+  const now = new Date('2026-11-15T00:00:00Z')
+  const row = { passcode: '412345678', passcode_attempts: 0, passcode_verified_at: null }
+  assert.equal(passcodeAttempt(row, '+61 412 345 678', now).ok, true)
+  assert.equal(passcodeAttempt(row, '0412345678', now).ok, true)
+  const wrong = passcodeAttempt(row, '0412 345 679', now)
+  assert.equal(wrong.ok, false)
+  assert.equal(!wrong.ok && wrong.triesLeft, PASSCODE_MAX_ATTEMPTS - 1)
+  // A code link still wants its code.
+  assert.equal(passcodeAttempt({ passcode: 'K7M4', passcode_attempts: 0, passcode_verified_at: null }, '0412 345 678', now).ok, false)
+})
+
+test('the text and the gate ask for the mobile number, not a passcode', () => {
+  const message = linkMessage({ clientName: 'Roger Smith', siteAddress: '1 Example Street', staffFirstName: 'Ben', brandLabel: 'Forensic Cleaning QLD', link: 'https://document.example/abc', passcode: '412345678' })
+  assert.match(message, /To open it, enter your mobile number \(the one this text was sent to\)\./)
+  assert.doesNotMatch(message, /Passcode|412345678/)
+  assert.match(linkMessage({ clientName: 'R', siteAddress: null, staffFirstName: '', brandLabel: 'B', link: 'x', passcode: 'K7M4' }), /Passcode: K7M4/)
+
+  const gate = passcodeGatePage({ token: TOKEN, brandLabel: 'Forensic Cleaning QLD', length: 4, phone: true })
+  assert.match(gate, /Enter your mobile number/)
+  assert.match(gate, /type="tel" inputmode="tel"/)
+  assert.match(gate, /"phone":true/)
+  assert.doesNotMatch(gate, /4-character passcode/)
+  for (const script of scriptsOf(gate)) assert.doesNotThrow(() => new Function(script))
+  assert.match(passcodeGatePage({ token: TOKEN, brandLabel: 'B', length: 4 }), /Enter your passcode/)
+})
+
+test('the signed docket says the link opened with the mobile number', () => {
+  const base = {
+    requestId: 'r1', brandLabel: 'Forensic Cleaning QLD', documentTitle: 'Trauma Cleaning', reference: 'BCQ-1', docSha256: 'a'.repeat(64),
+    fromAddress: 'x@example.com', sentByName: 'Ben', toName: 'Roger', toEmail: null, deliveryMethod: 'link' as const,
+    passcodeVerifiedAt: '2026-11-15T00:00:00Z', signerName: 'Roger Smith', signatureMethod: 'typed' as const,
+    signaturePng: 'data:image/png;base64,AA', sentAt: '2026-11-14T00:00:00Z', firstViewedAt: null, consentedAt: null,
+    signedAt: '2026-11-15T00:05:00Z', signerIp: null, signerUserAgent: null,
+  }
+  const phone = docketHtml({ ...base, phoneUnlock: true })
+  assert.match(phone, /Private link, opened with the mobile number it was texted to/)
+  assert.match(phone, /Mobile number entered/)
+  assert.doesNotMatch(phone, /passcode/i)
+  assert.match(docketHtml(base), /opened with a passcode entered by the signer/)
+})
+
+test('an open link starts on a phone page: the PDF, then Accept and sign', () => {
+  const html = signingLandingHtml({
+    token: TOKEN, brandLabel: 'Forensic Cleaning QLD', toName: 'Roger Smith', siteAddress: '12 Smith St, Ipswich QLD 4305',
+    quotes: [{ n: 1, label: 'Trauma Cleaning BCQ-1', totalLabel: '$2,185.26' }], totalLabel: null,
+    deposit: { amountLabel: '$1,092.63', percentLabel: '50%' }, pdfBase: `/${TOKEN}/pdf`, expiresLabel: '14 December 2026',
+  })
+  assert.match(html, /<meta name="viewport" content="width=device-width,initial-scale=1">/)
+  assert.match(html, /Hi Roger\. Here is your quote for 12 Smith St, Ipswich QLD 4305/)
+  assert.match(html, new RegExp(`href="/${TOKEN}/pdf" target="_blank" rel="noopener">View quote \\(PDF\\)`))
+  assert.match(html, /href="\?doc=1">or read it on this page/)
+  assert.match(html, /href="\?doc=1&amp;start=sign">Accept and sign/)
+  assert.match(html, /href="\?doc=1&amp;start=decline">Decline the quote/)
+  assert.match(html, /\$2,185\.26 <small>inc GST/)
+  assert.match(html, /A deposit of <strong>\$1,092\.63<\/strong> \(50%\)/)
+  for (const script of scriptsOf(html)) assert.doesNotThrow(() => new Function(script))
+
+  const two = signingLandingHtml({
+    token: TOKEN, brandLabel: 'B', toName: '', siteAddress: null,
+    quotes: [{ n: 1, label: 'A', totalLabel: '$1.00' }, { n: 2, label: 'B', totalLabel: null }], totalLabel: '$1.00',
+    deposit: null, pdfBase: '/x/pdf', expiresLabel: '1 January 2027',
+  })
+  assert.match(two, /href="\/x\/pdf\?doc=2"/)
+  assert.match(two, /href="\?doc=1">Choose and sign/)
+  assert.doesNotMatch(two, /start=decline/)
+})
+
+test('the signing page can start straight at the details, with the mobile and property address ready', () => {
+  const shell = shellFor(null, { start: 'sign', mobile: '0412 345 678', homeAddress: splitAuAddress('12 Smith St, Ipswich QLD 4305') })
+  assert.match(shell, /"start":"sign"/)
+  assert.match(shell, /id="sg-d-mobile"[^>]* value="0412 345 678">/)
+  assert.match(shell, /<button type="button" class="sg-same" id="sg-d-same">Same as the property: 12 Smith St, Ipswich<\/button>/)
+  assert.match(shell, /"homeAddress":\{"street":"12 Smith St","suburb":"Ipswich","state":"QLD","postcode":"4305"\}/)
+  for (const script of scriptsOf(shell)) assert.doesNotThrow(() => new Function(script))
+  assert.doesNotMatch(shellFor(null), /id="sg-d-same"/)
+})
+
+test('a site address splits into the home address fields only when it is complete', () => {
+  assert.deepEqual(splitAuAddress('12 Smith St, Ipswich QLD 4305'), { street: '12 Smith St', suburb: 'Ipswich', state: 'QLD', postcode: '4305' })
+  assert.deepEqual(splitAuAddress('Unit 2, 12 Smith St, Ipswich, qld 4305, Australia'), { street: 'Unit 2, 12 Smith St', suburb: 'Ipswich', state: 'QLD', postcode: '4305' })
+  assert.equal(splitAuAddress('12 Smith St Ipswich'), null)
+  assert.equal(splitAuAddress(null), null)
 })

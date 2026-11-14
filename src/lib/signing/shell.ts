@@ -163,6 +163,21 @@ const SHELL_CSS = `
   #sg-root .sg-input.sg-bad { border-color: #b91c1c; box-shadow: 0 0 0 3px rgba(185, 28, 28, 0.15); }
   #sg-root .sg-group { border-top: 1px solid #e4e7ec; margin: 6px 0 0; padding: 14px 0 0; }
   #sg-root .sg-declare { background: #f5f7fa; border-radius: 10px; padding: 12px 14px; margin: 6px 0 0; }
+  #sg-root .sg-dob { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; }
+  #sg-root .sg-dob .sg-input { margin: 0; width: 64px; text-align: center; font-size: 18px; }
+  #sg-root .sg-dob .sg-dob-y { width: 92px; }
+  #sg-root .sg-dob span { color: #98a2b3; font-size: 18px; }
+  #sg-root .sg-same {
+    display: block; width: 100%; text-align: left; margin: 0 0 14px; padding: 12px 14px; border-radius: 10px;
+    border: 2px solid #0f2447; background: #fff; color: #0f2447; font-weight: 600;
+  }
+  /* Phones: the details step fills the screen, with the buttons easy to reach. */
+  @media (max-width: 560px) {
+    #sg-root #sg-details.sg-overlay { padding: 0; align-items: stretch; }
+    #sg-root #sg-details .sg-card { max-width: none; border-radius: 0; min-height: 100%; padding: 20px 16px 28px; }
+    #sg-root #sg-details .sg-actions { flex-direction: column-reverse; }
+    #sg-root #sg-details .sg-actions .sg-btn { width: 100%; padding: 14px; font-size: 16px; }
+  }
   #sg-root .sg-declare .sg-check { margin: 0; }
   .sow-root .sign-block .sign-slot.sg-name-slot { cursor: pointer; }
   #sg-root .sg-typed {
@@ -631,7 +646,7 @@ const SHELL_SCRIPT = String.raw`
     if (!d || typeof d !== 'object') return;
     var a = d.address || {};
     var c = d.company || {};
-    put('capacity', d.capacity); put('legalName', d.legalName); put('dateOfBirth', dayFirst(d.dateOfBirth));
+    put('capacity', d.capacity); put('legalName', d.legalName); put('dateOfBirth', dayFirst(d.dateOfBirth)); dobToBoxes();
     put('street', a.street); put('suburb', a.suburb); put('state', a.state); put('postcode', a.postcode);
     put('mobile', d.mobile); put('email', d.email);
     put('companyName', c.name); put('companyNumber', c.number); put('position', c.position);
@@ -652,19 +667,54 @@ const SHELL_SCRIPT = String.raw`
     for (var i = 0; i < bad.length; i++) { bad[i].classList.remove('sg-bad'); bad[i].removeAttribute('aria-invalid'); }
     $('sg-details-error').textContent = '';
   }
+  // ── Two pages: About you, then Where you live ────────────────────────────
+  var PAGE2 = ['street', 'suburb', 'state', 'postcode', 'declaration'];
+  var page = 1;
+  function showPage(n) {
+    page = n;
+    $('sg-d-page1').style.display = n === 1 ? '' : 'none';
+    $('sg-d-page2').style.display = n === 2 ? '' : 'none';
+    $('sg-d-pageno').textContent = String(n);
+    $('sg-details-h').textContent = n === 1 ? 'About you' : 'Where you live';
+    $('sg-details-back').textContent = n === 1 ? 'Back to the quote' : 'Back';
+    $('sg-details-continue').textContent = n === 1 ? 'Next' : 'Continue to sign';
+    var card = $('sg-details-form');
+    if (card.scrollTo) card.scrollTo(0, 0);
+  }
+  // Date of birth in three boxes, kept together in the hidden field the check reads.
+  var dobBoxes = [$('sg-d-dob-d'), $('sg-d-dob-m'), $('sg-d-dob-y')];
+  function dobFromBoxes() {
+    var d = dobBoxes[0].value, m = dobBoxes[1].value, y = dobBoxes[2].value;
+    $(FIELDS.dateOfBirth).value = d || m || y ? d + '/' + m + '/' + y : '';
+  }
+  function dobToBoxes() {
+    var parts = String($(FIELDS.dateOfBirth).value || '').split('/');
+    dobBoxes[0].value = parts[0] || ''; dobBoxes[1].value = parts[1] || ''; dobBoxes[2].value = parts[2] || '';
+  }
+  dobBoxes.forEach(function (box, i) {
+    box.addEventListener('input', function () {
+      box.value = box.value.replace(/\D/g, '').slice(0, i === 2 ? 4 : 2);
+      dobFromBoxes();
+      if (i < 2 && box.value.length === 2) dobBoxes[i + 1].focus();
+    });
+  });
   function detailsProblem(field, message) {
+    if (field) showPage(PAGE2.indexOf(field) >= 0 ? 2 : 1);
     $('sg-details-error').textContent = message;
-    var el = field && FIELDS[field] ? $(FIELDS[field]) : null;
+    var el = field === 'dateOfBirth' ? dobBoxes[0] : (field && FIELDS[field] ? $(FIELDS[field]) : null);
     if (!el) return;
     if (el.type !== 'checkbox') { el.classList.add('sg-bad'); el.setAttribute('aria-invalid', 'true'); }
     el.scrollIntoView({ block: 'center' });
     el.focus({ preventScroll: true });
   }
+  var started = false;
   function openDetails(then) {
     state.pending = then || state.pending;
     clearBad();
+    showPage(1);
     show('sg-details');
     setStep('details');
+    if (!started) { started = true; post({ action: 'start' }).catch(function () {}); }
   }
   function closeDetails() {
     hide('sg-details');
@@ -675,6 +725,14 @@ const SHELL_SCRIPT = String.raw`
     if (kept) fillDetails(JSON.parse(kept));
   } catch (e) {}
   showCompany();
+  if (!val('mobile') && cfg.mobile) put('mobile', cfg.mobile);
+  var same = $('sg-d-same');
+  if (same && cfg.homeAddress) same.addEventListener('click', function () {
+    var a = cfg.homeAddress;
+    put('street', a.street); put('suburb', a.suburb); put('state', a.state); put('postcode', a.postcode);
+    clearBad();
+    changed();
+  });
   $(FIELDS.capacity).addEventListener('change', showCompany);
   // Anything changed after the check means it must be checked again.
   function changed() {
@@ -683,7 +741,11 @@ const SHELL_SCRIPT = String.raw`
   }
   detailsForm.addEventListener('input', function (event) { if (event.target !== $(FIELDS.declaration)) changed(); });
   detailsForm.addEventListener('change', function (event) { if (event.target !== $(FIELDS.declaration)) changed(); });
-  $('sg-details-back').addEventListener('click', function () { state.pending = null; closeDetails(); });
+  $('sg-details-back').addEventListener('click', function () {
+    if (page === 2) { clearBad(); showPage(1); return; }
+    state.pending = null;
+    closeDetails();
+  });
   detailsForm.addEventListener('submit', function (event) {
     event.preventDefault();
     if (state.busy || state.finished) return;
@@ -691,6 +753,15 @@ const SHELL_SCRIPT = String.raw`
     var button = $('sg-details-continue');
     button.disabled = true;
     remember();
+    if (page === 1) {
+      post({ action: 'details', stage: 'about', details: typedDetails() })
+        .then(function () { showPage(2); })
+        .catch(function (err) {
+          detailsProblem(err && err.field, err && err.message ? err.message : 'Could not check your details. Please try again.');
+        })
+        .then(function () { button.disabled = false; });
+      return;
+    }
     post({ action: 'details', details: typedDetails(), declared: $(FIELDS.declaration).checked })
       .then(function (data) {
         state.details = data.details;
@@ -814,9 +885,12 @@ const SHELL_SCRIPT = String.raw`
   });
   typed.addEventListener('input', function () { typedPreview.textContent = typed.value; updateAdopt(); });
 
+  // Started from the landing page: signing in the window finishes straight away.
+  var quick = false;
   function openPad() {
     if (state.busy || state.finished) return;
     if (!typed.value) typed.value = nameValue();
+    $('sg-adopt').textContent = quick ? 'Sign and accept' : 'Adopt and sign';
     show('sg-pad');
     setMode(mode);
   }
@@ -862,6 +936,7 @@ const SHELL_SCRIPT = String.raw`
     hide('sg-pad');
     renderSignature();
     refresh();
+    if (quick) finish();
   });
 
   // ── Finish ────────────────────────────────────────────────────────────────
@@ -968,6 +1043,12 @@ const SHELL_SCRIPT = String.raw`
   renderSignature();
   refresh();
   if (autostart) startSigning(goToNextField);
+  else if (cfg.start && !multi) {
+    // A reload should show the quote, not open the window again.
+    try { history.replaceState(null, '', '?doc=' + cfg.current); } catch (e) {}
+    if (cfg.start === 'sign') { quick = true; startSigning(openPad); }
+    else if (cfg.start === 'decline') { $('sg-decline-error').textContent = ''; show('sg-decline'); }
+  }
 })();
 `
 
@@ -1003,6 +1084,12 @@ export interface SigningShellData {
    * accepted; the page is told the real one when they sign.
    */
   deposit: { amountLabel: string; percentLabel: string } | null
+  /** From the landing page: open the details step (sign) or the decline window straight away. */
+  start?: 'sign' | 'decline' | null
+  /** The mobile number the link was texted to, to fill in their details. Empty when not known. */
+  mobile?: string
+  /** The job's site address split into fields, for "Same as the property". Null when it cannot be split. */
+  homeAddress?: { street: string; suburb: string; state: string; postcode: string } | null
 }
 
 type Step = 'view' | 'details' | 'sign' | 'pay'
@@ -1072,25 +1159,65 @@ export function signingShellHtml(d: SigningShellData): string {
 
     <div class="sg-overlay" id="sg-details" role="dialog" aria-modal="true" aria-labelledby="sg-details-h">
       <form class="sg-card sg-card-wide" id="sg-details-form" novalidate>
-        <div class="sg-eyebrow">${esc(d.brandLabel)}</div>
-        <h2 id="sg-details-h">Your details</h2>
-        <p>Before you sign, tell us who is accepting ${several ? 'the quotes you chose' : esc(docLine)}. ${esc(d.brandLabel)} uses these details for your invoice and to contact you.</p>
+        <div class="sg-eyebrow">${esc(d.brandLabel)} · Step <span id="sg-d-pageno" style="color:inherit">1</span> of 2</div>
+        <h2 id="sg-details-h">About you</h2>
+        <div id="sg-d-page1">
+          <p>Before you sign, tell us who is accepting ${several ? 'the quotes you chose' : esc(docLine)}. ${esc(d.brandLabel)} uses these details for your invoice and to contact you.</p>
 
-        <label class="sg-label" for="sg-d-capacity">I am signing as</label>
-        <select class="sg-input" id="sg-d-capacity">
-          <option value="">Choose one</option>
-          ${CAPACITIES.map(c => `<option value="${c.id}">${esc(c.label)}</option>`).join('')}
-        </select>
+          <label class="sg-label" for="sg-d-capacity">I am signing as</label>
+          <select class="sg-input" id="sg-d-capacity">
+            <option value="">Choose one</option>
+            ${CAPACITIES.map(c => `<option value="${c.id}">${esc(c.label)}</option>`).join('')}
+          </select>
 
-        <label class="sg-label" for="sg-d-name">Full legal name</label>
-        <input type="text" class="sg-input" id="sg-d-name" maxlength="120" autocomplete="name" value="${esc(d.toName)}">
+          <label class="sg-label" for="sg-d-name">Full legal name</label>
+          <input type="text" class="sg-input" id="sg-d-name" maxlength="120" autocomplete="name" value="${esc(d.toName)}">
 
-        <label class="sg-label" for="sg-d-dob">Date of birth <small>day / month / year</small></label>
-        <input type="text" class="sg-input" id="sg-d-dob" maxlength="10" inputmode="numeric" autocomplete="bday" placeholder="DD/MM/YYYY">
+          <label class="sg-label" for="sg-d-dob-d">Date of birth</label>
+          <div class="sg-dob">
+            <input type="text" class="sg-input" id="sg-d-dob-d" maxlength="2" inputmode="numeric" autocomplete="bday-day" placeholder="DD" aria-label="Day">
+            <span>/</span>
+            <input type="text" class="sg-input" id="sg-d-dob-m" maxlength="2" inputmode="numeric" autocomplete="bday-month" placeholder="MM" aria-label="Month">
+            <span>/</span>
+            <input type="text" class="sg-input sg-dob-y" id="sg-d-dob-y" maxlength="4" inputmode="numeric" autocomplete="bday-year" placeholder="YYYY" aria-label="Year">
+          </div>
+          <input type="hidden" id="sg-d-dob">
 
-        <div class="sg-group">
-          <label class="sg-label" for="sg-d-street">Residential address <small>where you live, not a PO box</small></label>
-          <input type="text" class="sg-input" id="sg-d-street" maxlength="120" autocomplete="address-line1" placeholder="Street address">
+          <div class="sg-row">
+            <div class="sg-first">
+              <label class="sg-label" for="sg-d-mobile">Mobile</label>
+              <input type="tel" class="sg-input" id="sg-d-mobile" maxlength="20" autocomplete="tel" placeholder="0412 345 678" value="${esc(d.mobile ?? '')}">
+            </div>
+            <div class="sg-first">
+              <label class="sg-label" for="sg-d-email">Email</label>
+              <input type="email" class="sg-input" id="sg-d-email" maxlength="160" autocomplete="email" value="${esc(d.toEmail ?? '')}">
+            </div>
+          </div>
+
+          <div class="sg-group" id="sg-d-company" style="display:none">
+            <p class="sg-small" id="sg-d-company-note" style="margin:0 0 10px"></p>
+            <label class="sg-label" for="sg-d-company-name">Company name</label>
+            <input type="text" class="sg-input" id="sg-d-company-name" maxlength="120" autocomplete="organization">
+            <div class="sg-row">
+              <div class="sg-first">
+                <label class="sg-label" for="sg-d-company-number">ABN or ACN</label>
+                <input type="text" class="sg-input" id="sg-d-company-number" maxlength="20" inputmode="numeric" autocomplete="off">
+              </div>
+              <div class="sg-first">
+                <label class="sg-label" for="sg-d-position">Your position</label>
+                <input type="text" class="sg-input" id="sg-d-position" maxlength="120" autocomplete="organization-title" placeholder="For example Director">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="sg-d-page2" style="display:none">
+          <p>Your home address, where you live (not a PO box). It goes on your invoice.</p>
+          ${d.homeAddress
+            ? `<button type="button" class="sg-same" id="sg-d-same">Same as the property: ${esc(`${d.homeAddress.street}, ${d.homeAddress.suburb}`)}</button>`
+            : ''}
+          <label class="sg-label" for="sg-d-street">Street address</label>
+          <input type="text" class="sg-input" id="sg-d-street" maxlength="120" autocomplete="address-line1" placeholder="For example 12 Smith Street">
           <div class="sg-row">
             <div class="sg-first">
               <label class="sg-label" for="sg-d-suburb">Suburb or town</label>
@@ -1108,47 +1235,18 @@ export function signingShellHtml(d: SigningShellData): string {
               <input type="text" class="sg-input" id="sg-d-postcode" maxlength="4" inputmode="numeric" autocomplete="postal-code">
             </div>
           </div>
-        </div>
 
-        <div class="sg-group">
-          <div class="sg-row">
-            <div class="sg-first">
-              <label class="sg-label" for="sg-d-mobile">Mobile</label>
-              <input type="tel" class="sg-input" id="sg-d-mobile" maxlength="20" autocomplete="tel" placeholder="0412 345 678">
-            </div>
-            <div class="sg-first">
-              <label class="sg-label" for="sg-d-email">Email</label>
-              <input type="email" class="sg-input" id="sg-d-email" maxlength="160" autocomplete="email" value="${esc(d.toEmail ?? '')}">
-            </div>
+          <div class="sg-declare">
+            <label class="sg-check">
+              <input type="checkbox" id="sg-d-declare">
+              <span>${esc(declarationText(d.brandLabel))}</span>
+            </label>
           </div>
-        </div>
-
-        <div class="sg-group" id="sg-d-company" style="display:none">
-          <p class="sg-small" id="sg-d-company-note" style="margin:0 0 10px"></p>
-          <label class="sg-label" for="sg-d-company-name">Company name</label>
-          <input type="text" class="sg-input" id="sg-d-company-name" maxlength="120" autocomplete="organization">
-          <div class="sg-row">
-            <div class="sg-first">
-              <label class="sg-label" for="sg-d-company-number">ABN or ACN</label>
-              <input type="text" class="sg-input" id="sg-d-company-number" maxlength="20" inputmode="numeric" autocomplete="off">
-            </div>
-            <div class="sg-first">
-              <label class="sg-label" for="sg-d-position">Your position</label>
-              <input type="text" class="sg-input" id="sg-d-position" maxlength="120" autocomplete="organization-title" placeholder="For example Director">
-            </div>
-          </div>
-        </div>
-
-        <div class="sg-declare">
-          <label class="sg-check">
-            <input type="checkbox" id="sg-d-declare">
-            <span>${esc(declarationText(d.brandLabel))}</span>
-          </label>
         </div>
         <div class="sg-error" id="sg-details-error" role="alert"></div>
         <div class="sg-actions" style="margin-top:10px">
-          <button type="button" class="sg-btn sg-btn-quiet" id="sg-details-back">Back to document</button>
-          <button type="submit" class="sg-btn" id="sg-details-continue">Continue</button>
+          <button type="button" class="sg-btn sg-btn-quiet" id="sg-details-back">Back to the quote</button>
+          <button type="submit" class="sg-btn" id="sg-details-continue">Next</button>
         </div>
       </form>
     </div>
@@ -1195,7 +1293,7 @@ export function signingShellHtml(d: SigningShellData): string {
           <input type="text" class="sg-input" id="sg-typed-input" maxlength="80" placeholder="Type your full name" autocomplete="name" aria-label="Type your full name">
           <div class="sg-typed" id="sg-typed-preview" aria-hidden="true"></div>
         </div>
-        <p class="sg-small" style="margin:14px 0 16px">By choosing Adopt and sign, I agree this is my signature on ${several ? 'each quote I accepted' : 'this document'}.</p>
+        <p class="sg-small" style="margin:14px 0 16px">By signing, I agree this is my signature on ${several ? 'each quote I accepted' : 'this document'}.</p>
         <div class="sg-actions">
           <button type="button" class="sg-btn sg-btn-quiet" id="sg-pad-cancel">Cancel</button>
           <button type="button" class="sg-btn" id="sg-adopt" disabled>Adopt and sign</button>
@@ -1264,6 +1362,9 @@ export function signingShellHtml(d: SigningShellData): string {
       current: d.current,
       // Which capacities ask for a company: required, optional or none.
       companyRules: Object.fromEntries(CAPACITIES.map(c => [c.id, companyRule(c.id)])),
+      start: d.start ?? null,
+      mobile: d.mobile ?? '',
+      homeAddress: d.homeAddress ?? null,
     })}</script>
     <script>${FIT_SCRIPT}</script>
     <script>${SHELL_SCRIPT}</script>
@@ -1477,14 +1578,16 @@ const GATE_SCRIPT = String.raw`
   var input = document.getElementById('pg-code');
   var button = document.getElementById('pg-open');
   var msg = document.getElementById('pg-msg');
-  function clean() { return input.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+  // A mobile number may be typed with spaces or +61; the server tidies it.
+  function clean() { return cfg.phone ? input.value.replace(/[^0-9+ ]/g, '') : input.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+  function enough() { return cfg.phone ? clean().replace(/\D/g, '').length >= 9 : clean().length >= cfg.length; }
   input.addEventListener('input', function () {
-    input.value = clean().slice(0, cfg.length);
-    button.disabled = input.value.length < cfg.length;
+    input.value = cfg.phone ? clean() : clean().slice(0, cfg.length);
+    button.disabled = !enough();
   });
   form.addEventListener('submit', function (event) {
     event.preventDefault();
-    if (clean().length < cfg.length || button.disabled) return;
+    if (!enough() || button.disabled) return;
     button.disabled = true;
     msg.textContent = '';
     fetch(cfg.api, {
@@ -1503,7 +1606,7 @@ const GATE_SCRIPT = String.raw`
       input.value = '';
       input.focus();
     }).catch(function () {
-      msg.textContent = 'Could not check the passcode. Check your connection and try again.';
+      msg.textContent = 'Could not check that. Check your connection and try again.';
       button.disabled = false;
     });
   });
@@ -1516,7 +1619,12 @@ const GATE_SCRIPT = String.raw`
  * the document or the client: someone holding only the link learns the brand
  * name and no more.
  */
-export function passcodeGatePage(d: { token: string; brandLabel: string; length: number; apiPath?: string }): string {
+export function passcodeGatePage(d: { token: string; brandLabel: string; length: number; apiPath?: string; phone?: boolean }): string {
+  const input = d.phone
+    ? `<input id="pg-code" name="code" type="tel" inputmode="tel" autocomplete="tel" maxlength="20" placeholder="04xx xxx xxx"
+        style="display:block;width:100%;box-sizing:border-box;padding:14px 12px;border:1px solid #98a2b3;border-radius:10px;font:700 24px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:0.04em;text-align:center;color:#111;background:#fff">`
+    : `<input id="pg-code" name="code" type="text" inputmode="text" autocapitalize="characters" autocorrect="off" spellcheck="false" autocomplete="off" maxlength="${d.length}"
+        style="display:block;width:100%;box-sizing:border-box;padding:14px 12px;border:1px solid #98a2b3;border-radius:10px;font:700 28px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:0.4em;text-align:center;text-transform:uppercase;color:#111;background:#fff">`
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1529,20 +1637,23 @@ export function passcodeGatePage(d: { token: string; brandLabel: string; length:
   <div style="max-width:420px;margin:12vh auto 0;padding:0 16px">
     <form id="pg-form" autocomplete="off" style="background:#fff;border-radius:14px;padding:28px 24px;box-shadow:0 8px 40px rgba(0,0,0,0.12)">
       <div style="font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#FF6B35;margin-bottom:6px">${esc(d.brandLabel)}</div>
-      <h1 style="font-size:20px;margin:0 0 8px">Enter your passcode</h1>
+      <h1 style="font-size:20px;margin:0 0 8px">${d.phone ? 'Enter your mobile number' : 'Enter your passcode'}</h1>
       <p style="font-size:15px;line-height:1.5;color:#333;margin:0 0 18px">
-        <label for="pg-code">To open your document, enter the ${d.length}-character passcode you were given with this link.</label>
+        <label for="pg-code">${d.phone
+          ? 'To open your document, enter the mobile number this link was texted to.'
+          : `To open your document, enter the ${d.length}-character passcode you were given with this link.`}</label>
       </p>
-      <input id="pg-code" name="code" type="text" inputmode="text" autocapitalize="characters" autocorrect="off" spellcheck="false" autocomplete="off" maxlength="${d.length}"
-        style="display:block;width:100%;box-sizing:border-box;padding:14px 12px;border:1px solid #98a2b3;border-radius:10px;font:700 28px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:0.4em;text-align:center;text-transform:uppercase;color:#111;background:#fff">
+      ${input}
       <div id="pg-msg" role="alert" style="color:#b91c1c;font-size:14px;line-height:1.45;min-height:20px;margin:10px 0 8px"></div>
       <button id="pg-open" type="submit" disabled
         style="display:block;width:100%;border:none;border-radius:10px;padding:14px;font:700 16px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#FF6B35;color:#fff;cursor:pointer">Open document</button>
-      <p style="font-size:12px;color:#666;line-height:1.5;margin:14px 0 0">No passcode? Contact ${esc(d.brandLabel)} and we will send it to you.</p>
+      <p style="font-size:12px;color:#666;line-height:1.5;margin:14px 0 0">${d.phone
+        ? `Not working? Call or text ${esc(d.brandLabel)} and we will sort it out.`
+        : `No passcode? Contact ${esc(d.brandLabel)} and we will send it to you.`}</p>
     </form>
   </div>
   <style>#pg-open:disabled { opacity: 0.5; cursor: default; }</style>
-  <script type="application/json" id="pg-config">${scriptJson({ api: d.apiPath ?? `/api/sign/${d.token}`, length: d.length })}</script>
+  <script type="application/json" id="pg-config">${scriptJson({ api: d.apiPath ?? `/api/sign/${d.token}`, length: d.length, phone: Boolean(d.phone) })}</script>
   <script>${GATE_SCRIPT}</script>
 </body>
 </html>`

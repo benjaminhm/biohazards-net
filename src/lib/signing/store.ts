@@ -24,6 +24,7 @@ import {
   docketHtml,
   hashSigningTokenSafe,
   insertAtBodyEnd,
+  isPhonePasscode,
   signedDateLabel,
 } from '@/lib/signing/core'
 import { readSignerDetails } from '@/lib/signing/details'
@@ -95,6 +96,13 @@ export interface SigningRequestRow {
   xero_contact_id: string | null
   /** Hash of the second link, made for the ready-to-pay message staff send. */
   pay_token_hash: string | null
+  /** How far the client got (migration 080). */
+  pdf_viewed_at: string | null
+  sign_started_at: string | null
+  /** The details field the check last stopped them at, and what they were told. Cleared once their details pass. */
+  stuck_field: string | null
+  stuck_message: string | null
+  stuck_at: string | null
 }
 
 /**
@@ -106,7 +114,8 @@ export const SIGNING_SUMMARY_COLUMNS =
   'id, job_id, document_id, status, document_type, document_title, reference, brand_label, from_address, reply_to, ' +
   'to_email, to_name, subject, message, sent_at, sent_by_name, expires_at, first_viewed_at, signed_at, signer_name, ' +
   'declined_at, decline_reason, voided_at, delivered_at, delivery_error, delivery_method, passcode, passcode_locked_at, ' +
-  'quote_total, deposit_percent, invoice_confirmed_at, signer_details, xero_contact_id'
+  'quote_total, deposit_percent, invoice_confirmed_at, signer_details, xero_contact_id, ' +
+  'pdf_viewed_at, sign_started_at, stuck_field, stuck_message, stuck_at'
 
 /**
  * A summary row as one member of staff may see it. Money, and what the signer
@@ -349,6 +358,7 @@ export function signedCopyHtml(row: SigningRequestRow, items: SigningItemRow[], 
       toEmail: row.to_email,
       deliveryMethod: row.delivery_method === 'link' ? 'link' : 'email',
       passcodeVerifiedAt: row.passcode_verified_at,
+      phoneUnlock: isPhonePasscode(row.passcode),
       signerName: row.signer_name!,
       details: readSignerDetails(row.signer_details),
       signatureMethod: row.signature_method ?? 'drawn',
@@ -370,6 +380,25 @@ export function signedPdfFilename(row: { document_title: string; reference: stri
     .trim()
     .slice(0, 80)
   return `${base || 'Quote'} - signed.pdf`
+}
+
+export function quotePdfFilename(item: { document_title: string; reference: string | null }): string {
+  return signedPdfFilename(item).replace(/ - signed\.pdf$/, '.pdf')
+}
+
+/**
+ * One quote on an open link as a PDF, to read before signing: exactly the
+ * saved copy that will be signed. That copy never changes, so the PDF is made
+ * once and kept; a failed upload is logged and the PDF is still returned.
+ */
+export async function ensureQuotePdf(supabase: ServiceClient, row: SigningRequestRow, item: SigningItemRow): Promise<Buffer> {
+  const path = `${row.org_id}/${row.job_id}/${row.id}-quote-${item.position + 1}.pdf`
+  const { data } = await supabase.storage.from(SIGNED_BUCKET).download(path)
+  if (data) return Buffer.from(await data.arrayBuffer())
+  const pdf = await renderPdf(await loadItemHtml(supabase, row, item))
+  const { error } = await supabase.storage.from(SIGNED_BUCKET).upload(path, pdf, { contentType: 'application/pdf', upsert: true })
+  if (error) console.error('[signing] storing quote PDF failed', row.id, error.message)
+  return pdf
 }
 
 /**
