@@ -68,6 +68,10 @@ export interface StatementOfAccountsCapture {
   deposit_date: string
   /** Why invoice 1 was adjusted. Required before an adjusted statement can be generated. */
   adjustment_reason: string
+  /** Quotes left off the statement (not taken up or not paid for). Their records are left off too. */
+  ignored_quotes: StatementLineKey[]
+  /** Invoice 1 (the estimate) was paid in full up front, so what was paid is the whole estimate. */
+  invoice1_paid_in_full: boolean
 }
 
 function textField(raw: unknown): string {
@@ -106,6 +110,8 @@ export function emptyStatementCapture(): StatementOfAccountsCapture {
     manual_adjustment_reason: '',
     charges_gst: true,
     deposit_date: '',
+    ignored_quotes: [],
+    invoice1_paid_in_full: false,
     adjustment_reason: '',
   }
 }
@@ -151,6 +157,10 @@ export function normalizeStatementCapture(raw: unknown): StatementOfAccountsCapt
     charges_gst: o.charges_gst !== false,
     deposit_date: textField(o.deposit_date),
     adjustment_reason: textField(o.adjustment_reason),
+    ignored_quotes: Array.isArray(o.ignored_quotes)
+      ? [...new Set(o.ignored_quotes.filter((k): k is StatementLineKey => STATEMENT_LINE_KEYS.includes(k as StatementLineKey)))]
+      : [],
+    invoice1_paid_in_full: o.invoice1_paid_in_full === true,
   }
 }
 
@@ -587,6 +597,7 @@ export function isStatementV2Content(content: unknown): content is StatementOfAc
 }
 
 export type StatementLineKey = 'surface' | 'contents' | 'biohazard'
+export const STATEMENT_LINE_KEYS: StatementLineKey[] = ['surface', 'contents', 'biohazard']
 
 export interface StatementEstimate {
   key: StatementLineKey
@@ -617,6 +628,12 @@ const ESTIMATE_LABELS: Record<StatementLineKey, string> = {
   surface: 'Surface area cleaning',
   contents: 'Contents clearance',
   biohazard: 'Biohazard cleaning',
+}
+
+/** The job's priced quotes, ex GST, before any are left off. For the statement's "leave out" ticks. */
+export function statementQuotes(ad: AssessmentData | null | undefined): { key: StatementLineKey; label: string; amount_ex: number }[] {
+  const totals = quoteTotals(ad)
+  return STATEMENT_LINE_KEYS.flatMap(key => (totals[key] == null ? [] : [{ key, label: ADJUSTMENT_LABELS[key], amount_ex: totals[key] as number }]))
 }
 
 /** Quote totals ex GST. A quote counts once it has a price. */
@@ -661,12 +678,14 @@ export function statementV2Figures(
   ad: AssessmentData | null | undefined,
   capture: StatementOfAccountsCapture = normalizeStatementCapture(ad?.statement_of_accounts),
 ): StatementV2Figures {
+  const ignored = new Set(capture.ignored_quotes)
   const quotes = quoteTotals(ad)
+  for (const key of ignored) delete quotes[key]
   const problems: string[] = []
   const lines: StatementOfAccountsV2Content['lines'] = []
   const actual: Partial<Record<StatementLineKey, number>> = {}
   const add = (key: StatementLineKey, ex: number | null | undefined) => {
-    if (ex == null || ex <= 0.004) return
+    if (ignored.has(key) || ex == null || ex <= 0.004) return
     actual[key] = round2(ex)
     lines.push({ label: LINE_LABELS[key], amount_ex: round2(ex) })
   }
@@ -681,7 +700,7 @@ export function statementV2Figures(
   else if (quotes.contents != null && cdr.total_ex_gst == null) problems.push('The Contents Disposal Record has no total yet.')
   add('contents', cdr.total_ex_gst)
 
-  const bcq = biohazardRecordFromJob(ad)
+  const bcq = ignored.has('biohazard') ? null : biohazardRecordFromJob(ad)
   if (bcq?.needed) {
     if (!bcq.exists) problems.push('The Biohazard Cleaning Quote is priced by area or tests. Fill in the Biohazard Cleaning Record on the House Survey.')
     else if (bcq.summary.missing.length > 0) problems.push(`The Biohazard Cleaning Record is missing: ${bcq.summary.missing.join(', ')}.`)
@@ -696,8 +715,6 @@ export function statementV2Figures(
   const total_ex = round2(lines.reduce((sum, line) => sum + line.amount_ex, 0))
   const gst = charges_gst ? round2(total_ex * 0.1) : 0
   const total_inc = round2(total_ex + gst)
-  const deposit = round2(capture.deposit_amount ?? 0)
-  if (deposit > 0.004 && !capture.deposit_date.trim()) problems.push('Enter the date the deposit was paid.')
   const adjustment = capture.manual_adjustment == null ? null : round2(capture.manual_adjustment)
   const adjustment_reason = capture.manual_adjustment_reason.trim()
   if (adjustment != null && !adjustment_reason) problems.push('Enter the reason for the adjustment.')
@@ -708,6 +725,12 @@ export function statementV2Figures(
     return ex == null ? [] : [{ key, label: ESTIMATE_LABELS[key], amount: basis(ex) }]
   })
   const quoted = estimates.reduce((sum, e) => sum + e.amount, 0)
+  const paid_in_full = capture.invoice1_paid_in_full
+  if (paid_in_full && estimates.length === 0) problems.push('Invoice 1 can only be paid in full when the statement has a quote.')
+  const deposit = paid_in_full && estimates.length > 0 ? round2(quoted) : round2(capture.deposit_amount ?? 0)
+  if (deposit > 0.004 && !capture.deposit_date.trim()) {
+    problems.push(paid_in_full ? 'Enter the date invoice 1 was paid.' : 'Enter the date the deposit was paid.')
+  }
   const adjustment_lines = estimates.length === 0 ? [] : (Object.keys(ADJUSTMENT_LABELS) as StatementLineKey[]).flatMap(key => {
     const actual_ex = actual[key] ?? 0
     const estimate_ex = round2(quotes[key] ?? 0)
@@ -723,6 +746,7 @@ export function statementV2Figures(
     total_inc,
     deposit,
     deposit_date: capture.deposit_date.trim(),
+    invoice1_paid_in_full: paid_in_full && estimates.length > 0,
     adjustment,
     adjustment_reason,
     balance: round2(total_inc - deposit + (adjustment ?? 0)),
@@ -733,7 +757,7 @@ export function statementV2Figures(
     estimate_total: estimates.length > 0 ? round2(quoted) : null,
     problems,
     estimates,
-    suggested_deposit: estimates.length > 0 ? round2(quoted / 2) : null,
+    suggested_deposit: estimates.length > 0 && !paid_in_full ? round2(quoted / 2) : null,
   }
 }
 
@@ -751,6 +775,7 @@ export function statementV2Content(f: StatementV2Figures, reference: string, sit
     total_inc: f.total_inc,
     deposit: f.deposit,
     deposit_date: f.deposit_date,
+    invoice1_paid_in_full: f.invoice1_paid_in_full,
     adjustment: f.adjustment,
     adjustment_reason: f.adjustment_reason,
     balance: f.balance,
@@ -792,6 +817,8 @@ export interface StatementV2Invoice {
   /** Positive is still to pay on this invoice. Negative is a credit. */
   amount: number
   amountLabel: string
+  /** What is printed beside the label: the amount, or the whole estimate when it was paid in full. */
+  amountShown: number
   payHref: string | null
   payLabel: string | null
   /** Invoice 2 only: each quote's actual against its estimate, then any adjustment. */
@@ -815,10 +842,17 @@ export function breakdownTotal(invoice: Pick<StatementV2Invoice, 'amount' | 'bre
 }
 
 type StatementV2Split = Pick<StatementOfAccountsV2Content,
-  'charges_gst' | 'total_inc' | 'deposit' | 'adjustment' | 'adjustment_reason' | 'invoice_number' | 'invoice_url' | 'invoice2_number' | 'invoice2_url' | 'estimate_total' | 'adjustment_lines'>
+  'charges_gst' | 'total_inc' | 'deposit' | 'deposit_date' | 'invoice1_paid_in_full' | 'adjustment' | 'adjustment_reason' | 'invoice_number' | 'invoice_url' | 'invoice2_number' | 'invoice2_url' | 'estimate_total' | 'adjustment_lines'>
 
 export const STATEMENT_INVOICES_NOTE =
   'The original estimate was invoiced on invoice 1 and the deposit was paid against it. Invoice 2 covers the difference between the final figures and the estimate, or is a credit note when the final figures came in lower. Together they make up the balance.'
+
+export const STATEMENT_INVOICES_NOTE_PAID_IN_FULL =
+  'The original estimate was invoiced on invoice 1 and paid in full up front. Invoice 2 covers the difference between the final figures and the estimate, or is a credit note when the final figures came in lower.'
+
+export function statementInvoicesNote(c: Pick<StatementOfAccountsV2Content, 'invoice1_paid_in_full'>): string {
+  return c.invoice1_paid_in_full ? STATEMENT_INVOICES_NOTE_PAID_IN_FULL : STATEMENT_INVOICES_NOTE
+}
 
 /**
  * The balance as it is billed in Xero: invoice 1 is the estimate less the
@@ -835,11 +869,22 @@ export function statementV2Invoices(c: StatementV2Split): StatementV2Invoice[] {
   }
   const gstNote = c.charges_gst ? ' inc GST' : ''
   const invoice1 = round2(estimate - c.deposit)
-  const invoices: StatementV2Invoice[] = [{
+  const paidOn = c.deposit_date?.trim() ? ` on ${longDate(c.deposit_date)}` : ''
+  const invoices: StatementV2Invoice[] = [c.invoice1_paid_in_full ? {
+    heading: `${title('Invoice 1', c.invoice_number)} · estimate`,
+    detail: `Original estimate ${formatAud(estimate)}${gstNote}, paid in full${paidOn}.`,
+    amount: 0,
+    amountLabel: 'Paid in full',
+    amountShown: estimate,
+    payHref: null,
+    payLabel: null,
+    breakdown: [],
+  } : {
     heading: `${title('Invoice 1', c.invoice_number)} · estimate`,
     detail: `Original estimate ${formatAud(estimate)}${c.deposit > 0.004 ? ` less deposit paid ${formatAud(c.deposit)}` : ''}${gstNote}.`,
     amount: invoice1,
     amountLabel: invoice1 > 0.004 ? 'Still to pay' : invoice1 < -0.004 ? 'Overpaid' : 'Paid',
+    amountShown: Math.abs(invoice1),
     ...pay(c.invoice_url, invoice1),
     breakdown: [],
   }]
@@ -870,6 +915,7 @@ export function statementV2Invoices(c: StatementV2Split): StatementV2Invoice[] {
       detail: `Actual job total ${formatAud(c.total_inc)} less the original estimate ${formatAud(estimate)}${adjustment}${gstNote}.`,
       amount: invoice2,
       amountLabel: invoice2 > 0.004 ? 'To pay' : invoice2 < -0.004 ? 'Credit' : 'Nil',
+      amountShown: Math.abs(invoice2),
       ...pay(c.invoice2_url, invoice2),
       breakdown,
     })
@@ -878,7 +924,7 @@ export function statementV2Invoices(c: StatementV2Split): StatementV2Invoice[] {
 }
 
 type StatementV2Totals = Pick<StatementOfAccountsV2Content,
-  'charges_gst' | 'lines' | 'total_ex' | 'gst' | 'total_inc' | 'deposit' | 'deposit_date' | 'adjustment' | 'adjustment_reason' | 'balance' | 'invoice_url' | 'estimates_note'>
+  'charges_gst' | 'lines' | 'total_ex' | 'gst' | 'total_inc' | 'deposit' | 'deposit_date' | 'invoice1_paid_in_full' | 'invoice_number' | 'adjustment' | 'adjustment_reason' | 'balance' | 'invoice_url' | 'estimates_note'>
 
 /** The summary rows. One source for the tab, the printed statement and the payment reminder. */
 export function statementV2Rows(c: StatementV2Totals): StatementV2Row[] {
@@ -891,12 +937,17 @@ export function statementV2Rows(c: StatementV2Totals): StatementV2Row[] {
     rows.push({ label: 'Job total', amount: c.total_ex, strong: true })
   }
   if (c.deposit > 0.004) {
-    rows.push({ label: c.deposit_date ? `Less deposit paid (${longDate(c.deposit_date)})` : 'Less deposit paid', amount: -c.deposit })
+    const date = c.deposit_date ? ` (${longDate(c.deposit_date)})` : ''
+    rows.push({ label: c.invoice1_paid_in_full ? `Less ${paidInFullName(c.invoice_number)} paid in full${date}` : `Less deposit paid${date}`, amount: -c.deposit })
   }
   if (c.adjustment != null) rows.push({ label: `Adjustment (${c.adjustment_reason})`, amount: c.adjustment })
   const credit = c.balance < -0.004
   rows.push({ label: credit ? 'Credit' : 'Balance owing', amount: credit ? -c.balance : c.balance, strong: true })
   return rows
+}
+
+function paidInFullName(invoiceNumber: string | undefined): string {
+  return invoiceNumber?.trim() ? `invoice 1 (${invoiceNumber.trim()})` : 'invoice 1'
 }
 
 /** Throws when the statement cannot be issued, so the page and print refuse it with the reason. */
@@ -906,7 +957,7 @@ export function presentStatementV2(c: StatementOfAccountsV2Content): StatementV2
   const payHref = invoices.length === 0 && c.balance > 0.004 ? statementPayHref(c.invoice_url) : null
   return {
     invoices,
-    invoicesNote: invoices.length > 0 ? STATEMENT_INVOICES_NOTE : '',
+    invoicesNote: invoices.length > 0 ? statementInvoicesNote(c) : '',
     rows: statementV2Rows(c),
     jobTotal: c.total_inc,
     paid: c.deposit,
@@ -922,7 +973,7 @@ export function presentStatementV2(c: StatementOfAccountsV2Content): StatementV2
 export function statementReminderLines(f: StatementV2Figures): StatementLedgerLine[] {
   const pair = (amount: number) => ({ ex: f.charges_gst ? round2(amount / 1.1) : amount, inc: amount })
   const lines: StatementLedgerLine[] = [{ label: 'Job total', ex: f.total_ex, inc: f.total_inc }]
-  if (f.deposit > 0.004) lines.push({ label: 'Less deposit paid', ...pair(-f.deposit) })
+  if (f.deposit > 0.004) lines.push({ label: f.invoice1_paid_in_full ? `Less ${paidInFullName(f.invoice_number)} paid in full` : 'Less deposit paid', ...pair(-f.deposit) })
   if (f.adjustment != null) lines.push({ label: `Adjustment (${f.adjustment_reason})`, ...pair(f.adjustment) })
   lines.push({ label: f.balance < -0.004 ? 'Credit' : 'Balance owing', ...pair(Math.abs(f.balance)), strong: true })
   return lines

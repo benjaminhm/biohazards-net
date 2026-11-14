@@ -9,7 +9,8 @@ import { formatAud } from '@/lib/disposalManifest'
 import { formatLongDate } from '@/lib/paymentOverdue'
 import {
   normalizeStatementCapture,
-  STATEMENT_INVOICES_NOTE,
+  statementInvoicesNote,
+  statementQuotes,
   breakdownTotal,
   statementV2Figures,
   statementV2Invoices,
@@ -66,6 +67,8 @@ function capturesEqual(a: StatementOfAccountsCapture, b: StatementOfAccountsCapt
     && a.invoice2_number === b.invoice2_number
     && a.invoice2_url === b.invoice2_url
     && a.charges_gst === b.charges_gst
+    && a.invoice1_paid_in_full === b.invoice1_paid_in_full
+    && [...a.ignored_quotes].sort().join() === [...b.ignored_quotes].sort().join()
 }
 
 function signedAud(n: number): string {
@@ -115,6 +118,7 @@ export default function StatementOfAccountsTab({ job, onJobUpdate }: Props) {
     () => statementV2Figures(job.assessment_data, capture),
     [job.assessment_data, capture],
   )
+  const quotes = useMemo(() => statementQuotes(job.assessment_data), [job.assessment_data])
   const rows = useMemo(() => statementV2Rows(figures), [figures])
   const invoices = useMemo(() => statementV2Invoices(figures), [figures])
   const xeroDiffers = xeroPaid != null
@@ -130,7 +134,7 @@ export default function StatementOfAccountsTab({ job, onJobUpdate }: Props) {
     setSaveError('')
     try {
       const merged = mergeAssessmentData(job.assessment_data)
-      const next = { ...capture, deposit_taken: (capture.deposit_amount ?? 0) > 0 }
+      const next = { ...capture, deposit_taken: figures.deposit > 0.004 }
       const res = await fetch(`/api/jobs/${job.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -193,12 +197,12 @@ export default function StatementOfAccountsTab({ job, onJobUpdate }: Props) {
       {invoices.length > 0 && (
         <section style={{ ...CARD, fontSize: 14 }}>
           <div style={HEADING}>How the balance is paid</div>
-          <p style={{ color: 'var(--text-muted)', lineHeight: 1.55, margin: '0 0 12px' }}>{STATEMENT_INVOICES_NOTE}</p>
+          <p style={{ color: 'var(--text-muted)', lineHeight: 1.55, margin: '0 0 12px' }}>{statementInvoicesNote(figures)}</p>
           {invoices.map(invoice => (
             <div key={invoice.heading} style={{ borderTop: '1px solid var(--border)', padding: '10px 0' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontWeight: 700 }}>
                 <span>{invoice.heading}</span>
-                <span>{invoice.amountLabel} {formatAud(Math.abs(invoice.amount))}</span>
+                <span>{invoice.amountLabel} {formatAud(invoice.amountShown)}</span>
               </div>
               <div style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 4 }}>{invoice.detail}</div>
               {invoice.breakdown.length > 0 && (
@@ -240,19 +244,51 @@ export default function StatementOfAccountsTab({ job, onJobUpdate }: Props) {
           This job charges GST
         </label>
 
+        {quotes.length > 0 && (
+          <div style={{ marginBottom: 16 }}>
+            <div style={LABEL}>Quotes on this statement</div>
+            {quotes.map(quote => (
+              <label key={quote.key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, marginBottom: 6 }}>
+                <input
+                  type="checkbox"
+                  checked={capture.ignored_quotes.includes(quote.key)}
+                  onChange={e => patch({
+                    ignored_quotes: e.target.checked
+                      ? [...capture.ignored_quotes, quote.key]
+                      : capture.ignored_quotes.filter(k => k !== quote.key),
+                  })}
+                />
+                Leave out {quote.label}, {formatAud(quote.amount_ex)} ex GST
+              </label>
+            ))}
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              A quote that is left out, and its record, is not billed or mentioned on the statement.
+            </div>
+          </div>
+        )}
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 700, marginBottom: 16 }}>
+          <input type="checkbox" checked={capture.invoice1_paid_in_full} onChange={e => patch({ invoice1_paid_in_full: e.target.checked })} />
+          Invoice 1 (the estimate) was paid in full up front
+        </label>
+
         <div style={{ display: 'grid', gap: 12 }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
             <div>
-              <label style={LABEL}>Deposit paid ($, {amountsNote})</label>
+              <label style={LABEL}>{capture.invoice1_paid_in_full ? 'Invoice 1 paid' : 'Deposit paid'} ($, {amountsNote})</label>
               <input
                 type="number"
                 min={0}
                 step="0.01"
-                value={capture.deposit_amount ?? ''}
+                value={capture.invoice1_paid_in_full ? figures.deposit : capture.deposit_amount ?? ''}
                 onChange={e => patch({ deposit_amount: numberInput(e.target.value) })}
+                disabled={capture.invoice1_paid_in_full}
                 placeholder="0.00"
-                style={INPUT}
+                style={capture.invoice1_paid_in_full ? { ...INPUT, opacity: 0.7 } : INPUT}
               />
+              {capture.invoice1_paid_in_full && (
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>The whole estimate.</div>
+              )}
               {figures.suggested_deposit != null && capture.deposit_amount !== figures.suggested_deposit && (
                 <button type="button" onClick={() => patch({ deposit_amount: figures.suggested_deposit })} style={HINT}>
                   Suggested: half the quotes, {formatAud(figures.suggested_deposit)}
@@ -260,11 +296,11 @@ export default function StatementOfAccountsTab({ job, onJobUpdate }: Props) {
               )}
             </div>
             <div>
-              <label style={LABEL}>Deposit date</label>
+              <label style={LABEL}>{capture.invoice1_paid_in_full ? 'Date paid' : 'Deposit date'}</label>
               <input type="date" value={capture.deposit_date} onChange={e => patch({ deposit_date: e.target.value })} style={INPUT} />
             </div>
           </div>
-          {xeroPaid && xeroDiffers && (
+          {xeroPaid && xeroDiffers && !capture.invoice1_paid_in_full && (
             <button
               type="button"
               onClick={() => patch({ deposit_amount: xeroPaid.amount_paid, deposit_date: xeroPaid.paid_on ?? capture.deposit_date })}

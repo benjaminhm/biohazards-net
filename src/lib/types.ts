@@ -1255,6 +1255,10 @@ export interface AssessmentData {
     deposit_date?: string
     /** Required when invoice 1 has been adjusted. Printed on the statement. */
     adjustment_reason?: string
+    /** Quotes left off the statement, with their records. */
+    ignored_quotes?: ('surface' | 'contents' | 'biohazard')[]
+    /** Invoice 1 (the estimate) was paid in full up front. */
+    invoice1_paid_in_full?: boolean
   }
   /**
    * Company Letterhead. Staff write the letter and attach images.
@@ -2460,6 +2464,8 @@ export interface StatementOfAccountsV2Content {
   /** Inc GST when the statement charges GST. */
   deposit: number
   deposit_date: string
+  /** Invoice 1 was paid in full up front: deposit is the whole estimate. Absent on statements issued before it. */
+  invoice1_paid_in_full?: boolean
   adjustment: number | null
   adjustment_reason: string
   balance: number

@@ -3384,7 +3384,7 @@ function buildStatementV2Mid(c: StatementOfAccountsV2Content, view: StatementV2P
       <tbody>${view.invoices.map(inv => `
         <tr>
           <td><strong>${esc(inv.heading)}</strong><br><span class="soa-note">${esc(inv.detail)}</span></td>
-          <td class="r"><strong>${esc(inv.amountLabel)} ${statementMoney(Math.abs(inv.amount))}</strong></td>
+          <td class="r"><strong>${esc(inv.amountLabel)} ${statementMoney(inv.amountShown ?? Math.abs(inv.amount))}</strong></td>
         </tr>`).join('')}
       </tbody>
     </table>

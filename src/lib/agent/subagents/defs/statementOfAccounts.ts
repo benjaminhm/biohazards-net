@@ -26,6 +26,8 @@ export const statementOfAccountsAgent: DocAgentDef = {
 - invoice_number, invoice_url: invoice 1, the estimate invoice the deposit was paid against, and its payment link.
 - invoice2_number, invoice2_url: invoice 2 (or credit note) staff raise in Xero for actual total less the estimate (plus any adjustment), and its payment link.
 - charges_gst: one GST setting for the statement; inputs are inc GST when it is true.
+- ignored_quotes (set by staff on the tab): quotes left off the statement; the quote and its record are not billed or mentioned.
+- invoice1_paid_in_full (set by staff on the tab): invoice 1 was paid in full up front; the amount paid is the whole estimate and the deposit date is the date paid.
 Everything else is calculated, never typed: Surface cleaning (survey_summary total), Contents removal (cdr_summary total), Biohazard cleaning (bcq_record_summary total, or the BCQ total when the BCQ is fixed price), Job total ex GST, GST, Job total inc GST, Less deposit paid, Adjustment, Balance owing (or Credit). The quotes appear only as an "original estimates" paragraph.
 survey_summary, cdr_summary and bcq_record_summary are computed from the House Survey, the Contents Disposal Record and the Biohazard Cleaning Record (read only; you never see the records themselves).`,
   rules: `- You do not calculate the statement. statement_figures shows it as it stands, with its flags.
