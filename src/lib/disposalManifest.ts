@@ -482,8 +482,8 @@ const EVENT_ROLES = new Set<string>(['load', 'dropoff', 'docket'])
 /** Timeline fields are left off a load that has none, so older records save unchanged. */
 function normalizeTimelineFields(
   o: Record<string, unknown>,
-): Pick<DisposalLoad, 'cdr_number' | 'events' | 'verified_at' | 'suggested'> {
-  const out: Pick<DisposalLoad, 'cdr_number' | 'events' | 'verified_at' | 'suggested'> = {}
+): Pick<DisposalLoad, 'cdr_number' | 'events' | 'verified_at' | 'suggested' | 'receipt_id'> {
+  const out: Pick<DisposalLoad, 'cdr_number' | 'events' | 'verified_at' | 'suggested' | 'receipt_id'> = {}
   const number = numOrNull(o.cdr_number)
   if (number != null && number >= 1) out.cdr_number = Math.round(number)
   if (Array.isArray(o.events)) {
@@ -506,6 +506,7 @@ function normalizeTimelineFields(
     })
   }
   if (str(o.verified_at)) out.verified_at = str(o.verified_at)
+  if (str(o.receipt_id)) out.receipt_id = str(o.receipt_id)
   if (Array.isArray(o.suggested)) {
     const fields = o.suggested.filter((f): f is string => typeof f === 'string' && f !== '')
     if (fields.length) out.suggested = fields

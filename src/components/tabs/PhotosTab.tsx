@@ -4,6 +4,8 @@
  * The job's photo folder: every photo loaded to the job, newest first, with
  * when / where / who. Photos carry no stage tags; each document chooses its
  * own photos from this folder. Room notes stay here and sync with assessment_data.
+ * Receipts are a second upload beside the photos (components/ReceiptsPanel);
+ * they never appear among the photos or in a document's picker.
  *
  * Deletion sends DELETE /api/photos/[id] which also removes the Storage object.
  */
@@ -13,6 +15,8 @@ import { useMemo, useState, useEffect } from 'react'
 import type { Photo, AssessmentData } from '@/lib/types'
 import PhotoCard from '@/components/PhotoCard'
 import PhoneUploadQr from '@/components/PhoneUploadQr'
+import ReceiptsPanel from '@/components/ReceiptsPanel'
+import type { JobReceipt } from '@/lib/jobReceipts'
 import { usedPhotoIds } from '@/lib/photoSelection'
 
 interface Props {
@@ -33,6 +37,9 @@ function newestFirst(a: Photo, b: Photo): number {
 export default function PhotosTab({ jobId, photos, assessmentData = null, onAssessmentDataUpdate, onPhotosUpdate }: Props) {
   const [filter, setFilter] = useState<Filter>('all')
   const [phoneUpload, setPhoneUpload] = useState(false)
+  const [view, setView] = useState<'photos' | 'receipts'>('photos')
+  const [receipts, setReceipts] = useState<JobReceipt[] | null>(null)
+  const [receiptsError, setReceiptsError] = useState('')
   const [roomNotesDraft, setRoomNotesDraft] = useState<Record<string, string>>({})
   const [savingRoom, setSavingRoom] = useState<string | null>(null)
   const areaNames = useMemo(
@@ -71,6 +78,19 @@ export default function PhotosTab({ jobId, photos, assessmentData = null, onAsse
     } finally {
       setSavingRoom(null)
     }
+  }
+
+  function showReceipts() {
+    setView('receipts')
+    if (receipts) return
+    setReceiptsError('')
+    fetch(`/api/jobs/${jobId}/receipts`, { cache: 'no-store' })
+      .then(async res => {
+        const d = (await res.json().catch(() => ({}))) as { receipts?: JobReceipt[]; error?: string }
+        if (!res.ok || !d.receipts) throw new Error(d.error || 'Could not load receipts')
+        setReceipts(d.receipts)
+      })
+      .catch(err => setReceiptsError(err instanceof Error ? err.message : 'Could not load receipts'))
   }
 
   const sorted = useMemo(() => [...photos].sort(newestFirst), [photos])
@@ -114,6 +134,42 @@ export default function PhotosTab({ jobId, photos, assessmentData = null, onAsse
         <PhoneUploadQr jobId={jobId} photoCount={photos.length} onPhotosUpdate={onPhotosUpdate} onClose={() => setPhoneUpload(false)} />
       )}
 
+      <div role="tablist" aria-label="Folder" style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        {(['photos', 'receipts'] as const).map(id => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={view === id}
+            onClick={() => (id === 'receipts' ? showReceipts() : setView('photos'))}
+            style={{
+              padding: '8px 14px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: '1px solid var(--border)', cursor: 'pointer',
+              background: view === id ? 'var(--accent)' : 'var(--surface)', color: view === id ? '#fff' : 'var(--text-muted)',
+            }}
+          >
+            {id === 'photos' ? `Photos (${photos.length})` : `Receipts${receipts ? ` (${receipts.length})` : ''}`}
+          </button>
+        ))}
+      </div>
+
+      {view === 'receipts' ? (
+        <div className="card" style={{ padding: 16, marginBottom: 20 }}>
+          <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12, lineHeight: 1.5 }}>
+            Tip receipts and dockets. Each image is one receipt; check what was read and confirm it. Link a receipt to its
+            loads on the Contents Disposal Record.
+          </div>
+          {receiptsError && <div role="alert" style={{ color: '#F87171', fontSize: 13, marginBottom: 8 }}>{receiptsError}</div>}
+          {receipts ? (
+            <ReceiptsPanel
+              jobId={jobId}
+              receipts={receipts}
+              onReceipts={update => setReceipts(prev => update(prev ?? []))}
+              photos={photos}
+              onPhotosUpdate={onPhotosUpdate}
+            />
+          ) : !receiptsError && <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Loading receipts…</div>}
+        </div>
+      ) : (<>
       <div style={{ display: 'flex', gap: 6, marginBottom: 20, flexWrap: 'wrap' }}>
         {filters.map(f => (
           <button key={f.id} type="button" onClick={() => setFilter(f.id)} style={{
@@ -144,6 +200,7 @@ export default function PhotosTab({ jobId, photos, assessmentData = null, onAsse
           ))}
         </div>
       )}
+      </>)}
 
       {areaNames.length > 0 && (
         <div className="card" style={{ marginTop: 24 }}>

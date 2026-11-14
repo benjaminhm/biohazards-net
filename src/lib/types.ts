@@ -1887,6 +1887,8 @@ export interface DisposalLoad {
   verified_at?: string | null
   /** Fields filled from a photo and not yet checked. */
   suggested?: string[]
+  /** The confirmed receipt this load's tip fee and weight come from (lib/jobReceipts). */
+  receipt_id?: string | null
   /** @deprecated Flattened onto vehicles[0] for older saved JSON. */
   trailer_skipped: boolean
   /** @deprecated Flattened onto vehicles[0] for older saved JSON. */

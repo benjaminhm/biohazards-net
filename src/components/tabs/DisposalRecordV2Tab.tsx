@@ -19,6 +19,8 @@ import { mergeAssessmentData } from '@/lib/riskDerivation'
 import { useRegisterUnsavedChanges } from '@/lib/unsavedChangesContext'
 import CdrPhotoTagger, { type CdrTagRow } from '@/components/CdrPhotoTagger'
 import PhotoFolderPicker from '@/components/PhotoFolderPicker'
+import ReceiptsPanel from '@/components/ReceiptsPanel'
+import { applyReceiptsToLoads, receiptGroups, receiptLabel, receiptTotals, type JobReceipt } from '@/lib/jobReceipts'
 import { usedPhotoIds } from '@/lib/photoSelection'
 import DefaultedNumberInput from '@/components/DefaultedNumberInput'
 import RecordSummaryTable from '@/components/RecordSummaryTable'
@@ -156,8 +158,28 @@ export default function DisposalRecordV2Tab({ job, photos, onJobUpdate, onPhotos
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [zoom, setZoom] = useState<string | null>(null)
   const [remembered, setRemembered] = useState<DisposalManifestCapture['containers']>(undefined)
+  const [receipts, setReceipts] = useState<JobReceipt[] | null>(null)
 
   useEffect(() => { setRemembered(rememberedSizes()) }, [])
+
+  useEffect(() => {
+    let alive = true
+    fetch(`/api/jobs/${job.id}/receipts`, { cache: 'no-store' })
+      .then(res => (res.ok ? res.json() : null))
+      .then((d: { receipts?: JobReceipt[] } | null) => { if (alive && d?.receipts) setReceipts(d.receipts) })
+      .catch(() => { /* without receipts, loads keep the fees typed on them */ })
+    return () => { alive = false }
+  }, [job.id])
+
+  // Confirmed receipts set the tip fee and weight of the loads they cover. Only once they have loaded,
+  // so a failed fetch never clears what receipts set.
+  useEffect(() => {
+    if (!receipts) return
+    setCapture(prev => {
+      const next = applyReceiptsToLoads(prev.loads, receipts)
+      return next === prev.loads ? prev : { ...prev, loads: next }
+    })
+  }, [receipts, capture.loads])
 
   // What is on screen now, for a save to tell whether anything changed while it was in flight.
   const live = useRef(capture)
@@ -440,6 +462,9 @@ export default function DisposalRecordV2Tab({ job, photos, onJobUpdate, onPhotos
   const totals = computeDisposalTotals(loads)
   const notVerified = loads.filter(l => isTimelineLoad(l) && !l.verified_at).length
   const typesInUse = new Set(loads.map(l => l.vehicles[0]?.type).filter(Boolean))
+  const groups = receiptGroups(loads, receipts ?? [])
+  const fromReceipts = receiptTotals(groups)
+  const receiptNames = new Map((receipts ?? []).map(r => [r.id, receiptLabel(r)]))
   const presetTypes = DISPOSAL_VEHICLE_TYPES.filter(t => t.id !== 'other' || typesInUse.has('other'))
 
   function chargeField(key: ChargeKey, label: string, step: string, fallback: number | null) {
@@ -505,6 +530,41 @@ export default function DisposalRecordV2Tab({ job, photos, onJobUpdate, onPhotos
             onClose={() => setPicking(false)}
             onAdd={ids => void addFromFolder(ids)}
           />
+        )}
+      </div>
+
+      {/* Receipts: tip fees and weights come from confirmed receipts */}
+      <div style={PANEL}>
+        <div style={{ ...PANEL_TITLE, color: '#4ADE80' }}>Tip receipts</div>
+        <div style={{ ...MUTED, marginBottom: 12 }}>
+          {groups.length
+            ? `${fromReceipts.count} confirmed receipt${fromReceipts.count === 1 ? '' : 's'} · ${formatAud(fromReceipts.total_inc_gst)}${fromReceipts.gst ? ` (GST ${formatAud(fromReceipts.gst)})` : ''}${fromReceipts.weight_kg ? ` · ${formatKg(fromReceipts.weight_kg)}` : ''}. Each receipt sets the tip fee and weight of the loads it covers, split by volume.`
+            : 'Upload each tip receipt, check what was read, tick the loads it covers and confirm it. The loads then take their tip fee and weight from it.'}
+        </div>
+        {groups.length > 0 && (
+          <div style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
+            {groups.map(g => (
+              <div key={g.receipt.id} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'baseline', padding: '8px 10px', borderRadius: 8, background: 'var(--surface-2)' }}>
+                <span style={{ fontWeight: 800 }}>{receiptLabel(g.receipt)}</span>
+                {g.receipt.supplier && g.receipt.docket_no && <span style={MUTED}>{g.receipt.supplier}</span>}
+                <span style={MUTED}>Load{g.loadNumbers.length === 1 ? '' : 's'} {g.loadNumbers.join(' + ')}</span>
+                {g.receipt.weight_kg != null && <span style={MUTED}>{formatKg(g.receipt.weight_kg)}</span>}
+                {g.receipt.total_inc_gst != null && <span style={{ marginLeft: 'auto', fontWeight: 800, color: '#10B981' }}>{formatAud(g.receipt.total_inc_gst)}</span>}
+              </div>
+            ))}
+          </div>
+        )}
+        {receipts ? (
+          <ReceiptsPanel
+            jobId={job.id}
+            receipts={receipts}
+            onReceipts={update => setReceipts(prev => update(prev ?? []))}
+            loads={loads}
+            photos={photos}
+            onPhotosUpdate={list => onPhotosUpdate(list)}
+          />
+        ) : (
+          <div style={MUTED}>Loading receipts…</div>
         )}
       </div>
 
@@ -579,6 +639,7 @@ export default function DisposalRecordV2Tab({ job, photos, onJobUpdate, onPhotos
           onVerify={() => toggleVerified(load)}
           onRemove={() => void deleteLoad(load, index + 1)}
           onZoom={setZoom}
+          receiptName={load.receipt_id ? receiptNames.get(load.receipt_id) ?? 'a receipt' : null}
         />
       ))}
 
@@ -633,7 +694,7 @@ export default function DisposalRecordV2Tab({ job, photos, onJobUpdate, onPhotos
   )
 }
 
-function LoadCard({ number, load, saving, onLoad, onVehicle, onEvent, onContainer, onVerify, onRemove, onZoom }: {
+function LoadCard({ number, load, saving, onLoad, onVehicle, onEvent, onContainer, onVerify, onRemove, onZoom, receiptName }: {
   number: number
   load: DisposalLoad
   saving: boolean
@@ -644,6 +705,8 @@ function LoadCard({ number, load, saving, onLoad, onVehicle, onEvent, onContaine
   onVerify: () => void
   onRemove: () => void
   onZoom: (url: string) => void
+  /** Set when a confirmed receipt gives this load its tip fee and weight. */
+  receiptName: string | null
 }) {
   const vehicle = load.vehicles[0]
   const timeline = isTimelineLoad(load)
@@ -729,8 +792,10 @@ function LoadCard({ number, load, saving, onLoad, onVehicle, onEvent, onContaine
               <input value={vehicle.contents_other} onChange={e => onVehicle({ contents_other: e.target.value })} style={INPUT} />
             </Field>
           )}
-          <Field label="Weight (kg)" suggested={suggested('weight_kg')}>
-            <DefaultedNumberInput value={load.weight_kg} fallback={null} step="1" onChange={next => onLoad({ weight_kg: next }, 'weight_kg')} style={INPUT} />
+          <Field label="Weight (kg)" suggested={!receiptName && suggested('weight_kg')}>
+            {receiptName
+              ? <FromReceipt value={load.weight_kg != null ? formatKg(load.weight_kg) : '—'} receipt={receiptName} />
+              : <DefaultedNumberInput value={load.weight_kg} fallback={null} step="1" onChange={next => onLoad({ weight_kg: next }, 'weight_kg')} style={INPUT} />}
           </Field>
           {!skip && (
             <Field label="Tip" suggested={suggested('facility')} span={2}>
@@ -756,7 +821,7 @@ function LoadCard({ number, load, saving, onLoad, onVehicle, onEvent, onContaine
               )}
             </Field>
           )}
-          {!load.docket_photo_url && (
+          {!load.docket_photo_url && !receiptName && (
             <Field label="Docket">
               <select
                 value={load.docket_lost ? 'lost' : load.docket_skipped ? 'none' : ''}
@@ -780,8 +845,10 @@ function LoadCard({ number, load, saving, onLoad, onVehicle, onEvent, onContaine
               <input value={load.recycling_type} onChange={e => onLoad({ recycling_type: e.target.value })} placeholder="e.g. scrap metal" style={INPUT} />
             </Field>
           )}
-          <Field label={skip ? 'Skip hire (your cost)' : 'Tip fee (your cost)'} suggested={suggested(skip ? 'skip_cost' : 'dump_fee')}>
-            {skip
+          <Field label={skip ? 'Skip hire (your cost)' : 'Tip fee (your cost)'} suggested={!receiptName && suggested(skip ? 'skip_cost' : 'dump_fee')}>
+            {receiptName
+              ? <FromReceipt value={(skip ? vehicle.skip_cost : load.dump_fee) != null ? formatAud((skip ? vehicle.skip_cost : load.dump_fee) as number) : '—'} receipt={receiptName} />
+              : skip
               ? <DefaultedNumberInput value={vehicle.skip_cost} fallback={null} step="0.01" onChange={next => onVehicle({ skip_cost: next }, 'skip_cost')} style={INPUT} />
               : <DefaultedNumberInput value={load.dump_fee} fallback={null} step="0.01" onChange={next => onLoad({ dump_fee: next }, 'dump_fee')} style={INPUT} />}
             <div style={{ ...MUTED, fontSize: 11, marginTop: 3 }}>Kept for your records. Not printed for the client.</div>
@@ -855,6 +922,15 @@ function LoadCard({ number, load, saving, onLoad, onVehicle, onEvent, onContaine
           </ul>
         </div>
       )}
+    </div>
+  )
+}
+
+function FromReceipt({ value, receipt }: { value: string; receipt: string }) {
+  return (
+    <div title="Change it on the receipt" style={{ ...INPUT, background: 'transparent', borderStyle: 'dashed' }}>
+      <span style={{ fontWeight: 700 }}>{value}</span>
+      <span style={{ ...MUTED, fontSize: 11, marginLeft: 6 }}>from {receipt}</span>
     </div>
   )
 }
