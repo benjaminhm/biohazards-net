@@ -12,7 +12,7 @@ import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import { getAnthropicApiKey } from '@/lib/loadAnthropicEnvFallback'
 import { mergedSowCapture } from '@/lib/sowCapture'
-import { fetchPhotosForEvidenceSuggest, inferCapturePhaseFromCategory } from '@/lib/photoCapturePhase'
+import { fetchPhotosForEvidenceSuggest, inferCapturePhaseFromCategory, progressEvidencePhotos } from '@/lib/photoCapturePhase'
 import { normalizePerExecuteCaptureDraft } from '@/lib/perExecuteCapture'
 import type { AssessmentData, JobType, PerExecuteCapture, Photo } from '@/lib/types'
 
@@ -30,12 +30,6 @@ Respond ONLY with valid JSON (no markdown fences) matching exactly these keys:
 {"recommendations":"","quality_checks":"","waste_manifest_notes":""}
 
 Each value is a paragraph or short bullet-style prose as appropriate. Use empty string only if there is truly nothing to say from context.`
-
-function isProgressEvidencePhoto(p: Pick<Photo, 'capture_phase' | 'category'>): boolean {
-  if (p.capture_phase === 'progress') return true
-  if (p.capture_phase === 'assessment') return false
-  return p.category === 'during' || p.category === 'after'
-}
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -114,8 +108,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         .order('room_name', { ascending: true }),
     ])
 
-    const photos = (photosRes.data ?? []) as Pick<Photo, 'area_ref' | 'category' | 'caption' | 'capture_phase'>[]
-    const progressPhotos = photos.filter(isProgressEvidencePhoto).map(p => ({
+    const photos = (photosRes.data ?? []) as Pick<Photo, 'id' | 'area_ref' | 'category' | 'caption' | 'capture_phase'>[]
+    const progressPhotos = progressEvidencePhotos(photos, ad?.areas ?? []).map(p => ({
       area_ref: (p.area_ref || '').trim() || null,
       category: p.category,
       caption: (p.caption || '').trim() || null,

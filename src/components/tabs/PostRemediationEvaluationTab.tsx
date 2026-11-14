@@ -8,15 +8,13 @@
  */
 'use client'
 
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type DragEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import Link from 'next/link'
 import type {
   AssessmentData,
   Document,
   Job,
   Photo,
-  PhotoCapturePhase,
-  PhotoCategory,
   PostRemediationEvaluation,
   PreProductRow,
   PreWorksRow,
@@ -27,16 +25,14 @@ import {
   getPreBySourceQuoteId,
   getPres,
   getStandalonePre,
-  insertPhotosByTimeTaken,
   isPreSourceDocType,
   makeBlankPre,
   orderReportAppendixPhotos,
   seedScopeLinesFromQuoteContent,
-  sortPhotosByTimeTaken,
   upsertPre,
 } from '@/lib/postRemediationEvaluations'
-import { readPhotoExif } from '@/lib/photoExif'
-import { compressImage } from '@/lib/compressImage'
+import { uploadJobPhotos } from '@/lib/jobPhotoUpload'
+import SelectedPhotos from '@/components/SelectedPhotos'
 import { useRegisterUnsavedChanges } from '@/lib/unsavedChangesContext'
 
 interface Props {
@@ -145,425 +141,42 @@ export function BulletEditor({
   )
 }
 
-/** Camera time from the original file; must run before compressImage, which strips it. */
-async function takenAtIso(file: File): Promise<string | null> {
-  const { takenAt } = await readPhotoExif(file)
-  if (!takenAt) return null
-  const t = new Date(takenAt)
-  return Number.isNaN(t.getTime()) ? null : t.toISOString()
-}
+export { uploadJobPhotos }
 
-/** Uploads images as job photos in the order they were taken. Stops at the first failure; earlier uploads are kept. */
-export async function uploadJobPhotos(
-  jobId: string,
-  files: File[],
-  tags: { category: PhotoCategory; capture_phase: PhotoCapturePhase },
-): Promise<{ added: Photo[]; error?: string }> {
-  const added: Photo[] = []
-  try {
-    const picked = await Promise.all(files.map(async (file, index) => ({ file, index, takenAt: await takenAtIso(file) })))
-    picked.sort((a, b) => {
-      if (a.takenAt && b.takenAt && a.takenAt !== b.takenAt) return a.takenAt < b.takenAt ? -1 : 1
-      if (a.takenAt && !b.takenAt) return -1
-      if (!a.takenAt && b.takenAt) return 1
-      return a.index - b.index
-    })
-    for (const { file, takenAt } of picked) {
-      const compressed = await compressImage(file)
-      const body = new FormData()
-      body.append('job_id', jobId)
-      body.append('file', compressed, 'upload.jpg')
-      body.append('caption', '')
-      body.append('area_ref', '')
-      body.append('category', tags.category)
-      body.append('capture_phase', tags.capture_phase)
-      if (takenAt) body.append('taken_at', takenAt)
-      const res = await fetch('/api/photos/upload', { method: 'POST', body })
-      const data = (await res.json()) as { photo?: Photo; error?: string }
-      if (!res.ok || !data.photo) throw new Error(data.error || 'Upload failed')
-      added.push(data.photo)
-    }
-    return { added }
-  } catch (err) {
-    return { added, error: err instanceof Error ? err.message : 'Upload failed' }
-  }
-}
-
-function formatTakenAt(iso: string): string {
-  const t = new Date(iso)
-  if (Number.isNaN(t.getTime())) return 'No time'
-  return t.toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })
-}
-
+/**
+ * The report's images. Until staff change them, this is the job's progress
+ * photos in the order taken (with any order saved before). After that it is
+ * exactly the photos they chose from the folder.
+ */
 export function ReportImages({
   jobId,
   photos,
   orderedIds,
+  chosen,
   onPhotosUpdate,
-  onReorder,
+  onSelect,
 }: {
   jobId: string
   photos: Photo[]
   orderedIds?: string[]
+  chosen?: boolean
   onPhotosUpdate: (photos: Photo[]) => void
-  onReorder: (ids: string[]) => Promise<void>
+  onSelect: (ids: string[]) => Promise<void>
 }) {
-  const fileRef = useRef<HTMLInputElement>(null)
-  const [uploading, setUploading] = useState(false)
-  const [error, setError] = useState('')
-  const [dragId, setDragId] = useState<string | null>(null)
-  const [overId, setOverId] = useState<string | null>(null)
-  const [deletingId, setDeletingId] = useState<string | null>(null)
-  const [selecting, setSelecting] = useState(false)
-  const [selected, setSelected] = useState<Set<string>>(() => new Set())
-  const [batchDeleting, setBatchDeleting] = useState(false)
-  const loaded = orderReportAppendixPhotos(photos, orderedIds)
-  const selectedCount = loaded.filter(photo => selected.has(photo.id)).length
-
-  async function onPick(e: ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files ?? []).filter(file => file.type.startsWith('image/'))
-    e.target.value = ''
-    if (!files.length || uploading) return
-    setUploading(true)
-    setError('')
-    try {
-      const { added, error: uploadError } = await uploadJobPhotos(jobId, files, { category: 'after', capture_phase: 'progress' })
-      if (added.length) {
-        onPhotosUpdate([...photos, ...added])
-        if (orderedIds?.length) await onReorder(insertPhotosByTimeTaken(loaded, added).map(photo => photo.id))
-      }
-      if (uploadError) setError(uploadError)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Upload failed')
-    } finally {
-      setUploading(false)
-    }
-  }
-
-  function movePhoto(fromId: string, toId: string) {
-    if (fromId === toId) return
-    const ids = loaded.map(photo => photo.id)
-    const from = ids.indexOf(fromId)
-    const to = ids.indexOf(toId)
-    if (from < 0 || to < 0) return
-    const next = [...ids]
-    const [moved] = next.splice(from, 1)
-    next.splice(to, 0, moved)
-    void onReorder(next).catch(err => {
-      setError(err instanceof Error ? err.message : 'Could not save the new order')
-    })
-  }
-
-  function onDragStart(e: DragEvent<HTMLDivElement>, id: string) {
-    e.dataTransfer.effectAllowed = 'move'
-    e.dataTransfer.setData('text/plain', id)
-    setDragId(id)
-  }
-
-  function onDragOver(e: DragEvent<HTMLDivElement>, id: string) {
-    e.preventDefault()
-    e.dataTransfer.dropEffect = 'move'
-    if (overId !== id) setOverId(id)
-  }
-
-  async function sortByTimeTaken() {
-    setError('')
-    try {
-      await onReorder(sortPhotosByTimeTaken(loaded).map(photo => photo.id))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not save the new order')
-    }
-  }
-
-  const missingTime = loaded.filter(photo => !photo.taken_at).length
-
-  function toggleSelected(id: string) {
-    setSelected(prev => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
-
-  function stopSelecting() {
-    setSelecting(false)
-    setSelected(new Set())
-  }
-
-  async function deleteSelected() {
-    const ids = loaded.filter(photo => selected.has(photo.id)).map(photo => photo.id)
-    if (!ids.length) return
-    if (!window.confirm(`Confirm you want to delete ${ids.length === 1 ? 'this image' : `these ${ids.length} images`}?`)) return
-    setBatchDeleting(true)
-    setError('')
-    const deleted = new Set<string>()
-    let failed = 0
-    for (let i = 0; i < ids.length; i += 4) {
-      await Promise.all(ids.slice(i, i + 4).map(async id => {
-        try {
-          const res = await fetch(`/api/photos/${id}`, { method: 'DELETE' })
-          if (res.ok) deleted.add(id)
-          else failed += 1
-        } catch {
-          failed += 1
-        }
-      }))
-    }
-    try {
-      if (deleted.size) {
-        onPhotosUpdate(photos.filter(item => !deleted.has(item.id)))
-        if (orderedIds?.length) await onReorder(orderedIds.filter(id => !deleted.has(id)))
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not save the new order')
-    }
-    if (failed) {
-      setError(`${failed} ${failed === 1 ? 'image' : 'images'} could not be deleted. They are still selected; try again.`)
-      setSelected(new Set(ids.filter(id => !deleted.has(id))))
-    } else {
-      stopSelecting()
-    }
-    setBatchDeleting(false)
-  }
-
-  async function removePhoto(photo: Photo) {
-    if (!window.confirm('Confirm you want to delete this image?')) return
-    setDeletingId(photo.id)
-    setError('')
-    try {
-      const res = await fetch(`/api/photos/${photo.id}`, { method: 'DELETE' })
-      const data = (await res.json().catch(() => ({}))) as { error?: string }
-      if (!res.ok) throw new Error(data.error || 'Delete failed')
-      onPhotosUpdate(photos.filter(item => item.id !== photo.id))
-      if (orderedIds?.length) await onReorder(orderedIds.filter(id => id !== photo.id))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Delete failed')
-    } finally {
-      setDeletingId(null)
-    }
-  }
-
   return (
-    <div>
+    <div style={{ marginTop: 18 }}>
       <div style={sectionHeading}>Images</div>
-      <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 10px', lineHeight: 1.5 }}>
-        Choose one or more images. They print at the end of the report in the order they were taken. Drag a photo to move it.
-      </p>
-      <input
-        ref={fileRef}
-        type="file"
-        accept="image/*"
-        multiple
-        onChange={e => void onPick(e)}
-        style={{ display: 'none' }}
+      <SelectedPhotos
+        jobId={jobId}
+        title="Images"
+        heading={false}
+        photos={photos}
+        ids={chosen ? orderedIds ?? [] : undefined}
+        fallback={orderReportAppendixPhotos(photos, orderedIds)}
+        onChange={onSelect}
+        onPhotosUpdate={onPhotosUpdate}
+        emptyText="No images on the report."
       />
-      {selecting ? (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-          <button
-            type="button"
-            className="btn btn-secondary"
-            disabled={batchDeleting}
-            onClick={() => setSelected(selectedCount === loaded.length ? new Set() : new Set(loaded.map(photo => photo.id)))}
-            style={{ padding: '12px 16px', fontWeight: 700 }}
-          >
-            {selectedCount === loaded.length ? 'Clear selection' : 'Select all'}
-          </button>
-          <button
-            type="button"
-            className="btn btn-secondary"
-            disabled={batchDeleting || selectedCount === 0}
-            onClick={() => void deleteSelected()}
-            style={{ padding: '12px 16px', fontWeight: 700, color: '#F87171' }}
-          >
-            {batchDeleting ? 'Deleting…' : `Delete selected (${selectedCount})`}
-          </button>
-          <button
-            type="button"
-            className="btn btn-secondary"
-            disabled={batchDeleting}
-            onClick={stopSelecting}
-            style={{ padding: '12px 16px', fontWeight: 700 }}
-          >
-            Done
-          </button>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-          <button
-            type="button"
-            className="btn btn-secondary"
-            disabled={uploading}
-            onClick={() => fileRef.current?.click()}
-            style={{ padding: '12px 16px', fontWeight: 700 }}
-          >
-            {uploading ? 'Uploading…' : 'Choose images'}
-          </button>
-          {loaded.length > 1 && (
-            <button
-              type="button"
-              className="btn btn-secondary"
-              disabled={uploading}
-              onClick={() => void sortByTimeTaken()}
-              style={{ padding: '12px 16px', fontWeight: 700 }}
-            >
-              Sort by time taken
-            </button>
-          )}
-          {loaded.length > 0 && (
-            <button
-              type="button"
-              className="btn btn-secondary"
-              disabled={uploading}
-              onClick={() => setSelecting(true)}
-              style={{ padding: '12px 16px', fontWeight: 700 }}
-            >
-              Select
-            </button>
-          )}
-          {loaded.length > 1 && (
-            <button
-              type="button"
-              className="btn btn-secondary"
-              disabled={uploading}
-              onClick={() => {
-                setSelected(new Set(loaded.map(photo => photo.id)))
-                setSelecting(true)
-              }}
-              style={{ padding: '12px 16px', fontWeight: 700 }}
-            >
-              Select all
-            </button>
-          )}
-        </div>
-      )}
-      {missingTime > 0 && (
-        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8, lineHeight: 1.5 }}>
-          {missingTime === 1 ? '1 image has' : `${missingTime} images have`} no time taken (marked “No time”), so {missingTime === 1 ? 'it sorts' : 'they sort'} by upload time. Re-upload the original file or drag {missingTime === 1 ? 'it' : 'them'} into place.
-        </div>
-      )}
-      {error && (
-        <div style={{ color: '#F87171', fontSize: 13, marginTop: 8 }} role="alert">{error}</div>
-      )}
-      {loaded.length > 0 && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))', gap: 8, marginTop: 12 }}>
-          {loaded.map(photo => (
-            <div
-              key={photo.id}
-              role={selecting ? 'checkbox' : undefined}
-              aria-checked={selecting ? selected.has(photo.id) : undefined}
-              tabIndex={selecting ? 0 : undefined}
-              onClick={selecting && !batchDeleting ? () => toggleSelected(photo.id) : undefined}
-              onKeyDown={selecting && !batchDeleting ? e => {
-                if (e.key === ' ' || e.key === 'Enter') {
-                  e.preventDefault()
-                  toggleSelected(photo.id)
-                }
-              } : undefined}
-              draggable={!selecting && deletingId !== photo.id}
-              onDragStart={e => onDragStart(e, photo.id)}
-              onDragOver={e => onDragOver(e, photo.id)}
-              onDrop={e => {
-                e.preventDefault()
-                const fromId = e.dataTransfer.getData('text/plain') || dragId
-                if (fromId) movePhoto(fromId, photo.id)
-                setDragId(null)
-                setOverId(null)
-              }}
-              onDragEnd={() => {
-                setDragId(null)
-                setOverId(null)
-              }}
-              style={{
-                position: 'relative',
-                borderRadius: 8,
-                outline: selecting && selected.has(photo.id)
-                  ? '3px solid #F87171'
-                  : overId === photo.id && dragId && dragId !== photo.id ? '2px solid var(--accent, #60a5fa)' : 'none',
-                opacity: dragId === photo.id || (selecting && !selected.has(photo.id)) ? 0.55 : 1,
-                cursor: selecting ? 'pointer' : 'grab',
-              }}
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={photo.file_url}
-                alt={photo.caption || 'Report image'}
-                draggable={false}
-                style={{ width: '100%', height: 96, objectFit: 'cover', borderRadius: 8, display: 'block', background: 'var(--surface-2)', pointerEvents: 'none' }}
-              />
-              <div
-                style={{
-                  position: 'absolute',
-                  left: 4,
-                  bottom: 4,
-                  padding: '1px 5px',
-                  borderRadius: 4,
-                  background: 'rgba(0,0,0,0.72)',
-                  color: '#fff',
-                  fontSize: 10,
-                  fontWeight: 600,
-                  pointerEvents: 'none',
-                }}
-              >
-                {photo.taken_at ? formatTakenAt(photo.taken_at) : 'No time'}
-              </div>
-              {selecting ? (
-                <div
-                  aria-hidden
-                  style={{
-                    position: 'absolute',
-                    top: 4,
-                    right: 4,
-                    width: 22,
-                    height: 22,
-                    borderRadius: 999,
-                    border: '2px solid #fff',
-                    background: selected.has(photo.id) ? '#F87171' : 'rgba(0,0,0,0.45)',
-                    color: '#fff',
-                    fontSize: 13,
-                    fontWeight: 700,
-                    lineHeight: '18px',
-                    textAlign: 'center',
-                    pointerEvents: 'none',
-                  }}
-                >
-                  {selected.has(photo.id) ? '✓' : ''}
-                </div>
-              ) : (
-              <button
-                type="button"
-                aria-label="Delete image"
-                disabled={deletingId === photo.id}
-                draggable={false}
-                onMouseDown={e => e.stopPropagation()}
-                onClick={e => {
-                  e.stopPropagation()
-                  void removePhoto(photo)
-                }}
-                style={{
-                  position: 'absolute',
-                  top: 4,
-                  right: 4,
-                  width: 22,
-                  height: 22,
-                  padding: 0,
-                  border: 'none',
-                  borderRadius: 999,
-                  background: 'rgba(0,0,0,0.72)',
-                  color: '#fff',
-                  fontSize: 14,
-                  fontWeight: 700,
-                  lineHeight: '22px',
-                  cursor: 'pointer',
-                }}
-              >
-                ×
-              </button>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   )
 }
@@ -808,14 +421,14 @@ export default function PostRemediationEvaluationTab({ job, photos, documents, o
       if (!current) return
       setPre(prev => {
         if (!prev) return prev
-        const next = { ...prev, report_image_ids: ids }
+        const next = { ...prev, report_image_ids: ids, report_images_chosen: true }
         preRef.current = next
         return next
       })
       const snap = snapshotRef.current
       if (!snap) return
       const saved = JSON.parse(snap) as PostRemediationEvaluation
-      const nextSaved = { ...saved, report_image_ids: ids }
+      const nextSaved = { ...saved, report_image_ids: ids, report_images_chosen: true }
       const jobNow = jobRef.current
       const base = mergeAssessmentData(jobNow.assessment_data)
       const merged: AssessmentData = {
@@ -1217,8 +830,9 @@ export default function PostRemediationEvaluationTab({ job, photos, documents, o
         jobId={job.id}
         photos={photos}
         orderedIds={pre.report_image_ids}
+        chosen={pre.report_images_chosen}
         onPhotosUpdate={onPhotosUpdate}
-        onReorder={persistImageOrder}
+        onSelect={persistImageOrder}
       />
 
       <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginTop: 8 }}>

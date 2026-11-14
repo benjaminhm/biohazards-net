@@ -39,8 +39,10 @@ import type {
   PostRemediationEvaluationContent,
   PreScopeLineResolved,
 } from '@/lib/types'
-import { filterGroupedStages, groupPhotosByRoomAndStage, isDocumentAppendixPhoto, isQuoteAppendixPhoto } from '@/lib/photoGroups'
-import { photosForComposedReports } from '@/lib/photosForComposedReports'
+import { filterGroupedStages, groupPhotosByRoomAndStage, isQuoteAppendixPhoto, stagePhotos } from '@/lib/photoGroups'
+import { chosenPhotoIds, photosForComposedReports } from '@/lib/photosForComposedReports'
+import { preReportImages } from '@/lib/postRemediationEvaluations'
+import { photosFor } from '@/lib/photoSelection'
 import { effectiveAreaDimensions } from '@/lib/areaSubzones'
 import {
   PRE_PHOTO_SECTIONS,
@@ -682,8 +684,8 @@ function QuotePDF({
 }) {
   const today = new Date().toLocaleDateString('en-AU', { day: '2-digit', month: 'long', year: 'numeric' })
   const fmt = (n: number) => `$${Number(n).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-  const quoteAppendix = photos.filter(isQuoteAppendixPhoto)
-  const beforePhotos = photos.filter(p => !isDocumentAppendixPhoto(p) && (p.category === 'before' || p.category === 'assessment')).slice(0, 6)
+  const quoteAppendix = photosFor(content.photo_ids, photos, list => list.filter(isQuoteAppendixPhoto))
+  const beforePhotos = stagePhotos(photos, areas, ['assessment', 'before']).slice(0, 6)
   const site = (siteAddress ?? '').trim()
   const gstMode = content.gst_mode ?? (content.gst > 0 ? 'exclusive' : 'no_gst')
   const subtotalLabel = gstMode === 'inclusive' || gstMode === 'exclusive' ? 'Subtotal (ex GST)' : 'Subtotal'
@@ -784,8 +786,8 @@ function IaqMultiPDF({
   const bundleRef = String(bundle.reference ?? ad.reference ?? '—').trim()
   const bundleTitle = String(bundle.title ?? 'Assessment / Scope / Quote').trim()
 
-  const quoteAppendix = photos.filter(isQuoteAppendixPhoto)
-  const beforePhotos = photos.filter(p => !isDocumentAppendixPhoto(p) && (p.category === 'before' || p.category === 'assessment'))
+  const quoteAppendix = photosFor(quote.photo_ids, photos, list => list.filter(isQuoteAppendixPhoto))
+  const beforePhotos = stagePhotos(photos, areas, ['assessment', 'before'])
   const fmt = (n: number) => `$${Number(n).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
   const gstMode = quote.gst_mode ?? (quote.gst > 0 ? 'exclusive' : 'no_gst')
   const subtotalLabel = gstMode === 'inclusive' || gstMode === 'exclusive' ? 'Subtotal (ex GST)' : 'Subtotal'
@@ -924,8 +926,8 @@ function SOWOrReportPDF({
 }) {
   const today = new Date().toLocaleDateString('en-AU', { day: '2-digit', month: 'long', year: 'numeric' })
 
-  const beforePhotos = photos.filter(p => !isDocumentAppendixPhoto(p) && (p.category === 'before' || p.category === 'assessment')).slice(0, 6)
-  const afterPhotos = photos.filter(p => p.category === 'after').slice(0, 6)
+  const beforePhotos = stagePhotos(photos, areas, ['assessment', 'before']).slice(0, 6)
+  const afterPhotos = stagePhotos(photos, areas, ['after']).slice(0, 6)
 
   const sowSections: Array<{ key: keyof SOWContent; label: string }> = [
     { key: 'executive_summary', label: 'Executive Summary' },
@@ -1078,9 +1080,7 @@ function CompletionReportPDF({
         ([, v]) => (v ?? '').trim(),
       )
     : []
-  const appendixPhotos = (c.include_photos === false ? [] : photos).filter(
-    p => p.capture_phase === 'progress' || (p.capture_phase !== 'assessment' && (p.category === 'during' || p.category === 'after')),
-  )
+  const appendixPhotos = c.include_photos === false ? [] : preReportImages(photos, c.report_image_ids, c.report_images_chosen)
 
   const cellLeft = { width: '30%', paddingRight: 8, fontFamily: 'Helvetica-Bold' as const }
   const cellRight = { flex: 1 }
@@ -1194,9 +1194,7 @@ function PartsReportPDF({
   const o = partsReportOutline(c, allPhotos)
   const conditions = (c.site_conditions ?? []).filter(Boolean)
   const recs = (c.recommendations ?? []).filter(Boolean)
-  const appendixPhotos = (c.include_photos === false || preHasBeforeAfterSelection(c) ? [] : photos).filter(
-    p => p.capture_phase === 'progress' || (p.capture_phase !== 'assessment' && (p.category === 'during' || p.category === 'after')),
-  )
+  const appendixPhotos = c.include_photos === false || preHasBeforeAfterSelection(c) ? [] : preReportImages(photos, c.report_image_ids, c.report_images_chosen)
 
   const row = { flexDirection: 'row' as const, borderBottomWidth: 1, borderBottomColor: BORDER, paddingVertical: 4 }
   const table = (rows: [string, string][], labelWidth: string) =>
@@ -1437,7 +1435,7 @@ interface JobPDFDocumentProps {
 
 export function JobPDFDocument({ type, content, photos, company, areas = [], siteAddress }: JobPDFDocumentProps) {
   const allPhotos = photos
-  photos = photosForComposedReports(photos)
+  photos = photosForComposedReports(photos, chosenPhotoIds(content, areas))
   const name = company?.name || 'Biohazard Cleaning QLD'
   return (
     <Document title={name} author={name}>

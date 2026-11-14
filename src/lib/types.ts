@@ -178,6 +178,11 @@ export const DOC_TYPE_GROUPS: DocTypeGroup[] = [
 /* A single contaminated zone within a job site */
 export interface Area {
   name: string
+  /** Photos chosen from the job's folder for this area, in order. Unset: photos with this area's name. */
+  photo_ids?: string[]
+  /** Progress photos chosen for this room, in order. Unset: photos tagged during / after with this area's name. */
+  during_photo_ids?: string[]
+  after_photo_ids?: string[]
   /** Floor area in square metres. Auto-derived from length_m × width_m when both
    *  are set, but stored explicitly so legacy areas (without dimensions) and
    *  irregular rooms can keep a manual value. Foundation for per-sqm quoting. */
@@ -246,6 +251,8 @@ export interface RisksHitl {
 /** Sight-unseen / limited-information quote brief captured from staff voice notes. */
 export interface FastQuoteCapture {
   enabled: boolean
+  /** Client-supplied photos chosen from the job's folder. Unset: photos loaded as "Fast Quote". */
+  photo_ids?: string[]
   transcript: string
   limitations_acknowledged: boolean
   updated_at?: string | null
@@ -866,6 +873,8 @@ export interface QuotePricingLayout {
 
 export interface OutcomeQuoteCapture {
   mode: 'line_items' | 'outcomes'
+  /** Photos chosen from the job's folder for this quote, in order. Unset: the job's "Quote photos". */
+  photo_ids?: string[]
   /** Explicit document identity chosen by the user in the Quote/Estimate
    *  builder — drives the doc title, reference prefix, banner colour, and
    *  banner text on the printed/PDF document. When undefined, callers fall
@@ -1112,6 +1121,8 @@ export interface AssessmentData {
   }
   /** Contents Clearance Quote — estimated cubic metres and kilometres. Rates and clauses are schema. */
   contents_clearance_quote?: {
+    /** Photos chosen from the job's folder, in order. Unset: the photos loaded on this quote. */
+    photo_ids?: string[]
     /** contents | hoarding | estate. Printed as the client document title. */
     clearance_kind?: 'contents' | 'contaminated' | 'hoarding' | 'estate'
     estimated_m3: number | null
@@ -1149,6 +1160,8 @@ export interface AssessmentData {
   }
   /** Surface Area Cleaning Quote — estimated square metres. Rates and clauses are schema. */
   surface_area_cleaning_quote?: {
+    /** Photos chosen from the job's folder, in order. Unset: the photos loaded on this quote. */
+    photo_ids?: string[]
     /** surface | squalor | estate | custom. Printed as the client document title. */
     cleaning_kind?: 'surface' | 'squalor' | 'estate' | 'custom'
     /** Printed when cleaning_kind is custom. */
@@ -1629,6 +1642,8 @@ export interface WasteItem {
 
 export interface QuoteContent {
   title: string
+  /** Photos chosen for this quote, in order. Unset: the job's "Quote photos". */
+  photo_ids?: string[]
   reference: string
   /** When this quote document was composed from a named spoke, its id. Presence
    *  marks the saved document as a frozen snapshot — the print/viewer paths skip
@@ -2205,6 +2220,8 @@ export interface PostRemediationEvaluation {
   unsigned_copy?: boolean
   /** Manual order of report images. Absent means upload order, oldest first. */
   report_image_ids?: string[]
+  /** True once staff chose the images: report_image_ids is then exactly the images. Unset: it only orders the progress photos. */
+  report_images_chosen?: boolean
   created_at: string
   updated_at: string
   last_suggested_at?: string
@@ -2250,6 +2267,8 @@ export interface PostRemediationEvaluationV2 {
   technician_signoff?: string
   unsigned_copy?: boolean
   report_image_ids?: string[]
+  /** True once staff chose the images: report_image_ids is then exactly the images. Unset: it only orders the progress photos. */
+  report_images_chosen?: boolean
   /** Job photos printed under Before Remediation, in order. With after_photo_ids, replaces the image appendix. */
   before_photo_ids?: string[]
   /** Job photos printed under After Remediation, in order. */
@@ -2317,6 +2336,8 @@ export interface PostRemediationEvaluationContent {
   include_photos?: boolean
   /** Manual order of report images. Absent means upload order, oldest first. */
   report_image_ids?: string[]
+  /** True once staff chose the images: report_image_ids is then exactly the images. Unset: it only orders the progress photos. */
+  report_images_chosen?: boolean
   /** Multi-part only: photos printed under Before Remediation. When either list is set, the image appendix is not printed. */
   before_photo_ids?: string[]
   /** Multi-part only: photos printed under After Remediation. */

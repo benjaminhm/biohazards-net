@@ -1,30 +1,15 @@
 /*
  * components/PhotoCard.tsx
  *
- * Single uploaded photo: preview, category/area/caption edit, delete.
- * Used on Photos tab and per-area blocks on Assessment.
+ * One photo in the job's folder: preview, note, delete, and when / where / who.
+ * Photos carry no stage tags; each document chooses its own photos.
  */
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import Image from 'next/image'
-import type { Photo, PhotoCategory } from '@/lib/types'
-
-const CATEGORIES: { value: PhotoCategory; label: string; color: string }[] = [
-  { value: 'before', label: 'Before', color: '#F87171' },
-  { value: 'assessment', label: 'Assessment', color: '#60A5FA' },
-  { value: 'during', label: 'During', color: '#FBBF24' },
-  { value: 'after', label: 'After', color: '#4ADE80' },
-  { value: 'untagged', label: 'Untagged', color: '#9CA3AF' },
-]
-
-const CATEGORY_COLORS: Record<PhotoCategory, string> = {
-  before: '#F87171',
-  during: '#FBBF24',
-  after: '#4ADE80',
-  assessment: '#60A5FA',
-  untagged: '#9CA3AF',
-}
+import type { Photo } from '@/lib/types'
+import PhotoMeta from '@/components/PhotoMeta'
 
 function hasPersistedPhotoId(id: string | undefined): id is string {
   return typeof id === 'string' && id.length > 0 && id !== 'undefined'
@@ -32,45 +17,23 @@ function hasPersistedPhotoId(id: string | undefined): id is string {
 
 export interface PhotoCardProps {
   photo: Photo
-  areaNames?: string[]
-  /** Optional category restriction for this context (e.g. progress = during/after). */
-  allowedCategories?: readonly PhotoCategory[]
-  /** When false, hides the area chip in summary (e.g. inside a room-specific block). Default true. */
-  showAreaChip?: boolean
-  /** When true, the photo stays on its current area and the area field is hidden. */
-  hideArea?: boolean
+  /** Shown as a badge when some document on the job uses this photo. */
+  used?: boolean
   onDelete: (id: string) => void
   onUpdate: (photo: Photo) => void
 }
 
-export default function PhotoCard({
-  photo,
-  areaNames = [],
-  allowedCategories,
-  showAreaChip = true,
-  hideArea = false,
-  onDelete,
-  onUpdate,
-}: PhotoCardProps) {
+export default function PhotoCard({ photo, used = false, onDelete, onUpdate }: PhotoCardProps) {
   const [deleting, setDeleting] = useState(false)
-  const [editingDetails, setEditingDetails] = useState(false)
+  const [editing, setEditing] = useState(false)
   const [captionDraft, setCaptionDraft] = useState(photo.caption)
-  const [categoryDraft, setCategoryDraft] = useState<PhotoCategory>(photo.category)
-  const [areaRefDraft, setAreaRefDraft] = useState(photo.area_ref || '')
-  const [includeInReports, setIncludeInReports] = useState(photo.include_in_composed_reports !== false)
-  const [savingInclude, setSavingInclude] = useState(false)
-  const categoryOptions = CATEGORIES.filter(c => !allowedCategories || allowedCategories.includes(c.value))
-
-  useEffect(() => {
-    setIncludeInReports(photo.include_in_composed_reports !== false)
-  }, [photo.id, photo.include_in_composed_reports])
 
   async function handleDelete() {
     if (!hasPersistedPhotoId(photo.id)) {
       window.alert('This photo has no id yet. Refresh the page or re-upload.')
       return
     }
-    if (!confirm('Delete this photo?')) return
+    if (!confirm(used ? 'This photo is used in a document. Delete it anyway?' : 'Delete this photo?')) return
     setDeleting(true)
     const res = await fetch(`/api/photos/${photo.id}`, { method: 'DELETE' })
     if (res.ok) onDelete(photo.id)
@@ -81,45 +44,7 @@ export default function PhotoCard({
     setDeleting(false)
   }
 
-  function openEdit() {
-    setCaptionDraft(photo.caption)
-    setCategoryDraft(photo.category)
-    setAreaRefDraft(photo.area_ref || '')
-    setEditingDetails(true)
-  }
-
-  function cancelEdit() {
-    setEditingDetails(false)
-    setCaptionDraft(photo.caption)
-    setCategoryDraft(photo.category)
-    setAreaRefDraft(photo.area_ref || '')
-  }
-
-  async function toggleIncludeInReports(next: boolean) {
-    if (!hasPersistedPhotoId(photo.id)) {
-      window.alert('This photo has no id yet. Refresh the page or finish uploading.')
-      return
-    }
-    if (savingInclude || deleting) return
-    setSavingInclude(true)
-    const prev = includeInReports
-    setIncludeInReports(next)
-    const res = await fetch(`/api/photos/${photo.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ include_in_composed_reports: next }),
-    })
-    const data = (await res.json()) as { photo?: Photo; error?: string }
-    if (!res.ok || !data.photo) {
-      setIncludeInReports(prev)
-      window.alert(data.error ?? 'Could not update')
-    } else {
-      onUpdate(data.photo)
-    }
-    setSavingInclude(false)
-  }
-
-  async function saveDetails() {
+  async function saveCaption() {
     if (!hasPersistedPhotoId(photo.id)) {
       window.alert('This photo has no id yet. Refresh the page or finish uploading.')
       return
@@ -127,7 +52,7 @@ export default function PhotoCard({
     const res = await fetch(`/api/photos/${photo.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ caption: captionDraft, category: categoryDraft, area_ref: areaRefDraft }),
+      body: JSON.stringify({ caption: captionDraft }),
     })
     const data = (await res.json()) as { photo?: Photo; error?: string }
     if (!res.ok || !data.photo) {
@@ -135,7 +60,7 @@ export default function PhotoCard({
       return
     }
     onUpdate(data.photo)
-    setEditingDetails(false)
+    setEditing(false)
   }
 
   return (
@@ -149,7 +74,17 @@ export default function PhotoCard({
       }}
     >
       <div style={{ position: 'relative', aspectRatio: '4/3', background: 'var(--surface-2)' }}>
-        <Image src={photo.file_url} alt={photo.caption || photo.category} fill style={{ objectFit: 'cover' }} unoptimized />
+        <Image src={photo.file_url} alt={photo.caption || 'Job photo'} fill style={{ objectFit: 'cover' }} unoptimized />
+        {used && (
+          <span
+            style={{
+              position: 'absolute', left: 6, top: 6, fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4,
+              background: 'rgba(0,0,0,0.65)', color: '#fff',
+            }}
+          >
+            In a document
+          </span>
+        )}
         <button
           onClick={handleDelete}
           title="Delete photo"
@@ -170,62 +105,8 @@ export default function PhotoCard({
         </button>
       </div>
       <div style={{ padding: '10px 12px' }}>
-        {editingDetails ? (
-          <div style={{ marginBottom: 8 }}>
-            <div
-              style={{
-                fontSize: 10,
-                fontWeight: 600,
-                color: 'var(--text-muted)',
-                marginBottom: 6,
-                letterSpacing: '0.04em',
-                textTransform: 'uppercase',
-              }}
-            >
-              Category
-            </div>
-            <div style={{ display: 'flex', gap: 4, marginBottom: 10, flexWrap: 'wrap' }}>
-              {categoryOptions.map(c => (
-                <button
-                  key={c.value}
-                  type="button"
-                  onClick={() => setCategoryDraft(c.value)}
-                  style={{
-                    padding: '3px 8px',
-                    borderRadius: 10,
-                    fontSize: 11,
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    border: `1px solid ${categoryDraft === c.value ? c.color : 'var(--border)'}`,
-                    background: categoryDraft === c.value ? `${c.color}22` : 'transparent',
-                    color: categoryDraft === c.value ? c.color : 'var(--text-muted)',
-                  }}
-                >
-                  {c.label}
-                </button>
-              ))}
-            </div>
-            {hideArea ? null : areaNames.length > 0 ? (
-              <select
-                value={areaRefDraft}
-                onChange={e => setAreaRefDraft(e.target.value)}
-                style={{ width: '100%', fontSize: 12, marginBottom: 8, padding: '6px 8px' }}
-              >
-                <option value="">Area (optional)</option>
-                {areaNames.map(a => (
-                  <option key={a} value={a}>
-                    {a}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <input
-                value={areaRefDraft}
-                onChange={e => setAreaRefDraft(e.target.value)}
-                placeholder="Area / room (optional)"
-                style={{ width: '100%', fontSize: 12, marginBottom: 8 }}
-              />
-            )}
+        {editing ? (
+          <div>
             <textarea
               value={captionDraft}
               onChange={e => setCaptionDraft(e.target.value)}
@@ -235,89 +116,48 @@ export default function PhotoCard({
               autoFocus
             />
             <div style={{ display: 'flex', gap: 4 }}>
-              <button className="btn btn-primary" style={{ fontSize: 11, padding: '5px 10px' }} type="button" onClick={saveDetails}>
+              <button className="btn btn-primary" style={{ fontSize: 11, padding: '5px 10px' }} type="button" onClick={saveCaption}>
                 Save
               </button>
-              <button className="btn btn-ghost" style={{ fontSize: 11, padding: '5px 10px' }} type="button" onClick={cancelEdit}>
+              <button
+                className="btn btn-ghost"
+                style={{ fontSize: 11, padding: '5px 10px' }}
+                type="button"
+                onClick={() => { setEditing(false); setCaptionDraft(photo.caption) }}
+              >
                 Cancel
               </button>
             </div>
           </div>
         ) : (
-          <>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-              <span
-                style={{
-                  fontSize: 10,
-                  fontWeight: 700,
-                  letterSpacing: '0.06em',
-                  textTransform: 'uppercase',
-                  color: CATEGORY_COLORS[photo.category],
-                }}
-              >
-                {photo.category}
-              </span>
-              {showAreaChip && photo.area_ref && (
-                <span
-                  style={{
-                    fontSize: 10,
-                    fontWeight: 600,
-                    color: 'var(--text-muted)',
-                    background: 'var(--surface-2)',
-                    padding: '2px 6px',
-                    borderRadius: 4,
-                  }}
-                >
-                  {photo.area_ref}
-                </span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 6 }}>
+            <div style={{ flex: 1 }}>
+              {photo.caption ? (
+                <div style={{ fontSize: 12, color: 'var(--text)', lineHeight: 1.5 }}>{photo.caption}</div>
+              ) : (
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }}>No note — tap ✏️ to add one</div>
               )}
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 6 }}>
-              <div style={{ flex: 1 }}>
-                {photo.caption ? (
-                  <div style={{ fontSize: 12, color: 'var(--text)', lineHeight: 1.5 }}>{photo.caption}</div>
-                ) : (
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }}>No note — tap ✏️ to edit</div>
-                )}
-              </div>
-              <button
-                onClick={openEdit}
-                title="Edit category & note"
-                style={{
-                  background: 'none',
-                  border: '1px solid var(--border)',
-                  borderRadius: 5,
-                  padding: '3px 7px',
-                  fontSize: 12,
-                  cursor: 'pointer',
-                  flexShrink: 0,
-                }}
-              >
-                ✏️
-              </button>
-            </div>
-          </>
+            <button
+              onClick={() => { setCaptionDraft(photo.caption); setEditing(true) }}
+              title="Edit note"
+              style={{
+                background: 'none',
+                border: '1px solid var(--border)',
+                borderRadius: 5,
+                padding: '3px 7px',
+                fontSize: 12,
+                cursor: 'pointer',
+                flexShrink: 0,
+              }}
+            >
+              ✏️
+            </button>
+          </div>
         )}
-        <label
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            fontSize: 11,
-            color: 'var(--text-muted)',
-            cursor: savingInclude || deleting ? 'wait' : 'pointer',
-            marginTop: editingDetails ? 10 : 8,
-            userSelect: 'none',
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={includeInReports}
-            disabled={savingInclude || deleting}
-            onChange={e => void toggleIncludeInReports(e.target.checked)}
-          />
-          Include in composed reports
-        </label>
+        <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
+          <PhotoMeta photo={photo} />
+        </div>
       </div>
     </div>
   )

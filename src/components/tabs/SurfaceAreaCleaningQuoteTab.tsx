@@ -3,10 +3,11 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
 import DocumentAskPanel from '@/components/DocumentAskPanel'
-import PhotoCard from '@/components/PhotoCard'
-import PhotoUploadPanel from '@/components/PhotoUploadPanel'
+import SelectedPhotos from '@/components/SelectedPhotos'
+import { samePhotoIds } from '@/lib/photoIds'
+import { usedPhotoIds } from '@/lib/photoSelection'
 import RichTextEditor from '@/components/RichTextEditor'
-import { SURFACE_AREA_APPENDIX_AREA_REF, isSurfaceAreaAppendixPhoto } from '@/lib/photoGroups'
+import { isSurfaceAreaAppendixPhoto } from '@/lib/photoGroups'
 import type { Job, Photo } from '@/lib/types'
 import { mergeAssessmentData } from '@/lib/riskDerivation'
 import { useRegisterUnsavedChanges } from '@/lib/unsavedChangesContext'
@@ -151,6 +152,7 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
     [job.assessment_data?.surface_area_cleaning_quote],
   )
   const [capture, setCapture] = useState<SurfaceAreaCleaningCapture>(saved)
+  const usedIds = useMemo(() => usedPhotoIds(job.assessment_data, photos), [job.assessment_data, photos])
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [standards, setStandards] = useState<SurfaceAreaCleaningStandards>(defaultSurfaceAreaCleaningStandards)
@@ -192,6 +194,7 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
     || capture.job_assumptions !== saved.job_assumptions
     || JSON.stringify(capture.rooms) !== JSON.stringify(saved.rooms)
     || JSON.stringify(capture.other_lines) !== JSON.stringify(saved.other_lines)
+    || !samePhotoIds(capture.photo_ids, saved.photo_ids)
   useRegisterUnsavedChanges('surface-area-cleaning-quote', isDirty)
 
   const figures = useMemo(
@@ -879,40 +882,20 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
       <div style={{ marginTop: 18, marginBottom: 4 }}>
         <div style={LABEL}>Photos</div>
         <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5, margin: '0 0 12px' }}>
-          Choose several at once from Gallery. They print after the totals. The engagement agreement stays last, for signing.
+          Choose this quote&rsquo;s photos from the job&rsquo;s folder. They print after the totals. The engagement agreement stays last, for signing.
         </p>
-        <PhotoUploadPanel
+        <SelectedPhotos
           jobId={job.id}
+          title="Surface area cleaning quote"
+          heading={false}
           photos={photos}
+          ids={capture.photo_ids}
+          fallback={photos.filter(isSurfaceAreaAppendixPhoto)}
+          onChange={ids => setCapture(prev => ({ ...prev, photo_ids: ids }))}
           onPhotosUpdate={onPhotosUpdate}
-          defaultPendingCategory="assessment"
-          allowedCategories={['assessment', 'before']}
-          fixedCapturePhase="assessment"
-          fixedAreaRef={SURFACE_AREA_APPENDIX_AREA_REF}
-          compact
+          usedIds={usedIds}
+          emptyText="No photos on this quote."
         />
-        {photos.some(isSurfaceAreaAppendixPhoto) && (
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
-              gap: 8,
-              marginTop: 4,
-            }}
-          >
-            {photos.filter(isSurfaceAreaAppendixPhoto).map(photo => (
-              <PhotoCard
-                key={photo.id}
-                photo={photo}
-                allowedCategories={['assessment', 'before']}
-                showAreaChip={false}
-                hideArea
-                onDelete={id => onPhotosUpdate(photos.filter(p => p.id !== id))}
-                onUpdate={updated => onPhotosUpdate(photos.map(p => (p.id === updated.id ? updated : p)))}
-              />
-            ))}
-          </div>
-        )}
       </div>
       {saveError && <div style={{ color: 'var(--danger, #f87171)', fontSize: 13, marginTop: 10 }}>{saveError}</div>}
       <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>

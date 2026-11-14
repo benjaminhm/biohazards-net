@@ -52,10 +52,10 @@ import {
   syncVolumePricing,
   volumePricingSubtotal,
 } from '@/lib/quoteSections'
-import PhotoCard from '@/components/PhotoCard'
-import PhotoUploadPanel from '@/components/PhotoUploadPanel'
 import RichTextEditor from '@/components/RichTextEditor'
-import { QUOTE_APPENDIX_AREA_REF, isQuoteAppendixPhoto } from '@/lib/photoGroups'
+import { isQuoteAppendixPhoto } from '@/lib/photoGroups'
+import { usedPhotoIds } from '@/lib/photoSelection'
+import SelectedPhotos from '@/components/SelectedPhotos'
 
 interface Props {
   job: Job
@@ -460,6 +460,7 @@ export default function QuoteCaptureTab({ job, photos, onJobUpdate, onPhotosUpda
   const [suggestErrorBySection, setSuggestErrorBySection] = useState<Partial<Record<QuoteSuggestSection, string>>>({})
 
   const [rows, setRows] = useState<OutcomeQuoteRow[]>(existing?.rows ?? [])
+  const [photoIds, setPhotoIds] = useState<string[] | undefined>(Array.isArray(existing?.photo_ids) ? existing.photo_ids : undefined)
   const [areaPricing, setAreaPricing] = useState<AreaPricingRow[]>(() =>
     syncAreaPricing(ad?.areas, existing?.area_pricing),
   )
@@ -579,6 +580,7 @@ export default function QuoteCaptureTab({ job, photos, onJobUpdate, onPhotosUpda
    *  effect and the spoke selector handlers. Payment terms stay job-level (hub). */
   function applyCapture(cap: OutcomeQuoteCapture | undefined) {
     setRows(cap?.rows ?? [])
+    setPhotoIds(Array.isArray(cap?.photo_ids) ? cap.photo_ids : undefined)
     setAreaPricing(syncAreaPricing(job.assessment_data?.areas, cap?.area_pricing))
     setVolumePricing(syncVolumePricing(job.assessment_data?.areas, cap?.volume_pricing))
     setAreaPricingTerms(cap?.area_pricing_terms ?? blankSectionTerms())
@@ -1201,6 +1203,7 @@ export default function QuoteCaptureTab({ job, photos, onJobUpdate, onPhotosUpda
     return {
       mode: 'outcomes',
       quote_kind: quoteKind,
+      ...(photoIds ? { photo_ids: photoIds } : {}),
       rows: promotedRows,
       ...(cleanOutcomesTerms ? { outcomes_section_terms: cleanOutcomesTerms } : {}),
       area_pricing: areaPricing,
@@ -1549,40 +1552,24 @@ export default function QuoteCaptureTab({ job, photos, onJobUpdate, onPhotosUpda
       >
         <div style={{ ...SECTION, marginBottom: 6 }}>Photos</div>
         <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5, margin: '0 0 12px' }}>
-          One upload for this quote. The photos print together at the end of the document.
+          Choose this quote&rsquo;s photos from the job&rsquo;s folder. They print together at the end of the document.
         </p>
-        <PhotoUploadPanel
+        <SelectedPhotos
           jobId={job.id}
+          title="This quote"
+          heading={false}
           photos={photos}
+          ids={photoIds}
+          fallback={quotePhotos}
+          onChange={ids => {
+            setPhotoIds(ids)
+            setSaved(false)
+            setSaveError('')
+          }}
           onPhotosUpdate={onPhotosUpdate}
-          defaultPendingCategory="assessment"
-          allowedCategories={['assessment', 'before']}
-          fixedCapturePhase="assessment"
-          fixedAreaRef={QUOTE_APPENDIX_AREA_REF}
-          compact
+          usedIds={usedPhotoIds(job.assessment_data, photos)}
+          emptyText="No photos on this quote."
         />
-        {quotePhotos.length > 0 && (
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
-              gap: 8,
-              marginTop: 4,
-            }}
-          >
-            {quotePhotos.map(photo => (
-              <PhotoCard
-                key={photo.id}
-                photo={photo}
-                allowedCategories={['assessment', 'before']}
-                showAreaChip={false}
-                hideArea
-                onDelete={id => onPhotosUpdate(photos.filter(p => p.id !== id))}
-                onUpdate={updated => onPhotosUpdate(photos.map(p => (p.id === updated.id ? updated : p)))}
-              />
-            ))}
-          </div>
-        )}
       </div>
 
       {/* ── Pricing approach toggles ───────────────────────────────────────

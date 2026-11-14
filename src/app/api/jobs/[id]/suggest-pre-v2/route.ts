@@ -19,7 +19,7 @@ import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import { getAnthropicApiKey } from '@/lib/loadAnthropicEnvFallback'
 import { mergedSowCapture } from '@/lib/sowCapture'
-import { fetchPhotosForEvidenceSuggest, inferCapturePhaseFromCategory } from '@/lib/photoCapturePhase'
+import { fetchPhotosForEvidenceSuggest, inferCapturePhaseFromCategory, progressEvidencePhotos } from '@/lib/photoCapturePhase'
 import { PRE_PART_DEFS, PRE_PART_KEYS, quoteScopeSummary } from '@/lib/postRemediationEvaluations'
 import { prePartSources, preVerifiedRecords } from '@/lib/preVerifiedRecords'
 import type { AssessmentData, JobType, Photo, PostRemediationEvaluationV2, PrePartKey } from '@/lib/types'
@@ -70,12 +70,6 @@ Respond ONLY with valid JSON (no markdown fences). Shape exactly:
 }
 Include a "parts" entry for every section you were given, keyed by its key. If ONLY_PART is set, return only "parts" for that key and leave the whole-job fields empty.
 Use empty string / empty array when there is nothing defensible from context. Never fabricate to fill a field.`
-
-function isProgressEvidencePhoto(p: Pick<Photo, 'capture_phase' | 'category'>): boolean {
-  if (p.capture_phase === 'progress') return true
-  if (p.capture_phase === 'assessment') return false
-  return p.category === 'during' || p.category === 'after'
-}
 
 function asString(v: unknown): string {
   return typeof v === 'string' ? v : ''
@@ -213,7 +207,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       }
     })
 
-    const photos = (photosRes.data ?? []) as Pick<Photo, 'area_ref' | 'category' | 'caption' | 'capture_phase'>[]
+    const photos = (photosRes.data ?? []) as Pick<Photo, 'id' | 'area_ref' | 'category' | 'caption' | 'capture_phase'>[]
     const sow = mergedSowCapture(ad)
     const sowDocExclusions = asString(asObject(sowRes.data?.[0]?.content).exclusions).replace(/<[^>]+>/g, ' ').trim()
     const wholeJob = {
@@ -240,7 +234,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         room_name: (n.room_name || '').trim(),
         note: (n.note || '').trim(),
       })),
-      progress_photo_metadata: photos.filter(isProgressEvidencePhoto).map(p => ({
+      progress_photo_metadata: progressEvidencePhotos(photos, ad?.areas ?? [], [...(pre.before_photo_ids ?? []), ...(pre.after_photo_ids ?? []), ...(pre.report_images_chosen ? pre.report_image_ids ?? [] : [])]).map(p => ({
         area_ref: (p.area_ref || '').trim() || null,
         caption: (p.caption || '').trim() || null,
         capture_phase: p.capture_phase != null ? p.capture_phase : inferCapturePhaseFromCategory(p.category),

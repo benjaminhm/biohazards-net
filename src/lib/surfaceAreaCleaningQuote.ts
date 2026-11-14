@@ -15,6 +15,7 @@ import {
 } from '@/lib/hygienistServices'
 import { DEFAULT_ENGAGEMENT_AGREEMENT, storedEngagementAgreement } from '@/lib/quoteEngagement'
 import { emptyJobOnlyClauses, normalizeJobOnlyClauses, withJobOnlyLines, type JobOnlyClauses } from '@/lib/quoteJobClauses'
+import { normalizePhotoIds, type PhotoIdsField } from '@/lib/photoIds'
 
 export const SURFACE_AREA_CLIENT_TITLES = [
   { id: 'surface', title: 'Surface Area Cleaning' },
@@ -109,7 +110,7 @@ export interface SurfaceAreaOtherLine {
   price: number | null
 }
 
-export interface SurfaceAreaCleaningCapture extends HygienistServices, JobOnlyClauses {
+export interface SurfaceAreaCleaningCapture extends HygienistServices, JobOnlyClauses, PhotoIdsField {
   cleaning_kind: SurfaceAreaCleaningKind
   /** Printed when the title is Custom. */
   custom_title: string
@@ -165,7 +166,7 @@ export interface SurfaceAreaCleaningFigures {
   total: number
 }
 
-export interface SurfaceAreaCleaningQuoteContent {
+export interface SurfaceAreaCleaningQuoteContent extends PhotoIdsField {
   title: string
   reference: string
   client_name: string
@@ -391,6 +392,7 @@ export function normalizeSurfaceAreaCleaningCapture(raw: unknown): SurfaceAreaCl
     other_lines: otherLines,
     ...normalizeHygienistServices(o, qty),
     ...normalizeJobOnlyClauses(o),
+    ...normalizePhotoIds(o),
   }
 }
 
@@ -564,6 +566,7 @@ export function surfaceAreaCleaningQuoteContent(input: {
     exclusions.push('The ceiling.')
   }
   return {
+    ...normalizePhotoIds(capture as unknown as Record<string, unknown>),
     title: surfaceAreaCleaningDocumentTitle(capture.cleaning_kind, capture.custom_title, capture.title_addition),
     reference: input.reference,
     client_name: input.clientName.trim(),

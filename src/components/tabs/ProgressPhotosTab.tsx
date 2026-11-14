@@ -1,15 +1,16 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
-import PhotoUploadPanel from '@/components/PhotoUploadPanel'
-import PhotoCard from '@/components/PhotoCard'
-import { AREA_ROOM_TYPES } from '@/lib/areaRoomTypes'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import SelectedPhotos from '@/components/SelectedPhotos'
+import { usedPhotoIds } from '@/lib/photoSelection'
+import { mergeAssessmentData } from '@/lib/riskDerivation'
 import type { Job, Photo, ProgressRoomNote } from '@/lib/types'
 
 interface Props {
   job: Job
   photos: Photo[]
   onPhotosUpdate: (photos: Photo[]) => void
+  onJobUpdate?: (job: Job) => void
 }
 
 function isProgressPhoto(photo: Photo): boolean {
@@ -19,7 +20,31 @@ function isProgressPhoto(photo: Photo): boolean {
   return photo.category === 'during' || photo.category === 'after'
 }
 
-export default function ProgressPhotosTab({ job, photos, onPhotosUpdate }: Props) {
+export default function ProgressPhotosTab({ job, photos, onPhotosUpdate, onJobUpdate }: Props) {
+  const jobRef = useRef(job)
+  jobRef.current = job
+  const usedIds = useMemo(() => usedPhotoIds(job.assessment_data, photos), [job.assessment_data, photos])
+  const areaFor = (room: string) => (job.assessment_data?.areas ?? []).find(a => (a.name || '').trim() === room)
+
+  /** Progress photos save straight away, onto the room's area (added if the room only came from photos). */
+  async function saveRoomPhotos(room: string, field: 'during_photo_ids' | 'after_photo_ids', ids: string[]) {
+    const current = jobRef.current
+    const base = mergeAssessmentData(current.assessment_data)
+    const areas = [...(base.areas ?? [])]
+    const index = areas.findIndex(a => (a.name || '').trim() === room)
+    if (index >= 0) areas[index] = { ...areas[index], [field]: ids }
+    else areas.push({ name: room, sqm: 0, hazard_level: 1, description: '', [field]: ids })
+    const res = await fetch(`/api/jobs/${current.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ assessment_data: { ...base, areas } }),
+    })
+    const data = (await res.json()) as { job?: Job; error?: string }
+    if (!res.ok || !data.job) throw new Error(data.error ?? 'Could not save the photos')
+    jobRef.current = data.job
+    onJobUpdate?.(data.job)
+  }
+
   const [notesByRoom, setNotesByRoom] = useState<Record<string, ProgressRoomNote>>({})
   const [draftByRoom, setDraftByRoom] = useState<Record<string, string>>({})
   const [savingRoom, setSavingRoom] = useState<string | null>(null)
@@ -118,8 +143,8 @@ export default function ProgressPhotosTab({ job, photos, onPhotosUpdate }: Props
     <div style={{ paddingBottom: 40 }}>
       <div className="card" style={{ marginBottom: 16, borderStyle: 'dashed' }}>
         <div style={{ color: 'var(--text-muted)', lineHeight: 1.5, fontSize: 13 }}>
-          Progress capture is isolated to <strong>During</strong> and <strong>After</strong>. These photos are tagged as
-          <strong> Progress</strong> phase and are used by completion reporting workflows.
+          Choose each room&rsquo;s <strong>During</strong> and <strong>After</strong> photos from the job&rsquo;s folder. They feed
+          the completion report. Photos taken or uploaded here also go into the folder.
         </div>
       </div>
       {notesError && (
@@ -135,39 +160,25 @@ export default function ProgressPhotosTab({ job, photos, onPhotosUpdate }: Props
               <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{room}</div>
             </div>
 
-            <PhotoUploadPanel
-              jobId={job.id}
-              fixedAreaRef={room}
-              photos={photos}
-              onPhotosUpdate={onPhotosUpdate}
-              defaultPendingCategory="during"
-              allowedCategories={['during', 'after']}
-              fixedCapturePhase="progress"
-              compact
-            />
-
-            {roomPhotos.length > 0 && (
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
-                  gap: 10,
-                  marginBottom: 4,
-                }}
-              >
-                {roomPhotos.map(photo => (
-                  <PhotoCard
-                    key={photo.id}
-                    photo={photo}
-                    areaNames={[...AREA_ROOM_TYPES, ...rooms]}
-                    allowedCategories={['during', 'after']}
-                    showAreaChip={false}
-                    onDelete={id => onPhotosUpdate(photos.filter(p => p.id !== id))}
-                    onUpdate={updated => onPhotosUpdate(photos.map(p => (p.id === updated.id ? updated : p)))}
+            {(['during', 'after'] as const).map(stage => {
+              const area = areaFor(room)
+              const field = stage === 'during' ? 'during_photo_ids' : 'after_photo_ids'
+              return (
+                <div key={stage} style={{ marginBottom: 14 }}>
+                  <SelectedPhotos
+                    jobId={job.id}
+                    title={`${stage === 'during' ? 'During' : 'After'} · ${room}`}
+                    photos={photos}
+                    ids={area?.[field]}
+                    fallback={roomPhotos.filter(p => p.category === stage)}
+                    onChange={ids => saveRoomPhotos(room, field, ids)}
+                    onPhotosUpdate={onPhotosUpdate}
+                    usedIds={usedIds}
+                    emptyText={stage === 'during' ? 'No during photos.' : 'No after photos.'}
                   />
-                ))}
-              </div>
-            )}
+                </div>
+              )
+            })}
 
             <div style={{ marginTop: 10 }}>
               <label style={{ fontSize: 11, color: 'var(--text-muted)' }}>Progress Room Note</label>

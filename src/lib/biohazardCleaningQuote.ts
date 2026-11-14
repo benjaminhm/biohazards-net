@@ -9,6 +9,7 @@
 import type { Job, JobType } from '@/lib/types'
 import { DEFAULT_ENGAGEMENT_AGREEMENT, storedEngagementAgreement } from '@/lib/quoteEngagement'
 import { emptyJobOnlyClauses, normalizeJobOnlyClauses, withJobOnlyLines, type JobOnlyClauses } from '@/lib/quoteJobClauses'
+import { normalizePhotoIds, type PhotoIdsField } from '@/lib/photoIds'
 import { mergedSowCapture } from '@/lib/sowCapture'
 import { labourClausesAsFixedAmount } from '@/lib/fixedCharges'
 import {
@@ -209,7 +210,7 @@ export interface BiohazardExtraLine {
   rate: number | null
 }
 
-export interface BiohazardCleaningCapture extends JobOnlyClauses {
+export interface BiohazardCleaningCapture extends JobOnlyClauses, PhotoIdsField {
   /** Null follows the job type. */
   cleaning_kind: BiohazardCleaningKind | null
   /** Null follows the assessment, then the job type. Joined, they fill [biohazard type]. */
@@ -340,7 +341,7 @@ export interface BiohazardCleaningFigures {
   total: number
 }
 
-export interface BiohazardCleaningQuoteContent {
+export interface BiohazardCleaningQuoteContent extends PhotoIdsField {
   title: string
   reference: string
   client_name: string
@@ -793,6 +794,7 @@ export function normalizeBiohazardCleaningCapture(raw: unknown): BiohazardCleani
         }
       : null,
     ...normalizeJobOnlyClauses(o),
+    ...normalizePhotoIds(o),
   }
 }
 
@@ -1169,6 +1171,7 @@ export function biohazardCleaningQuoteContent(input: {
   const jobAddress = (capture.job_address ?? input.siteAddress).trim().replace(/[,\s]+$/g, '')
   const hasTests = figures.lines.some(line => line.kind === 'atp' || line.kind === 'lab')
   return {
+    ...normalizePhotoIds(capture as unknown as Record<string, unknown>),
     title: biohazardCleaningDocumentTitle(resolvedBiohazardKind(capture, defaults.jobType)),
     reference: input.reference,
     client_name: input.clientName.trim(),

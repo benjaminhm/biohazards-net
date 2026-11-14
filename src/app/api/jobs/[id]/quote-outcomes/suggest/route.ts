@@ -273,11 +273,19 @@ interface SuggestPhotoRow {
 const FAST_QUOTE_AREA_REF = 'Fast Quote'
 const MAX_SUGGEST_IMAGES = 8
 
-/** Prefer Fast Quote photos, then other assessment-stage photos, then "before" photos.
- *  Drop anything the staff has marked as excluded from composed reports. */
-function pickPhotosForVision(rows: SuggestPhotoRow[]): SuggestPhotoRow[] {
+/** Photos staff chose for Fast Quote and the survey areas come first, in their order.
+ *  Then the old rule: Fast Quote photos, assessment, then "before", skipping any marked
+ *  as excluded from composed reports. */
+function pickPhotosForVision(rows: SuggestPhotoRow[], ad: AssessmentData | null | undefined): SuggestPhotoRow[] {
+  const byId = new Map(rows.map(p => [p.id, p]))
+  const chosenIds = [
+    ...(ad?.fast_quote?.photo_ids ?? []),
+    ...(ad?.areas ?? []).flatMap(a => a.photo_ids ?? []),
+  ]
+  const chosen = [...new Set(chosenIds)].flatMap(id => byId.get(id) ?? [])
+  const taken = new Set(chosen.map(p => p.id))
   const eligible = rows.filter(p => {
-    if (p.include_in_composed_reports === false) return false
+    if (taken.has(p.id) || p.include_in_composed_reports === false) return false
     return p.category === 'assessment' || p.category === 'before'
   })
   const score = (p: SuggestPhotoRow): number => {
@@ -285,13 +293,12 @@ function pickPhotosForVision(rows: SuggestPhotoRow[]): SuggestPhotoRow[] {
     if (p.category === 'assessment') return 1
     return 2
   }
-  return [...eligible]
-    .sort((a, b) => {
-      const s = score(a) - score(b)
-      if (s !== 0) return s
-      return b.uploaded_at.localeCompare(a.uploaded_at)
-    })
-    .slice(0, MAX_SUGGEST_IMAGES)
+  const rest = [...eligible].sort((a, b) => {
+    const s = score(a) - score(b)
+    if (s !== 0) return s
+    return b.uploaded_at.localeCompare(a.uploaded_at)
+  })
+  return [...chosen, ...rest].slice(0, MAX_SUGGEST_IMAGES)
 }
 
 const VALID_KINDS: OutcomeKind[] = ['mobilisation', 'project_mgmt', 'surcharge', 'fixed_scope', 'other']
@@ -523,7 +530,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
     type TextBlock = { type: 'text'; text: string }
 
-    const visionPicks = pickPhotosForVision(photoRows)
+    const visionPicks = pickPhotosForVision(photoRows, ad)
     const fetched = await Promise.all(visionPicks.map(p => fetchImageBase64(p.file_url)))
     const imageBlocks: ImageBlock[] = []
     const imageRefLines: string[] = []

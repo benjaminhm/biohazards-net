@@ -46,7 +46,8 @@ import {
   sectionHeading,
   textInput,
 } from '@/components/tabs/PostRemediationEvaluationTab'
-import PreReportPhotoLoader from '@/components/tabs/PreReportPhotoLoader'
+import SelectedPhotos from '@/components/SelectedPhotos'
+import { usedPhotoIds } from '@/lib/photoSelection'
 
 interface Props {
   job: Job
@@ -56,7 +57,7 @@ interface Props {
   onPhotosUpdate: (photos: Photo[]) => void
 }
 
-type PhotoIdsField = 'report_image_ids' | 'before_photo_ids' | 'after_photo_ids'
+type PhotoIdsField = 'report_image_ids' | 'report_images_chosen' | 'before_photo_ids' | 'after_photo_ids'
 
 type PartDraft = Pick<PrePart, 'works_rows' | 'methodology' | 'products_rows' | 'waste' | 'outcome_verification'>
 
@@ -285,6 +286,7 @@ export default function PostRemediationEvaluationV2Tab({ job, photos, documents,
   )
   const records = useMemo(() => preVerifiedRecords(job.assessment_data), [job.assessment_data])
   const sources = useMemo(() => prePartSources(job.assessment_data, records), [job.assessment_data, records])
+  const usedIds = useMemo(() => usedPhotoIds(job.assessment_data, photos), [job.assessment_data, photos])
 
   const [pre, setPre] = useState<PostRemediationEvaluationV2 | null>(null)
   const [persistedSnapshot, setPersistedSnapshot] = useState('')
@@ -666,21 +668,24 @@ export default function PostRemediationEvaluationV2Tab({ job, photos, documents,
       <div style={{ ...card, marginTop: 24 }}>
         <span style={{ fontSize: 16, fontWeight: 700 }}>Before &amp; after photos</span>
         <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '6px 0 0', lineHeight: 1.5 }}>
-          Printed as Before Remediation and After Remediation, after the sections above, in the order shown here. Uploads
-          are saved to the job&apos;s photos. Choosing any photos here replaces the Images section at the end of the report.
+          Printed as Before Remediation and After Remediation, after the sections above, in the order shown here. Photos
+          taken or uploaded here also go into the job&apos;s folder. Choosing any photos here replaces the Images section at the end of the report.
         </p>
         {(['before', 'after'] as const).map(stage => {
           const field = stage === 'before' ? 'before_photo_ids' : 'after_photo_ids'
           return (
-            <PreReportPhotoLoader
-              key={stage}
-              jobId={job.id}
-              stage={stage}
-              photos={photos}
-              ids={pre[field]}
-              onChange={ids => persistPhotoIds({ [field]: ids.length ? ids : undefined })}
-              onPhotosUpdate={onPhotosUpdate}
-            />
+            <div key={stage} style={{ marginTop: 16 }}>
+              <SelectedPhotos
+                jobId={job.id}
+                title={stage === 'before' ? 'Before remediation' : 'After remediation'}
+                photos={photos}
+                ids={pre[field] ?? []}
+                onChange={ids => persistPhotoIds({ [field]: ids.length ? ids : undefined })}
+                onPhotosUpdate={onPhotosUpdate}
+                usedIds={usedIds}
+                emptyText="No photos chosen. This section is left out."
+              />
+            </div>
           )
         })}
       </div>
@@ -710,8 +715,9 @@ export default function PostRemediationEvaluationV2Tab({ job, photos, documents,
           jobId={job.id}
           photos={photos}
           orderedIds={pre.report_image_ids}
+          chosen={pre.report_images_chosen}
           onPhotosUpdate={onPhotosUpdate}
-          onReorder={ids => persistPhotoIds({ report_image_ids: ids })}
+          onSelect={ids => persistPhotoIds({ report_image_ids: ids, report_images_chosen: true })}
         />
       )}
 

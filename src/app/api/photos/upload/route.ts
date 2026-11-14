@@ -48,7 +48,7 @@ export async function POST(req: Request) {
 
     const caption = String(form.get('caption') ?? '')
     const area_ref = String(form.get('area_ref') ?? '')
-    const categoryRaw = String(form.get('category') ?? 'assessment')
+    const categoryRaw = String(form.get('category') ?? 'untagged')
     const capturePhaseRaw = String(form.get('capture_phase') ?? 'assessment')
 
     const supabase = createServiceClient()
@@ -92,7 +92,7 @@ export async function POST(req: Request) {
 
     const nextCategory = (PHOTO_CATEGORIES as readonly string[]).includes(categoryRaw)
       ? categoryRaw
-      : 'before'
+      : 'untagged'
     const nextPhase = nextCategory === 'untagged'
       ? 'assessment'
       : (PHOTO_PHASES as readonly string[]).includes(capturePhaseRaw)

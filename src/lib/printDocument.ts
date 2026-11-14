@@ -46,10 +46,11 @@ import type { HouseSurveyDocumentContent, SurveySketch } from './houseSurvey'
 import type { BiohazardRecordSummary } from './biohazardCleaningRecord'
 import { fixedCharges, labourDaysText, recordSummary, type FixedCharges, type RecordSummary } from '@/lib/fixedCharges'
 import { filterGroupedStages, groupPhotosByRoomAndStage, isContentsClearanceAppendixPhoto, isDocumentAppendixPhoto, isQuoteAppendixPhoto, isSurfaceAreaAppendixPhoto, type RoomPhotoGroup } from './photoGroups'
-import { photosForComposedReports } from '@/lib/photosForComposedReports'
+import { chosenPhotoIds, photosForComposedReports } from '@/lib/photosForComposedReports'
 import { docketStatusLabel, dimensionTrioToMetres, formatAud, formatDistanceLegs, formatKg, formatM3 } from '@/lib/disposalManifest'
 import { formatLongDate } from '@/lib/paymentOverdue'
-import { orderReportAppendixPhotos } from '@/lib/postRemediationEvaluations'
+import { preReportImages } from '@/lib/postRemediationEvaluations'
+import { photosFor } from '@/lib/photoSelection'
 import { isPdfUrl } from '@/lib/pdfDocket'
 import { SURFACE_LABELS } from '@/lib/areaSurfaces'
 import { effectiveAreaDimensions } from '@/lib/areaSubzones'
@@ -1516,8 +1517,8 @@ function buildAreasDimensionsHTML(areas: Area[], heading = 'Areas & Dimensions')
   `
 }
 
-function quoteAppendixHtml(photos: Photo[]): string {
-  const pics = photos.filter(isQuoteAppendixPhoto)
+function quoteAppendixHtml(photos: Photo[], ids?: string[]): string {
+  const pics = photosFor(ids, photos, list => list.filter(isQuoteAppendixPhoto))
   if (!pics.length) return ''
   return `
     <div class="label" style="margin-top:22px">Photos</div>
@@ -2517,7 +2518,7 @@ function buildQuoteMid(
       `
     })()}
     ${c.include_photos !== false ? roomPhotoSections(groups, 'Site Condition Photos', ['assessment', 'before']) : ''}
-    ${c.include_photos !== false ? quoteAppendixHtml(photos) : ''}
+    ${c.include_photos !== false ? quoteAppendixHtml(photos, c.photo_ids) : ''}
     ${quoteAcceptPanel(client)}
   `
 }
@@ -2802,8 +2803,8 @@ function prePhotoGrid(photos: Photo[]): string {
   return `<div class="photos-grid" style="margin-top:8px">${cards}</div>`
 }
 
-function preCompletionPhotoAppendix(photos: Photo[], orderedIds?: string[]): string {
-  const progress = orderReportAppendixPhotos(photos, orderedIds)
+function preCompletionPhotoAppendix(photos: Photo[], orderedIds?: string[], chosen?: boolean): string {
+  const progress = preReportImages(photos, orderedIds, chosen)
   if (!progress.length) return ''
   return `
     <div class="label" style="margin-top:22px;color:#0a1f44">Photo Documentation</div>
@@ -2884,7 +2885,7 @@ function buildCompletionReportMid(c: PostRemediationEvaluationContent, photos: P
     ${c.compliance ? `${navyHeading('09', 'Compliance')}${preProseBlock(c.compliance)}` : ''}
     ${c.limitations ? `${navyHeading('—', 'Limitations & Scope Notice')}${preProseBlock(c.limitations)}` : ''}
     ${c.technician_signoff ? `<div class="label" style="margin-top:22px;color:#0a1f44">Sign-off</div><div class="body-text">${esc(c.technician_signoff)}</div>` : ''}
-    ${c.include_photos !== false ? preCompletionPhotoAppendix(photos, c.report_image_ids) : ''}
+    ${c.include_photos !== false ? preCompletionPhotoAppendix(photos, c.report_image_ids, c.report_images_chosen) : ''}
   `
 }
 
@@ -2925,7 +2926,7 @@ function buildPartsReportMid(c: PostRemediationEvaluationContent, photos: Photo[
     ${o.compliance ? `${preNavyHeading(o.compliance, 'Compliance')}${preProseBlock(c.compliance)}` : ''}
     ${o.limitations ? `${preNavyHeading(o.limitations, 'Limitations & Scope Notice')}${preProseBlock(c.limitations)}` : ''}
     ${c.technician_signoff ? `<div class="label" style="margin-top:22px;color:#0a1f44">Sign-off</div><div class="body-text">${esc(c.technician_signoff)}</div>` : ''}
-    ${c.include_photos !== false && !preHasBeforeAfterSelection(c) ? preCompletionPhotoAppendix(photos, c.report_image_ids) : ''}
+    ${c.include_photos !== false && !preHasBeforeAfterSelection(c) ? preCompletionPhotoAppendix(photos, c.report_image_ids, c.report_images_chosen) : ''}
   `
 }
 
@@ -3952,11 +3953,13 @@ function clearanceList(label: string, items: string[]): string {
   return `<div class="label" style="margin-top:18px">${label}</div><ul class="body-text">${rows.map(item => `<li>${esc(item)}</li>`).join('')}</ul>`
 }
 
+/** The quote's chosen photos, or (saved before it chose any) the photos loaded on it. */
 function clearanceAppendixHtml(
   photos: Photo[],
   include: (photo: { area_ref?: string | null }) => boolean = isContentsClearanceAppendixPhoto,
+  ids?: string[],
 ): string {
-  const pics = photos.filter(include)
+  const pics = photosFor(ids, photos, list => list.filter(include))
   if (!pics.length) return ''
   return `
     <div class="label" style="margin-top:22px">Photos</div>
@@ -4056,7 +4059,7 @@ function buildContentsClearanceMid(
     }))}
     ${section('Authority', c.authority)}
     ${section('Acceptance', c.acceptance)}
-    ${clearanceAppendixHtml(photos)}
+    ${clearanceAppendixHtml(photos, isContentsClearanceAppendixPhoto, c.photo_ids)}
   `
 }
 
@@ -4138,7 +4141,7 @@ function buildSurfaceAreaCleaningMid(
       <div class="tot-row"><span>GST (10%)</span><span class="amt">${fmtMoney(c.gst)}</span></div>
       <div class="tot-row grand"><span>TOTAL (INC GST)</span><span class="amt">${fmtMoney(c.total)}</span></div>
     </div>
-    ${clearanceAppendixHtml(photos, isSurfaceAreaAppendixPhoto)}
+    ${clearanceAppendixHtml(photos, isSurfaceAreaAppendixPhoto, c.photo_ids)}
     ${clearanceList('Inclusions', c.inclusions ?? [])}
     ${clearanceList('Exclusions', c.exclusions ?? [])}
     ${clearanceList('Assumptions', c.assumptions ?? [])}
@@ -4195,6 +4198,7 @@ function buildBiohazardCleaningMid(
   c: BiohazardCleaningQuoteContent,
   company: CompanyProfile | null = null,
   client?: ClientInfo,
+  photos: Photo[] = [],
 ): string {
   const address = tidyBiohazardAddress(c.job_address || c.site_address)
   const kind = biohazardClientKind({
@@ -4339,6 +4343,7 @@ function buildBiohazardCleaningMid(
     ${clearanceList('Assumptions', clauses.assumptions.map(tidyBiohazardPrintText))}
     ${section('Payment terms', c.terms)}
     ${section('Engagement agreement', engagement)}
+    ${clearanceAppendixHtml(photos, () => false, c.photo_ids)}
     <div class="bcq-sign">
       ${section('Authority', c.authority)}
       ${section('Acceptance', c.acceptance)}
@@ -4351,8 +4356,9 @@ function buildBiohazardCleaningHTML(
   company: CompanyProfile | null,
   client: ClientInfo | undefined,
   screenActionBar: boolean,
+  photos: Photo[] = [],
 ): string {
-  const mid = buildBiohazardCleaningMid(c, company, client)
+  const mid = buildBiohazardCleaningMid(c, company, client, photos)
   const title = clearancePrintTitle(c.title) || 'Biohazard Cleaning'
   const clientLine = formatBcqClientLine({
     clientName: c.client_name || client?.client_name,
@@ -4454,7 +4460,7 @@ export function buildPrintMidHTML(
     case 'surface_area_cleaning_quote':
       return buildSurfaceAreaCleaningMid(c as unknown as SurfaceAreaCleaningQuoteContent, company, client, photos)
     case 'biohazard_cleaning_quote':
-      return buildBiohazardCleaningMid(c as unknown as BiohazardCleaningQuoteContent, company, client)
+      return buildBiohazardCleaningMid(c as unknown as BiohazardCleaningQuoteContent, company, client, photos)
     case 'company_letterhead':
       return buildCompanyLetterheadMid(c as unknown as CompanyLetterheadContent)
     default:
@@ -4537,7 +4543,7 @@ export function buildPrintHTML(
 ): string {
   const c = content as Record<string, unknown>
   const allPhotos = photos
-  photos = photosForComposedReports(photos)
+  photos = photosForComposedReports(photos, chosenPhotoIds(c, areas))
   const groups = groupPhotosByRoomAndStage(photos, areas)
   const screenActionBar = options?.screenActionBar !== false
   switch (type) {
@@ -4563,7 +4569,7 @@ export function buildPrintHTML(
     case 'assessment_document':        return buildAssessmentDocumentHTML(c as unknown as AssessmentDocumentContent, company, client, areas, photos, groups, screenActionBar)
     case 'contents_clearance_quote':   return buildContentsClearanceHTML(c as unknown as ContentsClearanceQuoteContent, photos, company, client, screenActionBar)
     case 'surface_area_cleaning_quote': return buildSurfaceAreaCleaningHTML(c as unknown as SurfaceAreaCleaningQuoteContent, company, client, screenActionBar, photos)
-    case 'biohazard_cleaning_quote':    return buildBiohazardCleaningHTML(c as unknown as BiohazardCleaningQuoteContent, company, client, screenActionBar)
+    case 'biohazard_cleaning_quote':    return buildBiohazardCleaningHTML(c as unknown as BiohazardCleaningQuoteContent, company, client, screenActionBar, photos)
     case 'company_letterhead':          return buildCompanyLetterheadHTML(c as unknown as CompanyLetterheadContent, company, client, screenActionBar)
     case 'iaq_multi': {
       const partsRaw = c.parts

@@ -16,7 +16,7 @@ import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import { getAnthropicApiKey } from '@/lib/loadAnthropicEnvFallback'
 import { mergedSowCapture } from '@/lib/sowCapture'
-import { fetchPhotosForEvidenceSuggest, inferCapturePhaseFromCategory } from '@/lib/photoCapturePhase'
+import { fetchPhotosForEvidenceSuggest, inferCapturePhaseFromCategory, progressEvidencePhotos } from '@/lib/photoCapturePhase'
 import { quoteScopeSummary, resolveQuotedLineContext } from '@/lib/postRemediationEvaluations'
 import type { AssessmentData, JobType, Photo, PostRemediationEvaluation, QuoteContent } from '@/lib/types'
 
@@ -62,12 +62,6 @@ Field intent:
 - limitations: prose — scope boundary restated from the linked quote, unaccessed/uncleaned areas and why, explicit exclusions, and a testing/lab disclaimer.
 
 Use empty string / empty array when there is truly nothing defensible from context. Never fabricate to fill a field.`
-
-function isProgressEvidencePhoto(p: Pick<Photo, 'capture_phase' | 'category'>): boolean {
-  if (p.capture_phase === 'progress') return true
-  if (p.capture_phase === 'assessment') return false
-  return p.category === 'during' || p.category === 'after'
-}
 
 function asString(v: unknown): string {
   return typeof v === 'string' ? v : ''
@@ -210,8 +204,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         .order('room_name', { ascending: true }),
     ])
 
-    const photos = (photosRes.data ?? []) as Pick<Photo, 'area_ref' | 'category' | 'caption' | 'capture_phase'>[]
-    const progressPhotos = photos.filter(isProgressEvidencePhoto).map(p => ({
+    const photos = (photosRes.data ?? []) as Pick<Photo, 'id' | 'area_ref' | 'category' | 'caption' | 'capture_phase'>[]
+    const progressPhotos = progressEvidencePhotos(photos, ad?.areas ?? [], pre?.report_images_chosen ? pre.report_image_ids ?? [] : []).map(p => ({
       area_ref: (p.area_ref || '').trim() || null,
       category: p.category,
       caption: (p.caption || '').trim() || null,

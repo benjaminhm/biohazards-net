@@ -626,6 +626,7 @@ function composeQuote(job: Job, quoteId?: string): ComposeDocumentResult {
     payment_terms: ad?.payment_terms ?? '',
     validity: cap?.validity || '30 days from date of issue',
     include_photos: true,
+    ...(Array.isArray(cap?.photo_ids) ? { photo_ids: cap.photo_ids } : {}),
     completed_by: '',
     authorisation: auth ? {
       access_details: auth.access_details,
@@ -853,6 +854,7 @@ function composePre(
     unsigned_copy: pre.unsigned_copy === true,
     include_photos: true,
     report_image_ids: pre.report_image_ids?.length ? pre.report_image_ids : undefined,
+    ...(pre.report_images_chosen ? { report_images_chosen: true } : {}),
   }
   return { content: { ...c }, source: 'assessment_capture' }
 }
@@ -881,6 +883,7 @@ export function composePreV2(job: Job, pre: PostRemediationEvaluationV2): Compos
     unsigned_copy: pre.unsigned_copy === true,
     include_photos: true,
     report_image_ids: pre.report_image_ids?.length ? pre.report_image_ids : undefined,
+    ...(pre.report_images_chosen ? { report_images_chosen: true } : {}),
     before_photo_ids: pre.before_photo_ids?.length ? pre.before_photo_ids : undefined,
     after_photo_ids: pre.after_photo_ids?.length ? pre.after_photo_ids : undefined,
   }

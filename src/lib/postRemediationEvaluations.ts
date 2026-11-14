@@ -289,6 +289,13 @@ export function orderReportAppendixPhotos(photos: Photo[], orderedIds?: string[]
   return insertPhotosByTimeTaken(ordered, byCreated.filter(photo => !seen.has(photo.id)))
 }
 
+/** The report's images: exactly the chosen photos once staff chose them, otherwise the progress photos. */
+export function preReportImages(photos: Photo[], ids?: string[] | null, chosen?: boolean): Photo[] {
+  if (!chosen) return orderReportAppendixPhotos(photos, ids)
+  const byId = new Map(photos.map(p => [p.id, p]))
+  return [...new Set(ids ?? [])].map(id => byId.get(id)).filter((p): p is Photo => !!p)
+}
+
 /** True when a PRE carries any v2 completion-report section content, i.e. it
  *  should render with the 9-section completion-report layout (not legacy). */
 export function preHasV2Content(pre: PostRemediationEvaluation): boolean {

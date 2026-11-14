@@ -127,7 +127,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
     const nextCategory = (typeof body.category === 'string' && (PHOTO_CATEGORIES as readonly string[]).includes(body.category))
       ? body.category
-      : 'during'
+      : 'untagged'
     const nextPhase = nextCategory === 'untagged'
       ? 'assessment'
       : (typeof body.capture_phase === 'string' && (PHOTO_PHASES as readonly string[]).includes(body.capture_phase))

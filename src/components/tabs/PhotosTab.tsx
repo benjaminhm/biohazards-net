@@ -1,19 +1,18 @@
 /*
  * components/tabs/PhotosTab.tsx
  *
- * The Photos tab on the job detail page: browse, filter, and edit existing photos
- * (category, area, caption) and sync room notes with assessment_data.
- *
- * Uploading new photos happens on the Assessment tab inside each area card
- * (camera / gallery) so capture is tied to the room being documented.
+ * The job's photo folder: every photo loaded to the job, newest first, with
+ * when / where / who. Photos carry no stage tags; each document chooses its
+ * own photos from this folder. Room notes stay here and sync with assessment_data.
  *
  * Deletion sends DELETE /api/photos/[id] which also removes the Storage object.
  */
 'use client'
 
 import { useMemo, useState, useEffect } from 'react'
-import type { Photo, PhotoCategory, AssessmentData } from '@/lib/types'
+import type { Photo, AssessmentData } from '@/lib/types'
 import PhotoCard from '@/components/PhotoCard'
+import { usedPhotoIds } from '@/lib/photoSelection'
 
 interface Props {
   jobId: string
@@ -23,29 +22,22 @@ interface Props {
   onPhotosUpdate: (photos: Photo[]) => void
 }
 
-const CATEGORIES: { value: PhotoCategory; label: string; color: string }[] = [
-  { value: 'before',     label: 'Before',     color: '#F87171' },
-  { value: 'assessment', label: 'Assessment', color: '#60A5FA' },
-  { value: 'during',     label: 'During',     color: '#FBBF24' },
-  { value: 'after',      label: 'After',      color: '#4ADE80' },
-  { value: 'untagged',   label: 'Untagged',   color: '#9CA3AF' },
-]
+type Filter = 'all' | 'used' | 'unused' | 'disposal'
 
-const CATEGORY_COLORS: Record<PhotoCategory, string> = {
-  before: '#F87171', during: '#FBBF24', after: '#4ADE80', assessment: '#60A5FA', untagged: '#9CA3AF',
+function newestFirst(a: Photo, b: Photo): number {
+  const t = (p: Photo) => Date.parse(p.taken_at || p.uploaded_at) || 0
+  return t(b) - t(a)
 }
 
-// ─── Main component ────────────────────────────────────────────────────────────
 export default function PhotosTab({ jobId, photos, assessmentData = null, onAssessmentDataUpdate, onPhotosUpdate }: Props) {
-  const [filter, setFilter] = useState<PhotoCategory | 'all'>('all')
-  const [viewMode, setViewMode] = useState<'category' | 'room'>('category')
-  const [roomFilter, setRoomFilter] = useState<string>('all')
+  const [filter, setFilter] = useState<Filter>('all')
   const [roomNotesDraft, setRoomNotesDraft] = useState<Record<string, string>>({})
   const [savingRoom, setSavingRoom] = useState<string | null>(null)
   const areaNames = useMemo(
     () => (assessmentData?.areas ?? []).map(a => (a.name || '').trim()).filter(Boolean),
     [assessmentData]
   )
+  const used = useMemo(() => usedPhotoIds(assessmentData, photos), [assessmentData, photos])
 
   useEffect(() => {
     const next: Record<string, string> = {}
@@ -58,21 +50,12 @@ export default function PhotosTab({ jobId, photos, assessmentData = null, onAsse
 
   async function saveRoomNote(areaName: string) {
     const trimmed = areaName.trim()
-    if (!trimmed) return
-    if (!assessmentData) {
-      window.alert('Add assessment areas first, then room notes can sync here.')
-      return
-    }
+    if (!trimmed || !assessmentData) return
     setSavingRoom(trimmed)
     try {
-      const existing = assessmentData.areas ?? []
       const note = roomNotesDraft[trimmed] ?? ''
-      const idx = existing.findIndex(a => (a.name || '').trim() === trimmed)
-      const nextAreas = [...existing]
-      if (idx >= 0) nextAreas[idx] = { ...nextAreas[idx], note }
-      else nextAreas.push({ name: trimmed, sqm: 0, hazard_level: 1, description: '', note })
+      const nextAreas = (assessmentData.areas ?? []).map(a => ((a.name || '').trim() === trimmed ? { ...a, note } : a))
       const nextAssessment: AssessmentData = { ...assessmentData, areas: nextAreas }
-
       const res = await fetch(`/api/jobs/${jobId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -88,201 +71,96 @@ export default function PhotosTab({ jobId, photos, assessmentData = null, onAsse
     }
   }
 
-  const filtered = filter === 'all' ? photos : photos.filter(p => p.category === filter)
-  const roomGroups = useMemo(() => {
-    const map = new Map<string, Photo[]>()
-    for (const p of photos) {
-      const key = (p.area_ref || '').trim() || 'Unassigned Area'
-      if (!map.has(key)) map.set(key, [])
-      map.get(key)!.push(p)
-    }
-    for (const name of areaNames) {
-      if (!map.has(name)) map.set(name, [])
-    }
-    return Array.from(map.entries()).map(([name, roomPhotos]) => {
-      const staged = {
-        assessment: roomPhotos.filter(p => p.category === 'assessment'),
-        before: roomPhotos.filter(p => p.category === 'before'),
-        during: roomPhotos.filter(p => p.category === 'during'),
-        after: roomPhotos.filter(p => p.category === 'after'),
-        untagged: roomPhotos.filter(p => p.category === 'untagged'),
-      }
-      return { name, note: roomNotesDraft[name] ?? '', photos: roomPhotos, stages: staged }
-    })
-  }, [photos, areaNames, roomNotesDraft])
-  const roomTabs = useMemo(() => {
-    const names = new Set<string>(areaNames)
-    for (const p of photos) {
-      const key = (p.area_ref || '').trim()
-      if (key) names.add(key)
-    }
-    const ordered = Array.from(names.values())
-    const hasUnassigned = photos.some(p => !(p.area_ref || '').trim())
-    if (hasUnassigned) ordered.push('Unassigned Area')
-    return ['all', ...ordered]
-  }, [areaNames, photos])
-  const filteredRoomGroups = roomFilter === 'all'
-    ? roomGroups
-    : roomGroups.filter(group => group.name === roomFilter)
-
-  useEffect(() => {
-    if (!roomTabs.includes(roomFilter)) setRoomFilter('all')
-  }, [roomTabs, roomFilter])
+  const sorted = useMemo(() => [...photos].sort(newestFirst), [photos])
+  const counts: Record<Filter, number> = {
+    all: sorted.length,
+    used: sorted.filter(p => used.has(p.id)).length,
+    unused: sorted.filter(p => !used.has(p.id)).length,
+    disposal: sorted.filter(p => p.cdr_load != null).length,
+  }
+  const shown = sorted.filter(p =>
+    filter === 'all' ? true
+      : filter === 'used' ? used.has(p.id)
+        : filter === 'unused' ? !used.has(p.id)
+          : p.cdr_load != null
+  )
+  const filters: { id: Filter; label: string }[] = [
+    { id: 'all', label: 'All' },
+    { id: 'unused', label: 'Not in a document' },
+    { id: 'used', label: 'In a document' },
+    ...(counts.disposal > 0 ? [{ id: 'disposal' as const, label: 'Disposal record' }] : []),
+  ]
 
   return (
     <div style={{ paddingBottom: 40 }}>
       <div
         className="card"
-        style={{
-          marginBottom: 20,
-          padding: '14px 16px',
-          fontSize: 13,
-          lineHeight: 1.5,
-          color: 'var(--text-muted)',
-          borderStyle: 'dashed',
-        }}
+        style={{ marginBottom: 20, padding: '14px 16px', fontSize: 13, lineHeight: 1.5, color: 'var(--text-muted)', borderStyle: 'dashed' }}
       >
-        <strong style={{ color: 'var(--text)' }}>Upload photos on Assessment.</strong>{' '}
-        Open Assessment (Home → Before Works → Assessment), pick a room in an area row, then use Camera or Gallery in that area&apos;s Photos block.
+        <strong style={{ color: 'var(--text)' }}>Every photo for this job lands here.</strong>{' '}
+        Load them with the photo loader, the PIN camera or the field app. Each document picks its own photos with
+        &ldquo;Select from folder&rdquo;.
       </div>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-        <button
-          type="button"
-          onClick={() => setViewMode('category')}
-          style={{
-            padding: '6px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600,
-            border: `1px solid ${viewMode === 'category' ? 'var(--accent)' : 'var(--border)'}`,
-            background: viewMode === 'category' ? 'var(--accent-dim)' : 'transparent',
-            color: viewMode === 'category' ? 'var(--accent)' : 'var(--text-muted)',
-          }}
-        >
-          By Category
-        </button>
-        <button
-          type="button"
-          onClick={() => setViewMode('room')}
-          style={{
-            padding: '6px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600,
-            border: `1px solid ${viewMode === 'room' ? 'var(--accent)' : 'var(--border)'}`,
-            background: viewMode === 'room' ? 'var(--accent-dim)' : 'transparent',
-            color: viewMode === 'room' ? 'var(--accent)' : 'var(--text-muted)',
-          }}
-        >
-          By Room
-        </button>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 20, flexWrap: 'wrap' }}>
+        {filters.map(f => (
+          <button key={f.id} type="button" onClick={() => setFilter(f.id)} style={{
+            padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600,
+            border: `1px solid ${filter === f.id ? 'var(--accent)' : 'var(--border)'}`,
+            background: filter === f.id ? 'var(--accent-dim)' : 'transparent',
+            color: filter === f.id ? 'var(--accent)' : 'var(--text-muted)',
+          }}>
+            {f.label} ({counts[f.id]})
+          </button>
+        ))}
       </div>
 
-      {viewMode === 'category' ? (
-        <>
-          {/* ── Filter bar ── */}
-          <div style={{ display: 'flex', gap: 6, marginBottom: 20, flexWrap: 'wrap' }}>
-            {(['all', ...CATEGORIES.map(c => c.value)] as const).map(f => (
-              <button key={f} onClick={() => setFilter(f)} style={{
-                padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600,
-                border: `1px solid ${filter === f ? 'var(--accent)' : 'var(--border)'}`,
-                background: filter === f ? 'var(--accent-dim)' : 'transparent',
-                color: filter === f ? 'var(--accent)' : 'var(--text-muted)',
-                transition: 'all 0.15s',
-              }}>
-                {f === 'all' ? `All (${photos.length})` : `${f.charAt(0).toUpperCase() + f.slice(1)} (${photos.filter(p => p.category === f).length})`}
-              </button>
-            ))}
-          </div>
-
-          {/* ── Photo grid ── */}
-          {filtered.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)', fontSize: 14 }}>
-              No photos in this category yet.
-            </div>
-          ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
-              {filtered.map(photo => (
-                <PhotoCard
-                  key={photo.id}
-                  photo={photo}
-                  areaNames={areaNames}
-                  onDelete={(id) => onPhotosUpdate(photos.filter(p => p.id !== id))}
-                  onUpdate={(updated) => onPhotosUpdate(photos.map(p => p.id === updated.id ? updated : p))}
-                />
-              ))}
-            </div>
-          )}
-        </>
+      {shown.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)', fontSize: 14 }}>
+          {photos.length === 0 ? 'No photos on this job yet.' : 'No photos match this filter.'}
+        </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {roomTabs.map(room => (
-              <button
-                key={room}
-                type="button"
-                onClick={() => setRoomFilter(room)}
-                style={{
-                  padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600,
-                  border: `1px solid ${roomFilter === room ? 'var(--accent)' : 'var(--border)'}`,
-                  background: roomFilter === room ? 'var(--accent-dim)' : 'transparent',
-                  color: roomFilter === room ? 'var(--accent)' : 'var(--text-muted)',
-                }}
-              >
-                {room === 'all' ? `All Rooms (${roomGroups.length})` : room}
-              </button>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
+          {shown.map(photo => (
+            <PhotoCard
+              key={photo.id}
+              photo={photo}
+              used={used.has(photo.id)}
+              onDelete={(id) => onPhotosUpdate(photos.filter(p => p.id !== id))}
+              onUpdate={(updated) => onPhotosUpdate(photos.map(p => p.id === updated.id ? updated : p))}
+            />
+          ))}
+        </div>
+      )}
+
+      {areaNames.length > 0 && (
+        <div className="card" style={{ marginTop: 24 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>Room notes</div>
+          <div style={{ display: 'grid', gap: 14 }}>
+            {areaNames.map(name => (
+              <div key={name}>
+                <label style={{ fontSize: 11, color: 'var(--text-muted)' }}>{name}</label>
+                <textarea
+                  rows={2}
+                  value={roomNotesDraft[name] ?? ''}
+                  onChange={e => setRoomNotesDraft(prev => ({ ...prev, [name]: e.target.value }))}
+                  placeholder="Technician note for this room..."
+                  style={{ resize: 'vertical', marginTop: 4 }}
+                />
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ fontSize: 12, padding: '6px 10px' }}
+                    disabled={savingRoom === name}
+                    onClick={() => saveRoomNote(name)}
+                  >
+                    {savingRoom === name ? 'Saving...' : 'Save room note'}
+                  </button>
+                </div>
+              </div>
             ))}
           </div>
-
-          {filteredRoomGroups.length === 0 && (
-            <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)', fontSize: 14 }}>
-              No rooms found yet.
-            </div>
-          )}
-
-          {filteredRoomGroups.map(room => (
-            <div key={room.name} className="card">
-              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>{room.name}</div>
-              {room.name !== 'Unassigned Area' && (
-                <div style={{ marginBottom: 12 }}>
-                  <label style={{ fontSize: 11, color: 'var(--text-muted)' }}>Room Notes</label>
-                  <textarea
-                    rows={2}
-                    value={roomNotesDraft[room.name] ?? ''}
-                    onChange={e => setRoomNotesDraft(prev => ({ ...prev, [room.name]: e.target.value }))}
-                    placeholder="Technician note for this room..."
-                    style={{ resize: 'vertical', marginTop: 4 }}
-                  />
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }}>
-                    <button
-                      type="button"
-                      className="btn btn-secondary"
-                      style={{ fontSize: 12, padding: '6px 10px' }}
-                      disabled={savingRoom === room.name}
-                      onClick={() => saveRoomNote(room.name)}
-                    >
-                      {savingRoom === room.name ? 'Saving...' : 'Save room note'}
-                    </button>
-                  </div>
-                </div>
-              )}
-              {(['untagged', 'assessment', 'before', 'during', 'after'] as const).map(stage => (
-                room.stages[stage].length > 0 ? (
-                  <div key={stage} style={{ marginBottom: 12 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: CATEGORY_COLORS[stage], marginBottom: 8 }}>
-                      {stage} ({room.stages[stage].length})
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
-                      {room.stages[stage].map(photo => (
-                        <PhotoCard
-                          key={photo.id}
-                          photo={photo}
-                          areaNames={areaNames}
-                          onDelete={(id) => onPhotosUpdate(photos.filter(p => p.id !== id))}
-                          onUpdate={(updated) => onPhotosUpdate(photos.map(p => p.id === updated.id ? updated : p))}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                ) : null
-              ))}
-            </div>
-          ))}
         </div>
       )}
     </div>

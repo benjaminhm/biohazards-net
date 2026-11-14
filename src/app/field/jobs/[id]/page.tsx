@@ -220,8 +220,8 @@ export default function FieldJobPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           file_url: signData.publicUrl,
-          category: 'during',
-          capture_phase: 'progress',
+          category: 'untagged',
+          capture_phase: 'assessment',
           taken_at: new Date(file.lastModified || Date.now()).toISOString(),
           location_lat: location?.lat ?? null,
           location_lng: location?.lng ?? null,

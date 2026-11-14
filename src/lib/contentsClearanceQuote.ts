@@ -7,6 +7,7 @@
 
 import { DEFAULT_ENGAGEMENT_AGREEMENT, storedEngagementAgreement } from '@/lib/quoteEngagement'
 import { emptyJobOnlyClauses, normalizeJobOnlyClauses, withJobOnlyLines, type JobOnlyClauses } from '@/lib/quoteJobClauses'
+import { normalizePhotoIds, type PhotoIdsField } from '@/lib/photoIds'
 
 const M3_PER_LABOUR_DAY = 6
 
@@ -72,7 +73,7 @@ export function contentsClearanceDocumentTitle(kind: string | null | undefined):
     ?? CONTENTS_CLEARANCE_CLIENT_TITLES[0].title
 }
 
-export interface ContentsClearanceCapture extends JobOnlyClauses {
+export interface ContentsClearanceCapture extends JobOnlyClauses, PhotoIdsField {
   /** Which client-facing title to print. The page itself stays Contents Clearance. */
   clearance_kind: ContentsClearanceKind
   estimated_m3: number | null
@@ -142,7 +143,7 @@ export interface ContentsClearanceFigures {
   total: number
 }
 
-export interface ContentsClearanceQuoteContent {
+export interface ContentsClearanceQuoteContent extends PhotoIdsField {
   title: string
   reference: string
   client_name: string
@@ -404,6 +405,7 @@ export function normalizeContentsClearanceCapture(raw: unknown): ContentsClearan
     mobilisation_waived: o.mobilisation_waived === true,
     mobilisation_reason: typeof o.mobilisation_reason === 'string' ? o.mobilisation_reason : '',
     ...normalizeJobOnlyClauses(o),
+    ...normalizePhotoIds(o),
   }
 }
 
@@ -552,6 +554,7 @@ export function contentsClearanceQuoteContent(input: {
   const labour = figures.lines.find(line => line.label === 'Labour')
   const jobAddress = (capture.job_address ?? input.siteAddress).trim()
   return {
+    ...normalizePhotoIds(capture as unknown as Record<string, unknown>),
     title: contentsClearanceDocumentTitle(capture.clearance_kind),
     reference: input.reference,
     client_name: input.clientName.trim(),

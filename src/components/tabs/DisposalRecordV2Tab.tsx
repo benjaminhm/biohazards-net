@@ -440,6 +440,7 @@ export default function DisposalRecordV2Tab({ job, photos, onJobUpdate, onPhotos
               readPhoto={id => post('/api/photos/cdr-read', { photo_id: id })}
               onPhotos={mergePhotos}
               onSaved={() => setSortOpen(false)}
+              folder={{ jobId: job.id, photos, onPhotosUpdate: list => onPhotosUpdate(list) }}
             />
           </div>
         )}

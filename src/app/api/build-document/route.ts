@@ -30,7 +30,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { auth } from '@/lib/staffAuth'
 import type { DocType, Job, Photo, CompanyProfile } from '@/lib/types'
 import { getOrgId } from '@/lib/org'
-import { groupPhotosByRoomAndStage } from '@/lib/photoGroups'
+import { groupPhotosByRoomAndStage, stagePhotos } from '@/lib/photoGroups'
 import { effectiveAreaDimensions } from '@/lib/areaSubzones'
 import { getDocumentRulesForBuild } from '@/lib/documentRules'
 import { fetchPlatformDocumentRules, type PlatformDocumentRulesMap } from '@/lib/platformDocumentRules'
@@ -47,10 +47,9 @@ import { photosForComposedReports } from '@/lib/photosForComposedReports'
 
 const client = new Anthropic()
 
-function isProgressPhoto(photo: Photo): boolean {
-  if (photo.capture_phase === 'progress') return true
-  if (photo.capture_phase === 'assessment') return false
-  return photo.category === 'during' || photo.category === 'after'
+/** Each room's chosen during and after photos; rooms that have not chosen keep the stage rule. */
+function progressReportPhotos(job: Job, photos: Photo[]): Photo[] {
+  return stagePhotos(photos, job.assessment_data?.areas ?? [], ['during', 'after'])
 }
 
 function executePhaseExtras(ad: Job['assessment_data']): {
@@ -72,9 +71,7 @@ function executePhaseExtras(ad: Job['assessment_data']): {
 function buildReportSourceHash(job: Job, photos: Photo[]): string {
   const sow = mergedSowCapture(job.assessment_data)
   const { recommendations, quality_checks } = executePhaseExtras(job.assessment_data)
-  const progress = photos
-    .filter(isProgressPhoto)
-    .filter(p => p.category === 'during' || p.category === 'after')
+  const progress = progressReportPhotos(job, photos)
     .map(p => ({
       id: p.id,
       category: p.category,
@@ -200,7 +197,7 @@ function buildPrompt(
   platformDbRules: PlatformDocumentRulesMap
 ): string {
   const contextPhotos = type === 'report'
-    ? photos.filter(isProgressPhoto).filter(p => p.category === 'during' || p.category === 'after')
+    ? progressReportPhotos(job, photos)
     : photos
   const ctx = jobContext(job, contextPhotos, company)
   const d = new Date().toLocaleDateString('en-AU', { day:'numeric', month:'long', year:'numeric' })

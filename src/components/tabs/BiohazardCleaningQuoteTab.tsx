@@ -5,7 +5,9 @@ import { useRouter } from 'next/navigation'
 import AddressAutocomplete from '@/components/AddressAutocomplete'
 import DocumentAskPanel from '@/components/DocumentAskPanel'
 import RichTextEditor from '@/components/RichTextEditor'
-import type { Job } from '@/lib/types'
+import type { Job, Photo } from '@/lib/types'
+import SelectedPhotos from '@/components/SelectedPhotos'
+import { usedPhotoIds } from '@/lib/photoSelection'
 import { mergeAssessmentData } from '@/lib/riskDerivation'
 import { useRegisterUnsavedChanges } from '@/lib/unsavedChangesContext'
 import { formatAud } from '@/lib/disposalManifest'
@@ -79,6 +81,8 @@ import { documentPlainText } from '@/lib/documentAsk'
 interface Props {
   job: Job
   onJobUpdate: (job: Job) => void
+  photos?: Photo[]
+  onPhotosUpdate?: (photos: Photo[]) => void
 }
 
 const INPUT: CSSProperties = {
@@ -480,7 +484,7 @@ function FlagList({ title, flags }: { title: string; flags: BiohazardCheckFlag[]
   )
 }
 
-export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
+export default function BiohazardCleaningQuoteTab({ job, onJobUpdate, photos = [], onPhotosUpdate }: Props) {
   const router = useRouter()
   const initial = useMemo(
     () => normalizeBiohazardCleaningCapture(job.assessment_data?.biohazard_cleaning_quote ?? emptyBiohazardCleaningCapture()),
@@ -1611,6 +1615,26 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
           </div>
         )}
       </div>
+
+      {onPhotosUpdate && (
+        <div style={{ ...SECTION, marginTop: 14 }}>
+          <div style={LABEL}>Photos</div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+            Choose this quote&rsquo;s photos from the job&rsquo;s folder. They print after the totals, before the signatures.
+          </div>
+          <SelectedPhotos
+            jobId={job.id}
+            title="Biohazard cleaning quote"
+            heading={false}
+            photos={photos}
+            ids={capture.photo_ids ?? []}
+            onChange={ids => setCapture(prev => ({ ...prev, photo_ids: ids }))}
+            onPhotosUpdate={onPhotosUpdate}
+            usedIds={usedPhotoIds(job.assessment_data, photos)}
+            emptyText="No photos on this quote."
+          />
+        </div>
+      )}
 
       {shownCheck && (
         <div

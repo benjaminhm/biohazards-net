@@ -12,7 +12,7 @@ import { createServiceClient } from '@/lib/supabase'
 import { getOrgId } from '@/lib/org'
 import { getAnthropicApiKey } from '@/lib/loadAnthropicEnvFallback'
 import { mergedSowCapture } from '@/lib/sowCapture'
-import { fetchPhotosForEvidenceSuggest, inferCapturePhaseFromCategory } from '@/lib/photoCapturePhase'
+import { fetchPhotosForEvidenceSuggest, inferCapturePhaseFromCategory, progressEvidencePhotos } from '@/lib/photoCapturePhase'
 import { normalizeCompletionReportCaptureDraft } from '@/lib/completionReportCapture'
 import { normalizePerExecuteCaptureDraft } from '@/lib/perExecuteCapture'
 import type { AssessmentData, CompletionReportCapture, JobType, PerExecuteCapture, Photo } from '@/lib/types'
@@ -61,12 +61,6 @@ Field intent:
 - recommendations / quality_checks / waste_manifest_notes: PER silos — client follow-up, QC/verification, waste detail.
 
 Use empty string for a key only when there is truly nothing defensible from context.`
-
-function isProgressEvidencePhoto(p: Pick<Photo, 'capture_phase' | 'category'>): boolean {
-  if (p.capture_phase === 'progress') return true
-  if (p.capture_phase === 'assessment') return false
-  return p.category === 'during' || p.category === 'after'
-}
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -145,8 +139,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         .order('room_name', { ascending: true }),
     ])
 
-    const photos = (photosRes.data ?? []) as Pick<Photo, 'area_ref' | 'category' | 'caption' | 'capture_phase'>[]
-    const progressPhotos = photos.filter(isProgressEvidencePhoto).map(p => ({
+    const photos = (photosRes.data ?? []) as Pick<Photo, 'id' | 'area_ref' | 'category' | 'caption' | 'capture_phase'>[]
+    const progressPhotos = progressEvidencePhotos(photos, ad?.areas ?? []).map(p => ({
       area_ref: (p.area_ref || '').trim() || null,
       category: p.category,
       caption: (p.caption || '').trim() || null,

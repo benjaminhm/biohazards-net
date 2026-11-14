@@ -1888,7 +1888,7 @@ export default function JobPage() {
           />
         )}
         {showBiohazardCleaning && (
-          <BiohazardCleaningQuoteTab job={job} onJobUpdate={setJob} />
+          <BiohazardCleaningQuoteTab job={job} onJobUpdate={setJob} photos={photos} onPhotosUpdate={setPhotos} />
         )}
         {showPRC && (
           <PreRemediationChecklistTab job={job} onJobUpdate={setJob} />
@@ -1898,6 +1898,7 @@ export default function JobPage() {
             job={job}
             photos={photos}
             onPhotosUpdate={setPhotos}
+            onJobUpdate={setJob}
           />
         )}
         {showProgressNotes && <ProgressNotesTab job={job} />}

@@ -13,8 +13,9 @@
  * Per-area Description offers “Polish text” (grammar/spelling via polish-text API)
  * and optional speech-to-text — staff review before save.
  *
- * Photo uploads (camera / gallery) live in each area card between the room name
- * and description; new shots default to category Assessment and use that area’s name as `area_ref`.
+ * Each area card chooses its photos from the job's folder (between the room name
+ * and description). Photos taken or uploaded there go into the folder untagged
+ * and are added to that area.
  *
  * All changes are saved via PATCH /api/jobs/[id] by merging the new assessment_data
  * into the existing job record. Fields not present in the tab (e.g. target_price,
@@ -24,8 +25,8 @@
 
 import { useState, useEffect, useRef, useMemo, type CSSProperties } from 'react'
 import type { Job, AssessmentData, Area, FastQuoteCapture, Photo } from '@/lib/types'
-import PhotoUploadPanel from '@/components/PhotoUploadPanel'
-import PhotoCard from '@/components/PhotoCard'
+import SelectedPhotos from '@/components/SelectedPhotos'
+import { usedPhotoIds } from '@/lib/photoSelection'
 import { AREA_ROOM_TYPES, joinAreaName, splitAreaName } from '@/lib/areaRoomTypes'
 import {
   effectiveAreaDimensions,
@@ -296,6 +297,16 @@ export default function AssessmentTab({ job, onJobUpdate, photos, onPhotosUpdate
     setSaveError('')
   }
 
+  function updateAreaPhotos(index: number, ids: string[]) {
+    setData(d => {
+      const areas = [...d.areas]
+      areas[index] = { ...areas[index], photo_ids: ids }
+      return { ...d, areas }
+    })
+    setSaved(false)
+    setSaveError('')
+  }
+
   /** Per-subzone dimension edit for multi-name areas. Materialises subzones[]
    *  on the area if it was previously implicit (derived from name parts). */
   function updateSubzoneDim(
@@ -522,10 +533,9 @@ export default function AssessmentTab({ job, onJobUpdate, photos, onPhotosUpdate
     [data.areas]
   )
   const fastQuote = data.fast_quote
-  /** Photos attached to the Fast Quote brief (no on-site area). Anchored on a fixed
-   *  area_ref so they're easy to find, render under their own group in the printed
-   *  quote, and get fed to the Quote AI suggester as visual evidence. */
+  /** Older jobs loaded Fast Quote photos with this area_ref; they are the selection until staff choose photos. */
   const FAST_QUOTE_AREA_REF = 'Fast Quote'
+  const usedIds = useMemo(() => usedPhotoIds(data, photos), [data, photos])
   const fastQuotePhotos = photos.filter(
     p => (p.area_ref || '').trim() === FAST_QUOTE_AREA_REF,
   )
@@ -625,41 +635,22 @@ export default function AssessmentTab({ job, onJobUpdate, photos, onPhotosUpdate
               }}
             >
               <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.45, marginBottom: 8 }}>
-                Optional — attach client-supplied photos (text, email, etc). They&apos;ll be visible
-                to the Quote AI suggester and printed under their own group on the quote.
+                Optional — attach client-supplied photos (text, email, etc). The Quote AI suggester reads them.
+                To print them, choose them on the quote as well.
               </div>
-              <PhotoUploadPanel
+              <SelectedPhotos
                 jobId={job.id}
-                fixedAreaRef={FAST_QUOTE_AREA_REF}
+                title="Fast Quote"
+                heading={false}
                 photos={photos}
+                ids={data.fast_quote?.photo_ids}
+                fallback={fastQuotePhotos}
+                onChange={ids => updateFastQuote({ photo_ids: ids })}
                 onPhotosUpdate={onPhotosUpdate}
-                defaultPendingCategory="assessment"
-                fixedCapturePhase="assessment"
-                compact
+                usedIds={usedIds}
+                captions={false}
+                emptyText="No client photos attached."
               />
-              {fastQuotePhotos.length > 0 && (
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
-                    gap: 8,
-                    marginTop: 4,
-                  }}
-                >
-                  {fastQuotePhotos.map(photo => (
-                    <PhotoCard
-                      key={photo.id}
-                      photo={photo}
-                      areaNames={areaNames}
-                      showAreaChip={false}
-                      onDelete={id => onPhotosUpdate(photos.filter(p => p.id !== id))}
-                      onUpdate={updated =>
-                        onPhotosUpdate(photos.map(p => (p.id === updated.id ? updated : p)))
-                      }
-                    />
-                  ))}
-                </div>
-              )}
             </div>
 
             <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.45 }}>
@@ -867,34 +858,22 @@ export default function AssessmentTab({ job, onJobUpdate, photos, onPhotosUpdate
             )
           })()}
 
-          <PhotoUploadPanel
-            jobId={job.id}
-            fixedAreaRef={area.name}
-            photos={photos}
-            onPhotosUpdate={onPhotosUpdate}
-            defaultPendingCategory="assessment"
-            compact
-          />
-          {areaPhotos.length > 0 && (
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
-                gap: 10,
-                marginBottom: 14,
-              }}
-            >
-              {areaPhotos.map(photo => (
-                <PhotoCard
-                  key={photo.id}
-                  photo={photo}
-                  areaNames={areaNames}
-                  showAreaChip={false}
-                  onDelete={id => onPhotosUpdate(photos.filter(p => p.id !== id))}
-                  onUpdate={updated => onPhotosUpdate(photos.map(p => (p.id === updated.id ? updated : p)))}
-                />
-              ))}
+          {areaKey ? (
+            <div style={{ marginBottom: 14, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+              <SelectedPhotos
+                jobId={job.id}
+                title={`Photos · ${areaKey}`}
+                photos={photos}
+                ids={area.photo_ids}
+                fallback={areaPhotos}
+                onChange={ids => updateAreaPhotos(i, ids)}
+                onPhotosUpdate={onPhotosUpdate}
+                usedIds={usedIds}
+                emptyText="No photos for this area."
+              />
             </div>
+          ) : (
+            <div style={{ marginBottom: 14, fontSize: 12, color: 'var(--text-muted)' }}>Name the area to add its photos.</div>
           )}
 
           <div>

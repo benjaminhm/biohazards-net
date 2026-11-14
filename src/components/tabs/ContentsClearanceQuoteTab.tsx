@@ -4,10 +4,11 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
 import AddressAutocomplete from '@/components/AddressAutocomplete'
 import DocumentAskPanel from '@/components/DocumentAskPanel'
-import PhotoCard from '@/components/PhotoCard'
-import PhotoUploadPanel from '@/components/PhotoUploadPanel'
+import SelectedPhotos from '@/components/SelectedPhotos'
+import { samePhotoIds } from '@/lib/photoIds'
+import { usedPhotoIds } from '@/lib/photoSelection'
 import RichTextEditor from '@/components/RichTextEditor'
-import { CONTENTS_CLEARANCE_APPENDIX_AREA_REF, isContentsClearanceAppendixPhoto } from '@/lib/photoGroups'
+import { isContentsClearanceAppendixPhoto } from '@/lib/photoGroups'
 import type { Job, Photo } from '@/lib/types'
 import { browserDrivingRoundTripKm, type MapWaypoint } from '@/lib/geocodeBrowser'
 import { pinFor, serverRoundTripKm } from '@/lib/roundTripDistance'
@@ -139,6 +140,7 @@ export default function ContentsClearanceQuoteTab({ job, photos, onJobUpdate, on
     [job.assessment_data?.contents_clearance_quote],
   )
   const [capture, setCapture] = useState<ContentsClearanceCapture>(saved)
+  const usedIds = useMemo(() => usedPhotoIds(job.assessment_data, photos), [job.assessment_data, photos])
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [standards, setStandards] = useState<ContentsClearanceStandards>(defaultContentsClearanceStandards)
@@ -191,6 +193,7 @@ export default function ContentsClearanceQuoteTab({ job, photos, onJobUpdate, on
     || capture.job_inclusions !== saved.job_inclusions
     || capture.job_exclusions !== saved.job_exclusions
     || capture.job_assumptions !== saved.job_assumptions
+    || !samePhotoIds(capture.photo_ids, saved.photo_ids)
   useRegisterUnsavedChanges('contents-clearance-quote', isDirty)
 
   const figures = useMemo(
@@ -802,40 +805,20 @@ export default function ContentsClearanceQuoteTab({ job, photos, onJobUpdate, on
       <div style={{ marginTop: 18, marginBottom: 4 }}>
         <div style={LABEL}>Photos</div>
         <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5, margin: '0 0 12px' }}>
-          One upload for this quote. The photos print together at the end of the document.
+          Choose this quote&rsquo;s photos from the job&rsquo;s folder. They print together at the end of the document.
         </p>
-        <PhotoUploadPanel
+        <SelectedPhotos
           jobId={job.id}
+          title="Contents clearance quote"
+          heading={false}
           photos={photos}
+          ids={capture.photo_ids}
+          fallback={photos.filter(isContentsClearanceAppendixPhoto)}
+          onChange={ids => setCapture(prev => ({ ...prev, photo_ids: ids }))}
           onPhotosUpdate={onPhotosUpdate}
-          defaultPendingCategory="assessment"
-          allowedCategories={['assessment', 'before']}
-          fixedCapturePhase="assessment"
-          fixedAreaRef={CONTENTS_CLEARANCE_APPENDIX_AREA_REF}
-          compact
+          usedIds={usedIds}
+          emptyText="No photos on this quote."
         />
-        {photos.some(isContentsClearanceAppendixPhoto) && (
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
-              gap: 8,
-              marginTop: 4,
-            }}
-          >
-            {photos.filter(isContentsClearanceAppendixPhoto).map(photo => (
-              <PhotoCard
-                key={photo.id}
-                photo={photo}
-                allowedCategories={['assessment', 'before']}
-                showAreaChip={false}
-                hideArea
-                onDelete={id => onPhotosUpdate(photos.filter(p => p.id !== id))}
-                onUpdate={updated => onPhotosUpdate(photos.map(p => (p.id === updated.id ? updated : p)))}
-              />
-            ))}
-          </div>
-        )}
       </div>
       <div style={{ marginTop: 18, display: 'grid', gap: 14 }}>
         {([
