@@ -54,9 +54,7 @@ export function isHomeSection(v: unknown): v is HomeSection {
 
 /**
  * Maps each Home sub-tab to the capability that gates its visibility. Admins and
- * managers have all of them on via ALL_CAPABILITIES / DEFAULT_MANAGER_CAPABILITIES;
- * members start with all off and rely on the admin flipping them in the
- * team profile. See CAP_GROUPS > "Job Home — Workflow sub-tabs" in app/team/[id].
+ * managers have all of them on via ALL_CAPABILITIES / DEFAULT_MANAGER_CAPABILITIES.
  */
 export const HOME_SECTION_TO_CAP: Record<HomeSection, keyof TeamCapabilities> = {
   initial_contact:   'view_home_initial_contact',

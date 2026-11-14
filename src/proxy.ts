@@ -212,7 +212,7 @@ export async function proxy(request: NextRequest) {
     } catch {
       role = null
     }
-    const decision = decideStaffAccess(role, pathname)
+    const decision = decideStaffAccess(role)
     if (decision === 'signed-out') {
       if (pathname.startsWith('/api/')) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -227,12 +227,6 @@ export async function proxy(request: NextRequest) {
         expires: new Date(0),
       })
       return res
-    }
-    if (decision === 'forbid') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
-    if (decision === 'redirect') {
-      return NextResponse.redirect(new URL('/tech', browserOrigin(request.url, host, request.headers.get('x-forwarded-proto'))))
     }
     if (staffSessionIsStale(session.issuedAt)) {
       try {

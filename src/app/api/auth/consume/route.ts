@@ -12,8 +12,6 @@ import {
   supabaseStaffTokenStore,
 } from '@/lib/staffLogin'
 import { lookupStaffIdentityByEmail } from '@/lib/staffIdentity'
-import { resolveActiveMembership } from '@/lib/membership'
-import { staffHomePath } from '@/lib/staffDesk'
 import {
   isSecureStaffRequest,
   signStaffToken,
@@ -71,13 +69,7 @@ export async function POST(req: Request) {
 
   const jwt = await signStaffToken({ userId: result.userId, email: result.email })
   const cookie = staffCookieHeader(jwt, isSecureStaffRequest(req))
-  let home = '/'
-  try {
-    const resolved = await resolveActiveMembership(result.userId)
-    home = staffHomePath(resolved.membership?.role ?? null)
-  } catch {
-    home = '/'
-  }
+  const home = '/'
   // 200, not a redirect. iOS home-screen web apps often drop a Set-Cookie that
   // arrives on a 303, so the sign-in page would forget the session as soon as
   // the standalone process is killed.

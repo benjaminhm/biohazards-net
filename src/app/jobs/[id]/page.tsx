@@ -58,7 +58,6 @@ import SurfaceAreaCleaningQuoteTab from '@/components/tabs/SurfaceAreaCleaningQu
 import BiohazardCleaningQuoteTab from '@/components/tabs/BiohazardCleaningQuoteTab'
 import IaqBundleCaptureTab from '@/components/tabs/IaqBundleCaptureTab'
 import MessagesTab from '@/components/tabs/MessagesTab'
-import InvoiceTab from '@/components/tabs/InvoiceTab'
 import ProgressNotesTab from '@/components/tabs/ProgressNotesTab'
 import ProgressPhotosTab from '@/components/tabs/ProgressPhotosTab'
 import PostRemediationEvaluationSection from '@/components/tabs/PostRemediationEvaluationSection'
@@ -85,7 +84,7 @@ import {
   useUnsavedChanges,
 } from '@/lib/unsavedChangesContext'
 
-type Tab = 'dashboard' | 'home' | 'docs' | 'details' | 'timeline' | 'assessment' | 'case_studies' | 'scope_capture' | 'quote_capture' | 'pre_remediation_checklist_capture' | 'progress_capture' | 'progress_notes_capture' | 'quality_checks_capture' | 'recommendations_capture' | 'progress_report_generate' | 'client_feedback_capture' | 'team_feedback_capture' | 'engagement_agreement_capture' | 'nda_capture' | 'authority_to_proceed_capture' | 'swms_capture' | 'jsa_capture' | 'risk_assessment_capture' | 'waste_disposal_manifest_capture' | 'iaq_multi_capture' | 'quote' | 'photos' | 'messages' | 'invoice' | 'company_letter' | 'prestart_briefing'
+type Tab = 'dashboard' | 'home' | 'docs' | 'details' | 'timeline' | 'assessment' | 'case_studies' | 'scope_capture' | 'quote_capture' | 'pre_remediation_checklist_capture' | 'progress_capture' | 'progress_notes_capture' | 'quality_checks_capture' | 'recommendations_capture' | 'progress_report_generate' | 'client_feedback_capture' | 'team_feedback_capture' | 'engagement_agreement_capture' | 'nda_capture' | 'authority_to_proceed_capture' | 'swms_capture' | 'jsa_capture' | 'risk_assessment_capture' | 'waste_disposal_manifest_capture' | 'iaq_multi_capture' | 'quote' | 'photos' | 'messages' | 'company_letter' | 'prestart_briefing'
 
 /** Docs primary tab sub-sections: Compose (generate new) / History (filed docs). */
 type DocsSection = 'compose' | 'history'
@@ -596,8 +595,6 @@ function pageTitleForTab(tab: Tab, job: Job): string {
       return 'Photos'
     case 'messages':
       return job.inbound_email_address ? 'Messages' : 'SMS'
-    case 'invoice':
-      return 'Invoice'
     case 'company_letter':
       return 'Company Letter'
     case 'prestart_briefing':
@@ -624,11 +621,8 @@ export default function JobPage() {
   const pathname     = usePathname()
   const router       = useRouter()
   const { caps, isAdmin, isManager, loading: userLoading, org } = useUser()
-  /** Field workers (no view_all_jobs) use /field; ops staff use full queue. */
-  const jobsListHref = userLoading
-    ? '/jobs/queue'
-    : (isAdmin || caps.view_all_jobs ? '/jobs/queue' : '/field')
-  const jobsBackLabel = isAdmin || caps.view_all_jobs ? '← Jobs' : '← My jobs'
+  const jobsListHref = '/jobs/queue'
+  const jobsBackLabel = '← Jobs'
 
   const [job,         setJob]         = useState<Job | null>(null)
   const [photos,      setPhotos]      = useState<Photo[]>([])
@@ -636,7 +630,6 @@ export default function JobPage() {
   const [documentBundles, setDocumentBundles] = useState<DocumentBundle[]>([])
   const [loading,     setLoading]     = useState(true)
   const [unreadSms,   setUnreadSms]   = useState(0)
-  const [canInvoice,  setCanInvoice]  = useState(false)
   /** Re-open trading-name picker from Client Details (first-time prompt is blocking). */
   const [tradingNamePickerOpen, setTradingNamePickerOpen] = useState(false)
 
@@ -850,7 +843,7 @@ export default function JobPage() {
   useEffect(() => {
     if (userLoading) return
     if (!isAdmin && !isManager) {
-      router.replace(`/field/jobs/${id}`)
+      router.replace('/')
       return
     }
     fetchAll()
@@ -925,17 +918,15 @@ export default function JobPage() {
   async function fetchAll() {
     setLoading(true)
     try {
-      const [jobRes, docsRes, msgRes, invRes, bundlesRes] = await Promise.all([
+      const [jobRes, docsRes, msgRes, bundlesRes] = await Promise.all([
         fetch(`/api/jobs/${id}`),
         fetch(`/api/documents?jobId=${id}`),
         fetch(`/api/sms/messages?job_id=${id}`),
-        fetch(`/api/jobs/${id}/invoices`),
         fetch(`/api/jobs/${id}/document-bundles`),
       ])
       const jobData  = await jobRes.json()
       const docsData = await docsRes.json()
       const msgData  = await msgRes.json()
-      const invData  = await invRes.json()
       if (bundlesRes.ok) {
         const bd = await bundlesRes.json()
         setDocumentBundles(bd.bundles ?? [])
@@ -954,7 +945,6 @@ export default function JobPage() {
       setDocuments(docsData.documents ?? [])
       const unread = (msgData.messages ?? []).filter((m: { direction: string; read_at: string | null }) => m.direction === 'inbound' && !m.read_at).length
       setUnreadSms(unread)
-      setCanInvoice(!!invData.can_invoice)
     } finally {
       setLoading(false)
     }
@@ -1019,7 +1009,6 @@ export default function JobPage() {
     { id: 'docs',           label: 'Docs',           show: true },
     { id: 'company_letter', label: 'Company Letter', show: true },
     { id: 'messages',       label: job.inbound_email_address ? (unreadSms > 0 ? `💬 Messages (${unreadSms})` : '💬 Messages') : (unreadSms > 0 ? `💬 SMS (${unreadSms})` : '💬 SMS'), show: caps.send_sms && isActiveJob },
-    { id: 'invoice',        label: 'Invoice',        show: canInvoice },
   ]
   const tabs = allTabs.filter(t => t.show)
   /** The Job Manager lists these under the numbered Home sections, Photos first. */
@@ -2010,9 +1999,6 @@ export default function JobPage() {
         )}
         {activeTab === 'messages' && (
           <MessagesTab job={job} inboundEmailAddress={job.inbound_email_address ?? null} />
-        )}
-        {activeTab === 'invoice' && (
-          <InvoiceTab jobId={id} />
         )}
         {activeTab === 'company_letter' && (
           <CompanyLetterTab job={job} />

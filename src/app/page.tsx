@@ -1,11 +1,7 @@
 /*
  * app/page.tsx
  *
- * Dashboard / home page — the main job list for admins and members with
- * the view_all_jobs capability.
- *
- * Technicians (role member) are redirected to /tech. The proxy does the same
- * before this page loads. Admins and managers stay here.
+ * Dashboard / home page — the main job list for the desk (admins and managers).
  *
  * Features:
  *   - Upcoming jobs section (next 7 days with scheduled_at set).
@@ -54,17 +50,12 @@ export default function HomePage() {
   const [company, setCompany]   = useState<CompanyProfile | null>(null)
   const [time, setTime]         = useState('')
   const [upcoming, setUpcoming] = useState<Job[]>([])
-  const { caps, isAdmin, isManager, role, loading: userLoading, previewMode, org: ctxOrg } = useUser()
+  const { isAdmin, isManager, loading: userLoading, org: ctxOrg } = useUser()
   const [review, setReview] = useState<object | null | 'loading'>('loading')
   const [hideQuickFeedback, setHideQuickFeedback] = useState(false)
   /** ≥900px: use 3 columns when we have 6 tiles (2×3 layout); otherwise 2 columns. */
   const [desktopWide, setDesktopWide] = useState(false)
   const router = useRouter()
-
-  // Technicians never see the desk. The proxy redirects as well.
-  useEffect(() => {
-    if (!userLoading && role === 'member') router.replace('/tech')
-  }, [userLoading, role, router])
 
   useEffect(() => {
     if (!userLoading && (isAdmin || isManager) && readViewMode() === 'agent' && isWideScreen()) router.replace('/workspace')
@@ -139,13 +130,6 @@ export default function HomePage() {
       label: 'Job Records',
       sub: 'Field records, templates, and bonuses',
       color: '#8B5CF6',
-    },
-    {
-      href: '/team',
-      icon: '⬡',
-      label: 'Team Manager',
-      sub: 'Staff & contractors',
-      color: '#10B981',
     },
     {
       href: '/inventory',
@@ -386,7 +370,7 @@ export default function HomePage() {
       )}
 
       {/* ── Quick Feedback — admin only; org can disable via platform; hideable per user ── */}
-      {homeQuickFeedbackAllowed && isAdmin && !previewMode && review === null && (
+      {homeQuickFeedbackAllowed && isAdmin && review === null && (
         <div style={{ padding: '0 20px 20px' }}>
           {hideQuickFeedback ? (
             <button

@@ -2702,10 +2702,8 @@ export interface Org {
  *   'own'   — can assign on jobs they are already assigned to
  *   'all'   — can assign on any job
  *
- * Admins always receive ALL_CAPABILITIES. Members receive
- * DEFAULT_MEMBER_CAPABILITIES merged with their custom caps from org_users.capabilities.
- * Preview mode (admin-only) replaces the in-memory caps with caps from
- * localStorage 'preview_caps' so admins can test member experience.
+ * Admins always receive ALL_CAPABILITIES. Managers receive
+ * DEFAULT_MANAGER_CAPABILITIES merged with their custom caps from org_users.capabilities.
  */
 export interface TeamCapabilities {
   // Jobs

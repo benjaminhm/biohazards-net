@@ -4,7 +4,6 @@
  * Root layout — wraps every page in the app.
  * Provider hierarchy (outermost to innermost):
  *   UserProvider    — custom user context (role, capabilities, org membership)
- *   PreviewBanner   — shows when an admin is simulating member capabilities
  *   ServiceWorkerRegistration — registers /sw.js for PWA offline support
  *   Notepad         — floating private notepad for desk staff, on every page
  *
@@ -20,7 +19,6 @@ import { headers } from 'next/headers'
 import './globals.css'
 import ServiceWorkerRegistration from '@/components/ServiceWorkerRegistration'
 import { UserProvider } from '@/lib/userContext'
-import PreviewBanner from '@/components/PreviewBanner'
 import Notepad from '@/components/Notepad'
 import { isTradingNameId, tradingNameOption } from '@/lib/tradingNames'
 
@@ -104,7 +102,6 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang="en">
       <body>
         <UserProvider>
-          <PreviewBanner />
           <ServiceWorkerRegistration />
           {children}
           <Notepad />

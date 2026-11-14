@@ -9,8 +9,7 @@
  * job page reports them; the chosen section carries over when switching jobs.
  * Right: the job's full page in a same-origin iframe (lib/jobEmbed) with its
  * own tabs and section drawer hidden, and status, archive and
- * delete in a toolbar above it. Admins and members with view_all_jobs only;
- * others are redirected to /field.
+ * delete in a toolbar above it. Admins and managers only.
  *
  * /jobs/queue?job=<id> opens a job. On narrow screens there is no viewer and a
  * row opens the job page directly. + New Job creates a blank job, adds it to the
@@ -544,10 +543,10 @@ function JobQueue() {
   const { org: ctxOrg, loading: userLoading, isAdmin, caps } = useUser()
   const fileSections = useMemo(() => visibleHomeSections(caps), [caps])
 
-  // Full pipeline board is for admins and members with view_all_jobs only.
+  // The pipeline board is for admins and managers.
   useEffect(() => {
     if (userLoading) return
-    if (!isAdmin && !caps.view_all_jobs) router.replace('/field')
+    if (!isAdmin && !caps.view_all_jobs) router.replace('/')
   }, [userLoading, isAdmin, caps.view_all_jobs, router])
 
   const selectJob = useCallback((id: string | null) => {

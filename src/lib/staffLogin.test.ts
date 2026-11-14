@@ -9,7 +9,7 @@ import {
   type StaffTokenRow,
   type StaffTokenStore,
 } from '@/lib/staffLogin'
-import { decideStaffAccess, staffHomePath } from '@/lib/staffDesk'
+import { decideStaffAccess } from '@/lib/staffDesk'
 import { browserOrigin, isSecureStaffRequest, magicLinkOrigin } from '@/lib/staffSession'
 
 function memoryStore(): StaffTokenStore & { rows: StaffTokenRow[] } {
@@ -144,18 +144,14 @@ test('the owner allowlist is not resolved through the technician lookup', async 
   if (consumed.ok) assert.equal(consumed.userId, 'user_owner')
 })
 
-test('a technician stays on the phone screen', () => {
-  assert.equal(decideStaffAccess('member', '/tech'), 'allow')
-  assert.equal(decideStaffAccess('member', '/api/me'), 'allow')
-  assert.equal(decideStaffAccess('member', '/api/tech/jobs'), 'allow')
-  assert.equal(decideStaffAccess('member', '/jobs'), 'redirect')
-  assert.equal(decideStaffAccess('member', '/api/jobs'), 'forbid')
-  assert.equal(decideStaffAccess('admin', '/jobs'), 'allow')
-  assert.equal(decideStaffAccess('manager', '/records'), 'allow')
-  assert.equal(decideStaffAccess(null, '/'), 'signed-out')
+test('only the desk can sign in: a member or inactive session is logged out', () => {
+  assert.equal(decideStaffAccess('admin'), 'allow')
+  assert.equal(decideStaffAccess('manager'), 'allow')
+  assert.equal(decideStaffAccess('member'), 'signed-out')
+  assert.equal(decideStaffAccess(null), 'signed-out')
 })
 
-test('one login host, and the email role picks the first screen', () => {
+test('one login host', () => {
   assert.equal(
     magicLinkOrigin('https://app.biohazards.net/api/auth/request', 'app.biohazards.net', 'https'),
     'https://login.biohazards.net',
@@ -168,9 +164,6 @@ test('one login host, and the email role picks the first screen', () => {
     magicLinkOrigin('http://0.0.0.0:3000/api/auth/request', '192.168.1.4:3000', null),
     'http://192.168.1.4:3000',
   )
-  assert.equal(staffHomePath('admin'), '/')
-  assert.equal(staffHomePath('manager'), '/')
-  assert.equal(staffHomePath('member'), '/tech')
 })
 
 test('a phone on the LAN stays on http and keeps a non-secure cookie', () => {

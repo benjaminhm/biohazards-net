@@ -7,16 +7,6 @@ import type { CompanyProfile } from '@/lib/types'
 
 const LS_PREFIX = 'bh_org_admin_health_dismissed:'
 
-type Person = {
-  id: string
-  name: string
-  role?: string | null
-  status?: string | null
-  phone?: string | null
-  email?: string | null
-  address?: string | null
-}
-
 type Check = {
   id: string
   label: string
@@ -27,7 +17,6 @@ type Check = {
 export default function OrgAdminHealthCard() {
   const { isAdmin, isManager, name, org_id, loading: userLoading } = useUser()
   const [company, setCompany] = useState<CompanyProfile | null>(null)
-  const [people, setPeople] = useState<Person[]>([])
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState(true)
   const [hidden, setHidden] = useState(false)
@@ -37,14 +26,8 @@ export default function OrgAdminHealthCard() {
   useEffect(() => {
     if (userLoading || !canSee) return
     setLoading(true)
-    Promise.all([
-      fetch('/api/company').then(r => r.json()).catch(() => ({ company: null })),
-      fetch('/api/people').then(r => r.json()).catch(() => ({ people: [] })),
-    ])
-      .then(([c, p]) => {
-        setCompany(c.company ?? null)
-        setPeople(p.people ?? [])
-      })
+    fetch('/api/company').then(r => r.json()).catch(() => ({ company: null }))
+      .then(c => setCompany(c.company ?? null))
       .finally(() => setLoading(false))
   }, [userLoading, canSee])
 
@@ -58,21 +41,8 @@ export default function OrgAdminHealthCard() {
       { id: 'org-logo', label: 'Company logo', ok: !!company?.logo_url?.trim(), href: '/settings' },
     ]
 
-    const leadership = people.filter(p => p.status !== 'archived' && ['admin', 'owner', 'manager'].includes((p.role ?? '').toLowerCase()))
-    const leadershipChecks: Check[] = [
-      { id: 'leaders-exist', label: 'At least one administrator/manager profile', ok: leadership.length > 0, href: '/team' },
-      { id: 'leaders-phone', label: 'Leadership phone numbers complete', ok: leadership.length > 0 && leadership.every(p => !!p.phone?.trim()), href: '/team' },
-      { id: 'leaders-email', label: 'Leadership emails complete', ok: leadership.length > 0 && leadership.every(p => !!p.email?.trim()), href: '/team' },
-      { id: 'leaders-address', label: 'Leadership addresses complete', ok: leadership.length > 0 && leadership.every(p => !!p.address?.trim()), href: '/team' },
-    ]
-
-    const activePeople = people.filter(p => p.status !== 'archived')
-    const teamChecks: Check[] = [
-      { id: 'team-has-member', label: 'At least one active team profile', ok: activePeople.length > 0, href: '/team' },
-    ]
-
-    return [...orgChecks, ...leadershipChecks, ...teamChecks]
-  }, [company, people])
+    return orgChecks
+  }, [company])
 
   const done = checks.filter(c => c.ok).length
   const total = checks.length
