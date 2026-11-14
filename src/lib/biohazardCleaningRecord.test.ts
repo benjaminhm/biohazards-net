@@ -78,7 +78,7 @@ test('other zones are charged only when staff type both m² and a rate', () => {
   assert.deepEqual(priced.lines.find(line => line.label.startsWith('Garage')), { kind: 'zone', label: 'Garage (5 m² × $10.00)', amount_ex: 50 })
 })
 
-test('affected contents carry from the quote and can be changed on the record', () => {
+test('affected contents carry from the quote as one fixed amount, which staff can change on the record', () => {
   const withContents = quote({
     estimated_m2: 20, rate_per_m2: 50, labour_days: 1, rate_per_labour_day: 600,
     contents_m3: 2, contents_rate_per_m3: 100, contents_disposal_fee: 150,
@@ -86,12 +86,11 @@ test('affected contents carry from the quote and can be changed on the record', 
   const carried = biohazardRecordSummary(normalizeBiohazardCleaningRecord({ primary_m2: 20 }), withContents)
   assert.deepEqual(carried.lines.map(line => [line.label, line.amount_ex]), [
     ['Primary zone (20 m² × $50.00)', 1000],
-    ['Affected contents removal (2 m³ × $100.00)', 200],
-    ['Disposal fee', 150],
+    ['Affected contents removal and disposal', 350],
     ['Labour (1 day × $600.00)', 600],
   ])
-  const changed = biohazardRecordSummary(normalizeBiohazardCleaningRecord({ primary_m2: 20, contents_m3: 3, contents_disposal_fee: 0 }), withContents)
-  assert.deepEqual(changed.lines.filter(line => line.kind === 'contents' || line.kind === 'disposal').map(line => [line.label, line.amount_ex]), [
-    ['Affected contents removal (3 m³ × $100.00)', 300],
+  const changed = biohazardRecordSummary(normalizeBiohazardCleaningRecord({ primary_m2: 20, contents_amount: 400 }), withContents)
+  assert.deepEqual(changed.lines.filter(line => line.kind === 'contents').map(line => [line.label, line.amount_ex]), [
+    ['Affected contents removal and disposal', 400],
   ])
 })

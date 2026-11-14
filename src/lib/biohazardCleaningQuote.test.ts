@@ -651,12 +651,16 @@ test('affected contents are m³ × rate plus one disposal fee, and stay off a qu
   assert.equal(content.total, 1188)
 
   const html = buildPrintHTML('biohazard_cleaning_quote', content as unknown as Record<string, unknown>, [], [], null, 'job-1', 'http://localhost')
-  assert.match(html, /Affected contents removal: mattress and carpet/)
-  assert.match(html, /2\.5 m³/)
-  assert.match(html, /\$120\.00 \/ m³/)
-  assert.match(html, /Disposal fee/)
-  assert.match(html, /Removal of affected contents at the rate per cubic metre/)
-  assert.match(html, /Cubic metres of affected contents on this quote are an estimate/)
+  assert.equal(content.contents_fixed_amount, 480)
+  assert.match(html, /Affected contents removal and disposal: mattress and carpet<\/td>\s*<td[^>]*>\s*<\/td>\s*<td[^>]*>Fixed<\/td>\s*<td[^>]*>\$480\.00/)
+  assert.doesNotMatch(html, /m³/)
+  assert.doesNotMatch(html, /Disposal fee/)
+  assert.doesNotMatch(html, /Measured items/)
+  assert.doesNotMatch(html, /labour days?\b/i)
+  assert.match(html, /Removal and disposal of the affected contents, as the fixed amount on this quote\./)
+  assert.doesNotMatch(html, /Square metres on this quote are an estimate/)
+  assert.doesNotMatch(html, /rate per square metre/)
+  assert.match(html, /The balance is the rest of the price on this quote\./)
 })
 
 test('a triage quote that only removes contents leaves the cleaning steps off and says so', async () => {

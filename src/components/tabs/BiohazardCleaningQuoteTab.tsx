@@ -1272,7 +1272,7 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
       <div style={SECTION}>
         <div style={LABEL}>Affected contents removal</div>
         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
-          Contents affected by the biohazard that are taken away, such as a mattress, carpet, a couch, or clothing. Cubic metres × rate, plus one disposal fee. Leave blank to keep it off the quote.
+          Contents affected by the biohazard that are taken away, such as a mattress, carpet, a couch, or clothing. Price it here from cubic metres × rate, plus one disposal fee. The printed quote shows removal and disposal as one fixed price. Leave blank to keep it off the quote.
         </div>
         <NameList
           names={capture.contents_items}
@@ -1321,7 +1321,7 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
         {figures.has_contents && (
           <div style={HINT}>
             {figures.contents_m3.toLocaleString('en-AU', { maximumFractionDigits: 2 })} m³ × {formatAud(figures.contents_rate_per_m3)} = {formatAud(figures.contents_amount)}
-            {figures.contents_disposal_fee > 0 ? ` + ${formatAud(figures.contents_disposal_fee)} disposal = ${formatAud(figures.contents_amount + figures.contents_disposal_fee)}` : ''} ex GST
+            {figures.contents_disposal_fee > 0 ? ` + ${formatAud(figures.contents_disposal_fee)} disposal` : ''} = {formatAud(figures.contents_amount + figures.contents_disposal_fee)} ex GST, printed as a fixed price
           </div>
         )}
       </div>

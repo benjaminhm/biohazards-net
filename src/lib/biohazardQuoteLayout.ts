@@ -1,5 +1,4 @@
 import {
-  BIOHAZARD_CONTENTS_ASSUMPTION_LINE,
   BIOHAZARD_CONTENTS_INCLUSION_LINE,
   joinBiohazardNames,
   resolvedAreasAffected,
@@ -259,12 +258,8 @@ export function withBothZonePrintClauses(
       nextAssumptions.push('Secondary zone square metres on this quote are an estimate. An accurate onsite measurement survey revises them, at the secondary zone rate per square metre on this quote.')
     }
   }
-  const contentsWords = /cubic metre|m³|\bm3\b|affected contents/i
   if ((input.contents_m3 ?? 0) > 0 || (input.contents_disposal_fee ?? 0) > 0) {
-    if (!nextInclusions.some(line => contentsWords.test(line))) nextInclusions.push(BIOHAZARD_CONTENTS_INCLUSION_LINE)
-  }
-  if ((input.contents_m3 ?? 0) > 0 && !nextAssumptions.some(line => /cubic metre|m³|\bm3\b/i.test(line))) {
-    nextAssumptions.push(BIOHAZARD_CONTENTS_ASSUMPTION_LINE)
+    if (!nextInclusions.some(line => /affected contents/i.test(line))) nextInclusions.push(BIOHAZARD_CONTENTS_INCLUSION_LINE)
   }
   if ((input.extra_labels ?? []).some(label => /ATP|laborator/i.test(label)) && !nextInclusions.some(line => /ATP|laborator|testing/i.test(line))) {
     nextInclusions.push('Clearance testing listed on this quote.')

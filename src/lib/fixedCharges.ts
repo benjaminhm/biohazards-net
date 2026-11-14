@@ -68,3 +68,21 @@ export function recordSummary(quantity: number | null, rate: number | null, char
 export function labourDaysText(days: number): string {
   return `${days} ${days === 1 ? 'day' : 'days'}`
 }
+
+/** Older clause wording that names the labour days. The printed quote shows labour as a fixed amount only. */
+const LABOUR_DAY_CLAUSES: [RegExp, string][] = [
+  [/^labour for the labour days on this quote, as a fixed amount\.?$/i, 'Labour, as the fixed amount on this quote.'],
+  [/^the labour days on this quote are the labour for this cleaning\.?$/i, 'Labour is the fixed amount on this quote. It is not recalculated from the measured area.'],
+  [/^work other than the surface cleaning and the labour days on this quote\.?$/i, 'Work other than the surface cleaning and the labour on this quote.'],
+]
+
+/** Clause text with each labour-day line in its fixed-amount wording. Other lines are kept as typed. */
+export function labourClausesAsFixedAmount(text: string): string {
+  return text
+    .split('\n')
+    .map(line => {
+      const match = LABOUR_DAY_CLAUSES.find(([pattern]) => pattern.test(line.trim()))
+      return match ? match[1] : line
+    })
+    .join('\n')
+}

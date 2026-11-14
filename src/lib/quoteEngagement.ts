@@ -311,7 +311,7 @@ function halfThePrice(total: number): { deposit: number, balance: number } {
   return { deposit, balance }
 }
 
-/** The shared template names the labour days. A contents clearance prints labour as the amount only. */
+/** The shared template names the labour days. Every quote prints labour as the fixed amount only. */
 function labourAsAmountOnly(template: string): string {
   return template.replace(
     /\[\s*labour\s+days\s*\]\s*(?:for|at)\s+(?:the|a)\s+fixed\s+amount\s+of\s+(?=\[\s*labour\s+amount\s*\])/gi,
@@ -359,7 +359,7 @@ export function fillSurfaceAreaCleaningEngagement(
 ): string {
   const title = content.title.trim().replace(/ Quote$/i, '')
   const split = halfThePrice(content.total)
-  return fillEngagementAgreement(content.engagement_agreement, {
+  return fillEngagementAgreement(labourAsAmountOnly(content.engagement_agreement), {
     name: content.client_name,
     address: content.job_address || content.site_address,
     title,
@@ -388,7 +388,7 @@ export function fillBiohazardCleaningEngagement(
 ): string {
   const title = content.title.trim().replace(/ Quote$/i, '')
   const split = halfThePrice(content.total)
-  return fillEngagementAgreement(content.engagement_agreement, {
+  return fillEngagementAgreement(labourAsAmountOnly(content.engagement_agreement), {
     name: content.client_name,
     address: content.job_address || content.site_address,
     title,
@@ -402,9 +402,9 @@ export function fillBiohazardCleaningEngagement(
     kilometres: content.travel_km,
     distanceAmount: content.travel_amount,
     ratePerKm: content.rate_per_km,
-    surface: content.estimated_m2,
-    surfaceAmount: content.area_amount,
-    ratePerM2: content.rate_per_m2,
+    surface: content.estimated_m2 > 0 ? content.estimated_m2 : undefined,
+    surfaceAmount: content.estimated_m2 > 0 ? content.area_amount : undefined,
+    ratePerM2: content.estimated_m2 > 0 ? content.rate_per_m2 : undefined,
     deposit: split.deposit,
     balance: split.balance,
     date: quoteDate(context),

@@ -17,7 +17,7 @@ export const biohazardCleaningQuoteAgent: DocAgentDef = {
 - Actions on this quote: actions [] from remove, wash, sanitise, deodorise. Leave null for a full clean. A triage that only removes contents is ["remove"]; steps, inclusions and check stages for the others are left off.
 - Wording: cleaning_kind, biohazard_types [], areas_affected, description, objective, rooms [], clauses (from the company template unless edited).
 - Zones: estimated_m2, rate_per_m2; secondary_zone, secondary_contaminations, secondary_objective, secondary_m2, secondary_rooms, secondary_rate_per_m2; other_zones [].
-- Affected contents removal (mattress, carpet, couch, clothing; not a contents clearance): contents_items [], contents_m3, contents_rate_per_m3, contents_disposal_fee (one fee). Line = m³ × rate, plus the disposal fee.
+- Affected contents removal (mattress, carpet, couch, clothing; not a contents clearance): contents_items [], contents_m3, contents_rate_per_m3, contents_disposal_fee (one fee). Priced as m³ × rate plus the fee; the printed quote shows removal and disposal as one fixed price.
 - Labour and travel: labour_days (required to generate), rate_per_labour_day, rate_per_km, travel_km, job_address, base_address.
 - Fees and tests: mobilisation_fee/waived/reason, extra_lines [], coh_rap/coh_rap_fee, atp_testing/atp_tests/atp_rate, lab_testing/lab_tests/lab_rate.
 - check_override: set by staff only.`,

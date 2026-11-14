@@ -10,6 +10,7 @@ import type { Job, JobType } from '@/lib/types'
 import { DEFAULT_ENGAGEMENT_AGREEMENT, storedEngagementAgreement } from '@/lib/quoteEngagement'
 import { emptyJobOnlyClauses, normalizeJobOnlyClauses, withJobOnlyLines, type JobOnlyClauses } from '@/lib/quoteJobClauses'
 import { mergedSowCapture } from '@/lib/sowCapture'
+import { labourClausesAsFixedAmount } from '@/lib/fixedCharges'
 import {
   biohazardInclusionsWithServices,
   biohazardScopeWithServices,
@@ -88,7 +89,7 @@ export const BIOHAZARD_CLEANING_SCHEMA = {
     'Surface decontamination of the estimated primary zone area at the rate per square metre on this quote.',
     'Treatment of [secondary contamination] in the secondary zone, the [secondary zone], at the secondary zone rate per square metre on this quote.',
     'Travel at the rate per kilometre on this quote.',
-    'Labour for the labour days on this quote, as a fixed amount.',
+    'Labour, as the fixed amount on this quote.',
   ],
   exclusions: [
     'Repairs, rebuilding, and restoration, including replacing removed materials.',
@@ -99,7 +100,7 @@ export const BIOHAZARD_CLEANING_SCHEMA = {
   ],
   assumptions: [
     'Square metres on this quote are an estimate. An accurate onsite measurement survey revises them, at the rate per square metre on this quote.',
-    'The labour days on this quote are the labour for this cleaning.',
+    'Labour is the fixed amount on this quote. It is not recalculated from the measured area.',
     'Kilometres are the return drive between our base and the job address.',
     '[biohazard type] has not spread beyond the [area affected]. If it has, a written variation is given before further work.',
   ],
@@ -153,20 +154,14 @@ export const BIOHAZARD_ESTIMATE_NOTE =
 
 export const BIOHAZARD_TRAVEL_NOTE = 'The return drive between our base and the job address.'
 
-/** Printed under the measured items when affected contents are on the quote. */
-export const BIOHAZARD_CONTENTS_NOTE =
-  'Affected contents volume is an estimate. The volume removed is measured on the day.'
-
 export const BIOHAZARD_CONTENTS_LABEL = 'Affected contents removal'
 export const BIOHAZARD_DISPOSAL_LABEL = 'Disposal fee'
+/** The printed quote shows removal and disposal as one fixed price. Staff price it from cubic metres and the fee. */
+export const BIOHAZARD_CONTENTS_FIXED_LABEL = 'Affected contents removal and disposal'
 
 /** Added when printing if the inclusions do not already cover the affected contents. */
 export const BIOHAZARD_CONTENTS_INCLUSION_LINE =
-  'Removal of affected contents at the rate per cubic metre on this quote, and their disposal at the disposal fee on this quote.'
-
-/** Added when printing if the assumptions do not already cover the cubic metres. */
-export const BIOHAZARD_CONTENTS_ASSUMPTION_LINE =
-  'Cubic metres of affected contents on this quote are an estimate. The volume removed is measured on the day, at the rate per cubic metre on this quote.'
+  'Removal and disposal of the affected contents, as the fixed amount on this quote.'
 
 /** Fixed lines staff often add. They start at a rate of zero. */
 export const BIOHAZARD_EXTRA_LINE_PRESETS = [
@@ -356,7 +351,11 @@ export interface BiohazardCleaningQuoteContent {
   contents_rate_per_m3: number
   contents_amount: number
   contents_disposal_fee: number
+  /** Removal and disposal together. The printed quote shows this as one fixed price. */
+  contents_fixed_amount: number
   has_contents: boolean
+  /** True when the quote has square metres to measure. Without them nothing on it is an estimate of area. */
+  has_estimated_area: boolean
   travel_km: number
   rate_per_km: number
   travel_amount: number
@@ -875,8 +874,21 @@ export function resolvedContentsItem(capture: Pick<BiohazardCleaningCapture, 'co
 }
 
 /** "Affected contents removal: mattress and carpet", or the bare label when no items are named. */
-export function biohazardContentsLabel(items: string): string {
-  return items.trim() ? `${BIOHAZARD_CONTENTS_LABEL}: ${items.trim()}` : BIOHAZARD_CONTENTS_LABEL
+export function biohazardContentsLabel(items: string, label: string = BIOHAZARD_CONTENTS_LABEL): string {
+  return items.trim() ? `${label}: ${items.trim()}` : label
+}
+
+const AREA_ESTIMATE_LINE = /rate per square metre|square metres on this quote are an estimate/i
+const AREA_BALANCE_SENTENCE = /The balance is the measured square metres at the rate on this quote, plus the travel, labour, and fixed amounts on this quote\./i
+
+/** Without square metres, lines about measuring the primary zone are left off and the balance is the rest of the price. */
+function withoutAreaEstimateLines(text: string, hasArea: boolean): string {
+  if (hasArea) return text
+  return text.split('\n').filter(line => !AREA_ESTIMATE_LINE.test(line) || /secondary/i.test(line)).join('\n')
+}
+
+function areaBalanceTerms(text: string, hasArea: boolean): string {
+  return hasArea ? text : text.replace(AREA_BALANCE_SENTENCE, 'The balance is the rest of the price on this quote.')
 }
 
 export function secondaryZoneInUse(capture: Pick<BiohazardCleaningCapture, 'secondary_zone' | 'secondary_contaminations' | 'secondary_objective' | 'secondary_m2' | 'secondary_rooms'>): boolean {
@@ -1131,6 +1143,8 @@ export function biohazardCleaningQuoteContent(input: {
     secondary_rooms: secondaryRooms,
     has_secondary: figures.has_secondary,
     other_zones: otherZones,
+    contents_fixed_amount: round2(figures.contents_amount + figures.contents_disposal_fee),
+    has_estimated_area: figures.estimated_m2 > 0 || figures.has_secondary,
     contents_items: figures.has_contents ? resolvedContentsItem(capture) : '',
     contents_m3: figures.contents_m3,
     contents_rate_per_m3: figures.contents_rate_per_m3,
@@ -1151,10 +1165,10 @@ export function biohazardCleaningQuoteContent(input: {
     subtotal: figures.subtotal,
     gst: figures.gst,
     total: figures.total,
-    inclusions: lines(withJobOnlyLines(biohazardInclusionsWithServices(biohazardInclusionsWithActions(clauses.inclusions, capture), capture), capture.job_inclusions)),
-    exclusions: lines(withJobOnlyLines(biohazardExclusionsWithActions(clauses.exclusions, capture), capture.job_exclusions)),
-    assumptions: lines(withJobOnlyLines(clauses.assumptions, capture.job_assumptions)),
-    terms: fill(clauses.payment_terms).trim(),
+    inclusions: lines(labourClausesAsFixedAmount(withoutAreaEstimateLines(withJobOnlyLines(biohazardInclusionsWithServices(biohazardInclusionsWithActions(clauses.inclusions, capture), capture), capture.job_inclusions), figures.estimated_m2 > 0))),
+    exclusions: lines(labourClausesAsFixedAmount(withJobOnlyLines(biohazardExclusionsWithActions(clauses.exclusions, capture), capture.job_exclusions))),
+    assumptions: lines(labourClausesAsFixedAmount(withoutAreaEstimateLines(withJobOnlyLines(clauses.assumptions, capture.job_assumptions), figures.estimated_m2 > 0))),
+    terms: areaBalanceTerms(fill(clauses.payment_terms).trim(), figures.estimated_m2 > 0 || figures.has_secondary),
     engagement_agreement: clauses.engagement_agreement.trim(),
     authority: BIOHAZARD_CLEANING_SCHEMA.authority,
     acceptance: BIOHAZARD_CLEANING_SCHEMA.acceptance,

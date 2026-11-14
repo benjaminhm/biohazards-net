@@ -4,6 +4,7 @@
  * Labour days are the agreed quantity. Rates are ex GST.
  */
 
+import { labourClausesAsFixedAmount } from '@/lib/fixedCharges'
 import {
   biohazardInclusionsWithServices,
   biohazardScopeWithServices,
@@ -28,16 +29,16 @@ export const SURFACE_AREA_SCHEMA = {
   ratePerLabourDay: 0,
   inclusions: [
     'Surface cleaning of the estimated area at the rate per square metre on this quote.',
-    'Labour for the labour days on this quote, as a fixed amount.',
+    'Labour, as the fixed amount on this quote.',
   ],
   exclusions: [
     'Contents removal and disposal.',
     'Repairs, rebuilding, and restoration.',
-    'Work other than the surface cleaning and the labour days on this quote.',
+    'Work other than the surface cleaning and the labour on this quote.',
   ],
   assumptions: [
     'Square metres on this quote are an estimate. An accurate onsite measurement survey revises them, at the rate per square metre on this quote.',
-    'The labour days on this quote are the labour for this cleaning.',
+    'Labour is the fixed amount on this quote. It is not recalculated from the measured area.',
   ],
   terms:
     'A deposit of 50% of this estimate is requested before the cleaning starts. The balance is the measured square metres at the rate on this quote, plus the labour amount on this quote. GST is 10%.',
@@ -597,9 +598,9 @@ export function surfaceAreaCleaningQuoteContent(input: {
     subtotal: figures.subtotal,
     gst: figures.gst,
     total: figures.total,
-    inclusions: surfaceAreaClauseLines(withJobOnlyLines(biohazardInclusionsWithServices(standards.inclusions, capture), capture.job_inclusions)),
-    exclusions,
-    assumptions: surfaceAreaClauseLines(withJobOnlyLines(standards.assumptions, capture.job_assumptions)),
+    inclusions: surfaceAreaClauseLines(labourClausesAsFixedAmount(withJobOnlyLines(biohazardInclusionsWithServices(standards.inclusions, capture), capture.job_inclusions))),
+    exclusions: exclusions.map(line => labourClausesAsFixedAmount(line)),
+    assumptions: surfaceAreaClauseLines(labourClausesAsFixedAmount(withJobOnlyLines(standards.assumptions, capture.job_assumptions))),
     terms: standards.payment_terms.trim(),
     engagement_agreement: standards.engagement_agreement.trim(),
     authority: SURFACE_AREA_SCHEMA.authority,
