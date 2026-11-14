@@ -12,6 +12,7 @@
 import { useMemo, useState, useEffect } from 'react'
 import type { Photo, AssessmentData } from '@/lib/types'
 import PhotoCard from '@/components/PhotoCard'
+import PhoneUploadQr from '@/components/PhoneUploadQr'
 import { usedPhotoIds } from '@/lib/photoSelection'
 
 interface Props {
@@ -31,6 +32,7 @@ function newestFirst(a: Photo, b: Photo): number {
 
 export default function PhotosTab({ jobId, photos, assessmentData = null, onAssessmentDataUpdate, onPhotosUpdate }: Props) {
   const [filter, setFilter] = useState<Filter>('all')
+  const [phoneUpload, setPhoneUpload] = useState(false)
   const [roomNotesDraft, setRoomNotesDraft] = useState<Record<string, string>>({})
   const [savingRoom, setSavingRoom] = useState<string | null>(null)
   const areaNames = useMemo(
@@ -97,10 +99,20 @@ export default function PhotosTab({ jobId, photos, assessmentData = null, onAsse
         className="card"
         style={{ marginBottom: 20, padding: '14px 16px', fontSize: 13, lineHeight: 1.5, color: 'var(--text-muted)', borderStyle: 'dashed' }}
       >
-        <strong style={{ color: 'var(--text)' }}>Every photo for this job lands here.</strong>{' '}
-        Load them with the photo loader, the PIN camera or the field app. Each document picks its own photos with
-        &ldquo;Select from folder&rdquo;.
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ flex: 1, minWidth: 220 }}>
+            <strong style={{ color: 'var(--text)' }}>Every photo for this job lands here.</strong>{' '}
+            Load them from your phone with the QR code, the photo loader or the PIN camera. Each document picks its own
+            photos with &ldquo;Select from folder&rdquo;.
+          </div>
+          <button type="button" className="btn btn-primary" onClick={() => setPhoneUpload(true)} style={{ fontSize: 13, fontWeight: 800 }}>
+            Phone upload (QR)
+          </button>
+        </div>
       </div>
+      {phoneUpload && (
+        <PhoneUploadQr jobId={jobId} photoCount={photos.length} onPhotosUpdate={onPhotosUpdate} onClose={() => setPhoneUpload(false)} />
+      )}
 
       <div style={{ display: 'flex', gap: 6, marginBottom: 20, flexWrap: 'wrap' }}>
         {filters.map(f => (

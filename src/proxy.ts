@@ -11,7 +11,8 @@
  *
  *   photo.biohazards.net     — PIN photo apps, no staff session. / is the camera
  *                              (/photo), /bulk the bulk loader (/photo/bulk),
- *                              /notes the job notepad (/photo/notes).
+ *                              /notes the job notepad (/photo/notes),
+ *                              /drop/<token> a QR upload link (/photo/drop).
  *                              Only /photo and /api/photo are reachable.
  *
  *   notes.biohazards.net     — the job notepad on its own host. / is /photo/notes;
@@ -147,6 +148,12 @@ export async function proxy(request: NextRequest) {
     if (shortPaths[pathname]) {
       const url = request.nextUrl.clone()
       url.pathname = shortPaths[pathname]
+      return NextResponse.rewrite(url, { request: { headers: requestHeaders } })
+    }
+    const drop = !notesHost && !newJobHost ? pathname.match(/^\/drop\/([A-Za-z0-9_-]{32,64})$/) : null
+    if (drop) {
+      const url = request.nextUrl.clone()
+      url.pathname = `/photo/drop/${drop[1]}`
       return NextResponse.rewrite(url, { request: { headers: requestHeaders } })
     }
     if (!isPhotoPath) {
