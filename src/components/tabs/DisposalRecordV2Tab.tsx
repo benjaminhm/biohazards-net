@@ -18,6 +18,8 @@ import type { CdrRole, DisposalContainerPreset, DisposalLoad, DisposalLoadEvent,
 import { mergeAssessmentData } from '@/lib/riskDerivation'
 import { useRegisterUnsavedChanges } from '@/lib/unsavedChangesContext'
 import CdrPhotoTagger, { type CdrTagRow } from '@/components/CdrPhotoTagger'
+import PhotoFolderPicker from '@/components/PhotoFolderPicker'
+import { usedPhotoIds } from '@/lib/photoSelection'
 import DefaultedNumberInput from '@/components/DefaultedNumberInput'
 import RecordSummaryTable from '@/components/RecordSummaryTable'
 import {
@@ -149,6 +151,9 @@ export default function DisposalRecordV2Tab({ job, photos, onJobUpdate, onPhotos
   const [savedFlash, setSavedFlash] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [sortOpen, setSortOpen] = useState<boolean | null>(null)
+  const [picking, setPicking] = useState(false)
+  const [autoSort, setAutoSort] = useState(false)
+  const [pickError, setPickError] = useState('')
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [zoom, setZoom] = useState<string | null>(null)
   const [remembered, setRemembered] = useState<DisposalManifestCapture['containers']>(undefined)
@@ -387,11 +392,27 @@ export default function DisposalRecordV2Tab({ job, photos, onJobUpdate, onPhotos
     return res.ok ? data : { error: data.error ?? `Failed (${res.status})` }
   }
 
+  /** Picked photos join the record unsorted; the tagger reads them, sorts them by time and GPS, and confirms. */
+  async function addFromFolder(ids: string[]) {
+    setPicking(false)
+    if (!ids.length) return
+    setPickError('')
+    const result = await post('/api/photos/cdr-tags', { tags: ids.map(id => ({ id, load: 0, role: null })) })
+      .catch(() => ({ error: 'Could not add the photos. Check the connection and try again.' } as { photos?: CdrPhoto[]; error?: string }))
+    if (!result.photos) {
+      setPickError(result.error || 'Could not add the photos.')
+      return
+    }
+    mergePhotos(result.photos)
+    setAutoSort(true)
+    setSortOpen(true)
+  }
+
   // ── What is on screen ──────────────────────────────────────────────────────
   const loads = capture.loads.filter(l => isTimelineLoad(l) || loadHasContent(l))
   const waiting = photos.filter(p => p.cdr_load === 0).length
   const tagged = photos.filter(p => (p.cdr_load ?? 0) >= 1).length
-  const sorting = sortOpen ?? (waiting > 0 || (tagged === 0 && loads.length === 0 && photos.length > 0))
+  const sorting = sortOpen ?? waiting > 0
   const record = useMemo(() => disposalRecordSummary({ ...capture, loads }, quoteLink), [capture, loads, quoteLink])
   const totals = computeDisposalTotals(loads)
   const notVerified = loads.filter(l => isTimelineLoad(l) && !l.verified_at).length
@@ -424,13 +445,19 @@ export default function DisposalRecordV2Tab({ job, photos, onJobUpdate, onPhotos
                 ? `${waiting} photo${waiting === 1 ? '' : 's'} waiting to be sorted into loads.`
                 : tagged > 0
                   ? `${tagged} photo${tagged === 1 ? '' : 's'} sorted into ${new Set(photos.filter(p => (p.cdr_load ?? 0) >= 1).map(p => p.cdr_load)).size} load(s).`
-                  : 'No disposal photos yet. Load them through the bulk loader, or pick them from the job’s photos here.'}
+                  : 'No disposal photos yet. Select them from the job’s folder, or load them through the bulk loader.'}
             </div>
           </div>
-          <button type="button" className="btn btn-secondary" onClick={() => setSortOpen(!sorting)} style={{ fontSize: 13, fontWeight: 700 }}>
-            {sorting ? 'Hide photos' : tagged > 0 || waiting > 0 ? 'Change photo sorting' : 'Pick from job photos'}
+          <button type="button" className="btn btn-primary" onClick={() => setPicking(true)} style={{ fontSize: 13, fontWeight: 800 }}>
+            Select from folder
           </button>
+          {(tagged > 0 || waiting > 0) && (
+            <button type="button" className="btn btn-secondary" onClick={() => setSortOpen(!sorting)} style={{ fontSize: 13, fontWeight: 700 }}>
+              {sorting ? 'Hide photos' : 'Change photo sorting'}
+            </button>
+          )}
         </div>
+        {pickError && <div role="alert" style={{ marginTop: 8, fontSize: 13, fontWeight: 700, color: '#F87171' }}>{pickError}</div>}
         {sorting && (
           <div style={{ marginTop: 14 }}>
             <CdrPhotoTagger
@@ -439,10 +466,24 @@ export default function DisposalRecordV2Tab({ job, photos, onJobUpdate, onPhotos
               saveTags={(rows: CdrTagRow[]) => post('/api/photos/cdr-tags', { tags: rows })}
               readPhoto={id => post('/api/photos/cdr-read', { photo_id: id })}
               onPhotos={mergePhotos}
-              onSaved={() => setSortOpen(false)}
-              folder={{ jobId: job.id, photos, onPhotosUpdate: list => onPhotosUpdate(list) }}
+              onSaved={() => setSortOpen(null)}
+              onSelectFromFolder={() => setPicking(true)}
+              autoConfirm={autoSort}
+              onAutoConfirmed={() => setAutoSort(false)}
             />
           </div>
+        )}
+        {picking && (
+          <PhotoFolderPicker
+            jobId={job.id}
+            title="Contents Disposal Record"
+            photos={photos}
+            alreadyIds={new Set(photos.filter(p => p.cdr_load != null).map(p => p.id))}
+            usedIds={usedPhotoIds(job.assessment_data, photos)}
+            onPhotosUpdate={list => onPhotosUpdate(list)}
+            onClose={() => setPicking(false)}
+            onAdd={ids => void addFromFolder(ids)}
+          />
         )}
       </div>
 

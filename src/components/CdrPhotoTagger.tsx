@@ -10,8 +10,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import type { CdrRole, Photo } from '@/lib/types'
-import PhotoFolderPicker from '@/components/PhotoFolderPicker'
+import type { CdrRole } from '@/lib/types'
 import {
   CDR_ROLES,
   compactLoadNumbers,
@@ -33,8 +32,11 @@ interface Props {
   /** Photos changed on the server (tags saved, or an image read). */
   onPhotos: (updated: CdrPhoto[]) => void
   onSaved?: () => void
-  /** Staff only: add the job's other photos through the folder picker. */
-  folder?: { jobId: string; photos: Photo[]; onPhotosUpdate: (photos: Photo[]) => void }
+  /** Staff only: opens the job's photo folder; picked photos come back as unsorted disposal photos. */
+  onSelectFromFolder?: () => void
+  /** Confirm the suggested loads by itself once every disposal photo has been read. */
+  autoConfirm?: boolean
+  onAutoConfirmed?: () => void
 }
 
 const READ_CONCURRENCY = 3
@@ -59,11 +61,10 @@ function timeOf(p: CdrPhoto): number {
   return Number.isFinite(t) ? t : Infinity
 }
 
-export default function CdrPhotoTagger({ photos, site, saveTags, readPhoto, onPhotos, onSaved, folder }: Props) {
+export default function CdrPhotoTagger({ photos, site, saveTags, readPhoto, onPhotos, onSaved, onSelectFromFolder, autoConfirm, onAutoConfirmed }: Props) {
   const [edits, setEdits] = useState<Record<string, CdrTag>>({})
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showOthers, setShowOthers] = useState(false)
-  const [picking, setPicking] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [zoom, setZoom] = useState<CdrPhoto | null>(null)
@@ -214,6 +215,22 @@ export default function CdrPhotoTagger({ photos, site, saveTags, readPhoto, onPh
     onSaved?.()
   }
 
+  const confirmRef = useRef(confirm)
+  confirmRef.current = confirm
+  const onAutoRef = useRef(onAutoConfirmed)
+  onAutoRef.current = onAutoConfirmed
+  const autoFired = useRef(false)
+  const allAttempted = unread.split(',').every(id => !id || attempted.current.has(id))
+  useEffect(() => {
+    if (!autoConfirm) {
+      autoFired.current = false
+      return
+    }
+    if (autoFired.current || stillReading || saving || !allAttempted) return
+    autoFired.current = true
+    void confirmRef.current().finally(() => onAutoRef.current?.())
+  }, [autoConfirm, stillReading, saving, allAttempted])
+
   const group = (title: string, list: CdrPhoto[], note?: string) => {
     if (!list.length) return null
     const first = list.find(p => p.taken_at)
@@ -274,16 +291,16 @@ export default function CdrPhotoTagger({ photos, site, saveTags, readPhoto, onPh
           ? group('Not in the disposal record', others.filter(p => p.cdr_load != null || edits[p.id]))
           : null
       )}
-      {others.some(p => p.cdr_load == null && !edits[p.id]) && (
-        <button
-          type="button"
-          onClick={() => (folder ? setPicking(true) : setShowOthers(true))}
-          style={{ ...PILL, justifySelf: 'start' }}
-        >
-          {folder ? 'Select from folder' : `Add from the job’s other photos (${others.length})`}
+      {onSelectFromFolder ? (
+        <button type="button" onClick={onSelectFromFolder} style={{ ...PILL, justifySelf: 'start' }}>
+          Select from folder
+        </button>
+      ) : others.some(p => p.cdr_load == null && !edits[p.id]) && (
+        <button type="button" onClick={() => setShowOthers(true)} style={{ ...PILL, justifySelf: 'start' }}>
+          {`Add from the job’s other photos (${others.length})`}
         </button>
       )}
-      {!folder && showOthers && group('Other job photos', others.filter(p => p.cdr_load == null && !edits[p.id]))}
+      {!onSelectFromFolder && showOthers && group('Other job photos', others.filter(p => p.cdr_load == null && !edits[p.id]))}
 
       <div style={{ position: 'sticky', bottom: 0, zIndex: 5, display: 'grid', gap: 8, padding: '10px 0', background: 'var(--bg)', borderTop: '1px solid var(--border)' }}>
         {selected.size > 0 && (
@@ -314,25 +331,6 @@ export default function CdrPhotoTagger({ photos, site, saveTags, readPhoto, onPh
           {error && <span style={{ fontSize: 13, fontWeight: 700, color: '#F87171' }}>{error}</span>}
         </div>
       </div>
-
-      {picking && folder && (
-        <PhotoFolderPicker
-          jobId={folder.jobId}
-          title="Disposal record"
-          photos={folder.photos}
-          alreadyIds={new Set(sorted.filter(p => tagOf(p).load != null).map(p => p.id))}
-          onPhotosUpdate={folder.onPhotosUpdate}
-          onClose={() => setPicking(false)}
-          onAdd={ids => {
-            setPicking(false)
-            setEdits(prev => {
-              const next = { ...prev }
-              for (const id of ids) next[id] = { load: 0, role: null }
-              return next
-            })
-          }}
-        />
-      )}
 
       {zoom && (
         <div
