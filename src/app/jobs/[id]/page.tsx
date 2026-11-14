@@ -74,6 +74,7 @@ import AgentDrawer from '@/components/agent/AgentDrawer'
 import AgentDraftsBanner from '@/components/workspace/AgentDraftsBanner'
 import JobFlags from '@/components/workspace/JobFlags'
 import ViewToggle from '@/components/workspace/ViewToggle'
+import { archivedMenuKeys, menuItemKey } from '@/lib/menuArchive'
 import { FILE_MENU_PARAM, JOB_EMBED_MSG, useJobEmbedBridge } from '@/lib/jobEmbed'
 import { HOME_SECTIONS, HOME_SECTION_IDS, HOME_SECTION_TO_CAP, isHomeSection, type HomeSection } from '@/lib/jobHomeSections'
 import { isTradingNameId, type TradingNameId } from '@/lib/tradingNames'
@@ -1016,6 +1017,10 @@ export default function JobPage() {
     ...tabs.filter(t => t.id === 'photos'),
     ...tabs.filter(t => t.id !== 'photos' && t.id !== 'home'),
   ].map(({ id, label }) => ({ id, label }))
+  /** Archived menu items leave the tab bar and drawer, unless they are the one open now. */
+  const menuArchived = archivedMenuKeys(org?.features)
+  const barTabs = tabs.filter(t => t.id === activeTab || !menuArchived.has(menuItemKey('tab', t.id)))
+  const drawerSections = visibleHomeSections.filter(s => s.id === homeSection || !menuArchived.has(menuItemKey('section', s.id)))
   const pageTitle = activeTab === 'home' && homeSection === 'execute'
     ? DOC_TYPE_LABELS.waste_disposal_manifest
     : activeTab === 'home' && homeSection === 'survey'
@@ -1354,7 +1359,7 @@ export default function JobPage() {
             paddingLeft: 16,
             paddingRight: 16,
           }}>
-            {tabs.map(t => (
+            {barTabs.map(t => (
               <button key={t.id} onClick={() => requestTabChange(t.id)} style={{
                 padding: '8px 16px', fontSize: 13, fontWeight: 600,
                 color: activeTab === t.id ? 'var(--accent)' : 'var(--text-muted)',
@@ -1400,7 +1405,7 @@ export default function JobPage() {
          */}
         {activeTab === 'home' && visibleHomeSections.length > 0 && !parentFileMenu && (
           <HomeWorkflowDrawer
-            sections={visibleHomeSections}
+            sections={drawerSections}
             active={homeSection}
             onChange={setHomeSection}
             ariaLabel="Job workflow sections"

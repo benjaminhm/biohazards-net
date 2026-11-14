@@ -7,6 +7,8 @@
  * for bulk archive, and a hide toggle remembered in localStorage. Middle: the open job's numbered
  * Home sections (lib/jobHomeSections), then the job page's other tabs as the
  * job page reports them; the chosen section carries over when switching jobs.
+ * Admins can tick menu items and archive them for the whole organisation
+ * (lib/menuArchive); archived items sit in a folded group at the bottom.
  * Right: the job's full page in a same-origin iframe (lib/jobEmbed) with its
  * own tabs and section drawer hidden, and status, archive and
  * delete in a toolbar above it. Admins and managers only.
@@ -24,6 +26,7 @@ import type { CompanyProfile, Job, JobStatus } from '@/lib/types'
 import { useUser } from '@/lib/userContext'
 import { FILE_MENU_PARAM, JOB_EMBED_MSG, isFileMenuTabList, type FileMenuTab } from '@/lib/jobEmbed'
 import { isHomeSection, visibleHomeSections, type HomeSection } from '@/lib/jobHomeSections'
+import { archivedMenuKeys, menuItemKey, splitArchived } from '@/lib/menuArchive'
 import { TRADING_NAME_OPTIONS, isTradingNameId } from '@/lib/tradingNames'
 
 const STATUS_ORDER: JobStatus[] = [
@@ -217,7 +220,7 @@ function JobRow({ job, active, showPrice, checked, onCheck, onSelect }: {
   )
 }
 
-function FileMenu({ job, sections, active, onOpen, tabs, activeTab, onOpenTab }: {
+function FileMenu({ job, sections, active, onOpen, tabs, activeTab, onOpenTab, archived, canArchive, onArchive }: {
   job: Job
   sections: { id: HomeSection; label: string }[]
   active: HomeSection | null
@@ -225,65 +228,148 @@ function FileMenu({ job, sections, active, onOpen, tabs, activeTab, onOpenTab }:
   tabs: FileMenuTab[]
   activeTab: string | null
   onOpenTab: (tab: string) => void
+  archived: Set<string>
+  canArchive: boolean
+  onArchive: (keys: string[], archived: boolean) => Promise<void>
 }) {
-  const item = (selected: boolean): React.CSSProperties => ({
+  const [picking, setPicking] = useState(false)
+  const [checked, setChecked] = useState<Set<string>>(() => new Set())
+  const [archivedOpen, setArchivedOpen] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  const sectionSplit = splitArchived(sections, 'section', archived)
+  const tabSplit = splitArchived(tabs, 'tab', archived)
+  const archivedCount = sectionSplit.archived.length + tabSplit.archived.length
+  const toArchive = [...checked].filter(k => !archived.has(k))
+  const toRestore = [...checked].filter(k => archived.has(k))
+
+  function stopPicking() {
+    setPicking(false)
+    setChecked(new Set())
+  }
+
+  function toggle(key: string) {
+    setChecked(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  async function save(keys: string[], archive: boolean) {
+    if (keys.length === 0 || saving) return
+    setSaving(true)
+    try {
+      await onArchive(keys, archive)
+      stopPicking()
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : 'Could not save the menu')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const item = (selected: boolean, muted = false): React.CSSProperties => ({
     display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left',
     padding: '8px 10px', borderRadius: 8, border: 'none', cursor: 'pointer',
     background: selected ? 'rgba(59,130,246,0.15)' : 'transparent',
-    color: selected ? 'var(--blue)' : 'var(--text)',
+    color: selected ? 'var(--blue)' : muted ? 'var(--text-muted)' : 'var(--text)',
     fontSize: 13, fontWeight: selected ? 700 : 600,
   })
+  const labelStyle: React.CSSProperties = { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+
+  function row(key: string, label: string, selected: boolean, open: () => void, opts: { number?: number; muted?: boolean } = {}) {
+    return (
+      <button
+        key={key}
+        type="button"
+        aria-current={selected && !picking ? 'page' : undefined}
+        aria-pressed={picking ? checked.has(key) : undefined}
+        onClick={() => (picking ? toggle(key) : open())}
+        style={item(selected && !picking, opts.muted)}
+      >
+        {picking && (
+          <input type="checkbox" checked={checked.has(key)} readOnly tabIndex={-1} aria-hidden style={{ flexShrink: 0, pointerEvents: 'none' }} />
+        )}
+        {opts.number !== undefined && (
+          <span style={{
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            width: 22, height: 22, borderRadius: '50%', fontSize: 11, fontWeight: 700, flexShrink: 0,
+            background: selected && !picking ? 'var(--blue)' : 'var(--surface-2)',
+            color: selected && !picking ? '#fff' : 'var(--text-muted)',
+          }}>
+            {opts.number}
+          </span>
+        )}
+        <span style={labelStyle}>{label}</span>
+      </button>
+    )
+  }
+
+  const smallBtn: React.CSSProperties = { fontSize: 11, padding: '4px 8px' }
+  const showArchivedGroup = archivedCount > 0 && (archivedOpen || picking)
 
   return (
     <nav aria-label="Job file sections" style={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%', borderRight: '1px solid var(--border)' }}>
       <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', minWidth: 0 }}>
-        <div style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 11, fontWeight: 800, color: 'var(--accent)' }}>
-          {job.job_code ? `#${job.job_code}` : 'Job file'}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ flex: 1, fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 11, fontWeight: 800, color: 'var(--accent)' }}>
+            {job.job_code ? `#${job.job_code}` : 'Job file'}
+          </div>
+          {canArchive && !picking && (
+            <button type="button" className="btn btn-ghost" style={{ ...smallBtn, color: 'var(--text-muted)' }} onClick={() => setPicking(true)} title="Hide menu items nobody uses, for the whole organisation">
+              Archive items
+            </button>
+          )}
         </div>
         <div style={{ fontWeight: 700, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {job.client_name || 'Unnamed'}
         </div>
+        {picking && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+            <button type="button" className="btn btn-primary" style={smallBtn} disabled={saving || toArchive.length === 0} onClick={() => void save(toArchive, true)}>
+              Archive{toArchive.length ? ` (${toArchive.length})` : ''}
+            </button>
+            {archivedCount > 0 && (
+              <button type="button" className="btn btn-secondary" style={smallBtn} disabled={saving || toRestore.length === 0} onClick={() => void save(toRestore, false)}>
+                Restore{toRestore.length ? ` (${toRestore.length})` : ''}
+              </button>
+            )}
+            <button type="button" className="btn btn-ghost" style={smallBtn} disabled={saving} onClick={stopPicking}>
+              Cancel
+            </button>
+          </div>
+        )}
       </div>
       <div style={{ flex: 1, overflowY: 'auto', padding: 6, display: 'flex', flexDirection: 'column', gap: 2 }}>
-        {sections.map((s, i) => {
-          const selected = s.id === active
-          return (
-            <button
-              key={s.id}
-              type="button"
-              aria-current={selected ? 'page' : undefined}
-              onClick={() => onOpen(s.id)}
-              style={item(selected)}
-            >
-              <span style={{
-                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                width: 22, height: 22, borderRadius: '50%', fontSize: 11, fontWeight: 700, flexShrink: 0,
-                background: selected ? 'var(--blue)' : 'var(--surface-2)',
-                color: selected ? '#fff' : 'var(--text-muted)',
-              }}>
-                {i + 1}
-              </span>
-              <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.label}</span>
-            </button>
-          )
-        })}
-        {tabs.length > 0 && sections.length > 0 && (
+        {sectionSplit.shown.map((s, i) =>
+          row(menuItemKey('section', s.id), s.label, s.id === active, () => onOpen(s.id), { number: i + 1 }))}
+        {tabSplit.shown.length > 0 && sectionSplit.shown.length > 0 && (
           <div role="separator" style={{ height: 1, background: 'var(--border)', margin: '6px 4px' }} />
         )}
-        {tabs.map(t => {
-          const selected = t.id === activeTab
-          return (
+        {tabSplit.shown.map(t => row(menuItemKey('tab', t.id), t.label, t.id === activeTab, () => onOpenTab(t.id)))}
+        {archivedCount > 0 && (
+          <>
+            <div role="separator" style={{ height: 1, background: 'var(--border)', margin: '6px 4px' }} />
             <button
-              key={t.id}
               type="button"
-              aria-current={selected ? 'page' : undefined}
-              onClick={() => onOpenTab(t.id)}
-              style={item(selected)}
+              aria-expanded={showArchivedGroup}
+              onClick={() => setArchivedOpen(o => !o)}
+              disabled={picking}
+              style={{ ...item(false, true), fontSize: 12, cursor: picking ? 'default' : 'pointer' }}
             >
-              <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.label}</span>
+              <span aria-hidden style={{ width: 10, flexShrink: 0 }}>{showArchivedGroup ? '▾' : '▸'}</span>
+              <span style={labelStyle}>Archived ({archivedCount})</span>
             </button>
-          )
-        })}
+            {showArchivedGroup && (
+              <>
+                {sectionSplit.archived.map(s => row(menuItemKey('section', s.id), s.label, s.id === active, () => onOpen(s.id), { muted: true }))}
+                {tabSplit.archived.map(t => row(menuItemKey('tab', t.id), t.label, t.id === activeTab, () => onOpenTab(t.id), { muted: true }))}
+              </>
+            )}
+          </>
+        )}
       </div>
     </nav>
   )
@@ -298,6 +384,9 @@ function JobViewer({
   onJobPatched,
   onRemoveJob,
   onEmbedChanged,
+  menuArchived,
+  canArchiveMenu,
+  onArchiveMenu,
 }: {
   job: Job
   sections: { id: HomeSection; label: string }[]
@@ -307,6 +396,9 @@ function JobViewer({
   onJobPatched: (job: Job) => void
   onRemoveJob: (id: string) => void
   onEmbedChanged: () => void
+  menuArchived: Set<string>
+  canArchiveMenu: boolean
+  onArchiveMenu: (keys: string[], archived: boolean) => Promise<void>
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const [showModal, setShowModal] = useState(false)
@@ -433,6 +525,9 @@ function JobViewer({
         tabs={fileTabs}
         activeTab={shownTab}
         onOpenTab={next => openInFrame(next, null)}
+        archived={menuArchived}
+        canArchive={canArchiveMenu}
+        onArchive={onArchiveMenu}
       />
       <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
         {showModal && (
@@ -542,6 +637,19 @@ function JobQueue() {
   const [listHidden, setListHidden] = useState(false)
   const { org: ctxOrg, loading: userLoading, isAdmin, caps } = useUser()
   const fileSections = useMemo(() => visibleHomeSections(caps), [caps])
+  const [savedFeatures, setSavedFeatures] = useState<Record<string, unknown> | null>(null)
+  const menuArchived = useMemo(() => archivedMenuKeys(savedFeatures ?? ctxOrg?.features), [savedFeatures, ctxOrg?.features])
+
+  const archiveMenuItems = useCallback(async (keys: string[], archived: boolean) => {
+    const res = await fetch('/api/org/menu-archive', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keys, archived }),
+    })
+    const data = (await res.json().catch(() => ({}))) as { features?: Record<string, unknown>; error?: string }
+    if (!res.ok || !data.features) throw new Error(data.error ?? 'Could not save the menu')
+    setSavedFeatures(data.features)
+  }, [])
 
   // The pipeline board is for admins and managers.
   useEffect(() => {
@@ -916,6 +1024,9 @@ function JobQueue() {
                 onJobPatched={handleJobPatched}
                 onRemoveJob={handleRemoveJob}
                 onEmbedChanged={() => void loadJobs(true)}
+                menuArchived={menuArchived}
+                canArchiveMenu={isAdmin}
+                onArchiveMenu={archiveMenuItems}
               />
             ) : (
               <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: 14 }}>
