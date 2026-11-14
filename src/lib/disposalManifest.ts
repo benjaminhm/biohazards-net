@@ -2,6 +2,7 @@ import type {
   AssessmentData,
   DisposalContentsTypeId,
   DisposalLoad,
+  DisposalLoadEvent,
   DisposalManifestCapture,
   DisposalManifestTotals,
   DisposalPhotoRef,
@@ -143,9 +144,11 @@ export function mergedDisposalManifestCapture(ad: AssessmentData | null | undefi
     raw && typeof raw === 'object' && 'defaults' in raw ? raw.defaults : undefined,
   )
   const rawRecord = raw && typeof raw === 'object' ? (raw as unknown as Record<string, unknown>) : {}
+  const containers = normalizeContainers(rawRecord.containers)
   return {
     defaults,
     loads: loads.length ? loads : [emptyDisposalLoad()],
+    ...(containers ? { containers } : {}),
     cost_per_m3: nonNegativeOrNull(rawRecord.cost_per_m3),
     prepaid_m3: nonNegativeOrNull(rawRecord.prepaid_m3),
     labour_days: nonNegativeOrNull(rawRecord.labour_days),
@@ -384,7 +387,7 @@ function firstVehicle(load: DisposalLoad): DisposalVehicle | undefined {
   return load.vehicles[0]
 }
 
-function withLegacyMirrors(load: DisposalLoad): DisposalLoad {
+export function withLegacyMirrors(load: DisposalLoad): DisposalLoad {
   const v = firstVehicle(load)
   if (!v) return load
   return {
@@ -470,7 +473,60 @@ function normalizeLoad(raw: unknown): DisposalLoad {
     facility: skipOnly ? '' : str(o.facility),
     notes: str(o.notes),
     facility_photos: normalizePhotoList(o.facility_photos),
+    ...normalizeTimelineFields(o),
   })
+}
+
+const EVENT_ROLES = new Set<string>(['load', 'dropoff', 'docket'])
+
+/** Timeline fields are left off a load that has none, so older records save unchanged. */
+function normalizeTimelineFields(
+  o: Record<string, unknown>,
+): Pick<DisposalLoad, 'cdr_number' | 'events' | 'verified_at' | 'suggested'> {
+  const out: Pick<DisposalLoad, 'cdr_number' | 'events' | 'verified_at' | 'suggested'> = {}
+  const number = numOrNull(o.cdr_number)
+  if (number != null && number >= 1) out.cdr_number = Math.round(number)
+  if (Array.isArray(o.events)) {
+    out.events = o.events.flatMap((raw): DisposalLoadEvent[] => {
+      const e = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
+      const role = str(e.role)
+      if (!EVENT_ROLES.has(role)) return []
+      return [{
+        id: str(e.id) || `evt_${Math.random().toString(36).slice(2, 10)}`,
+        role: role as DisposalLoadEvent['role'],
+        at: str(e.at),
+        place: str(e.place),
+        lat: numOrNull(e.lat),
+        lng: numOrNull(e.lng),
+        description: str(e.description),
+        photos: normalizePhotoList(e.photos),
+        show_to_client: boolDefaultTrue(e.show_to_client),
+        ...(bool(e.suggested) ? { suggested: true } : {}),
+      }]
+    })
+  }
+  if (str(o.verified_at)) out.verified_at = str(o.verified_at)
+  if (Array.isArray(o.suggested)) {
+    const fields = o.suggested.filter((f): f is string => typeof f === 'string' && f !== '')
+    if (fields.length) out.suggested = fields
+  }
+  return out
+}
+
+function normalizeContainers(raw: unknown): DisposalManifestCapture['containers'] {
+  if (!raw || typeof raw !== 'object') return undefined
+  const out: NonNullable<DisposalManifestCapture['containers']> = {}
+  for (const [type, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!VEHICLE_IDS.has(type) || !value || typeof value !== 'object') continue
+    const o = value as Record<string, unknown>
+    out[type as keyof typeof out] = {
+      size: str(o.size),
+      length_m: numOrNull(o.length_m),
+      width_m: numOrNull(o.width_m),
+      height_m: numOrNull(o.height_m),
+    }
+  }
+  return Object.keys(out).length ? out : undefined
 }
 
 export function moveArrayItem<T>(items: T[], index: number, direction: -1 | 1): T[] {
@@ -627,6 +683,14 @@ export function captureWithMetreDimensions(capture: DisposalManifestCapture): Di
       ...l,
       vehicles: l.vehicles.map(withMetreDimensions),
     })),
+    ...(capture.containers
+      ? {
+          containers: Object.fromEntries(Object.entries(capture.containers).map(([type, preset]) => [
+            type,
+            { ...preset, ...dimensionTrioToMetres(preset.length_m, preset.width_m, preset.height_m) },
+          ])),
+        }
+      : {}),
   }
 }
 

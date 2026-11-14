@@ -32,6 +32,9 @@ export type PhotoInsertRow = {
   location_place_id?: string | null
   /** Defaults true in DB; omit on legacy inserts after column retries. */
   include_in_composed_reports?: boolean
+  /** Disposal record: 0 marks a disposal photo not yet sorted into a load (migration 074). */
+  cdr_load?: number | null
+  cdr_role?: 'load' | 'dropoff' | 'docket' | null
 }
 
 export async function insertPhotoRow(supabase: SupabaseClient, row: PhotoInsertRow) {

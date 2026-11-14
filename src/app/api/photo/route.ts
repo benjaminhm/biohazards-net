@@ -202,6 +202,10 @@ export async function POST(req: Request) {
         location_lat: lat,
         location_lng: lng,
         location_accuracy_m: accuracy_m,
+        // A disposal tag from the camera puts the photo in the record's queue with its role.
+        ...(rawTag === 'cdr_load' ? { cdr_load: 0, cdr_role: 'load' as const } : {}),
+        ...(rawTag === 'cdr_dropoff' ? { cdr_load: 0, cdr_role: 'dropoff' as const } : {}),
+        ...(rawTag === 'cdr_docket' ? { cdr_load: 0, cdr_role: 'docket' as const } : {}),
       })
     }
   }

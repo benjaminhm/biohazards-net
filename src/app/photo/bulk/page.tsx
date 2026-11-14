@@ -6,6 +6,10 @@
  * few at a time, and saved as an ordinary job photo with the chosen tag
  * (Untagged by default), so it shows in the job's Photos tab and the report
  * photo browser.
+ *
+ * Photos loaded as "Disposal record" are then sorted into loads on the same
+ * screen: they arrive grouped by their time and GPS, and are confirmed here.
+ * The Contents Disposal Record on the job builds itself from those loads.
  */
 'use client'
 
@@ -20,14 +24,18 @@ import {
   type CaptureJob as BulkJob,
   type CapturePerson as Person,
 } from '@/components/photoApp/CaptureSignIn'
+import CdrPhotoTagger, { type CdrTagRow } from '@/components/CdrPhotoTagger'
 import { compressImage } from '@/lib/compressImage'
+import type { CdrPhoto, SiteContext } from '@/lib/disposalTimeline'
 import { readPhotoExif } from '@/lib/photoExif'
 
 const APP = 'Bulk photo loader'
 
-type Category = 'untagged' | 'before' | 'during' | 'after' | 'assessment'
+/** 'cdr' is a disposal photo: stored untagged, and queued to be sorted into a load. */
+type Category = 'untagged' | 'before' | 'during' | 'after' | 'assessment' | 'cdr'
 const CATEGORIES: { id: Category; label: string; color: string }[] = [
   { id: 'untagged', label: 'Untagged', color: '#9CA3AF' },
+  { id: 'cdr', label: 'Disposal record', color: '#FF6B35' },
   { id: 'before', label: 'Before', color: '#F87171' },
   { id: 'during', label: 'During', color: '#FBBF24' },
   { id: 'after', label: 'After', color: '#4ADE80' },
@@ -59,7 +67,8 @@ async function uploadOne(file: File, jobId: string, category: Category): Promise
   const body = new FormData()
   body.append('file', compressed, 'photo.jpg')
   body.append('job_id', jobId)
-  body.append('category', category)
+  body.append('category', category === 'cdr' ? 'untagged' : category)
+  if (category === 'cdr') body.append('cdr', '1')
   if (exif?.takenAt) {
     const t = new Date(exif.takenAt)
     if (!Number.isNaN(t.getTime())) body.append('taken_at', t.toISOString())
@@ -111,6 +120,8 @@ function Loader({ person, job, onChangeJob, onSignOut, onSignedOut }: {
   const [category, setCategory] = useState<Category>('untagged')
   const [running, setRunning] = useState(false)
   const [dragOver, setDragOver] = useState(false)
+  const [sorting, setSorting] = useState(false)
+  const [sortRefresh, setSortRefresh] = useState(0)
   const fileRef = useRef<HTMLInputElement>(null)
   const itemsRef = useRef(items)
   itemsRef.current = items
@@ -185,6 +196,11 @@ function Loader({ person, job, onChangeJob, onSignOut, onSignedOut }: {
     }
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, worker))
     setRunning(false)
+    if (category === 'cdr' && !signedOut) {
+      // Straight on to sorting: the photos just loaded are waiting to go into loads.
+      setSorting(true)
+      setSortRefresh(n => n + 1)
+    }
     if (signedOut) {
       window.alert('Your sign-in expired. Enter your PIN again; photos not yet uploaded will need to be added again.')
       onSignedOut()
@@ -316,7 +332,83 @@ function Loader({ person, job, onChangeJob, onSignOut, onSignedOut }: {
             </div>
           </div>
         )}
+
+        <div style={{ display: 'grid', gap: 12, padding: 14, borderRadius: 14, background: 'var(--surface)', border: '1px solid var(--border)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <div style={{ fontWeight: 800, fontSize: 15 }}>Disposal record photos</div>
+              <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }}>
+                Load the tip-run photos as &ldquo;Disposal record&rdquo;, then confirm which load each belongs to.
+              </div>
+            </div>
+            <button type="button" className="btn btn-secondary" disabled={running} onClick={() => { setSorting(s => !s); setSortRefresh(n => n + 1) }} style={{ fontSize: 13, fontWeight: 700 }}>
+              {sorting ? 'Hide' : 'Sort into loads'}
+            </button>
+          </div>
+          {sorting && !running && <DisposalSorter jobId={job.id} refresh={sortRefresh} onSignedOut={onSignedOut} />}
+        </div>
       </div>
+    </div>
+  )
+}
+
+/** The job's disposal photos, grouped into suggested loads for the person to confirm. */
+function DisposalSorter({ jobId, refresh, onSignedOut }: { jobId: string; refresh: number; onSignedOut: () => void }) {
+  const [photos, setPhotos] = useState<CdrPhoto[] | null>(null)
+  const [site, setSite] = useState<SiteContext | null>(null)
+  const [error, setError] = useState('')
+  const [saved, setSaved] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    setError('')
+    fetch(`/api/photo/bulk/cdr?job_id=${encodeURIComponent(jobId)}`, { cache: 'no-store' })
+      .then(async res => {
+        if (cancelled) return
+        if (res.status === 401) return onSignedOut()
+        const data = (await res.json().catch(() => ({}))) as { photos?: CdrPhoto[]; site?: SiteContext; error?: string }
+        if (cancelled) return
+        if (!res.ok || !data.photos) return setError(data.error ?? 'Could not load the disposal photos.')
+        setPhotos(data.photos)
+        setSite(data.site ?? null)
+      })
+      .catch(() => { if (!cancelled) setError('Could not load the disposal photos.') })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobId, refresh])
+
+  async function post(path: string, body: Record<string, unknown>) {
+    const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ job_id: jobId, ...body }) })
+    if (res.status === 401) {
+      onSignedOut()
+      return { error: 'Signed out. Enter your PIN again.' }
+    }
+    const data = (await res.json().catch(() => ({}))) as { photos?: CdrPhoto[]; photo?: CdrPhoto; error?: string }
+    return res.ok ? data : { error: data.error ?? `Failed (${res.status})` }
+  }
+
+  function merge(updated: CdrPhoto[]) {
+    const byId = new Map(updated.map(p => [p.id, p]))
+    setPhotos(prev => (prev ?? []).map(p => byId.get(p.id) ?? p))
+  }
+
+  if (error) return <div style={{ fontSize: 14, fontWeight: 700, color: '#F87171' }}>{error}</div>
+  if (!photos) return <div style={{ fontSize: 14, color: 'var(--text-muted)' }}>Loading disposal photos…</div>
+  return (
+    <div style={{ display: 'grid', gap: 10 }}>
+      {saved && (
+        <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(74,222,128,0.14)', color: '#4ADE80', fontWeight: 700, fontSize: 14 }}>
+          Loads confirmed. The job&rsquo;s Contents Disposal Record is now built from these photos.
+        </div>
+      )}
+      <CdrPhotoTagger
+        photos={photos}
+        site={site}
+        saveTags={(rows: CdrTagRow[]) => post('/api/photo/bulk/cdr', { tags: rows })}
+        readPhoto={id => post('/api/photo/bulk/cdr-read', { photo_id: id })}
+        onPhotos={merge}
+        onSaved={() => setSaved(true)}
+      />
     </div>
   )
 }

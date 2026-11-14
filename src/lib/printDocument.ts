@@ -24,6 +24,7 @@ import type {
   QuoteContent, SOWContent, AssessmentDocumentContent, SWMSContent, AuthorityToProceedContent,
   EngagementAgreementContent, ReportContent, CertificateOfDecontaminationContent,
   WasteDisposalManifestContent, StatementOfAccountsContent, StatementOfAccountsV2Content, StatementSurveySnapshot, StatementDisposalSnapshot, PaymentReminderContent, JSAContent, NDAContent, RiskAssessmentContent,
+  WasteDisposalManifestLoadSnapshot,
   WasteDisposalManifestVehicleSnapshot,
   WorkStep, RiskRow, WasteItem, OutcomeQuoteRow,
   PathophysiologyRow,
@@ -432,7 +433,32 @@ function cssSowPrint(): string {
       margin-top: 16px;
       margin-bottom: 6px;
     }
+    .sow-root .wdm-event {
+      margin-top: 14px;
+      padding-left: 12px;
+      border-left: 2px solid var(--sow-rule);
+    }
+    .sow-root .wdm-event-head {
+      font-size: 10.5pt;
+      font-weight: 600;
+      color: var(--sow-navy);
+      line-height: 1.4;
+    }
+    .sow-root .wdm-event-when {
+      font-weight: 500;
+      color: var(--sow-mid);
+      margin-right: 8px;
+      font-variant-numeric: tabular-nums;
+    }
+    .sow-root .wdm-event-place {
+      font-size: 9.5pt;
+      color: var(--sow-mid);
+      line-height: 1.4;
+      margin-top: 1px;
+    }
+    .sow-root .sow-mid .wdm-event .body-text { margin-top: 3px; }
     @media print {
+      .sow-root .wdm-event-head { break-after: avoid; }
       .sow-root .wdm-photos .photo-card img { max-height: 95mm; }
       .sow-root .wdm-photos.photos-grid-single .photo-card img { max-height: 145mm; }
       .sow-root .wdm-photos-docket .photo-card img { max-height: 210mm; }
@@ -1734,11 +1760,47 @@ function wdmVehicleSummary(v: WasteDisposalManifestVehicleSnapshot): string {
     .join(' · ')
 }
 
+/** A load as a timeline: what it was, then each stop in the order it happened. Costs are never printed here. */
+function wdmTimelineLoad(load: WasteDisposalManifestLoadSnapshot): string {
+  const container = (load.vehicles ?? []).map(wdmVehicleContainer).filter(Boolean).join(' + ')
+  const skipTrip = (load.vehicles ?? []).length > 0
+    && (load.vehicles ?? []).every(v => (v.type || '').toLowerCase() === 'skip')
+  const facts = wdmKv([
+    ['Container', container],
+    ['Contents', [load.contents, load.contents_description].map(s => (s || '').trim()).filter(Boolean).join(' · ')],
+    ['Volume', load.volume_m3 != null ? `${formatM3(load.volume_m3)} (close estimate)` : ''],
+    ['Weight', load.weight_kg != null ? `${formatKg(load.weight_kg)} (from docket)` : ''],
+    [skipTrip ? 'Skip company' : 'Drop-off', load.facility || ''],
+    ['Distance', formatDistanceLegs(load.distance_out_km, load.distance_return_km) ?? (load.distance_km != null ? `${load.distance_km} km` : '')],
+    ['Docket', docketStatusLabel(load) || ''],
+  ])
+  const events = (load.events ?? []).map(e => `
+        <div class="wdm-event">
+          <div class="wdm-event-head">${e.when ? `<span class="wdm-event-when">${esc(e.when)}</span>` : ''}${esc(e.title)}</div>
+          ${e.place ? `<div class="wdm-event-place">${esc(e.place)}</div>` : ''}
+          ${e.description ? `<div class="body-text">${esc(e.description)}</div>` : ''}
+          ${wdmPhotoGrid(e.photos.map((p, i) => ({ url: p.url, cap: (p.note || '').trim() || (e.photos.length > 1 ? `${e.title} ${i + 1}` : e.title) })), e.docket ? 'docket' : 'gallery')}
+        </div>`).join('')
+  return `
+      <div class="wdm-load">
+        <div class="wdm-load-title">Load ${load.load_number}</div>
+        ${facts}
+        ${events}
+      </div>`
+}
+
+function wdmVehicleContainer(v: WasteDisposalManifestVehicleSnapshot): string {
+  const { length_m, width_m, height_m } = dimensionTrioToMetres(v.length_m, v.width_m, v.height_m)
+  const dims = length_m != null && width_m != null && height_m != null ? `${length_m} × ${width_m} × ${height_m} m` : ''
+  return [v.type, v.size, dims].map(s => (s || '').trim()).filter(Boolean).join(' · ')
+}
+
 function wdmLoadCards(c: WasteDisposalManifestContent): string {
   const loads = c.loads ?? []
   if (!loads.length) return ''
   return loads.map(load => {
     const vehicles = load.vehicles ?? []
+    if (load.events?.length) return wdmTimelineLoad(load)
     const pickupBlocks = vehicles.map((v, i) => {
       const extras = ((v.extra_photos && v.extra_photos.length)
         ? v.extra_photos

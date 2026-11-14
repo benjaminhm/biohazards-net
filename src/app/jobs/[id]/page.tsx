@@ -66,7 +66,7 @@ import CompanyLetterheadTab from '@/components/tabs/CompanyLetterheadTab'
 import StatementOfAccountsTab from '@/components/tabs/StatementOfAccountsTab'
 import PaymentOverdueTab from '@/components/tabs/PaymentOverdueTab'
 import PerExecuteCapturePanel from '@/components/tabs/PerExecuteCapturePanel'
-import DisposalManifestCaptureTab from '@/components/tabs/DisposalManifestCaptureTab'
+import DisposalRecordSection from '@/components/tabs/DisposalRecordSection'
 import CompanyLetterTab from '@/components/tabs/CompanyLetterTab'
 import PreStartBriefingTab from '@/components/tabs/PreStartBriefingTab'
 import JobDocsDashboardTab, { type DocDashboardTarget } from '@/components/tabs/JobDocsDashboardTab'
@@ -1947,7 +1947,7 @@ export default function JobPage() {
           <div style={emptyRoomStyle}>{DOC_TYPE_LABELS.risk_assessment} (empty room)</div>
         )}
         {showWasteManifest && (
-          <DisposalManifestCaptureTab
+          <DisposalRecordSection
             job={job}
             photos={photos}
             onJobUpdate={setJob}

@@ -3,7 +3,8 @@
  * ordinary job photo credited to the signed-in person.
  *
  * Multipart fields: file (JPEG, compressed in the browser), job_id, category
- * (untagged | before | during | after | assessment), optional caption, taken_at, lat, lng.
+ * (untagged | before | during | after | assessment), optional caption, taken_at, lat, lng,
+ * and cdr=1 to mark the photo for the Contents Disposal Record.
  */
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
@@ -73,6 +74,8 @@ export async function POST(req: Request) {
     taken_at: optionalIso(form.get('taken_at')),
     location_lat: lat != null && lng != null ? lat : null,
     location_lng: lat != null && lng != null ? lng : null,
+    // A disposal photo waits, unsorted, until it is put in a load.
+    ...(form.get('cdr') === '1' ? { cdr_load: 0 } : {}),
   })
   if (error || !photo) {
     await supabase.storage.from('job-photos').remove([path])

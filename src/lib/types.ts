@@ -1393,6 +1393,30 @@ export interface Photo {
   location_lat?: number | null
   location_lng?: number | null
   location_label?: string | null
+  /** Disposal record load: null is not a disposal photo, 0 is not yet sorted, 1+ is the load. */
+  cdr_load?: number | null
+  /** What a disposal photo shows. */
+  cdr_role?: CdrRole | null
+  /** What was read from the image. Staff confirm it on the record. */
+  cdr_read?: CdrPhotoRead | null
+}
+
+/** What a disposal photo shows: the container being loaded, the drop-off, or the docket. */
+export type CdrRole = 'load' | 'dropoff' | 'docket'
+
+/** What was read from one disposal photo. Every value is a suggestion until staff verify the load. */
+export interface CdrPhotoRead {
+  role: CdrRole | 'other'
+  container: DisposalVehicleTypeId
+  contents_type: DisposalContentsTypeId
+  description: string
+  /** Docket only. */
+  weight_kg: number | null
+  /** Docket only: what the tip or skip company charged, GST inclusive. */
+  fee: number | null
+  /** Docket only: the facility or skip company named on it. */
+  facility: string
+  read_at: string
 }
 
 export interface QuoteRequired {
@@ -1819,10 +1843,35 @@ export interface DisposalVehicle {
   waste_price: number | null
 }
 
+/** One stop on a load's timeline: its photos, when, where, and what happened. */
+export interface DisposalLoadEvent {
+  id: string
+  role: CdrRole
+  /** Local date and time, YYYY-MM-DDTHH:mm. Blank when the photos carry no time. */
+  at: string
+  place: string
+  lat: number | null
+  lng: number | null
+  description: string
+  photos: DisposalPhotoRef[]
+  /** When false, the event is left off the composed CDR. Missing means show. */
+  show_to_client?: boolean
+  /** The description was drafted from the photo and has not been checked. */
+  suggested?: boolean
+}
+
 /** One dump run from site to facility (shared docket / fee). */
 export interface DisposalLoad {
   id: string
   vehicles: DisposalVehicle[]
+  /** The photo load number this load was built from. */
+  cdr_number?: number | null
+  /** Timeline built from tagged photos. The photo and date fields below mirror it. */
+  events?: DisposalLoadEvent[]
+  /** When staff checked this load against its photos. */
+  verified_at?: string | null
+  /** Fields filled from a photo and not yet checked. */
+  suggested?: string[]
   /** @deprecated Flattened onto vehicles[0] for older saved JSON. */
   trailer_skipped: boolean
   /** @deprecated Flattened onto vehicles[0] for older saved JSON. */
@@ -1903,9 +1952,19 @@ export interface DisposalTripDefaults {
   distance_from_geo: boolean
 }
 
+/** The usual size of one kind of container on this record. */
+export interface DisposalContainerPreset {
+  size: string
+  length_m: number | null
+  width_m: number | null
+  height_m: number | null
+}
+
 export interface DisposalManifestCapture {
   defaults: DisposalTripDefaults
   loads: DisposalLoad[]
+  /** Usual dimensions per container type. A new load of that type starts from them. */
+  containers?: Partial<Record<Exclude<DisposalVehicleTypeId, ''>, DisposalContainerPreset>>
   /** Dollars charged per cubic metre of waste. Null until entered. */
   cost_per_m3: number | null
   /** Cubic metres the client has already paid for. */
@@ -1989,6 +2048,8 @@ export interface WasteDisposalManifestLoadSnapshot {
   docket_lost?: boolean
   recycling?: boolean
   recycling_type?: string
+  /** Timeline of this load, in time order. When present the load prints as a timeline. */
+  events?: { when: string; place: string; title: string; description: string; photos: { url: string; note?: string }[]; docket?: boolean }[]
 }
 
 /** Completion Report field capture — aligns with ReportContent narrative sections. */

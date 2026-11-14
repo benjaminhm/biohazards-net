@@ -80,6 +80,7 @@ import {
   vehicleTypeLabel,
   vehicleVolumeM3,
 } from '@/lib/disposalManifest'
+import { timelineSnapshot } from '@/lib/disposalTimeline'
 import { houseSurveyDocument, type HouseSurveyDocumentContent } from '@/lib/houseSurvey'
 import { houseSurveyWithQuote, quoteSurveyLink } from '@/lib/surveyQuoteLink'
 import { collectExcludedSurfaces } from '@/lib/areaSurfaces'
@@ -1003,6 +1004,7 @@ function composeWdm(job: Job): ComposeDocumentResult {
       docket_lost: l.docket_lost,
       recycling: l.recycling,
       recycling_type: l.recycling_type.trim() || undefined,
+      ...(l.events ? { events: timelineSnapshot(l) } : {}),
     }
   })
 
