@@ -1270,3 +1270,22 @@ test('once signed, each accepted quote can be opened and downloaded, and a decli
   assert.match(view, /class="sg-overlay sg-on" id="sg-pay"/)
   assert.match(signedViewHtml({ ...base, pay: panel(), payOpen: false }), /class="sg-overlay" id="sg-pay"/)
 })
+
+test('the opened alert names the client, the quote, the total and the job, and says it is not signed', async () => {
+  const { openedAlertSms, openedAlertSubject, openedAlertText } = await import('@/lib/signing/alerts')
+  const input = {
+    clientName: 'Jane Smith',
+    clientEmail: 'jane@example.com',
+    documentLine: 'BCQ-104',
+    total: 1188,
+    siteAddress: '1 Example St, Logan',
+    jobUrl: 'https://app.biohazards.net/jobs/j1',
+  }
+  assert.equal(openedAlertSms(input), 'Quote opened: Jane Smith (jane@example.com) — BCQ-104 $1,188.00 — 1 Example St, Logan. Not signed yet. https://app.biohazards.net/jobs/j1')
+  assert.equal(openedAlertSubject(input), 'Quote opened — Jane Smith — BCQ-104')
+  assert.match(openedAlertText(input), /^Jane Smith \(jane@example\.com\) opened BCQ-104 \$1,188\.00\. It is not signed yet\./)
+  assert.equal(
+    openedAlertSms({ ...input, clientName: ' ', clientEmail: null, total: null, siteAddress: '' }),
+    'Quote opened: The client — BCQ-104. Not signed yet. https://app.biohazards.net/jobs/j1',
+  )
+})

@@ -54,6 +54,7 @@ import { depositAmount, depositSettled, money, percentLabel } from '@/lib/signin
 import { payPanelHtml } from '@/lib/signing/shell'
 import {
   afterDeclined,
+  afterOpened,
   afterSigned,
   findSigningRequestByToken,
   loadItems,
@@ -166,11 +167,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
 
   if (action === 'view') {
     if (!row.first_viewed_at) {
-      await supabase
+      // Only the request that records the first view tells the team, so a reload never alerts twice.
+      const { data: opened } = await supabase
         .from('signing_requests')
         .update({ status: 'viewed', first_viewed_at: nowIso, updated_at: nowIso })
         .eq('id', row.id)
         .eq('status', 'sent')
+        .is('first_viewed_at', null)
+        .select('*')
+        .maybeSingle()
+      if (opened) after(() => afterOpened(supabase, opened as SigningRequestRow))
     }
     return NextResponse.json({ ok: true })
   }

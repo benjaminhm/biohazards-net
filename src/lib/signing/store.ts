@@ -14,6 +14,7 @@
 import twilio from 'twilio'
 import type { createServiceClient } from '@/lib/supabase'
 import { sendQuoteAcceptedEmail } from '@/lib/email'
+import { openedAlertSms, type OpenedAlertInput } from '@/lib/signing/alerts'
 import { formatToTwilioE164 } from '@/lib/phone'
 import { jobPayState } from '@/lib/xero/payments'
 import { loadBankDetails } from '@/lib/paymentDetails'
@@ -30,7 +31,7 @@ import { acceptedItems, itemLine, listLine } from '@/lib/signing/items'
 import type { ItemDecision } from '@/lib/signing/items'
 import { fillSignSlots } from '@/lib/signing/slots'
 import { renderPdf } from '@/lib/signing/pdf'
-import { sendSignedCopyEmail, sendSignedCopyToOfficeEmail, sendSigningDeclinedEmail } from '@/lib/signing/email'
+import { sendSignedCopyEmail, sendSignedCopyToOfficeEmail, sendSigningDeclinedEmail, sendSigningOpenedEmail } from '@/lib/signing/email'
 
 type ServiceClient = ReturnType<typeof createServiceClient>
 
@@ -635,30 +636,65 @@ async function tellStaffSigned(
     console.error('[signing] staff email failed', row.id, err)
   }
 
+  const total = row.quote_total == null
+    ? ''
+    : ` $${Number(row.quote_total).toLocaleString('en-AU', { minimumFractionDigits: 2 })}`
+  const due = depositAmount(row.quote_total, row.deposit_percent)
+  const depositText = due != null && row.deposit_percent != null
+    ? ` Deposit to ask for ${money(due)} (${percentLabel(Number(row.deposit_percent))}).`
+    : ''
+  await staffSms(
+    row.id,
+    `Quote signed: ${clientName}${row.to_email ? ` (${row.to_email})` : ''} — ${reference}${total}${info.siteAddress ? ` — ${info.siteAddress}` : ''}.${declined.length ? ` Declined: ${listLine(declined.map(i => i.reference || i.document_title))}.` : ''}${depositText} Not invoiced yet: check it and create the invoice. ${jobUrl(row.job_id)}`,
+  )
+}
+
+function jobUrl(jobId: string): string {
+  return `${(process.env.NEXT_PUBLIC_APP_URL || 'https://app.biohazards.net').replace(/\/+$/, '')}/jobs/${jobId}`
+}
+
+/** A text to the notify phone. Skipped when Twilio or the phone is not set up. Never throws. */
+async function staffSms(rowId: string, body: string): Promise<void> {
   const notifyPhone = process.env.NOTIFY_PHONE?.trim()
   const sid = process.env.TWILIO_ACCOUNT_SID?.trim()
   const authToken = process.env.TWILIO_AUTH_TOKEN?.trim()
   const fromNum = process.env.TWILIO_PHONE_NUMBER?.trim()
   const to = notifyPhone ? formatToTwilioE164(notifyPhone) : null
-  if (sid && authToken && fromNum && to) {
-    const total = row.quote_total == null
-      ? ''
-      : ` $${Number(row.quote_total).toLocaleString('en-AU', { minimumFractionDigits: 2 })}`
-    const due = depositAmount(row.quote_total, row.deposit_percent)
-    const depositText = due != null && row.deposit_percent != null
-      ? ` Deposit to ask for ${money(due)} (${percentLabel(Number(row.deposit_percent))}).`
-      : ''
-    const appUrl = (process.env.NEXT_PUBLIC_APP_URL || 'https://app.biohazards.net').replace(/\/+$/, '')
-    try {
-      await twilio(sid, authToken).messages.create({
-        from: fromNum,
-        to,
-        body: `Quote signed: ${clientName}${row.to_email ? ` (${row.to_email})` : ''} — ${reference}${total}${info.siteAddress ? ` — ${info.siteAddress}` : ''}.${declined.length ? ` Declined: ${listLine(declined.map(i => i.reference || i.document_title))}.` : ''}${depositText} Not invoiced yet: check it and create the invoice. ${appUrl}/jobs/${row.job_id}`,
-      })
-    } catch (err) {
-      console.error('[signing] staff sms failed', row.id, err)
-    }
+  if (!(sid && authToken && fromNum && to)) return
+  try {
+    await twilio(sid, authToken).messages.create({ from: fromNum, to, body })
+  } catch (err) {
+    console.error('[signing] staff sms failed', rowId, err)
   }
+}
+
+/**
+ * Tell the team the first time a client opens their link: a text to the notify
+ * phone and an email to the brand's reply address (else the notify address).
+ * Called once per link, by the request that recorded the first view.
+ */
+export async function afterOpened(supabase: ServiceClient, row: SigningRequestRow): Promise<void> {
+  const [items, job] = await Promise.all([
+    loadItems(supabase, row).catch(() => [] as SigningItemRow[]),
+    supabase.from('jobs').select('site_address').eq('id', row.job_id).maybeSingle(),
+  ])
+  const alert: OpenedAlertInput = {
+    clientName: row.to_name,
+    clientEmail: row.to_email,
+    documentLine: listLine(items.map(i => i.reference || i.document_title)) || documentLine(row),
+    total: row.quote_total == null ? null : Number(row.quote_total),
+    siteAddress: ((job.data as { site_address?: string | null } | null)?.site_address ?? '').trim(),
+    jobUrl: jobUrl(row.job_id),
+  }
+  const to = row.reply_to || process.env.NOTIFY_EMAIL
+  await Promise.all([
+    to
+      ? sendSigningOpenedEmail({ to, brandLabel: row.brand_label, ...alert }).catch(err => {
+          console.error('[signing] opened notice failed', row.id, err)
+        })
+      : Promise.resolve(),
+    staffSms(row.id, openedAlertSms(alert)),
+  ])
 }
 
 // ── Pay step ─────────────────────────────────────────────────────────────────

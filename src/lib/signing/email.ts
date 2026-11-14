@@ -11,6 +11,7 @@
  *     triggered by what the client did.
  * No AI is involved in any of them.
  */
+import { openedAlertSubject, openedAlertText, type OpenedAlertInput } from '@/lib/signing/alerts'
 import { Resend } from 'resend'
 import { messageToHtml } from '@/lib/signing/core'
 
@@ -264,6 +265,32 @@ export async function sendSignedCopyToOfficeEmail(data: {
     html,
     text: `${data.signerName} signed ${data.documentLine}.\n\n${where}\n\n${appUrl}/jobs/${data.jobId}`,
     ...(data.pdfs.length ? { attachments: data.pdfs } : {}),
+  })
+}
+
+/** Internal notice to the team the first time a client opens their link. Not sent to the client. */
+export async function sendSigningOpenedEmail(data: { to: string; brandLabel: string } & OpenedAlertInput): Promise<void> {
+  const total = data.total == null
+    ? ''
+    : ` (${data.total.toLocaleString('en-AU', { style: 'currency', currency: 'AUD' })} inc GST)`
+  const who = `${data.clientName.trim() || 'The client'}${data.clientEmail ? ` (${data.clientEmail})` : ''}`
+  const html = shell(
+    data.brandLabel,
+    'Quote opened',
+    `
+      <p style="font-size: 15px; color: #333; line-height: 1.6; margin: 0 0 16px;">
+        ${esc(who)} opened <strong>${esc(data.documentLine)}</strong>${esc(total)}. It is not signed yet.
+      </p>
+      ${data.siteAddress ? `<p style="font-size: 14px; color: #555; margin: 0 0 24px;">${esc(data.siteAddress)}</p>` : ''}
+      ${button(data.jobUrl, 'Open job')}
+    `,
+  )
+  await send({
+    from: `biohazards.net <${sharedAddress()}>`,
+    to: data.to,
+    subject: openedAlertSubject(data),
+    html,
+    text: openedAlertText(data),
   })
 }
 
