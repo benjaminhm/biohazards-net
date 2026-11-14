@@ -63,7 +63,7 @@ test('groups and totals count each receipt once', () => {
   const b = receipt('b', { confirmed_at: 'x', total_inc_gst: 40, gst: 3.64, weight_kg: null, load_photo_ids: ['p3'] })
   const groups = receiptGroups(loads, [b, a])
   assert.deepEqual(groups.map(g => [g.receipt.id, g.loadNumbers]), [['a', [1, 2]], ['b', [3]]])
-  assert.deepEqual(receiptTotals(groups), { count: 2, total_inc_gst: 140, gst: 12.73, weight_kg: 500 })
+  assert.deepEqual(receiptTotals(groups), { count: 2, total_inc_gst: 140, gst: 12.73, weight_kg: 500, distance_km: 0 })
 })
 
 test('suggested loads: uncovered loads between the previous receipt and this one', () => {
@@ -78,4 +78,18 @@ test('receipt edits must be well formed', () => {
   assert.deepEqual(parseReceiptFields({ supplier: ' Brendale ', total_inc_gst: '$312.40', gst: '' }), { supplier: 'Brendale', total_inc_gst: 312.4, gst: null })
   assert.equal(parseReceiptFields({ total_inc_gst: 'lots' }), null)
   assert.equal(parseReceiptFields({ receipt_at: 'not a date' }), null)
+})
+
+test('a receipt is one trip: its kilometres go on the first load it covers, once', () => {
+  const loads = [load('p1', '2026-11-14T09:00'), load('p2', '2026-11-14T10:00'), load('p3', '2026-11-14T13:00')]
+  const r = receipt('r1', { confirmed_at: 'x', load_photo_ids: ['p2', 'p1'], distance_km: 46.2, distance_out_km: 23.1, distance_return_km: 23.1, distance_from_maps: true })
+  const next = applyReceiptsToLoads(loads, [r])
+  assert.deepEqual(next.map(l => l.distance_km), [46.2, 0, null])
+  assert.deepEqual([next[0].distance_out_km, next[0].distance_from_geo], [23.1, true])
+  assert.equal(receiptTotals(receiptGroups(next, [r])).distance_km, 46.2)
+  const typed = applyReceiptsToLoads(next, [{ ...r, distance_km: 50, distance_from_maps: false }])
+  assert.deepEqual([typed[0].distance_km, typed[0].distance_out_km, typed[0].distance_from_geo], [50, null, false])
+  const unlinked = applyReceiptsToLoads(next, [{ ...r, load_photo_ids: [] }])
+  assert.deepEqual(unlinked.map(l => l.distance_km), [null, null, null])
+  assert.deepEqual(parseReceiptFields({ tip_address: ' 1 Tip Rd, Ipswich ', distance_km: '46.2' }), { tip_address: '1 Tip Rd, Ipswich', distance_km: 46.2 })
 })

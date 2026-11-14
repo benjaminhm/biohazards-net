@@ -5,7 +5,9 @@
  * receipt. Its details are read from the image as suggestions; it counts once a
  * person confirms it. A confirmed receipt linked to Contents Disposal Record
  * loads sets those loads' tip fee and weight, split by volume, so the record's
- * totals come from receipts and each receipt is counted once.
+ * totals come from receipts and each receipt is counted once. A receipt is one
+ * trip: its site → tip → site kilometres go on the first load it covers, so
+ * the record's kilometres come from receipts too.
  *
  * Loads are linked by their photo (one photo is one load), which stays the same
  * when loads are renumbered.
@@ -21,6 +23,8 @@ export interface ReceiptRead {
   total_inc_gst: number | null
   gst: number | null
   weight_kg: number | null
+  /** The tip's address as printed, or its name and suburb. */
+  tip_address: string
   read_at: string
 }
 
@@ -36,6 +40,15 @@ export interface JobReceipt {
   total_inc_gst: number | null
   gst: number | null
   weight_kg: number | null
+  /** Where the tip is. Its location and the trip are looked up from this. */
+  tip_address: string
+  tip_lat: number | null
+  tip_lng: number | null
+  distance_out_km: number | null
+  distance_return_km: number | null
+  /** Site → tip → site. Typed by staff, or driving distance from the maps. */
+  distance_km: number | null
+  distance_from_maps: boolean
   read: ReceiptRead | null
   confirmed_at: string | null
   confirmed_by_name: string | null
@@ -45,12 +58,17 @@ export interface JobReceipt {
 }
 
 /** Fields staff can edit on a receipt. */
-export type ReceiptFields = Pick<JobReceipt, 'supplier' | 'receipt_at' | 'docket_no' | 'total_inc_gst' | 'gst' | 'weight_kg'>
+export type ReceiptFields = Pick<JobReceipt, 'supplier' | 'receipt_at' | 'docket_no' | 'total_inc_gst' | 'gst' | 'weight_kg' | 'tip_address' | 'distance_km'>
 
 function num(v: unknown): number | null {
   if (v == null || v === '') return null
   const n = typeof v === 'number' ? v : Number(String(v).replace(/[$,\s]/g, ''))
   return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : null
+}
+
+function coord(v: unknown): number | null {
+  const n = typeof v === 'number' ? v : Number(v)
+  return v == null || v === '' || !Number.isFinite(n) ? null : n
 }
 
 function text(v: unknown, max = 200): string {
@@ -73,6 +91,7 @@ export function parseReceiptRead(raw: unknown): ReceiptRead | null {
     total_inc_gst: num(o.total_inc_gst),
     gst: num(o.gst),
     weight_kg: num(o.weight_kg),
+    tip_address: text(o.tip_address),
     read_at: text(o.read_at, 40) || new Date(0).toISOString(),
   }
 }
@@ -84,11 +103,12 @@ export function parseReceiptFields(raw: unknown): Partial<ReceiptFields> | null 
   const out: Partial<ReceiptFields> = {}
   if ('supplier' in o) out.supplier = text(o.supplier)
   if ('docket_no' in o) out.docket_no = text(o.docket_no, 60)
+  if ('tip_address' in o) out.tip_address = text(o.tip_address)
   if ('receipt_at' in o) {
     if (o.receipt_at != null && o.receipt_at !== '' && iso(o.receipt_at) == null) return null
     out.receipt_at = iso(o.receipt_at)
   }
-  for (const key of ['total_inc_gst', 'gst', 'weight_kg'] as const) {
+  for (const key of ['total_inc_gst', 'gst', 'weight_kg', 'distance_km'] as const) {
     if (!(key in o)) continue
     if (o[key] != null && o[key] !== '' && num(o[key]) == null) return null
     out[key] = num(o[key])
@@ -110,6 +130,13 @@ export function receiptFromRow(row: Record<string, unknown>, loadPhotoIds: strin
     total_inc_gst: num(row.total_inc_gst),
     gst: num(row.gst),
     weight_kg: num(row.weight_kg),
+    tip_address: text(row.tip_address),
+    tip_lat: coord(row.tip_lat),
+    tip_lng: coord(row.tip_lng),
+    distance_out_km: num(row.distance_out_km),
+    distance_return_km: num(row.distance_return_km),
+    distance_km: num(row.distance_km),
+    distance_from_maps: row.distance_from_maps === true,
     read: parseReceiptRead(row.read),
     confirmed_at: iso(row.confirmed_at),
     confirmed_by_name: typeof row.confirmed_by_name === 'string' ? row.confirmed_by_name : null,
@@ -127,6 +154,7 @@ export function fieldsFromRead(r: Pick<JobReceipt, keyof ReceiptFields>, read: R
   if (r.total_inc_gst == null && read.total_inc_gst != null) out.total_inc_gst = read.total_inc_gst
   if (r.gst == null && read.gst != null) out.gst = read.gst
   if (r.weight_kg == null && read.weight_kg != null) out.weight_kg = read.weight_kg
+  if (!r.tip_address && read.tip_address) out.tip_address = read.tip_address
   return out
 }
 
@@ -159,7 +187,23 @@ export function splitAmount(total: number, weights: (number | null)[]): number[]
   return parts.map(c => c / 100)
 }
 
-const RECEIPT_FIELDS = ['dump_fee', 'weight_kg', 'skip_cost']
+const RECEIPT_FIELDS = ['dump_fee', 'weight_kg', 'skip_cost', 'distance_km']
+
+const NO_TRIP = { distance_km: null, distance_out_km: null, distance_return_km: null, distance_from_geo: false }
+
+/** The receipt's trip on the first load it covers; the others ride on it (0 km), so it is counted once. */
+function withTrip(load: DisposalLoad, r: JobReceipt, first: boolean): DisposalLoad {
+  if (loadSkipOnly(load)) return { ...load, ...NO_TRIP }
+  if (r.distance_km == null) return { ...load, ...NO_TRIP }
+  if (!first) return { ...load, ...NO_TRIP, distance_km: 0 }
+  return {
+    ...load,
+    distance_km: r.distance_km,
+    distance_out_km: r.distance_from_maps ? r.distance_out_km : null,
+    distance_return_km: r.distance_from_maps ? r.distance_return_km : null,
+    distance_from_geo: r.distance_from_maps,
+  }
+}
 
 function withoutReceiptSuggestions(load: DisposalLoad): DisposalLoad {
   if (!load.suggested?.some(f => RECEIPT_FIELDS.includes(f))) return load
@@ -204,7 +248,7 @@ export function applyReceiptsToLoads(loads: DisposalLoad[], receipts: JobReceipt
     const fees = r.total_inc_gst != null ? splitAmount(r.total_inc_gst, volumes) : null
     const weights = r.weight_kg != null ? splitAmount(r.weight_kg, volumes) : null
     idx.forEach((i, k) => {
-      let load = withoutReceiptSuggestions({ ...loads[i], receipt_id: r.id })
+      let load = withTrip(withoutReceiptSuggestions({ ...loads[i], receipt_id: r.id }), r, k === 0)
       if (fees) load = withFee(load, fees[k])
       if (weights) load = { ...load, weight_kg: weights[k] }
       next[i] = load
@@ -214,7 +258,7 @@ export function applyReceiptsToLoads(loads: DisposalLoad[], receipts: JobReceipt
     if (!load.receipt_id || next[i] !== load) return
     const pid = loadPhotoId(load)
     if (pid && receiptFor.has(pid)) return
-    const cleared = withFee({ ...load, weight_kg: null }, null)
+    const cleared = withFee({ ...load, ...NO_TRIP, weight_kg: null }, null)
     delete cleared.receipt_id
     next[i] = cleared
   })
@@ -267,6 +311,8 @@ export interface ReceiptTotals {
   total_inc_gst: number
   gst: number
   weight_kg: number
+  /** Site → tip → site, once per receipt. */
+  distance_km: number
 }
 
 /** Confirmed receipts covering loads on the record, each counted once. */
@@ -277,5 +323,6 @@ export function receiptTotals(groups: ReceiptGroup[]): ReceiptTotals {
     total_inc_gst: sum(r => r.total_inc_gst),
     gst: sum(r => r.gst),
     weight_kg: sum(r => r.weight_kg),
+    distance_km: Math.round(groups.reduce((a, g) => a + (g.receipt.distance_km ?? 0), 0) * 10) / 10,
   }
 }

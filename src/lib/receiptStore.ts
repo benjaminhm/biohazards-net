@@ -13,9 +13,10 @@ import { createServiceClient } from '@/lib/supabase'
 import { CLAUDE_SONNET_MODEL } from '@/lib/anthropicModels'
 import { personShortCode } from '@/lib/phoneSignIn'
 import { parseReceiptRead, receiptFromRow, type JobReceipt, type ReceiptRead } from '@/lib/jobReceipts'
+import { drivingRoundTripKm, forwardGeocodeAddress } from '@/lib/geocode'
 
 export const RECEIPT_COLUMNS =
-  'id, job_id, file_url, storage_path, uploaded_by_name, uploaded_at, supplier, receipt_at, docket_no, total_inc_gst, gst, weight_kg, read, confirmed_at, confirmed_by_name, dext_sent_at'
+  'id, job_id, file_url, storage_path, uploaded_by_name, uploaded_at, supplier, receipt_at, docket_no, total_inc_gst, gst, weight_kg, tip_address, tip_lat, tip_lng, distance_out_km, distance_return_km, distance_km, distance_from_maps, read, confirmed_at, confirmed_by_name, dext_sent_at'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024
@@ -59,6 +60,27 @@ export async function receiptGate(req: Request, jobId: string): Promise<ReceiptG
   return { supabase, orgId, jobId, actor }
 }
 
+/** Columns for a tip address: where it is and the drive site → tip → site. All blank when it cannot be found. */
+export async function receiptTrip(supabase: SupabaseClient, jobId: string, tipAddress: string): Promise<Record<string, unknown>> {
+  const none = { tip_lat: null, tip_lng: null, distance_out_km: null, distance_return_km: null, distance_km: null, distance_from_maps: false }
+  if (!tipAddress.trim()) return none
+  const tip = await forwardGeocodeAddress(tipAddress)
+  if (!tip) return none
+  const { data: job } = await supabase.from('jobs').select('site_address, site_lat, site_lng').eq('id', jobId).maybeSingle()
+  let siteLat = typeof job?.site_lat === 'number' ? job.site_lat : null
+  let siteLng = typeof job?.site_lng === 'number' ? job.site_lng : null
+  if ((siteLat == null || siteLng == null) && typeof job?.site_address === 'string' && job.site_address.trim()) {
+    const site = await forwardGeocodeAddress(job.site_address)
+    siteLat = site?.lat ?? null
+    siteLng = site?.lng ?? null
+  }
+  const located = { ...none, tip_lat: tip.lat, tip_lng: tip.lng }
+  if (siteLat == null || siteLng == null) return located
+  const trip = await drivingRoundTripKm(siteLat, siteLng, tip.lat, tip.lng)
+  if (trip.km == null) return located
+  return { ...located, distance_out_km: trip.outKm, distance_return_km: trip.returnKm, distance_km: trip.km, distance_from_maps: true }
+}
+
 /** The job's receipts, oldest first, with the loads each covers. */
 export async function listReceipts(supabase: SupabaseClient, jobId: string): Promise<JobReceipt[]> {
   const { data: rows } = await supabase
@@ -89,13 +111,14 @@ export async function getReceipt(supabase: SupabaseClient, jobId: string, receip
 
 const SYSTEM = `You read one photo of a receipt, docket or weighbridge ticket, usually from a waste transfer station or tip.
 Reply with JSON only, no prose:
-{"supplier": string, "receipt_at": string|null, "docket_no": string, "total_inc_gst": number|null, "gst": number|null, "weight_kg": number|null}
+{"supplier": string, "receipt_at": string|null, "docket_no": string, "total_inc_gst": number|null, "gst": number|null, "weight_kg": number|null, "tip_address": string}
 - supplier: the business or site name printed on it ("" if none).
 - receipt_at: the printed date and time as an ISO 8601 local time in Queensland, e.g. "2026-11-14T13:42:00+10:00"; date only is fine with "T00:00:00+10:00"; null if none.
 - docket_no: the receipt, docket, ticket or invoice number ("" if none).
 - total_inc_gst: the total paid including GST, in dollars.
 - gst: the GST amount in dollars, if printed.
 - weight_kg: the net weight in kilograms (convert tonnes to kg).
+- tip_address: the street address of the site printed on it, with suburb; if no address is printed, the site's name and suburb as printed ("" if neither).
 Use null for anything not printed or not readable. Never guess.`
 
 function mediaType(url: string): 'image/jpeg' | 'image/png' | 'image/webp' {

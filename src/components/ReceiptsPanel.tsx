@@ -232,7 +232,8 @@ function ReceiptCard({ jobId, receipt, reading, onRead, onChange, onDelete, load
   }
 
   function field(key: keyof ReceiptFields, label: string, type: 'text' | 'number' | 'datetime-local' = 'text') {
-    const fromRead = receipt.read != null && !confirmed && !(key in draft) && receipt[key] != null && receipt[key] !== '' && receipt.read[key] === receipt[key]
+    const read = receipt.read as Record<string, unknown> | null
+    const fromRead = read != null && !confirmed && !(key in draft) && receipt[key] != null && receipt[key] !== '' && read[key] === receipt[key]
     return (
       <label style={{ display: 'block', minWidth: 0 }}>
         <div style={LABEL}>{label}{fromRead ? ' · read' : ''}</div>
@@ -306,6 +307,25 @@ function ReceiptCard({ jobId, receipt, reading, onRead, onChange, onDelete, load
           {field('total_inc_gst', 'Total inc GST', 'number')}
           {field('gst', 'GST', 'number')}
           {field('weight_kg', 'Weight (kg)', 'number')}
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 3fr) minmax(120px, 1fr)', gap: 10, alignItems: 'end' }}>
+          {field('tip_address', 'Tip address')}
+          {field('distance_km', 'Trip km (return)', 'number')}
+        </div>
+        <div style={{ ...MUTED, fontSize: 12, marginTop: -4 }}>
+          {receipt.distance_km != null
+            ? receipt.distance_from_maps && receipt.distance_out_km != null
+              ? `Site → tip ${receipt.distance_out_km} km, back ${receipt.distance_return_km ?? receipt.distance_out_km} km, by road (Google Maps). Counted once for the loads it covers.`
+              : 'Kilometres typed in. Counted once for the loads it covers.'
+            : receipt.tip_address
+              ? receipt.tip_lat == null ? 'The tip address could not be found on the map. Check it, or type the kilometres.' : 'The drive could not be worked out. Type the kilometres.'
+              : 'Add the tip address to work out the drive from the site and back.'}
+          {!confirmed && receipt.tip_address && !saving && (
+            <button type="button" onClick={() => void patch({ recalc_trip: true })} style={{ marginLeft: 6, border: 'none', background: 'none', color: 'var(--text-muted)', fontSize: 12, fontWeight: 700, textDecoration: 'underline', cursor: 'pointer' }}>
+              Work out again
+            </button>
+          )}
         </div>
 
         {loads && (

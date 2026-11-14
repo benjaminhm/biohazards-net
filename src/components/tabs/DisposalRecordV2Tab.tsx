@@ -33,14 +33,11 @@ import {
   computeDisposalTotals,
   disposalManifestEqual,
   disposalRecordSummary,
-  distanceFromSiteKm,
   formatAud,
   formatDistanceLegs,
   formatKg,
   formatM3,
-  geoRoundTripPatch,
   loadHasContent,
-  loadOriginLatLng,
   loadSkipOnly,
   loadVolumeM3,
   mergedDisposalManifestCapture,
@@ -237,41 +234,6 @@ export default function DisposalRecordV2Tab({ job, photos, onJobUpdate, onPhotos
     }
   }, [capture.loads])
 
-  const distanceTried = useRef(new Set<string>())
-  useEffect(() => {
-    for (const load of capture.loads) {
-      if (!isTimelineLoad(load) || loadSkipOnly(load) || load.distance_km != null) continue
-      const origin = loadOriginLatLng(load, job)
-      const { dump_lat: destLat, dump_lng: destLng } = load
-      if (origin.lat == null || origin.lng == null || destLat == null || destLng == null) continue
-      const key = `${load.id}:${origin.lat},${origin.lng}|${destLat},${destLng}`
-      if (distanceTried.current.has(key)) continue
-      distanceTried.current.add(key)
-      const straight = distanceFromSiteKm(origin.lat, origin.lng, destLat, destLng)
-      void fetch('/api/geocode/distance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ originLat: origin.lat, originLng: origin.lng, destLat, destLng }),
-      })
-        .then(res => res.json() as Promise<{ km?: number | null; outKm?: number | null; returnKm?: number | null }>)
-        .catch(() => ({} as { km?: number | null; outKm?: number | null; returnKm?: number | null }))
-        .then(data => {
-          const num = (n: unknown) => (typeof n === 'number' && Number.isFinite(n) && n >= 0 ? n : null)
-          const out = num(data.outKm)
-          const back = num(data.returnKm)
-          const km = num(data.km) ?? straight
-          const trip = out != null || back != null ? geoRoundTripPatch(out, back) : km != null ? geoRoundTripPatch(km, km) : null
-          if (!trip) return
-          setCapture(prev => ({
-            ...prev,
-            loads: prev.loads.map(l => (
-              l.id === load.id && l.distance_km == null && l.dump_lat === destLat && l.dump_lng === destLng ? { ...l, ...trip } : l
-            )),
-          }))
-        })
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [capture.loads, job.site_lat, job.site_lng])
 
   // ── Edits ──────────────────────────────────────────────────────────────────
   function edit(change: (prev: DisposalManifestCapture) => DisposalManifestCapture) {
@@ -538,8 +500,8 @@ export default function DisposalRecordV2Tab({ job, photos, onJobUpdate, onPhotos
         <div style={{ ...PANEL_TITLE, color: '#4ADE80' }}>Tip receipts</div>
         <div style={{ ...MUTED, marginBottom: 12 }}>
           {groups.length
-            ? `${fromReceipts.count} confirmed receipt${fromReceipts.count === 1 ? '' : 's'} · ${formatAud(fromReceipts.total_inc_gst)}${fromReceipts.gst ? ` (GST ${formatAud(fromReceipts.gst)})` : ''}${fromReceipts.weight_kg ? ` · ${formatKg(fromReceipts.weight_kg)}` : ''}. Each receipt sets the tip fee and weight of the loads it covers, split by volume.`
-            : 'Upload each tip receipt, check what was read, tick the loads it covers and confirm it. The loads then take their tip fee and weight from it.'}
+            ? `${fromReceipts.count} confirmed receipt${fromReceipts.count === 1 ? '' : 's'} · ${formatAud(fromReceipts.total_inc_gst)}${fromReceipts.gst ? ` (GST ${formatAud(fromReceipts.gst)})` : ''}${fromReceipts.weight_kg ? ` · ${formatKg(fromReceipts.weight_kg)}` : ''}${fromReceipts.distance_km ? ` · ${fromReceipts.distance_km} km` : ''}. Each receipt sets the tip fee and weight of the loads it covers, split by volume, and is one trip from the site to the tip and back.`
+            : 'Upload each tip receipt, check what was read, tick the loads it covers and confirm it. The loads then take their tip fee, weight and kilometres from it.'}
         </div>
         {groups.length > 0 && (
           <div style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
@@ -549,6 +511,7 @@ export default function DisposalRecordV2Tab({ job, photos, onJobUpdate, onPhotos
                 {g.receipt.supplier && g.receipt.docket_no && <span style={MUTED}>{g.receipt.supplier}</span>}
                 <span style={MUTED}>Load{g.loadNumbers.length === 1 ? '' : 's'} {g.loadNumbers.join(' + ')}</span>
                 {g.receipt.weight_kg != null && <span style={MUTED}>{formatKg(g.receipt.weight_kg)}</span>}
+                {g.receipt.distance_km != null && <span style={MUTED}>{g.receipt.distance_km} km</span>}
                 {g.receipt.total_inc_gst != null && <span style={{ marginLeft: 'auto', fontWeight: 800, color: '#10B981' }}>{formatAud(g.receipt.total_inc_gst)}</span>}
               </div>
             ))}
@@ -809,6 +772,9 @@ function LoadCard({ number, load, saving, onLoad, onVehicle, onEvent, onContaine
           )}
           {!skip && (
             <Field label="Distance (km, return)">
+              {receiptName ? (
+                <FromReceipt value={load.distance_km == null ? '—' : load.distance_km === 0 ? 'same trip' : `${load.distance_km} km`} receipt={receiptName} />
+              ) : (
               <DefaultedNumberInput
                 value={load.distance_km}
                 fallback={null}
@@ -816,6 +782,7 @@ function LoadCard({ number, load, saving, onLoad, onVehicle, onEvent, onContaine
                 onChange={next => onLoad({ distance_km: next, distance_out_km: null, distance_return_km: null, distance_from_geo: false })}
                 style={INPUT}
               />
+              )}
               {load.distance_from_geo && formatDistanceLegs(load.distance_out_km, load.distance_return_km) && (
                 <div style={{ ...MUTED, fontSize: 11, marginTop: 3 }}>{formatDistanceLegs(load.distance_out_km, load.distance_return_km)}</div>
               )}
