@@ -23,7 +23,8 @@
  *
  *   document.<brand>.com.au — documents sent to a client to view or sign.
  *   /<private code> is the document, /<private code>/pdf the signed copy.
- *   Nothing else is reachable on this host.
+ *   /p/<private code> is a statement pack (lib/documentPack.ts), /p/<private code>/pdf
+ *   a document in it as a PDF. Nothing else is reachable on this host.
  *
  *   accounts.<brand>.com.au — commercial trade account portal.
  *   Only /portal and /api/portal are reachable on this host.
@@ -38,6 +39,7 @@
  * Public routes (no staff session required):
  *   - /login, /accept/:id
  *   - /sign/:token, /api/sign/:token (client signing link; the token is the credential)
+ *   - /pack/:token, /api/pack/:token (client statement pack; same)
  *   - /api/auth/*, /api/print, /api/sms/inbound, /api/public/*
  *   - /api/webhooks/inbound-email, /api/webhooks/voip, /api/webhooks/website-enquiry
  *     (shared secret or signature checked in the route)
@@ -67,6 +69,8 @@ function isPublicPath(pathname: string): boolean {
   // Client signing links. The trailing slash keeps staff /api/signing behind the session.
   if (pathname.startsWith('/sign/')) return true
   if (pathname.startsWith('/api/sign/')) return true
+  if (pathname.startsWith('/pack/')) return true
+  if (pathname.startsWith('/api/pack/')) return true
   if (pathname.startsWith('/api/auth/')) return true
   if (pathname.startsWith('/api/company')) return true
   if (pathname.startsWith('/api/print/')) return true
@@ -126,8 +130,13 @@ export async function proxy(request: NextRequest) {
       url.pathname = parts.length === 1 ? `/sign/${parts[0]}` : `/api/sign/${parts[0]}/pdf`
       return NextResponse.rewrite(url, { request: { headers: requestHeaders } })
     }
+    if (parts[0] === 'p' && parts[1] && isSigningTokenShape(parts[1]) && (parts.length === 2 || (parts.length === 3 && parts[2] === 'pdf'))) {
+      const url = request.nextUrl.clone()
+      url.pathname = parts.length === 2 ? `/pack/${parts[1]}` : `/api/pack/${parts[1]}/pdf`
+      return NextResponse.rewrite(url, { request: { headers: requestHeaders } })
+    }
     // The page reports back here (view, passcode, sign, decline).
-    if (parts.length === 3 && parts[0] === 'api' && parts[1] === 'sign' && request.method === 'POST') {
+    if (parts.length === 3 && parts[0] === 'api' && (parts[1] === 'sign' || parts[1] === 'pack') && request.method === 'POST') {
       return NextResponse.next({ request: { headers: requestHeaders } })
     }
     return new NextResponse('Not found', { status: 404 })

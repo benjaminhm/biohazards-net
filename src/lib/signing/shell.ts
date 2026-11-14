@@ -1487,7 +1487,7 @@ const GATE_SCRIPT = String.raw`
     if (clean().length < cfg.length || button.disabled) return;
     button.disabled = true;
     msg.textContent = '';
-    fetch('/api/sign/' + cfg.token, {
+    fetch(cfg.api, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'unlock', code: clean() })
@@ -1516,7 +1516,7 @@ const GATE_SCRIPT = String.raw`
  * the document or the client: someone holding only the link learns the brand
  * name and no more.
  */
-export function passcodeGatePage(d: { token: string; brandLabel: string; length: number }): string {
+export function passcodeGatePage(d: { token: string; brandLabel: string; length: number; apiPath?: string }): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1542,7 +1542,7 @@ export function passcodeGatePage(d: { token: string; brandLabel: string; length:
     </form>
   </div>
   <style>#pg-open:disabled { opacity: 0.5; cursor: default; }</style>
-  <script type="application/json" id="pg-config">${scriptJson({ token: d.token, length: d.length })}</script>
+  <script type="application/json" id="pg-config">${scriptJson({ api: d.apiPath ?? `/api/sign/${d.token}`, length: d.length })}</script>
   <script>${GATE_SCRIPT}</script>
 </body>
 </html>`

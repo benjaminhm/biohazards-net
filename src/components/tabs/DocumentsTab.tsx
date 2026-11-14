@@ -26,6 +26,7 @@ import DocumentBundlesSection from '@/components/DocumentBundlesSection'
 import { DOC_TYPE_LABELS, DOC_TYPE_GROUPS } from '@/lib/types'
 import { isAcceptableQuoteType } from '@/lib/acceptableQuotes'
 import { SendForSigningModal, SigningStatus, currentSigning, signedFor, useJobSigning } from '@/components/SendForSigning'
+import { PackStatus, SendStatementPackModal, useJobPacks } from '@/components/SendStatementPack'
 
 type NavigateTab =
   | 'details'
@@ -147,11 +148,15 @@ function DocRow({ doc, jobId, clientName, clientEmail, onDeleted, tradeAccountLi
   const [releasing,     setReleasing]     = useState(false)
   const [releaseError,  setReleaseError]  = useState('')
   const [sendingToSign, setSendingToSign] = useState(false)
+  const [sendingPack,   setSendingPack]   = useState(false)
 
   // Quotes can be sent to the client to sign; other documents cannot.
   const canSign = isAcceptableQuoteType(doc.type)
   const { requests: signingRequests, invoice: signingInvoice, reload: reloadSigning } = useJobSigning(canSign ? jobId : null)
   const signing = canSign ? currentSigning(signingRequests, doc.id) : null
+  // A statement goes to the client as a pack, with the CDR and report chosen in the send window.
+  const isStatement = doc.type === 'statement_of_accounts'
+  const { packs, reload: reloadPacks } = useJobPacks(isStatement ? jobId : null)
 
   const printUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/api/print/${doc.id}`
   const label    = DOC_TYPE_LABELS[doc.type as DocType] ?? doc.type
@@ -217,6 +222,12 @@ function DocRow({ doc, jobId, clientName, clientEmail, onDeleted, tradeAccountLi
               className="btn btn-primary" style={{ fontSize: 12, padding: '7px 12px' }}
             >Send to client</button>
           )}
+          {isStatement && (
+            <button
+              onClick={() => setSendingPack(true)}
+              className="btn btn-primary" style={{ fontSize: 12, padding: '7px 12px' }}
+            >Send to client</button>
+          )}
           {confirmDelete ? (
             <>
               <button onClick={handleDelete} disabled={deleting}
@@ -247,6 +258,14 @@ function DocRow({ doc, jobId, clientName, clientEmail, onDeleted, tradeAccountLi
           documentId={doc.id}
           onClose={() => setSendingToSign(false)}
           onSent={() => { setSendingToSign(false); void reloadSigning() }}
+        />
+      )}
+      {isStatement && <PackStatus packs={packs} documentId={doc.id} onChanged={reloadPacks} />}
+      {sendingPack && (
+        <SendStatementPackModal
+          documentId={doc.id}
+          onClose={() => setSendingPack(false)}
+          onSent={() => { setSendingPack(false); reloadPacks() }}
         />
       )}
 
