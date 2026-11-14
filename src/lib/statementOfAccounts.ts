@@ -79,6 +79,8 @@ export interface StatementOfAccountsCapture {
   ignored_quotes: StatementLineKey[]
   /** Invoice 1 (the estimate) was paid in full up front, so what was paid is the whole estimate. */
   invoice1_paid_in_full: boolean
+  /** The approved credit note has been applied against invoice 1 (and invoice 2) in Xero. Set by the Xero button. */
+  credit_note_applied: boolean
 }
 
 function textField(raw: unknown): string {
@@ -124,6 +126,7 @@ export function emptyStatementCapture(): StatementOfAccountsCapture {
     deposit_date: '',
     ignored_quotes: [],
     invoice1_paid_in_full: false,
+    credit_note_applied: false,
     adjustment_reason: '',
   }
 }
@@ -178,6 +181,7 @@ export function normalizeStatementCapture(raw: unknown): StatementOfAccountsCapt
       ? [...new Set(o.ignored_quotes.filter((k): k is StatementLineKey => STATEMENT_LINE_KEYS.includes(k as StatementLineKey)))]
       : [],
     invoice1_paid_in_full: o.invoice1_paid_in_full === true,
+    credit_note_applied: o.credit_note_applied === true,
   }
 }
 
@@ -764,6 +768,7 @@ export function statementV2Figures(
     deposit,
     deposit_date: capture.deposit_date.trim(),
     invoice1_paid_in_full: paid_in_full && estimates.length > 0,
+    credit_note_applied: capture.credit_note_applied,
     adjustment,
     adjustment_reason,
     balance: round2(total_inc - deposit + (adjustment ?? 0)),
@@ -794,6 +799,7 @@ export function statementV2Content(f: StatementV2Figures, reference: string, sit
     deposit: f.deposit,
     deposit_date: f.deposit_date,
     invoice1_paid_in_full: f.invoice1_paid_in_full,
+    credit_note_applied: f.credit_note_applied,
     adjustment: f.adjustment,
     adjustment_reason: f.adjustment_reason,
     balance: f.balance,
@@ -827,6 +833,8 @@ export interface StatementV2Presentation {
   estimatesNote: string
   /** How the balance is split across the Xero invoices. Empty without an estimate. */
   invoices: StatementV2Invoice[]
+  /** What the invoices add up to: the balance. Null with fewer than two. */
+  invoicesTotal: { label: string; amount: number } | null
   invoicesNote: string
 }
 
@@ -841,6 +849,8 @@ export interface StatementV2Invoice {
   amountShown: number
   payHref: string | null
   payLabel: string | null
+  /** Why there is no pay button yet: the credit note has not been applied to this invoice in Xero. */
+  payNote?: string
   /** Invoice 2 and the credit note: each quote's actual against its estimate, then any adjustment. */
   breakdown: StatementV2AdjustmentRow[]
 }
@@ -862,10 +872,10 @@ export function breakdownTotal(invoice: Pick<StatementV2Invoice, 'amount' | 'bre
 }
 
 type StatementV2Split = Pick<StatementOfAccountsV2Content,
-  'charges_gst' | 'total_inc' | 'deposit' | 'deposit_date' | 'invoice1_paid_in_full' | 'adjustment' | 'adjustment_reason' | 'invoice_number' | 'invoice_url' | 'invoice2_number' | 'invoice2_url' | 'credit_note_number' | 'estimate_total' | 'adjustment_lines'>
+  'charges_gst' | 'total_inc' | 'deposit' | 'deposit_date' | 'invoice1_paid_in_full' | 'adjustment' | 'adjustment_reason' | 'invoice_number' | 'invoice_url' | 'invoice2_number' | 'invoice2_url' | 'credit_note_number' | 'estimate_total' | 'adjustment_lines' | 'credit_note_applied'>
 
 export const STATEMENT_INVOICES_NOTE =
-  'The original estimate was invoiced on invoice 1 and the deposit was paid against it. Invoice 2 covers what came in higher than the estimate, and a credit note what came in lower. Together they make up the balance.'
+  'The original estimate was invoiced on invoice 1 and the deposit was paid against it. Invoice 2 covers what came in higher than the estimate, and a credit note what came in lower, taken off invoice 1. Together they make up the balance.'
 
 export const STATEMENT_INVOICES_NOTE_PAID_IN_FULL =
   'The original estimate was invoiced on invoice 1 and paid in full up front. Invoice 2 covers what came in higher than the estimate, and a credit note what came in lower.'
@@ -930,13 +940,29 @@ export function statementV2Invoices(c: StatementV2Split): StatementV2Invoice[] {
   const estimate = c.estimate_total
   if (estimate == null || estimate <= 0.004) return []
   const title = (name: string, number: string | undefined) => number?.trim() ? `${name} ${number.trim()}` : name
-  const pay = (url: string | undefined, amount: number) => {
-    const payHref = amount > 0.004 ? statementPayHref(url ?? '') : null
+  const gstNote = c.charges_gst ? ' inc GST' : ''
+  const invoice1 = c.invoice1_paid_in_full ? 0 : round2(estimate - c.deposit)
+  const { invoice2, credit_note, net } = statementV2Adjustments(c)
+  const both = Boolean(invoice2 && credit_note)
+  const single = both ? null : (invoice2 ?? credit_note)
+  const legacyNil = !both && !single && Boolean(c.invoice2_number?.trim())
+  const raised = both ? invoice2!.amount : net > 0.004 ? net : 0
+  const credit = both ? -credit_note!.amount : net < -0.004 ? -net : 0
+  const plan = creditPlan(invoice1, raised, credit)
+  const creditName = title('credit note', c.credit_note_number?.trim() || (single && credit > 0 ? c.invoice2_number : undefined))
+  // Until the credit note is applied in Xero, the invoices it comes off still show their full amount there.
+  const waiting = credit > 0.004 && !c.credit_note_applied
+  const waitNote = 'The pay link is added once the credit note has been applied to this invoice.'
+  const pay = (url: string | undefined, amount: number, creditOn: number) => {
+    if (amount <= 0.004) return { payHref: null, payLabel: null }
+    if (waiting && creditOn > 0.004) return { payHref: null, payLabel: null, payNote: waitNote }
+    const payHref = statementPayHref(url ?? '')
     return { payHref, payLabel: payHref ? `Pay ${moneyLabel(amount)} online` : null }
   }
-  const gstNote = c.charges_gst ? ' inc GST' : ''
-  const invoice1 = round2(estimate - c.deposit)
+  const lessCredit = (applied: number) => applied > 0.004 ? `, less ${creditName} ${formatAud(applied)}` : ''
   const paidOn = c.deposit_date?.trim() ? ` on ${longDate(c.deposit_date)}` : ''
+  const invoice1Due = round2(invoice1 - plan.toInvoice1)
+
   const invoices: StatementV2Invoice[] = [c.invoice1_paid_in_full ? {
     kind: 'invoice1',
     heading: `${title('Invoice 1', c.invoice_number)} · estimate`,
@@ -950,55 +976,94 @@ export function statementV2Invoices(c: StatementV2Split): StatementV2Invoice[] {
   } : {
     kind: 'invoice1',
     heading: `${title('Invoice 1', c.invoice_number)} · estimate`,
-    detail: `Original estimate ${formatAud(estimate)}${c.deposit > 0.004 ? ` less deposit paid ${formatAud(c.deposit)}` : ''}${gstNote}.`,
-    amount: invoice1,
-    amountLabel: invoice1 > 0.004 ? 'Still to pay' : invoice1 < -0.004 ? 'Overpaid' : 'Paid',
-    amountShown: Math.abs(invoice1),
-    ...pay(c.invoice_url, invoice1),
+    detail: `Original estimate ${formatAud(estimate)}${c.deposit > 0.004 ? ` less deposit paid ${formatAud(c.deposit)}` : ''}${lessCredit(plan.toInvoice1)}${gstNote}.`,
+    amount: invoice1Due,
+    amountLabel: invoice1Due > 0.004 ? 'Still to pay' : invoice1Due < -0.004 ? 'Overpaid' : 'Paid',
+    amountShown: Math.abs(invoice1Due),
+    ...pay(c.invoice_url, invoice1Due, plan.toInvoice1),
     breakdown: [],
   }]
-  const { invoice2, credit_note, net } = statementV2Adjustments(c)
-  if (invoice2 && credit_note) {
+
+  const creditDetail = (lead: string) => {
+    const onto = [plan.toInvoice1 > 0.004 ? `invoice 1 (${formatAud(plan.toInvoice1)})` : '', plan.toInvoice2 > 0.004 ? `invoice 2 (${formatAud(plan.toInvoice2)})` : ''].filter(Boolean)
+    const applied = onto.length ? ` Taken off ${onto.join(' and ')}.` : ''
+    const left = plan.left > 0.004 ? ` ${formatAud(plan.left)} is a credit in your favour.` : ''
+    return `${lead}${applied}${left}`
+  }
+  const creditRow = (heading: string, lead: string, rows: StatementV2AdjustmentRow[]): StatementV2Invoice => ({
+    kind: 'credit_note',
+    heading,
+    detail: creditDetail(lead),
+    amount: plan.left > 0.004 ? -plan.left : 0,
+    amountLabel: 'Credit',
+    amountShown: credit,
+    payHref: null,
+    payLabel: null,
+    breakdown: rows,
+  })
+
+  if (both) {
+    const invoice2Due = round2(invoice2!.amount - plan.toInvoice2)
     invoices.push({
       kind: 'invoice2',
       heading: `${title('Invoice 2', c.invoice2_number)} · adjustment to actual`,
-      detail: `What came in higher than the original estimate${gstNote}.`,
-      amount: invoice2.amount,
-      amountLabel: 'To pay',
-      amountShown: invoice2.amount,
-      ...pay(c.invoice2_url, invoice2.amount),
-      breakdown: invoice2.rows,
-    }, {
-      kind: 'credit_note',
-      heading: `${title('Credit note', c.credit_note_number)} · adjustment to actual`,
-      detail: `What came in lower than the original estimate${gstNote}.`,
-      amount: credit_note.amount,
-      amountLabel: 'Credit',
-      amountShown: -credit_note.amount,
-      payHref: null,
-      payLabel: null,
-      breakdown: credit_note.rows,
-    })
+      detail: `What came in higher than the original estimate${lessCredit(plan.toInvoice2)}${gstNote}.`,
+      amount: invoice2Due,
+      amountLabel: invoice2Due > 0.004 ? 'To pay' : 'Paid',
+      amountShown: Math.abs(invoice2Due),
+      ...pay(c.invoice2_url, invoice2Due, plan.toInvoice2),
+      breakdown: invoice2!.rows,
+    }, creditRow(
+      `${title('Credit note', c.credit_note_number)} · adjustment to actual`,
+      `What came in lower than the original estimate${gstNote}.`,
+      credit_note!.rows,
+    ))
     return invoices
   }
-  const single = invoice2 ?? credit_note
-  if (single || c.invoice2_number?.trim()) {
-    const credit = net < -0.004
+  if (single || legacyNil) {
     const adjustment = c.adjustment == null
       ? ''
       : `, ${c.adjustment < 0 ? 'less' : 'plus'} ${c.adjustment_reason.trim() || 'adjustment'} ${formatAud(Math.abs(c.adjustment))}`
+    const lead = `Actual job total ${formatAud(c.total_inc)} less the original estimate ${formatAud(estimate)}${adjustment}${gstNote}.`
+    if (credit > 0.004) {
+      invoices.push(creditRow(
+        `${title('Credit note', c.credit_note_number?.trim() || c.invoice2_number)} · adjustment to actual`,
+        lead,
+        single?.rows ?? [],
+      ))
+      return invoices
+    }
     invoices.push({
-      kind: credit ? 'credit_note' : 'invoice2',
-      heading: `${credit ? title('Credit note', c.credit_note_number?.trim() || c.invoice2_number) : title('Invoice 2', c.invoice2_number)} · adjustment to actual`,
-      detail: `Actual job total ${formatAud(c.total_inc)} less the original estimate ${formatAud(estimate)}${adjustment}${gstNote}.`,
+      kind: 'invoice2',
+      heading: `${title('Invoice 2', c.invoice2_number)} · adjustment to actual`,
+      detail: lead,
       amount: net,
-      amountLabel: net > 0.004 ? 'To pay' : credit ? 'Credit' : 'Nil',
+      amountLabel: net > 0.004 ? 'To pay' : 'Nil',
       amountShown: Math.abs(net),
-      ...pay(c.invoice2_url, net),
+      ...pay(c.invoice2_url, net, 0),
       breakdown: single?.rows ?? [],
     })
   }
   return invoices
+}
+
+/**
+ * Where a credit note's credit goes: off what is still owing on invoice 1
+ * first, then invoice 2. What is left is a credit in the client's favour.
+ * The Xero button applies it in the same order.
+ */
+export function creditPlan(invoice1Due: number, invoice2: number, credit: number): { toInvoice1: number; toInvoice2: number; left: number } {
+  if (credit <= 0.004) return { toInvoice1: 0, toInvoice2: 0, left: 0 }
+  const toInvoice1 = round2(Math.min(credit, Math.max(invoice1Due, 0)))
+  const toInvoice2 = round2(Math.min(credit - toInvoice1, Math.max(invoice2, 0)))
+  return { toInvoice1, toInvoice2, left: round2(credit - toInvoice1 - toInvoice2) }
+}
+
+/** The last row of "How the balance is paid": what the invoices add up to, which is the balance. */
+export function statementV2InvoicesTotal(invoices: StatementV2Invoice[]): { label: string; amount: number } | null {
+  if (invoices.length < 2) return null
+  const sum = round2(invoices.reduce((total, invoice) => total + invoice.amount, 0))
+  return sum < -0.004 ? { label: 'Credit in your favour', amount: -sum } : { label: 'Total to pay', amount: Math.max(sum, 0) }
 }
 
 type StatementV2Totals = Pick<StatementOfAccountsV2Content,
@@ -1035,6 +1100,7 @@ export function presentStatementV2(c: StatementOfAccountsV2Content): StatementV2
   const payHref = invoices.length === 0 && c.balance > 0.004 ? statementPayHref(c.invoice_url) : null
   return {
     invoices,
+    invoicesTotal: statementV2InvoicesTotal(invoices),
     invoicesNote: invoices.length > 0 ? statementInvoicesNote(c) : '',
     rows: statementV2Rows(c),
     jobTotal: c.total_inc,

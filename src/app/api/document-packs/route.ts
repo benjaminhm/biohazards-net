@@ -77,6 +77,7 @@ export async function GET(req: Request) {
       candidates: prepared.candidates,
       maxExtras: MAX_PACK_EXTRAS,
       blockers: prepared.blockers,
+      warnings: prepared.warnings,
       sender: prepared.sender,
       defaults: prepared.defaults,
       linkHost: hostStatus.liveHost,

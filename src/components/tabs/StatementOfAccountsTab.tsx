@@ -13,7 +13,9 @@ import {
   statementQuotes,
   breakdownTotal,
   statementV2Figures,
+  statementV2Adjustments,
   statementV2Invoices,
+  statementV2InvoicesTotal,
   statementV2Rows,
   type StatementOfAccountsCapture,
 } from '@/lib/statementOfAccounts'
@@ -76,6 +78,23 @@ function capturesEqual(a: StatementOfAccountsCapture, b: StatementOfAccountsCapt
     && a.charges_gst === b.charges_gst
     && a.invoice1_paid_in_full === b.invoice1_paid_in_full
     && [...a.ignored_quotes].sort().join() === [...b.ignored_quotes].sort().join()
+}
+
+/** What the Xero button does next, for the documents this statement needs. */
+function xeroRaiseHelp(hasInvoice2: boolean, hasCredit: boolean, capture: StatementOfAccountsCapture): string {
+  const docs = [hasInvoice2 ? 'invoice 2' : '', hasCredit ? 'a credit note' : ''].filter(Boolean)
+  if (!docs.length) return 'The statement no longer needs an invoice 2 or credit note. Void or delete any draft left in Xero.'
+  const parts = [`Creates ${docs.join(' and ')} in Xero as ${docs.length > 1 ? 'drafts' : 'a draft'}. Check and approve ${docs.length > 1 ? 'them' : 'it'} in Xero.`]
+  if (hasCredit) {
+    parts.push(capture.credit_note_applied
+      ? 'The credit note has been applied in Xero.'
+      : `Once the credit note is approved, press again: it is applied to invoice 1${hasInvoice2 ? ', then invoice 2' : ''}, and invoice 1's pay button then asks for the reduced amount.`)
+  }
+  if (hasInvoice2 && !capture.invoice2_url) parts.push('Once invoice 2 is approved, press again to add its pay link.')
+  if ((hasCredit && !capture.credit_note_applied) || (hasInvoice2 && !capture.invoice2_url)) {
+    parts.push("Then save the statement as a document again, so the client's copy has the pay buttons.")
+  }
+  return parts.join(' ')
 }
 
 function signedAud(n: number): string {
@@ -198,7 +217,13 @@ export default function StatementOfAccountsTab({ job, onJobUpdate }: Props) {
     }
   }
 
-  const adjustmentDocs = invoices.filter(invoice => invoice.kind !== 'invoice1' && Math.abs(invoice.amount) > 0.004)
+  const invoicesTotal = statementV2InvoicesTotal(invoices)
+  const split = statementV2Adjustments(figures)
+  const adjustmentDocs = [
+    ...(split.invoice2 ? ['invoice 2'] : []),
+    ...(split.credit_note ? ['credit note'] : []),
+  ]
+  const raiseHelp = xeroRaiseHelp(Boolean(split.invoice2), Boolean(split.credit_note), capture)
   const xeroDrafts = [
     ...(capture.xero_invoice2_id ? [{ kind: 'invoice2' as const, id: capture.xero_invoice2_id, label: `Invoice 2 ${capture.invoice2_number}`.trim(), status: capture.xero_invoice2_status }] : []),
     ...(capture.xero_credit_note_id ? [{ kind: 'credit_note' as const, id: capture.xero_credit_note_id, label: `Credit note ${capture.credit_note_number}`.trim(), status: capture.xero_credit_note_status }] : []),
@@ -207,7 +232,7 @@ export default function StatementOfAccountsTab({ job, onJobUpdate }: Props) {
     ? 'Working with Xero…'
     : xeroDrafts.length > 0
       ? 'Update from the statement in Xero'
-      : `Create ${adjustmentDocs.map(invoice => (invoice.kind === 'credit_note' ? 'credit note' : 'invoice 2')).join(' and ')} in Xero (draft)`
+      : `Create ${adjustmentDocs.join(' and ')} in Xero (draft)`
 
   const amountsNote = capture.charges_gst ? 'Inc GST' : 'No GST'
 
@@ -251,6 +276,7 @@ export default function StatementOfAccountsTab({ job, onJobUpdate }: Props) {
                 <span>{invoice.amountLabel} {formatAud(invoice.amountShown)}</span>
               </div>
               <div style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 4 }}>{invoice.detail}</div>
+              {invoice.payNote && <div style={{ color: '#FBBF24', fontSize: 13, marginTop: 4 }}>{invoice.payNote}</div>}
               {invoice.breakdown.length > 0 && (
                 <div style={{ overflowX: 'auto', marginTop: 8 }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -281,13 +307,19 @@ export default function StatementOfAccountsTab({ job, onJobUpdate }: Props) {
               )}
             </div>
           ))}
+          {invoicesTotal && (
+            <div style={{ borderTop: '1px solid var(--border)', padding: '10px 0', display: 'flex', justifyContent: 'space-between', gap: 12, fontWeight: 800 }}>
+              <span>{invoicesTotal.label}</span>
+              <span>{formatAud(invoicesTotal.amount)}</span>
+            </div>
+          )}
           {xeroConnected && (adjustmentDocs.length > 0 || xeroDrafts.length > 0) && (
             <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
               <button type="button" className="btn btn-primary" disabled={raising || saving} onClick={() => void raiseInXero()} style={{ padding: '10px 14px', fontWeight: 700 }}>
                 {raiseLabel}
               </button>
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
-                Drafts only. Check and approve them in Xero, and allocate a credit note against invoice 1 there. Once invoice 2 is approved, press again to add its pay link.
+                {raiseHelp}
               </div>
               {xeroDrafts.length > 0 && (
                 <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 8, fontSize: 13 }}>

@@ -1265,6 +1265,8 @@ export interface AssessmentData {
     ignored_quotes?: ('surface' | 'contents' | 'biohazard')[]
     /** Invoice 1 (the estimate) was paid in full up front. */
     invoice1_paid_in_full?: boolean
+    /** The approved credit note has been applied against invoice 1 (and invoice 2) in Xero. */
+    credit_note_applied?: boolean
   }
   /**
    * Company Letterhead. Staff write the letter and attach images.
@@ -2477,6 +2479,8 @@ export interface StatementOfAccountsV2Content {
   deposit_date: string
   /** Invoice 1 was paid in full up front: deposit is the whole estimate. Absent on statements issued before it. */
   invoice1_paid_in_full?: boolean
+  /** The credit note was applied against invoice 1 in Xero when the statement was saved. Until then invoice 1 has no pay button. */
+  credit_note_applied?: boolean
   adjustment: number | null
   adjustment_reason: string
   balance: number

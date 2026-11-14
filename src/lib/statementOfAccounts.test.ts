@@ -13,7 +13,9 @@ import {
   statementV2Content,
   statementV2Figures,
   statementV2Invoices,
+  statementV2InvoicesTotal,
   statementV2Adjustments,
+  creditPlan,
   statementV2Rows,
   breakdownTotal,
   StatementReconciliationError,
@@ -396,7 +398,8 @@ test('model 2 prints the summary, the estimates paragraph and the pay link', () 
   assert.match(html, /The original estimates totalled/)
   assert.match(html, /Less deposit paid \(2 November 2026\)<\/td><td class="r">\(\$1,000\.00\)/)
   assert.match(html, /Balance owing<\/td><td class="r" style="font-weight:700">\$1,970\.00/)
-  assert.match(html, /href="https:\/\/pay\.example\.com\/inv-9"/)
+  assert.equal(html.includes('pay.example.com'), false)
+  assert.match(html, /The pay link is added once the credit note has been applied to this invoice\./)
   assert.match(html, /How the balance is paid/)
   assert.match(html, /Invoice 1 INV-9 · estimate/)
   assert.equal(presentStatementV2(content).payLabel, null)
@@ -413,17 +416,19 @@ test('model 2 splits the balance into invoice 1 (estimate less deposit) and invo
   assert.ok(estimate > 0)
   const [one, two] = statementV2Invoices(f)
   assert.equal(one.heading, 'Invoice 1 INV-9 · estimate')
-  assert.equal(one.amount, Math.round((estimate - 1000) * 100) / 100)
+  const credit = Math.round((estimate - 2970) * 100) / 100
+  assert.ok(credit > 0 && credit < estimate - 1000)
+  assert.equal(one.amount, Math.round((estimate - 1000 - credit) * 100) / 100)
   assert.equal(Math.round((one.amount + two.amount) * 100) / 100, f.balance)
-  const expected2 = Math.round((2970 - estimate) * 100) / 100
-  assert.equal(two.amount, expected2)
-  assert.equal(two.heading, `${expected2 < 0 ? 'Credit note' : 'Invoice 2'} INV-10 · adjustment to actual`)
-  assert.equal(two.payHref, expected2 > 0 ? 'https://pay.example.com/inv-10' : null)
+  assert.equal(two.amount, 0)
+  assert.equal(two.amountShown, credit)
+  assert.equal(two.heading, 'Credit note INV-10 · adjustment to actual')
+  assert.equal(two.payHref, null)
 
   const adjusted = statementV2Figures(v2Job({ deposit_amount: 1000, deposit_date: '2026-11-02', manual_adjustment: -70, manual_adjustment_reason: 'goodwill' }))
   const split = statementV2Invoices(adjusted)
   assert.equal(Math.round(split.reduce((sum, inv) => sum + inv.amount, 0) * 100) / 100, adjusted.balance)
-  assert.match(split[1].detail, /less goodwill \$70\.00 inc GST\.$/)
+  assert.match(split[1].detail, /less goodwill \$70\.00 inc GST\. Taken off invoice 1 \(\$620\.00\)\.$/)
   assert.deepEqual(split[1].breakdown.at(-1), { label: 'Adjustment (goodwill)', actual_ex: null, estimate_ex: null, difference_ex: -63.64, gst: -6.36, difference_inc: -70 })
 
   assert.deepEqual(f.adjustment_lines?.map(line => line.label), ['Surface area cleaning (SACQ)', 'Biohazard cleaning (BCQ)'])
@@ -432,10 +437,50 @@ test('model 2 splits the balance into invoice 1 (estimate less deposit) and invo
   assert.equal(surfaceRow.difference_ex, Math.round((600 - surfaceAreaCaptureFigures(sacq).subtotal) * 100) / 100)
   assert.equal(surfaceRow.difference_inc, Math.round((surfaceRow.difference_ex + surfaceRow.gst) * 100) / 100)
   assert.equal(breakdownTotal(two).difference_inc, two.amount)
-  assert.match(two.detail, / inc GST\.$/)
+  assert.match(two.detail, / inc GST\. Taken off invoice 1 \(\$550\.00\)\.$/)
 
   const fixedOnly = statementV2Figures({ house_survey: { areas: [], labour_days: 1, rate_per_labour_day: 100 }, statement_of_accounts: {} } as unknown as AssessmentData)
   assert.deepEqual(statementV2Invoices(fixedOnly), [])
+})
+
+test('model 2: a credit note comes off invoice 1, with no pay link until it is applied in Xero', () => {
+  const capture = { deposit_amount: 1000, deposit_date: '2026-11-02', invoice_number: 'INV-9', invoice_url: 'https://pay.example.com/inv-9', credit_note_number: 'CN-3' }
+  const f = statementV2Figures(v2Job(capture))
+  const credit = Math.round(((f.estimate_total ?? 0) - f.total_inc) * 100) / 100
+  const [one, cn] = statementV2Invoices(f)
+  assert.equal(one.amountLabel, 'Still to pay')
+  assert.equal(one.amount, f.balance)
+  assert.match(one.detail, new RegExp(`less credit note CN-3 \\$${credit.toFixed(2)}`))
+  assert.equal(one.payHref, null)
+  assert.match(one.payNote ?? '', /once the credit note has been applied/)
+  assert.equal(cn.amount, 0)
+  assert.match(cn.detail, /Taken off invoice 1/)
+  assert.deepEqual(statementV2InvoicesTotal([one, cn]), { label: 'Total to pay', amount: f.balance })
+
+  const applied = statementV2Figures(v2Job({ ...capture, credit_note_applied: true }))
+  const [paid] = statementV2Invoices(applied)
+  assert.equal(paid.payHref, 'https://pay.example.com/inv-9')
+  assert.equal(paid.payLabel, 'Pay $1,970.00 online')
+  assert.equal(paid.payNote, undefined)
+  const html = statementHtml(statementV2Content(applied, 'SOA-1', '1 Example Street'))
+  assert.match(html, /Total to pay<\/td><td class="r" style="font-weight:700">\$1,970\.00/)
+  assert.equal(normalizeStatementCapture({ credit_note_applied: 'yes' }).credit_note_applied, false)
+})
+
+test('creditPlan: invoice 1 first, then invoice 2, the rest in the client\'s favour', () => {
+  assert.deepEqual(creditPlan(4761.68, 0, 1483.24), { toInvoice1: 1483.24, toInvoice2: 0, left: 0 })
+  assert.deepEqual(creditPlan(100, 50, 200), { toInvoice1: 100, toInvoice2: 50, left: 50 })
+  assert.deepEqual(creditPlan(0, 0, 80), { toInvoice1: 0, toInvoice2: 0, left: 80 })
+  assert.deepEqual(creditPlan(100, 0, 0), { toInvoice1: 0, toInvoice2: 0, left: 0 })
+})
+
+test('model 2: invoice 1 paid in full leaves the whole credit in the client\'s favour', () => {
+  const f = statementV2Figures(v2Job({ invoice1_paid_in_full: true, deposit_date: '2026-11-02', credit_note_number: 'CN-3' }))
+  const invoices = statementV2Invoices(f)
+  assert.equal(invoices[1].amount, f.balance)
+  assert.ok(f.balance < 0)
+  assert.deepEqual(statementV2InvoicesTotal(invoices), { label: 'Credit in your favour', amount: -f.balance })
+  assert.match(invoices[1].detail, /is a credit in your favour\.$/)
 })
 
 test('a model 2 statement issued before the invoice split prints as it did', () => {

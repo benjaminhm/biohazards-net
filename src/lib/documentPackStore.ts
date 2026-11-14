@@ -6,6 +6,8 @@
  * PDF of each document (made on the first download and kept).
  */
 import type { createServiceClient } from '@/lib/supabase'
+import type { StatementOfAccountsV2Content } from '@/lib/types'
+import { statementV2Invoices } from '@/lib/statementOfAccounts'
 import { documentInOrg } from '@/lib/documentAccess'
 import { renderDocumentHtml } from '@/lib/documentRender'
 import { isTradingNameId, tradingNameShortList } from '@/lib/tradingNames'
@@ -91,6 +93,8 @@ export interface PreparedPack {
   siteAddress: string | null
   sender: ResolvedSender | null
   blockers: string[]
+  /** Things staff should know before sending; they do not stop the send. */
+  warnings: string[]
   defaults: { toEmail: string; toName: string; subject: string; message: string }
   /** Statement first. Only filled when asked to render (on send). */
   items: PreparedPackItem[]
@@ -102,6 +106,15 @@ function referenceOf(content: unknown): string | null {
 }
 
 type DocRow = { id: string; job_id: string; type: string; content: Record<string, unknown> | null; created_at: string }
+
+function statementWarnings(doc: DocRow): string[] {
+  const content = doc.content as Partial<StatementOfAccountsV2Content> | null
+  if (doc.type !== PACK_STATEMENT_TYPE || content?.model_version !== 2) return []
+  const held = statementV2Invoices(content as StatementOfAccountsV2Content).some(inv => inv.payNote)
+  return held
+    ? ["This statement was saved before the credit note was applied in Xero, so it has no pay button for invoice 1. Apply the credit from the Statement of Accounts tab (press the Xero button once the credit note is approved), save the statement as a document again, and send that one."]
+    : []
+}
 
 function candidateOf(doc: DocRow): PackCandidate {
   return { id: doc.id, type: doc.type, title: packDocumentTitle(doc.type), reference: referenceOf(doc.content), created_at: doc.created_at }
@@ -161,6 +174,7 @@ export async function preparePack(
       )
     : null
 
+  const warnings = statementWarnings(statementDoc)
   const otherDocs = (othersRes.data ?? []) as DocRow[]
   const candidates = orderPackExtras(otherDocs.map(d => d.id), otherDocs.map(candidateOf))
   const statement = candidateOf(statementDoc)
@@ -207,6 +221,7 @@ export async function preparePack(
     siteAddress,
     sender,
     blockers,
+    warnings,
     defaults: {
       toEmail: ((job.client_email as string | null) ?? '').trim(),
       toName: clientName,

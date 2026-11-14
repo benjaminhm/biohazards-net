@@ -3387,6 +3387,7 @@ function buildStatementV2Mid(c: StatementOfAccountsV2Content, view: StatementV2P
           <td><strong>${esc(inv.heading)}</strong><br><span class="soa-note">${esc(inv.detail)}</span></td>
           <td class="r"><strong>${esc(inv.amountLabel)} ${statementMoney(inv.amountShown ?? Math.abs(inv.amount))}</strong></td>
         </tr>`).join('')}
+        ${view.invoicesTotal ? `<tr class="soa-balance"><td style="font-weight:700">${esc(view.invoicesTotal.label)}</td><td class="r" style="font-weight:700">${statementMoney(view.invoicesTotal.amount)}</td></tr>` : ''}
       </tbody>
     </table>
     ${view.invoices.filter(inv => inv.breakdown.length > 0).map(inv => {
@@ -3403,7 +3404,9 @@ function buildStatementV2Mid(c: StatementOfAccountsV2Content, view: StatementV2P
       <tbody>${rows}</tbody>
     </table>`
     }).join('')}
-    ${view.invoices.map(inv => inv.payHref && inv.payLabel ? `<a class="soa-pay" href="${esc(inv.payHref)}">${esc(inv.heading.split(' · ')[0])}: ${esc(inv.payLabel)}</a>` : '').join('')}`
+    ${view.invoices.map(inv => inv.payHref && inv.payLabel
+      ? `<a class="soa-pay" href="${esc(inv.payHref)}">${esc(inv.heading.split(' · ')[0])}: ${esc(inv.payLabel)}</a>`
+      : inv.payNote ? `<p class="body-text soa-note">${esc(inv.heading.split(' · ')[0])}: ${esc(inv.payNote)}</p>` : '').join('')}`
   return `
     <p class="body-text"><strong>Property:</strong> ${esc(c.site_address || '—')}</p>
     ${view.invoices.length === 0 ? invoice : ''}

@@ -50,6 +50,7 @@ interface Preview {
   candidates: Candidate[]
   maxExtras: number
   blockers: string[]
+  warnings: string[]
   sender: { brandLabel: string; from: string; replyTo: string | null; usesBrandAddress: boolean } | null
   defaults: { toEmail: string; toName: string; subject: string; message: string }
   linkHost: string | null
@@ -336,6 +337,11 @@ export function SendStatementPackModal({ documentId, onClose, onSent }: {
             {preview.blockers.length > 0 && (
               <div role="alert" style={{ fontSize: 13, color: '#F87171', background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.35)', borderRadius: 8, padding: '10px 12px', marginBottom: 14, lineHeight: 1.5 }}>
                 {preview.blockers.map(b => <div key={b}>{b}</div>)}
+              </div>
+            )}
+            {(preview.warnings ?? []).length > 0 && (
+              <div style={{ fontSize: 13, color: '#FBBF24', background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.35)', borderRadius: 8, padding: '10px 12px', marginBottom: 14, lineHeight: 1.5 }}>
+                {preview.warnings.map(w => <div key={w}>{w}</div>)}
               </div>
             )}
 
