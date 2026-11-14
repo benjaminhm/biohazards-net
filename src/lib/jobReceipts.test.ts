@@ -5,6 +5,7 @@ import type { DisposalLoad } from './types'
 import {
   applyReceiptsToLoads,
   parseReceiptFields,
+  parseReceiptTrip,
   receiptFromRow,
   receiptGroups,
   receiptTotals,
@@ -92,4 +93,11 @@ test('a receipt is one trip: its kilometres go on the first load it covers, once
   const unlinked = applyReceiptsToLoads(next, [{ ...r, load_photo_ids: [] }])
   assert.deepEqual(unlinked.map(l => l.distance_km), [null, null, null])
   assert.deepEqual(parseReceiptFields({ tip_address: ' 1 Tip Rd, Ipswich ', distance_km: '46.2' }), { tip_address: '1 Tip Rd, Ipswich', distance_km: 46.2 })
+})
+
+test('a trip from the browser is saved as from the maps, with the tip pin when it is valid', () => {
+  assert.deepEqual(parseReceiptTrip({ distance_km: 46.24, tip_lat: -28.65, tip_lng: 151.93 }), { distance_km: 46.2, distance_out_km: null, distance_return_km: null, distance_from_maps: true, tip_lat: -28.65, tip_lng: 151.93 })
+  assert.deepEqual(parseReceiptTrip({ distance_km: 12, tip_lat: 200, tip_lng: 1 }), { distance_km: 12, distance_out_km: null, distance_return_km: null, distance_from_maps: true })
+  assert.equal(parseReceiptTrip({ distance_km: 'far' }), null)
+  assert.equal(parseReceiptTrip(null), null)
 })

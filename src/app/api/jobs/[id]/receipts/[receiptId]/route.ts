@@ -4,7 +4,8 @@
  *          fields: supplier, receipt_at, docket_no, total_inc_gst, gst, weight_kg,
  *                  tip_address (finds the tip and the drive site → tip → site),
  *                  distance_km (typed kilometres replace the drive)
- *          recalc_trip: true looks the drive up again from the tip address
+ *          trip: { distance_km, tip_lat, tip_lng } the drive as the browser found it
+ *                on Google Maps (the Maps key only answers the browser)
  *          confirmed: true stamps who confirmed it; false takes it back to a draft
  *          load_photo_ids: the load photos this receipt covers (replaces the list)
  *   DELETE — the receipt and its image
@@ -12,7 +13,7 @@
  */
 import { NextResponse } from 'next/server'
 import { getReceipt, isUuid, receiptGate, receiptTrip } from '@/lib/receiptStore'
-import { parseReceiptFields } from '@/lib/jobReceipts'
+import { parseReceiptFields, parseReceiptTrip } from '@/lib/jobReceipts'
 
 type Params = { params: Promise<{ id: string; receiptId: string }> }
 
@@ -24,7 +25,7 @@ export async function PATCH(req: Request, { params }: Params) {
   const current = await getReceipt(supabase, jobId, receiptId)
   if (!current) return NextResponse.json({ error: 'Receipt not found' }, { status: 404 })
 
-  const body = (await req.json().catch(() => null)) as { fields?: unknown; confirmed?: unknown; load_photo_ids?: unknown; recalc_trip?: unknown } | null
+  const body = (await req.json().catch(() => null)) as { fields?: unknown; confirmed?: unknown; load_photo_ids?: unknown; trip?: unknown } | null
   if (!body) return NextResponse.json({ error: 'Nothing to save' }, { status: 400 })
 
   const update: Record<string, unknown> = {}
@@ -37,8 +38,10 @@ export async function PATCH(req: Request, { params }: Params) {
       Object.assign(update, await receiptTrip(supabase, jobId, fields.tip_address))
     }
   }
-  if (body.recalc_trip === true && update.tip_lat === undefined) {
-    Object.assign(update, await receiptTrip(supabase, jobId, (update.tip_address as string | undefined) ?? current.tip_address))
+  if (body.trip !== undefined) {
+    const trip = parseReceiptTrip(body.trip)
+    if (!trip) return NextResponse.json({ error: 'The trip could not be saved.' }, { status: 400 })
+    Object.assign(update, trip)
   }
   if (body.confirmed === true && !current.confirmed_at) {
     update.confirmed_at = new Date().toISOString()

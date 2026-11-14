@@ -7,12 +7,13 @@
  * Only confirmed receipts set the Contents Disposal Record's tip fees and
  * weights. Without `loads` (the Photos tab) there is nothing to link.
  */
-import { useRef, useState, type ChangeEvent, type CSSProperties } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties } from 'react'
 import type { DisposalLoad, Photo } from '@/lib/types'
 import { compressImage } from '@/lib/compressImage'
 import { formatEventWhen, localStamp } from '@/lib/disposalTimeline'
 import { loadPhotoId, receiptLabel, suggestReceiptLoads, type JobReceipt, type ReceiptFields } from '@/lib/jobReceipts'
 import PhotoFolderPicker from '@/components/PhotoFolderPicker'
+import { roundTripKm } from '@/lib/roundTripDistance'
 
 const INPUT: CSSProperties = {
   width: '100%', padding: '8px 10px', fontSize: 14, borderRadius: 8,
@@ -38,8 +39,10 @@ function money(n: number | null): string {
   return n == null ? '' : `$${n.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
-export default function ReceiptsPanel({ jobId, receipts, onReceipts, loads, photos, onPhotosUpdate }: {
+export default function ReceiptsPanel({ jobId, receipts, onReceipts, loads, photos, onPhotosUpdate, site }: {
   jobId: string
+  /** The job site, where each trip to the tip starts and ends. */
+  site?: { address: string; lat: number | null; lng: number | null }
   receipts: JobReceipt[]
   onReceipts: (update: (prev: JobReceipt[]) => JobReceipt[]) => void
   /** The record's loads, in order, so receipts can be linked to them. */
@@ -58,6 +61,38 @@ export default function ReceiptsPanel({ jobId, receipts, onReceipts, loads, phot
   const readActive = useRef(0)
 
   const replace = (r: JobReceipt) => onReceipts(prev => prev.map(x => (x.id === r.id ? r : x)))
+
+  // The Maps key only answers the browser, so the drive is found here and saved on the receipt.
+  const [tripState, setTripState] = useState<Record<string, 'working' | 'failed'>>({})
+  const tripTried = useRef(new Set<string>())
+  async function workOutTrip(r: JobReceipt) {
+    if (!site?.address.trim() || !r.tip_address) return
+    tripTried.current.add(`${r.id}|${r.tip_address}`)
+    await Promise.resolve()
+    setTripState(prev => ({ ...prev, [r.id]: 'working' }))
+    const sitePin = site.lat != null && site.lng != null ? { lat: site.lat, lng: site.lng } : null
+    const tipPin = r.tip_lat != null && r.tip_lng != null ? { lat: r.tip_lat, lng: r.tip_lng } : null
+    try {
+      const found = await roundTripKm({ address: site.address, pin: sitePin }, { address: r.tip_address, pin: tipPin })
+      if (found.km == null) throw new Error('no route')
+      const d = await call<{ receipt: JobReceipt }>(`/api/jobs/${jobId}/receipts/${r.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trip: { distance_km: found.km, tip_lat: found.dest?.lat ?? null, tip_lng: found.dest?.lng ?? null } }),
+      })
+      replace(d.receipt)
+      setTripState(prev => { const next = { ...prev }; delete next[r.id]; return next })
+    } catch {
+      setTripState(prev => ({ ...prev, [r.id]: 'failed' }))
+    }
+  }
+  useEffect(() => {
+    for (const r of receipts) {
+      if (!r.tip_address || r.distance_km != null || tripTried.current.has(`${r.id}|${r.tip_address}`)) continue
+      void workOutTrip(r)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [receipts, site?.address, site?.lat, site?.lng])
 
   function pumpReads() {
     while (readActive.current < READ_CONCURRENCY && readQueue.current.length) {
@@ -151,6 +186,8 @@ export default function ReceiptsPanel({ jobId, receipts, onReceipts, loads, phot
           receipt={r}
           reading={reading.has(r.id)}
           onRead={() => read([r.id])}
+          trip={tripState[r.id] ?? null}
+          onWorkOutTrip={site?.address.trim() ? () => void workOutTrip(r) : null}
           onChange={replace}
           onDelete={() => onReceipts(prev => prev.filter(x => x.id !== r.id))}
           loads={loads ? linkable : null}
@@ -173,11 +210,13 @@ export default function ReceiptsPanel({ jobId, receipts, onReceipts, loads, phot
   )
 }
 
-function ReceiptCard({ jobId, receipt, reading, onRead, onChange, onDelete, loads, suggested, linkedElsewhere }: {
+function ReceiptCard({ jobId, receipt, reading, onRead, trip, onWorkOutTrip, onChange, onDelete, loads, suggested, linkedElsewhere }: {
   jobId: string
   receipt: JobReceipt
   reading: boolean
   onRead: () => void
+  trip: 'working' | 'failed' | null
+  onWorkOutTrip: (() => void) | null
   onChange: (r: JobReceipt) => void
   onDelete: () => void
   loads: { number: number; photoId: string }[] | null
@@ -313,15 +352,23 @@ function ReceiptCard({ jobId, receipt, reading, onRead, onChange, onDelete, load
           {field('distance_km', 'Trip km (return)', 'number')}
         </div>
         <div style={{ ...MUTED, fontSize: 12, marginTop: -4 }}>
-          {receipt.distance_km != null
-            ? receipt.distance_from_maps && receipt.distance_out_km != null
-              ? `Site → tip ${receipt.distance_out_km} km, back ${receipt.distance_return_km ?? receipt.distance_out_km} km, by road (Google Maps). Counted once for the loads it covers.`
-              : 'Kilometres typed in. Counted once for the loads it covers.'
-            : receipt.tip_address
-              ? receipt.tip_lat == null ? 'The tip address could not be found on the map. Check it, or type the kilometres.' : 'The drive could not be worked out. Type the kilometres.'
-              : 'Add the tip address to work out the drive from the site and back.'}
-          {receipt.tip_address && !saving && (
-            <button type="button" onClick={() => void patch({ recalc_trip: true })} style={{ marginLeft: 6, border: 'none', background: 'none', color: 'var(--text-muted)', fontSize: 12, fontWeight: 700, textDecoration: 'underline', cursor: 'pointer' }}>
+          {trip === 'working'
+            ? 'Working out the drive from the site and back…'
+            : receipt.distance_km != null
+              ? receipt.distance_from_maps
+                ? receipt.distance_out_km != null
+                  ? `Site → tip ${receipt.distance_out_km} km, back ${receipt.distance_return_km ?? receipt.distance_out_km} km, by road (Google Maps). Counted once for the loads it covers.`
+                  : `Site → tip → site ${receipt.distance_km} km by road (Google Maps). Counted once for the loads it covers.`
+                : 'Kilometres typed in. Counted once for the loads it covers.'
+              : !receipt.tip_address
+                ? 'Add the tip address to work out the drive from the site and back.'
+                : !onWorkOutTrip
+                  ? 'The job has no site address, so the drive cannot be worked out. Type the kilometres.'
+                  : trip === 'failed'
+                    ? 'Google Maps could not find a drive between the site and this address. Check it, or type the kilometres.'
+                    : ''}
+          {receipt.tip_address && onWorkOutTrip && trip !== 'working' && !saving && (
+            <button type="button" onClick={onWorkOutTrip} style={{ marginLeft: 6, border: 'none', background: 'none', color: 'var(--text-muted)', fontSize: 12, fontWeight: 700, textDecoration: 'underline', cursor: 'pointer' }}>
               Work out again
             </button>
           )}

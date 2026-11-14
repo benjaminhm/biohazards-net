@@ -525,6 +525,7 @@ export default function DisposalRecordV2Tab({ job, photos, onJobUpdate, onPhotos
             loads={loads}
             photos={photos}
             onPhotosUpdate={list => onPhotosUpdate(list)}
+            site={{ address: job.site_address || '', lat: job.site_lat ?? null, lng: job.site_lng ?? null }}
           />
         ) : (
           <div style={MUTED}>Loading receipts…</div>

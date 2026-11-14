@@ -116,6 +116,24 @@ export function parseReceiptFields(raw: unknown): Partial<ReceiptFields> | null 
   return out
 }
 
+/** The drive site → tip → site as the browser found it on Google Maps. Null if malformed. */
+export function parseReceiptTrip(raw: unknown): Record<string, unknown> | null {
+  if (!raw || typeof raw !== 'object') return null
+  const o = raw as Record<string, unknown>
+  const km = num(o.distance_km)
+  if (km == null) return null
+  const lat = coord(o.tip_lat)
+  const lng = coord(o.tip_lng)
+  const pin = lat != null && lng != null && Math.abs(lat) <= 90 && Math.abs(lng) <= 180
+  return {
+    distance_km: Math.round(km * 10) / 10,
+    distance_out_km: null,
+    distance_return_km: null,
+    distance_from_maps: true,
+    ...(pin ? { tip_lat: lat, tip_lng: lng } : {}),
+  }
+}
+
 /** A row from job_receipts (numeric columns arrive as strings) with its load links. */
 export function receiptFromRow(row: Record<string, unknown>, loadPhotoIds: string[]): JobReceipt {
   return {
