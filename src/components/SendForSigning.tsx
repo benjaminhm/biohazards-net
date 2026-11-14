@@ -6,11 +6,11 @@
  *   useJobSigning        the requests on a job, and where the job's Xero invoice
  *                        is up to (one fetch shared by every row)
  *   SendForSigningModal  the send window, with two ways to get the quote to the client:
- *                          Link to text       creates a private link and a message to paste
+ *                          Text it yourself   creates a private link and a message to paste
  *                                             into your own text; the client opens it with
  *                                             their mobile number (or a passcode when no
  *                                             mobile is given)
- *                          Email from here    the system emails the link from the brand address
+ *                          Email it from here the system emails the link from the brand address
  *                        and the deposit the client is asked to pay after signing
  *   SigningStatus        the strip under a saved quote: link created / sent / opened /
  *                        signed / declined. Once signed it holds the staff check:
@@ -438,7 +438,7 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
   }
 
   const docLine = preview ? `${preview.title}${preview.reference ? ` ${preview.reference}` : ''}` : ''
-  const tab = (value: Mode, label: string) => (
+  const tab = (value: Mode, label: string, about: string) => (
     <button
       type="button"
       onClick={() => { setMode(value); setError('') }}
@@ -448,9 +448,12 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
         flex: 1, padding: '9px 10px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer',
         border: mode === value ? '1px solid var(--accent)' : '1px solid var(--border)',
         background: mode === value ? 'rgba(255,107,53,0.12)' : 'transparent',
-        color: 'var(--text)',
+        color: 'var(--text)', textAlign: 'left',
       }}
-    >{label}</button>
+    >
+      <div>{label}</div>
+      <div style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.4 }}>{about}</div>
+    </button>
   )
 
   return (
@@ -599,13 +602,13 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
             )}
 
             <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-              {tab('link', 'Link to text')}
-              {tab('email', 'Email from here')}
+              {tab('link', 'Text it yourself', 'You copy a link and text it from your phone. It opens with their mobile number.')}
+              {tab('email', 'Email it from here', 'We email them a link, like a Xero invoice. It opens in one tap, no code.')}
             </div>
 
             {mode === 'link' && (
               <div style={{ ...helpText, marginBottom: 14 }}>
-                Creates a private link with a message to paste into your own text. The client opens it with their mobile number; leave the mobile empty to use a 4-character passcode instead. Nothing is sent from here.
+                Nothing is sent from here. You get a link and a ready-made message to paste into a text from your own phone. When the client taps the link, they type their mobile number to open it, so it must be the number you text. Leave the mobile empty to use a 4-character passcode instead.
                 {preview.linkHost && <> The link opens on {preview.linkHost}.</>}
                 {preview.pendingLinkHost && (
                   <span style={{ color: '#FBBF24' }}> {preview.pendingLinkHost} is not connected yet, so for now the link opens on the app address.</span>
@@ -708,7 +711,7 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
                 </div>
                 <div style={{ ...helpText, marginBottom: 14 }}>
                   {several && <span style={{ color: '#FBBF24' }}>Your subject and message name only the first quote; change them if you want to mention the others. </span>}
-                  The client gets a private link with a View document button under your message. They see and sign the quote as it is saved right now; changes made after sending are not included. Once signed, they are emailed the signed PDF with its signature docket, and the job moves to Accepted.
+                  The client gets your message with a View document button under it. The button opens the quote straight away, with no passcode or mobile number to type: only the person with the email can open it, like a Xero invoice link. They see and sign the quote as it is saved right now; changes made after sending are not included. Once signed, they are emailed the signed PDF with its signature docket, and the job moves to Accepted.
                 </div>
               </>
             )}
@@ -730,7 +733,7 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
               <button type="button" className="btn btn-secondary" onClick={close} disabled={sending} style={{ fontSize: 13, padding: '9px 16px' }}>Cancel</button>
               <button type="button" className="btn btn-primary" onClick={submit} disabled={!ready || sending} style={{ fontSize: 13, padding: '9px 18px' }}>
                 {mode === 'link'
-                  ? sending ? 'Creating…' : 'Create link and passcode'
+                  ? sending ? 'Creating…' : phoneDigits ? 'Create link to text' : 'Create link and passcode'
                   : sending ? 'Sending…' : 'Send email'}
               </button>
             </div>

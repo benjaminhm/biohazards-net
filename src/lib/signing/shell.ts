@@ -667,7 +667,7 @@ const SHELL_SCRIPT = String.raw`
     for (var i = 0; i < bad.length; i++) { bad[i].classList.remove('sg-bad'); bad[i].removeAttribute('aria-invalid'); }
     $('sg-details-error').textContent = '';
   }
-  // ── Two pages: About you, then Where you live ────────────────────────────
+  // ── Two pages: About you, then Your address ──────────────────────────────
   var PAGE2 = ['street', 'suburb', 'state', 'postcode', 'declaration'];
   var page = 1;
   function showPage(n) {
@@ -675,7 +675,7 @@ const SHELL_SCRIPT = String.raw`
     $('sg-d-page1').style.display = n === 1 ? '' : 'none';
     $('sg-d-page2').style.display = n === 2 ? '' : 'none';
     $('sg-d-pageno').textContent = String(n);
-    $('sg-details-h').textContent = n === 1 ? 'About you' : 'Where you live';
+    $('sg-details-h').textContent = n === 1 ? 'About you' : 'Your address';
     $('sg-details-back').textContent = n === 1 ? 'Back to the quote' : 'Back';
     $('sg-details-continue').textContent = n === 1 ? 'Next' : 'Continue to sign';
     var card = $('sg-details-form');
@@ -1088,7 +1088,7 @@ export interface SigningShellData {
   start?: 'sign' | 'decline' | null
   /** The mobile number the link was texted to, to fill in their details. Empty when not known. */
   mobile?: string
-  /** The job's site address split into fields, for "Same as the property". Null when it cannot be split. */
+  /** The job's site address split into fields, for "My licence shows the property address". Null when it cannot be split. */
   homeAddress?: { street: string; suburb: string; state: string; postcode: string } | null
 }
 
@@ -1212,9 +1212,9 @@ export function signingShellHtml(d: SigningShellData): string {
         </div>
 
         <div id="sg-d-page2" style="display:none">
-          <p>Your home address, where you live (not a PO box). It goes on your invoice.</p>
+          <p><strong>As shown on your driver licence.</strong> This is where you live, not a PO box, and it goes on your invoice. If you have moved since your licence was issued, give your current home address.</p>
           ${d.homeAddress
-            ? `<button type="button" class="sg-same" id="sg-d-same">Same as the property: ${esc(`${d.homeAddress.street}, ${d.homeAddress.suburb}`)}</button>`
+            ? `<button type="button" class="sg-same" id="sg-d-same">My licence shows the property address: ${esc(`${d.homeAddress.street}, ${d.homeAddress.suburb}`)}</button>`
             : ''}
           <label class="sg-label" for="sg-d-street">Street address</label>
           <input type="text" class="sg-input" id="sg-d-street" maxlength="120" autocomplete="address-line1" placeholder="For example 12 Smith Street">

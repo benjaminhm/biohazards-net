@@ -44,11 +44,12 @@ export const STATES = ['QLD', 'NSW', 'VIC', 'TAS', 'SA', 'WA', 'NT', 'ACT'] as c
  * request keeps the exact text the signer agreed to, with this version, so a
  * later change of wording never alters what an earlier signer declared.
  */
-export const DECLARATION_VERSION = 'placeholder-1'
+export const DECLARATION_VERSION = 'placeholder-2'
 
 export function declarationText(brandLabel: string): string {
   return (
     'I declare that the details I have given are true and correct, that I am the person named, ' +
+    'that the address I have given is my residential address as shown on my driver licence, ' +
     'and that I am authorised to accept this quote in the capacity stated. ' +
     `I understand ${brandLabel} will rely on these details, and may send invoices, notices and legal documents ` +
     'to me at the address, email and mobile number I have given.'
@@ -177,7 +178,7 @@ export function cleanSignerDetails(input: unknown, today: Date): DetailsResult {
 
   const a = (o.address && typeof o.address === 'object' ? o.address : {}) as Record<string, unknown>
   const street = text(a.street, 200)
-  if (street.length < 3 || street.length > 120) return bad('street', 'Enter your residential street address.')
+  if (street.length < 3 || street.length > 120) return bad('street', 'Enter the street address shown on your driver licence.')
   const suburb = text(a.suburb, 100)
   if (suburb.length < 2 || suburb.length > 60) return bad('suburb', 'Enter your suburb or town.')
   const state = text(a.state, 10).toUpperCase()

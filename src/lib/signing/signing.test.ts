@@ -1041,11 +1041,12 @@ test('the Your details step asks for each detail and carries the declaration', (
   assert.match(shell, /<option value="owner">Owner of the property<\/option><option value="tenant">Tenant of the property<\/option><option value="agent">Agent for the owner<\/option><option value="executor">Executor or administrator of an estate<\/option><option value="company_officer">Officer of a company<\/option>/)
   assert.match(shell, /id="sg-d-name"[^>]* value="Jane Smith">/)
   assert.match(shell, /id="sg-d-email"[^>]* value="jane@example\.com">/)
-  assert.match(shell, /I declare that the details I have given are true and correct, that I am the person named/)
+  assert.match(shell, /I declare that the details I have given are true and correct, that I am the person named, that the address I have given is my residential address as shown on my driver licence/)
+  assert.match(shell, /<strong>As shown on your driver licence\.<\/strong>/)
   assert.match(shell, /I understand Forensic Cleaning QLD will rely on these details/)
   // The company fields stay out of the way until the capacity asks for them.
   assert.match(shell, /id="sg-d-company" style="display:none"/)
-  // Two pages: About you, then Where you live, with the date of birth in three number boxes.
+  // Two pages: About you, then Your address, with the date of birth in three number boxes.
   assert.match(shell, /<div id="sg-d-page1">/)
   assert.match(shell, /<div id="sg-d-page2" style="display:none">/)
   assert.match(shell, /<input type="hidden" id="sg-d-dob">/)
@@ -1394,7 +1395,7 @@ test('the signing page can start straight at the details, with the mobile and pr
   const shell = shellFor(null, { start: 'sign', mobile: '0412 345 678', homeAddress: splitAuAddress('12 Smith St, Ipswich QLD 4305') })
   assert.match(shell, /"start":"sign"/)
   assert.match(shell, /id="sg-d-mobile"[^>]* value="0412 345 678">/)
-  assert.match(shell, /<button type="button" class="sg-same" id="sg-d-same">Same as the property: 12 Smith St, Ipswich<\/button>/)
+  assert.match(shell, /<button type="button" class="sg-same" id="sg-d-same">My licence shows the property address: 12 Smith St, Ipswich<\/button>/)
   assert.match(shell, /"homeAddress":\{"street":"12 Smith St","suburb":"Ipswich","state":"QLD","postcode":"4305"\}/)
   for (const script of scriptsOf(shell)) assert.doesNotThrow(() => new Function(script))
   assert.doesNotMatch(shellFor(null), /id="sg-d-same"/)
