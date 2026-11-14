@@ -152,7 +152,6 @@ export default function DisposalRecordV2Tab({ job, photos, onJobUpdate, onPhotos
   const [saveError, setSaveError] = useState('')
   const [sortOpen, setSortOpen] = useState<boolean | null>(null)
   const [picking, setPicking] = useState(false)
-  const [autoSort, setAutoSort] = useState(false)
   const [pickError, setPickError] = useState('')
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [zoom, setZoom] = useState<string | null>(null)
@@ -392,20 +391,21 @@ export default function DisposalRecordV2Tab({ job, photos, onJobUpdate, onPhotos
     return res.ok ? data : { error: data.error ?? `Failed (${res.status})` }
   }
 
-  /** Picked photos join the record unsorted; the tagger reads them, sorts them by time and GPS, and confirms. */
+  /** One photo is one load: each picked photo becomes the next load, in the order picked. */
   async function addFromFolder(ids: string[]) {
     setPicking(false)
     if (!ids.length) return
     setPickError('')
-    const result = await post('/api/photos/cdr-tags', { tags: ids.map(id => ({ id, load: 0, role: null })) })
+    const lastLoad = photos.reduce((max, p) => Math.max(max, p.cdr_load ?? 0), 0)
+    const tags = ids.map((id, i) => ({ id, load: lastLoad + i + 1, role: 'load' }))
+    const result = await post('/api/photos/cdr-tags', { tags })
       .catch(() => ({ error: 'Could not add the photos. Check the connection and try again.' } as { photos?: CdrPhoto[]; error?: string }))
     if (!result.photos) {
       setPickError(result.error || 'Could not add the photos.')
       return
     }
     mergePhotos(result.photos)
-    setAutoSort(true)
-    setSortOpen(true)
+    setSortOpen(null)
   }
 
   // ── What is on screen ──────────────────────────────────────────────────────
@@ -468,8 +468,6 @@ export default function DisposalRecordV2Tab({ job, photos, onJobUpdate, onPhotos
               onPhotos={mergePhotos}
               onSaved={() => setSortOpen(null)}
               onSelectFromFolder={() => setPicking(true)}
-              autoConfirm={autoSort}
-              onAutoConfirmed={() => setAutoSort(false)}
             />
           </div>
         )}

@@ -34,9 +34,6 @@ interface Props {
   onSaved?: () => void
   /** Staff only: opens the job's photo folder; picked photos come back as unsorted disposal photos. */
   onSelectFromFolder?: () => void
-  /** Confirm the suggested loads by itself once every disposal photo has been read. */
-  autoConfirm?: boolean
-  onAutoConfirmed?: () => void
 }
 
 const READ_CONCURRENCY = 3
@@ -61,7 +58,7 @@ function timeOf(p: CdrPhoto): number {
   return Number.isFinite(t) ? t : Infinity
 }
 
-export default function CdrPhotoTagger({ photos, site, saveTags, readPhoto, onPhotos, onSaved, onSelectFromFolder, autoConfirm, onAutoConfirmed }: Props) {
+export default function CdrPhotoTagger({ photos, site, saveTags, readPhoto, onPhotos, onSaved, onSelectFromFolder }: Props) {
   const [edits, setEdits] = useState<Record<string, CdrTag>>({})
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showOthers, setShowOthers] = useState(false)
@@ -214,22 +211,6 @@ export default function CdrPhotoTagger({ photos, site, saveTags, readPhoto, onPh
     setSelected(new Set())
     onSaved?.()
   }
-
-  const confirmRef = useRef(confirm)
-  confirmRef.current = confirm
-  const onAutoRef = useRef(onAutoConfirmed)
-  onAutoRef.current = onAutoConfirmed
-  const autoFired = useRef(false)
-  const allAttempted = unread.split(',').every(id => !id || attempted.current.has(id))
-  useEffect(() => {
-    if (!autoConfirm) {
-      autoFired.current = false
-      return
-    }
-    if (autoFired.current || stillReading || saving || !allAttempted) return
-    autoFired.current = true
-    void confirmRef.current().finally(() => onAutoRef.current?.())
-  }, [autoConfirm, stillReading, saving, allAttempted])
 
   const group = (title: string, list: CdrPhoto[], note?: string) => {
     if (!list.length) return null
