@@ -312,10 +312,6 @@ export default function DisposalRecordV2Tab({ job, photos, onJobUpdate, onPhotos
     edit(prev => ({ ...prev, loads: [...prev.loads, manualTimelineLoad(prev, job)] }))
   }
 
-  function removeLoad(id: string) {
-    edit(prev => ({ ...prev, loads: prev.loads.filter(l => l.id !== id) }))
-  }
-
   async function save(next = capture): Promise<boolean> {
     setSaving(true)
     setSaveError('')
@@ -406,6 +402,33 @@ export default function DisposalRecordV2Tab({ job, photos, onJobUpdate, onPhotos
     }
     mergePhotos(result.photos)
     setSortOpen(null)
+  }
+
+  /**
+   * Delete a load card. Its photos leave the record (they stay in the job folder)
+   * and later loads move up a number, keeping what was typed on them.
+   */
+  async function deleteLoad(load: DisposalLoad, number: number) {
+    if (!window.confirm(`Delete Load ${number}? Its photo stays in the job’s folder.`)) return
+    const n = load.cdr_number
+    const rows = n == null ? [] : photos.flatMap((p): CdrTagRow[] => {
+      const at = p.cdr_load ?? 0
+      if (at === n) return [{ id: p.id, load: null, role: null }]
+      if (at > n) return [{ id: p.id, load: at - 1, role: p.cdr_role ?? 'load' }]
+      return []
+    })
+    const before = capture
+    setCapture(prev => ({ ...prev, loads: prev.loads.filter(l => l.id !== load.id) }))
+    if (!rows.length) return
+    setPickError('')
+    const result = await post('/api/photos/cdr-tags', { tags: rows })
+      .catch(() => ({ error: 'Could not delete the load. Check the connection and try again.' } as { photos?: CdrPhoto[]; error?: string }))
+    if (!result.photos) {
+      setCapture(before)
+      setPickError(result.error || 'Could not delete the load.')
+      return
+    }
+    mergePhotos(result.photos)
   }
 
   // ── What is on screen ──────────────────────────────────────────────────────
@@ -554,7 +577,7 @@ export default function DisposalRecordV2Tab({ job, photos, onJobUpdate, onPhotos
           onEvent={(eventId, patch) => patchEvent(load.id, eventId, patch)}
           onContainer={type => changeContainer(load, type)}
           onVerify={() => toggleVerified(load)}
-          onRemove={() => removeLoad(load.id)}
+          onRemove={() => void deleteLoad(load, index + 1)}
           onZoom={setZoom}
         />
       ))}
@@ -669,6 +692,15 @@ function LoadCard({ number, load, saving, onLoad, onVehicle, onEvent, onContaine
             {verified ? '✓ Verified' : unchecked > 0 ? `Verify (${unchecked} from photos)` : 'Verify'}
           </button>
         )}
+        <button
+          type="button"
+          disabled={saving}
+          onClick={onRemove}
+          title={hasPhotos ? 'Delete this load. Its photo stays in the job folder.' : 'Delete this load'}
+          style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 999, padding: '7px 12px', color: '#F87171', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+        >
+          Delete load
+        </button>
       </div>
 
       {!editable ? (
@@ -816,16 +848,11 @@ function LoadCard({ number, load, saving, onLoad, onVehicle, onEvent, onContaine
         </div>
       )}
 
-      {(issues.length > 0 || (timeline && !hasPhotos)) && (
+      {issues.length > 0 && (
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginTop: 12 }}>
           <ul style={{ flex: 1, margin: 0, paddingLeft: 18, fontSize: 13, color: '#FBBF24', lineHeight: 1.6 }}>
             {issues.map(issue => <li key={issue}>{issue}</li>)}
           </ul>
-          {timeline && !hasPhotos && (
-            <button type="button" onClick={onRemove} style={{ background: 'none', border: 'none', color: '#F87171', fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-              Remove load
-            </button>
-          )}
         </div>
       )}
     </div>
