@@ -1,5 +1,6 @@
 import {
   BIOHAZARD_CONTENTS_INCLUSION_LINE,
+  BIOHAZARD_TESTS_ASSUMPTION_LINE,
   joinBiohazardNames,
   resolvedAreasAffected,
   resolvedBiohazardType,
@@ -246,6 +247,8 @@ export function withBothZonePrintClauses(
     /** Affected contents volume on the quote. */
     contents_m3?: number
     contents_disposal_fee?: number
+    /** ATP or laboratory tests are on the quote. */
+    has_tests?: boolean
   },
 ): { inclusions: string[]; assumptions: string[] } {
   const nextInclusions = [...inclusions]
@@ -263,6 +266,9 @@ export function withBothZonePrintClauses(
   }
   if ((input.extra_labels ?? []).some(label => /ATP|laborator/i.test(label)) && !nextInclusions.some(line => /ATP|laborator|testing/i.test(line))) {
     nextInclusions.push('Clearance testing listed on this quote.')
+  }
+  if (input.has_tests && !nextAssumptions.some(line => /\btests?\b/i.test(line) && /estimate/i.test(line))) {
+    nextAssumptions.push(BIOHAZARD_TESTS_ASSUMPTION_LINE)
   }
   if (input.mobilisation_fee > 0 && !nextInclusions.some(line => /mobili[sz]ation|call-?out/i.test(line))) {
     nextInclusions.push('Mobilisation as the fee on this quote.')

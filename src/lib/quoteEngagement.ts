@@ -319,6 +319,14 @@ function labourAsAmountOnly(template: string): string {
   )
 }
 
+/** The shared template estimates travel by the kilometre. The biohazard quote sells travel as a fixed amount. */
+function travelAsFixedAmount(template: string): string {
+  return template.replace(
+    /Travel is estimated at \[\s*kilometres\s*\] and is charged at \[\s*rate per (?:km|kilometre)\s*\] ex GST\./gi,
+    'Travel is the fixed amount of [distance amount] ex GST in this quote.',
+  )
+}
+
 export function fillContentsClearanceEngagement(
   content: ContentsClearanceQuoteContent,
   context?: EngagementPrintContext,
@@ -388,7 +396,8 @@ export function fillBiohazardCleaningEngagement(
 ): string {
   const title = content.title.trim().replace(/ Quote$/i, '')
   const split = halfThePrice(content.total)
-  return fillEngagementAgreement(labourAsAmountOnly(content.engagement_agreement), {
+  // No kilometres or rate per km: lines that only state them are left off, and travel prints as its amount.
+  return fillEngagementAgreement(travelAsFixedAmount(labourAsAmountOnly(content.engagement_agreement)), {
     name: content.client_name,
     address: content.job_address || content.site_address,
     title,
@@ -399,9 +408,7 @@ export function fillBiohazardCleaningEngagement(
     subtotal: content.subtotal,
     gst: content.gst,
     total: content.total,
-    kilometres: content.travel_km,
     distanceAmount: content.travel_amount,
-    ratePerKm: content.rate_per_km,
     surface: content.estimated_m2 > 0 ? content.estimated_m2 : undefined,
     surfaceAmount: content.estimated_m2 > 0 ? content.area_amount : undefined,
     ratePerM2: content.estimated_m2 > 0 ? content.rate_per_m2 : undefined,

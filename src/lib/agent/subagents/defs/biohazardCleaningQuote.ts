@@ -18,8 +18,9 @@ export const biohazardCleaningQuoteAgent: DocAgentDef = {
 - Wording: cleaning_kind, biohazard_types [], areas_affected, description, objective, rooms [], clauses (from the company template unless edited).
 - Zones: estimated_m2, rate_per_m2; secondary_zone, secondary_contaminations, secondary_objective, secondary_m2, secondary_rooms, secondary_rate_per_m2; other_zones [].
 - Affected contents removal (mattress, carpet, couch, clothing; not a contents clearance): contents_items [], contents_m3, contents_rate_per_m3, contents_disposal_fee (one fee). Priced as m³ × rate plus the fee; the printed quote shows removal and disposal as one fixed price.
-- Labour and travel: labour_days (required to generate), rate_per_labour_day, rate_per_km, travel_km, job_address, base_address.
+- Labour and travel: labour_days (required to generate), rate_per_labour_day, rate_per_km, travel_km, job_address, base_address. Priced as days × rate and km × rate; the printed quote shows each as one fixed price.
 - Fees and tests: mobilisation_fee/waived/reason, extra_lines [], coh_rap/coh_rap_fee, atp_testing/atp_tests/atp_rate, lab_testing/lab_tests/lab_rate.
+- Estimate or fixed price: on the printed quote only the square metres and the number of ATP and lab tests are estimates, revised to what is measured or done. Every other line is a fixed price.
 - check_override: set by staff only.`,
   rules: `- ${PRICE_RULE} A new quote starts with every price blank.
 - Use the assessment, survey and calls for wording and m² only; neutral, factual words.

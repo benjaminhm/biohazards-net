@@ -88,7 +88,7 @@ export const BIOHAZARD_CLEANING_SCHEMA = {
     'Removal, cleaning, and disinfection of the primary zone, the [area affected], to the clearance in the scope of work.',
     'Surface decontamination of the estimated primary zone area at the rate per square metre on this quote.',
     'Treatment of [secondary contamination] in the secondary zone, the [secondary zone], at the secondary zone rate per square metre on this quote.',
-    'Travel at the rate per kilometre on this quote.',
+    'Travel, as the fixed amount on this quote.',
     'Labour, as the fixed amount on this quote.',
   ],
   exclusions: [
@@ -101,7 +101,7 @@ export const BIOHAZARD_CLEANING_SCHEMA = {
   assumptions: [
     'Square metres on this quote are an estimate. An accurate onsite measurement survey revises them, at the rate per square metre on this quote.',
     'Labour is the fixed amount on this quote. It is not recalculated from the measured area.',
-    'Kilometres are the return drive between our base and the job address.',
+    'Travel is the fixed amount on this quote, for the return drive between our base and the job address.',
     '[biohazard type] has not spread beyond the [area affected]. If it has, a written variation is given before further work.',
   ],
   terms:
@@ -150,7 +150,14 @@ export const BIOHAZARD_LABOUR_NOTE =
   'A labour day = 1 person onsite for 1 day. (It does not = estimate days onsite. It does not = number of people onsite per day).'
 
 export const BIOHAZARD_ESTIMATE_NOTE =
-  'This figure is an estimate. It will be revised with an accurate onsite measurement survey.'
+  'Square metres are an estimate. They will be revised with an accurate onsite measurement survey.'
+
+export const BIOHAZARD_TESTS_ESTIMATE_NOTE =
+  'The number of tests is an estimate. The tests done are charged at the rate per test.'
+
+/** Added when printing if the assumptions do not already say the tests are an estimate. */
+export const BIOHAZARD_TESTS_ASSUMPTION_LINE =
+  'The number of tests on this quote is an estimate. The tests done are charged at the rate per test on this quote.'
 
 export const BIOHAZARD_TRAVEL_NOTE = 'The return drive between our base and the job address.'
 
@@ -289,6 +296,22 @@ export interface BiohazardCleaningLine {
   kind: 'surface' | 'secondary' | 'contents' | 'disposal' | 'travel' | 'mobilisation' | 'labour' | 'coh' | 'atp' | 'lab' | 'extra'
 }
 
+/** An estimate is revised to what is measured or done. A fixed price is not. */
+export type BiohazardLinePricing = 'estimate' | 'fixed'
+
+export const BIOHAZARD_PRICING_LABEL: Record<BiohazardLinePricing, string> = {
+  estimate: 'Estimate',
+  fixed: 'Fixed price',
+}
+
+/**
+ * The one place that says how each line is sold. Square metres and tests are estimates.
+ * Everything else is a fixed price, however staff work the amount out on the tab.
+ */
+export function biohazardLinePricing(kind: BiohazardCleaningLine['kind']): BiohazardLinePricing {
+  return kind === 'surface' || kind === 'secondary' || kind === 'atp' || kind === 'lab' ? 'estimate' : 'fixed'
+}
+
 export interface BiohazardCleaningFigures {
   estimated_m2: number
   secondary_m2: number
@@ -356,6 +379,8 @@ export interface BiohazardCleaningQuoteContent {
   has_contents: boolean
   /** True when the quote has square metres to measure. Without them nothing on it is an estimate of area. */
   has_estimated_area: boolean
+  /** True when ATP or laboratory tests are on the quote. The number of tests is an estimate. */
+  has_estimated_tests: boolean
   travel_km: number
   rate_per_km: number
   travel_amount: number
@@ -364,7 +389,8 @@ export interface BiohazardCleaningQuoteContent {
   labour_amount: number
   mobilisation_fee: number
   mobilisation_reason: string
-  extra_lines: { label: string; quantity: number; unit: string; rate: number; amount: number }[]
+  /** Hygienist, testing, and other lines. Quotes generated before tests became an estimate have no kind. */
+  extra_lines: { label: string; quantity: number; unit: string; rate: number; amount: number; kind?: 'coh' | 'atp' | 'lab' | 'extra' }[]
   subtotal: number
   gst: number
   total: number
@@ -881,14 +907,38 @@ export function biohazardContentsLabel(items: string, label: string = BIOHAZARD_
 const AREA_ESTIMATE_LINE = /rate per square metre|square metres on this quote are an estimate/i
 const AREA_BALANCE_SENTENCE = /The balance is the measured square metres at the rate on this quote, plus the travel, labour, and fixed amounts on this quote\./i
 
-/** Without square metres, lines about measuring the primary zone are left off and the balance is the rest of the price. */
+/** Without square metres, lines about measuring the primary zone are left off. */
 function withoutAreaEstimateLines(text: string, hasArea: boolean): string {
   if (hasArea) return text
   return text.split('\n').filter(line => !AREA_ESTIMATE_LINE.test(line) || /secondary/i.test(line)).join('\n')
 }
 
-function areaBalanceTerms(text: string, hasArea: boolean): string {
-  return hasArea ? text : text.replace(AREA_BALANCE_SENTENCE, 'The balance is the rest of the price on this quote.')
+/** The balance names what is still to be measured or counted. With neither, it is the rest of the price. */
+function balanceTerms(text: string, hasArea: boolean, hasTests: boolean): string {
+  if (hasArea && !hasTests) return text
+  const sentence = hasArea
+    ? 'The balance is the measured square metres and the tests done, at the rates on this quote, plus the travel, labour, and fixed amounts on this quote.'
+    : hasTests
+      ? 'The balance is the tests done at the rate per test on this quote, plus the travel, labour, and fixed amounts on this quote.'
+      : 'The balance is the rest of the price on this quote.'
+  return text.replace(AREA_BALANCE_SENTENCE, sentence)
+}
+
+/** Older clause wording that prices travel by the kilometre. The printed quote shows travel as a fixed amount only. */
+const TRAVEL_KM_CLAUSES: [RegExp, string][] = [
+  [/^travel at the rate per kilometre on this quote\.?$/i, 'Travel, as the fixed amount on this quote.'],
+  [/^kilometres are the return drive between our base and the job address\.?$/i, 'Travel is the fixed amount on this quote, for the return drive between our base and the job address.'],
+]
+
+/** Clause text with labour and travel in their fixed-amount wording. Other lines are kept as typed. */
+function fixedAmountClauses(text: string): string {
+  return labourClausesAsFixedAmount(text)
+    .split('\n')
+    .map(line => {
+      const match = TRAVEL_KM_CLAUSES.find(([pattern]) => pattern.test(line.trim()))
+      return match ? match[1] : line
+    })
+    .join('\n')
 }
 
 export function secondaryZoneInUse(capture: Pick<BiohazardCleaningCapture, 'secondary_zone' | 'secondary_contaminations' | 'secondary_objective' | 'secondary_m2' | 'secondary_rooms'>): boolean {
@@ -1117,6 +1167,7 @@ export function biohazardCleaningQuoteContent(input: {
     ), { ...fillValues, zoneReferences })
   const lines = (text: string) => biohazardClauseLines(fill(text, true)).map(sentenceStart)
   const jobAddress = (capture.job_address ?? input.siteAddress).trim().replace(/[,\s]+$/g, '')
+  const hasTests = figures.lines.some(line => line.kind === 'atp' || line.kind === 'lab')
   return {
     title: biohazardCleaningDocumentTitle(resolvedBiohazardKind(capture, defaults.jobType)),
     reference: input.reference,
@@ -1145,6 +1196,7 @@ export function biohazardCleaningQuoteContent(input: {
     other_zones: otherZones,
     contents_fixed_amount: round2(figures.contents_amount + figures.contents_disposal_fee),
     has_estimated_area: figures.estimated_m2 > 0 || figures.has_secondary,
+    has_estimated_tests: hasTests,
     contents_items: figures.has_contents ? resolvedContentsItem(capture) : '',
     contents_m3: figures.contents_m3,
     contents_rate_per_m3: figures.contents_rate_per_m3,
@@ -1159,16 +1211,15 @@ export function biohazardCleaningQuoteContent(input: {
     labour_amount: figures.labour_amount,
     mobilisation_fee: figures.mobilisation_fee,
     mobilisation_reason: capture.mobilisation_waived ? capture.mobilisation_reason.trim() : '',
-    extra_lines: figures.lines
-      .filter(line => line.kind === 'coh' || line.kind === 'atp' || line.kind === 'lab' || line.kind === 'extra')
-      .map(({ label, quantity, unit, rate, amount }) => ({ label, quantity, unit, rate, amount })),
+    extra_lines: figures.lines.flatMap(({ label, quantity, unit, rate, amount, kind }) =>
+      kind === 'coh' || kind === 'atp' || kind === 'lab' || kind === 'extra' ? [{ label, quantity, unit, rate, amount, kind }] : []),
     subtotal: figures.subtotal,
     gst: figures.gst,
     total: figures.total,
-    inclusions: lines(labourClausesAsFixedAmount(withoutAreaEstimateLines(withJobOnlyLines(biohazardInclusionsWithServices(biohazardInclusionsWithActions(clauses.inclusions, capture), capture), capture.job_inclusions), figures.estimated_m2 > 0))),
-    exclusions: lines(labourClausesAsFixedAmount(withJobOnlyLines(biohazardExclusionsWithActions(clauses.exclusions, capture), capture.job_exclusions))),
-    assumptions: lines(labourClausesAsFixedAmount(withoutAreaEstimateLines(withJobOnlyLines(clauses.assumptions, capture.job_assumptions), figures.estimated_m2 > 0))),
-    terms: areaBalanceTerms(fill(clauses.payment_terms).trim(), figures.estimated_m2 > 0 || figures.has_secondary),
+    inclusions: lines(fixedAmountClauses(withoutAreaEstimateLines(withJobOnlyLines(biohazardInclusionsWithServices(biohazardInclusionsWithActions(clauses.inclusions, capture), capture), capture.job_inclusions), figures.estimated_m2 > 0))),
+    exclusions: lines(fixedAmountClauses(withJobOnlyLines(biohazardExclusionsWithActions(clauses.exclusions, capture), capture.job_exclusions))),
+    assumptions: lines(fixedAmountClauses(withoutAreaEstimateLines(withJobOnlyLines(clauses.assumptions, capture.job_assumptions), figures.estimated_m2 > 0))),
+    terms: balanceTerms(fill(clauses.payment_terms).trim(), figures.estimated_m2 > 0 || figures.has_secondary, hasTests),
     engagement_agreement: clauses.engagement_agreement.trim(),
     authority: BIOHAZARD_CLEANING_SCHEMA.authority,
     acceptance: BIOHAZARD_CLEANING_SCHEMA.acceptance,

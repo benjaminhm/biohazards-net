@@ -6,6 +6,7 @@ import {
   biohazardCleaningFigures,
   biohazardCleaningQuoteContent,
   biohazardJobDefaults,
+  biohazardLinePricing,
   defaultBiohazardCleaningClauses,
   emptyBiohazardCleaningCapture,
   applyRememberedBiohazardClauses,
@@ -599,13 +600,29 @@ test('BCQ-20261026-355F keeps the total and deposit, and prints matching zone ro
   assert.match(html, /☐ Owner/)
   assert.doesNotMatch(html, /Executor, probate|Administrator, letters granted/)
   assert.doesNotMatch(html, /3\.1 Contents/)
-  assert.match(html, /3\.1 Travel is estimated/)
-  assert.match(html, /Measured items \(estimated\)/)
-  assert.match(html, /Fixed items/)
+  assert.match(html, /3\.1 Travel is the fixed amount of \$54\.60 ex GST in this quote\./)
+  assert.match(html, /Travel amount: \$54\.60 ex GST/)
+  assert.doesNotMatch(html, /Estimated travel|Travel rate|Travel is estimated/)
+  assert.match(html, /Estimated items/)
+  assert.match(html, /Fixed price items/)
   assert.match(html, />Totals</)
   assert.match(html, /m² = floor \+ walls \+ ceiling/)
-  assert.match(html, />Travel</)
-  assert.equal((html.match(/This figure is an estimate/g) ?? []).length, 1)
+  assert.equal((html.match(/Square metres are an estimate/g) ?? []).length, 1)
+
+  // Travel is a fixed price: one amount, no kilometres and no rate.
+  assert.match(html, /<td>Travel<\/td>\s*<td[^>]*>\s*<\/td>\s*<td[^>]*>Fixed<\/td>\s*<td[^>]*>\$54\.60/)
+  assert.doesNotMatch(html, /27\.3 km|\/ km|rate per kilometre/)
+  assert.match(html, /Travel, as the fixed amount on this quote\./)
+
+  // Tests are an estimate: they print with the square metres, above the fixed prices.
+  const fixedAt = html.indexOf('Fixed price items')
+  const atpAt = html.search(/<td>ATP verification testing<\/td>\s*<td[^>]*>1 test<\/td>\s*<td[^>]*>\$1,500\.00 \/ test<\/td>/)
+  const labAt = html.search(/<td>Laboratory testing<\/td>\s*<td[^>]*>3 tests<\/td>\s*<td[^>]*>\$150\.00 \/ test<\/td>/)
+  assert.ok(atpAt > html.indexOf('Estimated items') && atpAt < fixedAt)
+  assert.ok(labAt > atpAt && labAt < fixedAt)
+  assert.match(html, /The number of tests is an estimate\. The tests done are charged at the rate per test\./)
+  assert.match(html, /The number of tests on this quote is an estimate\./)
+  assert.match(html, /The balance is the measured square metres and the tests done, at the rates on this quote, plus the travel, labour, and fixed amounts on this quote\./)
   assert.match(html, /to enable structural repairs/)
   assert.match(html, /assumed to have been/)
   assert.match(html, /hydroxyl\/ozone/)
@@ -655,12 +672,94 @@ test('affected contents are m³ × rate plus one disposal fee, and stay off a qu
   assert.match(html, /Affected contents removal and disposal: mattress and carpet<\/td>\s*<td[^>]*>\s*<\/td>\s*<td[^>]*>Fixed<\/td>\s*<td[^>]*>\$480\.00/)
   assert.doesNotMatch(html, /m³/)
   assert.doesNotMatch(html, /Disposal fee/)
-  assert.doesNotMatch(html, /Measured items/)
+  assert.doesNotMatch(html, /Estimated items/)
   assert.doesNotMatch(html, /labour days?\b/i)
   assert.match(html, /Removal and disposal of the affected contents, as the fixed amount on this quote\./)
   assert.doesNotMatch(html, /Square metres on this quote are an estimate/)
   assert.doesNotMatch(html, /rate per square metre/)
   assert.match(html, /The balance is the rest of the price on this quote\./)
+})
+
+test('square metres and tests are estimates, and every other line is a fixed price', () => {
+  const capture = normalizeBiohazardCleaningCapture({
+    estimated_m2: 10,
+    rate_per_m2: 50,
+    secondary_zone: 'hallway',
+    secondary_m2: 20,
+    secondary_rate_per_m2: 15,
+    contents_m3: 1,
+    contents_rate_per_m3: 100,
+    contents_disposal_fee: 50,
+    travel_km: 30,
+    rate_per_km: 2,
+    mobilisation_fee: 200,
+    labour_days: 1,
+    rate_per_labour_day: 600,
+    coh_rap: true,
+    coh_rap_fee: 900,
+    atp_testing: true,
+    atp_tests: 2,
+    atp_rate: 100,
+    lab_testing: true,
+    lab_tests: 1,
+    lab_rate: 150,
+    extra_lines: [{ id: 'a', label: 'Clinical waste bins', quantity: 2, unit: 'bins', rate: 80 }],
+  })
+  const pricing = Object.fromEntries(biohazardCleaningFigures(capture).lines.map(line => [line.kind, biohazardLinePricing(line.kind)]))
+  assert.deepEqual(pricing, {
+    surface: 'estimate',
+    secondary: 'estimate',
+    atp: 'estimate',
+    lab: 'estimate',
+    contents: 'fixed',
+    disposal: 'fixed',
+    travel: 'fixed',
+    mobilisation: 'fixed',
+    labour: 'fixed',
+    coh: 'fixed',
+    extra: 'fixed',
+  })
+})
+
+test('a quote with tests and no square metres prints the tests as its only estimate', () => {
+  const capture = normalizeBiohazardCleaningCapture({
+    labour_days: 1,
+    rate_per_labour_day: 600,
+    travel_km: 30,
+    rate_per_km: 2,
+    atp_testing: true,
+    atp_tests: 2,
+    atp_rate: 100,
+    lab_testing: true,
+    lab_tests: 1,
+    lab_rate: 150,
+    clauses: {
+      ...defaultBiohazardCleaningClauses(DEFAULT_ENGAGEMENT_AGREEMENT),
+      assumptions: 'Labour is the fixed amount on this quote. It is not recalculated from the measured area.\nKilometres are the return drive between our base and the job address.',
+    },
+  })
+  const content = biohazardCleaningQuoteContent({ reference: 'Q1', clientName: 'A', siteAddress: '1 St', capture })
+  assert.equal(content.has_estimated_area, false)
+  assert.equal(content.has_estimated_tests, true)
+  assert.deepEqual(content.extra_lines.map(line => line.kind), ['atp', 'lab'])
+  assert.match(content.terms, /The balance is the tests done at the rate per test on this quote, plus the travel, labour, and fixed amounts on this quote\./)
+  assert.ok(content.assumptions.includes('Travel is the fixed amount on this quote, for the return drive between our base and the job address.'))
+
+  const print = (c: unknown) => buildPrintHTML('biohazard_cleaning_quote', c as Record<string, unknown>, [], [], null, 'job-1', 'http://localhost')
+  const html = print(content)
+  assert.match(html, /Estimated items/)
+  assert.doesNotMatch(html, /Square metres are an estimate/)
+  assert.match(html, /The number of tests is an estimate/)
+  assert.ok(html.indexOf('<td>Laboratory testing</td>') < html.indexOf('Fixed price items'))
+  assert.match(html, /<td>Travel<\/td>\s*<td[^>]*>\s*<\/td>\s*<td[^>]*>Fixed<\/td>\s*<td[^>]*>\$60\.00/)
+  assert.match(html, /Travel: The return drive between our base and the job address\./)
+  assert.doesNotMatch(html, /30 km|Kilometres are/)
+
+  // A quote generated before lines carried a kind still prints its tests as estimates.
+  const older = { ...content, has_estimated_tests: undefined, extra_lines: content.extra_lines.map(line => ({ ...line, kind: undefined })) }
+  const olderHtml = print(older)
+  assert.ok(olderHtml.indexOf('<td>ATP verification testing</td>') < olderHtml.indexOf('Fixed price items'))
+  assert.match(olderHtml, /The number of tests on this quote is an estimate\./)
 })
 
 test('a triage quote that only removes contents leaves the cleaning steps off and says so', async () => {

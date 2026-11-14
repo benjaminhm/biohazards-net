@@ -25,7 +25,10 @@ import {
 import {
   BIOHAZARD_CLEANING_CLIENT_TITLES,
   BIOHAZARD_EXTRA_LINE_PRESETS,
+  BIOHAZARD_PRICING_LABEL,
   BIOHAZARD_REMEMBERED_KEYS,
+  biohazardLinePricing,
+  type BiohazardLinePricing,
   applyRememberedBiohazardClauses,
   biohazardCleaningDocumentTitle,
   rememberedBiohazardClauses,
@@ -106,6 +109,37 @@ const SECTION: CSSProperties = {
 }
 
 const AUTOSAVE_MS = 800
+
+const ESTIMATE_COLOUR = '#b45309'
+
+/** Says how the printed quote sells this line: an estimate, or a fixed price. */
+function PricingTag({ pricing }: { pricing: BiohazardLinePricing }) {
+  const estimate = pricing === 'estimate'
+  return (
+    <span
+      style={{
+        fontSize: 11,
+        fontWeight: 700,
+        padding: '1px 8px',
+        borderRadius: 999,
+        border: `1px solid ${estimate ? ESTIMATE_COLOUR : 'var(--border)'}`,
+        color: estimate ? ESTIMATE_COLOUR : 'var(--text-muted)',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {BIOHAZARD_PRICING_LABEL[pricing]}
+    </span>
+  )
+}
+
+function PricedTitle({ title, pricing }: { title: string; pricing: BiohazardLinePricing }) {
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+      <div style={{ ...LABEL, marginBottom: 0 }}>{title}</div>
+      <PricingTag pricing={pricing} />
+    </div>
+  )
+}
 
 function numberOrNull(raw: string): number | null {
   return raw === '' ? null : Number(raw)
@@ -1045,6 +1079,7 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
       </div>
 
       <div style={{ marginBottom: 12, maxWidth: 480 }}>
+        <PricedTitle title="Call-out" pricing="fixed" />
         <label style={{ ...LABEL, display: 'flex', alignItems: 'center', gap: 8 }}>
           <input
             type="checkbox"
@@ -1079,7 +1114,10 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
       </div>
 
       <div style={SECTION}>
-        <div style={LABEL}>Travel</div>
+        <PricedTitle title="Travel" pricing="fixed" />
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+          Price it here from kilometres × rate. The printed quote shows travel as one fixed price, with no kilometres or rate.
+        </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
           <div>
             <label style={LABEL}>Base address</label>
@@ -1155,9 +1193,9 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
       </div>
 
       <div style={SECTION}>
-        <div style={LABEL}>Primary zone: decontamination</div>
+        <PricedTitle title="Primary zone: decontamination" pricing="estimate" />
         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
-          Surfaces affected by bodily fluids. The primary zone is named under Details above.
+          Surfaces affected by bodily fluids. The primary zone is named under Details above. The printed quote shows the square metres as an estimate, revised by the onsite measurement.
         </div>
         <ZoneRooms
           rooms={capture.rooms}
@@ -1171,7 +1209,7 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
       </div>
 
       <div style={SECTION}>
-        <div style={LABEL}>Secondary zone</div>
+        <PricedTitle title="Secondary zone" pricing="estimate" />
         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
           Areas affected by odour or flies, but not by bodily fluids. Leave it blank when there is none, and it stays off the quote.
         </div>
@@ -1238,6 +1276,7 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
         </div>
       </div>
 
+      <PricedTitle title="Labour" pricing="fixed" />
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
         <div>
           <label style={LABEL}>Labour days</label>
@@ -1251,7 +1290,7 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
           />
           <div style={HINT}>
             {figures.labour_days > 0
-              ? `${figures.labour_days} labour ${figures.labour_days === 1 ? 'day' : 'days'} × ${formatAud(figures.rate_per_labour_day)} = ${formatAud(labourLine?.amount ?? 0)}`
+              ? `${figures.labour_days} labour ${figures.labour_days === 1 ? 'day' : 'days'} × ${formatAud(figures.rate_per_labour_day)} = ${formatAud(labourLine?.amount ?? 0)}, printed as a fixed price`
               : 'Required before the quote can be generated.'}
           </div>
         </div>
@@ -1270,7 +1309,7 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
       </div>
 
       <div style={SECTION}>
-        <div style={LABEL}>Affected contents removal</div>
+        <PricedTitle title="Affected contents removal" pricing="fixed" />
         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
           Contents affected by the biohazard that are taken away, such as a mattress, carpet, a couch, or clothing. Price it here from cubic metres × rate, plus one disposal fee. The printed quote shows removal and disposal as one fixed price. Leave blank to keep it off the quote.
         </div>
@@ -1334,6 +1373,7 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
           <input type="checkbox" checked={capture.coh_rap} onChange={e => patch({ coh_rap: e.target.checked })} />
           Certified Occupational Hygienist: site inspection and written method
+          <PricingTag pricing="fixed" />
         </label>
         {capture.coh_rap && (
           <div style={{ margin: '8px 0 0 24px', maxWidth: 260 }}>
@@ -1357,8 +1397,9 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
             onChange={e => patch({ atp_testing: e.target.checked, lab_testing: e.target.checked })}
           />
           COH verification at the end of the works
+          <PricingTag pricing="estimate" />
         </label>
-        <div style={{ ...HINT, marginLeft: 24 }}>Verification is both ATP testing and laboratory testing.</div>
+        <div style={{ ...HINT, marginLeft: 24 }}>Verification is both ATP testing and laboratory testing. The number of tests is an estimate: the printed quote says the tests done are charged at the rate per test.</div>
         {capture.atp_testing && capture.lab_testing && (
           <div style={{ margin: '8px 0 0 24px', display: 'grid', gap: 12, maxWidth: 480 }}>
             <div>
@@ -1427,7 +1468,7 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
       </div>
 
       <div style={SECTION}>
-        <div style={LABEL}>Other fixed lines</div>
+        <PricedTitle title="Other lines" pricing="fixed" />
         <div style={{ display: 'grid', gap: 8 }}>
           {capture.extra_lines.map(line => {
             const update = (next: Partial<typeof line>) =>
@@ -1479,12 +1520,26 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
       </div>
 
       <div style={{ marginTop: 14, display: 'grid', gap: 6, fontSize: 14 }}>
-        {figures.lines.map((line, i) => (
-          <div key={`${line.kind}:${i}`} style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-            <span>{line.label} · {line.quantity.toLocaleString('en-AU', { maximumFractionDigits: 2 })} {line.unit}</span>
-            <span>{formatAud(line.amount)}</span>
-          </div>
-        ))}
+        {(['estimate', 'fixed'] as const).map(pricing => {
+          const group = figures.lines.filter(line => biohazardLinePricing(line.kind) === pricing)
+          if (group.length === 0) return null
+          const groupTotal = Math.round(group.reduce((sum, line) => sum + line.amount, 0) * 100) / 100
+          return (
+            <div key={pricing} style={{ display: 'grid', gap: 6, marginBottom: 8 }}>
+              <div><PricingTag pricing={pricing} /></div>
+              {group.map((line, i) => (
+                <div key={`${line.kind}:${i}`} style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                  <span>{line.label} · {line.quantity.toLocaleString('en-AU', { maximumFractionDigits: 2 })} {line.unit}</span>
+                  <span>{formatAud(line.amount)}</span>
+                </div>
+              ))}
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, color: 'var(--text-muted)' }}>
+                <span>{pricing === 'estimate' ? 'Estimates' : 'Fixed prices'} (ex GST)</span>
+                <span>{formatAud(groupTotal)}</span>
+              </div>
+            </div>
+          )
+        })}
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
           <span>Subtotal (ex GST)</span>
           <span>{formatAud(figures.subtotal)}</span>
@@ -1546,7 +1601,7 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
               onUseDefault={() => template && editClause('engagement_agreement', template.engagement_agreement)}
             />
             <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
-              Brackets such as [name], [biohazard type], [area affected], [surface], [kilometres], [labour amount], [deposit], and [total] are filled when the document is printed. The signature lines stay blank for signing.
+              Brackets such as [name], [biohazard type], [area affected], [surface], [distance amount], [labour amount], [deposit], and [total] are filled when the document is printed. The signature lines stay blank for signing.
             </div>
             <RichTextEditor
               value={clauses.engagement_agreement}

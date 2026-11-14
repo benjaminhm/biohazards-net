@@ -68,10 +68,12 @@ import { SURFACE_AREA_ESTIMATE_NOTE, type SurfaceAreaCleaningQuoteContent } from
 import {
   BIOHAZARD_CONTENTS_FIXED_LABEL,
   BIOHAZARD_ESTIMATE_NOTE,
+  BIOHAZARD_TESTS_ESTIMATE_NOTE,
   biohazardContentsLabel,
   BIOHAZARD_TRAVEL_NOTE,
   type BiohazardCleaningQuoteContent,
 } from '@/lib/biohazardCleaningQuote'
+import { BIOHAZARD_ATP_LABEL, BIOHAZARD_LAB_LABEL } from '@/lib/hygienistServices'
 import {
   adaptBiohazardEngagement,
   biohazardClientKind,
@@ -4139,12 +4141,19 @@ function buildBiohazardCleaningMid(
     organization: client?.client_organization_name,
   })
   const split = depositFromTotal(c.total)
+  // Tests are an estimate. A quote generated before lines carried a kind is told apart by its label.
+  const isTestLine = (line: BiohazardCleaningQuoteContent['extra_lines'][number]) =>
+    line.kind === 'atp' || line.kind === 'lab'
+    || (line.kind == null && (line.label === BIOHAZARD_ATP_LABEL || line.label === BIOHAZARD_LAB_LABEL))
+  const testLines = (c.extra_lines ?? []).filter(isTestLine)
+  const hasTests = testLines.length > 0
   const clauses = withBothZonePrintClauses(c.inclusions ?? [], c.assumptions ?? [], {
     has_secondary: c.has_secondary,
     mobilisation_fee: c.mobilisation_fee,
     extra_labels: (c.extra_lines ?? []).map(line => line.label),
     contents_m3: c.contents_m3,
     contents_disposal_fee: c.contents_disposal_fee,
+    has_tests: hasTests,
   })
   const phases = groupBiohazardScope(c.scope_of_work ?? [])
   const contentsFixed = c.contents_fixed_amount ?? round2Money((c.contents_amount ?? 0) + (c.contents_disposal_fee ?? 0))
@@ -4157,14 +4166,14 @@ function buildBiohazardCleaningMid(
       <td class="r">${fmtMoney(amount)}</td>
     </tr>
     ${bcqRoomTable(rooms)}`
-  const travel = (c.travel_km ?? 0) > 0 || (c.rate_per_km ?? 0) > 0
-    ? `<tr>
-        <td>Travel</td>
-        <td class="r">${esc(clearanceQty(c.travel_km, 'km'))}</td>
-        <td class="r">${esc(`${fmtMoney(c.rate_per_km)} / km`)}</td>
-        <td class="r">${fmtMoney(c.travel_amount)}</td>
-      </tr>`
-    : ''
+  const testRows = testLines.map(line => `
+    <tr>
+      <td>${esc(line.label)}</td>
+      <td class="r">${esc(clearanceQty(line.quantity, line.unit))}</td>
+      <td class="r">${esc(`${fmtMoney(line.rate)} / test`)}</td>
+      <td class="r">${fmtMoney(line.amount)}</td>
+    </tr>`).join('')
+  const hasTravel = (c.travel_amount ?? 0) > 0
   const fixed: { label: string; quantity: string; rate: string; amount: number }[] = []
   if ((c.mobilisation_fee ?? 0) > 0) {
     fixed.push({ label: 'Mobilisation', quantity: '1 fee', rate: fmtMoney(c.mobilisation_fee), amount: c.mobilisation_fee })
@@ -4178,7 +4187,10 @@ function buildBiohazardCleaningMid(
     rate: 'Fixed',
     amount: c.labour_amount,
   })
-  for (const line of c.extra_lines ?? []) {
+  if (hasTravel) {
+    fixed.push({ label: 'Travel', quantity: '', rate: 'Fixed', amount: c.travel_amount })
+  }
+  for (const line of (c.extra_lines ?? []).filter(line => !isTestLine(line))) {
     fixed.push({
       label: line.label,
       quantity: clearanceQty(line.quantity, line.unit),
@@ -4237,19 +4249,20 @@ function buildBiohazardCleaningMid(
         <h3>${esc(phase.title)}</h3>
         <ol>${phase.steps.map(step => `<li>${esc(step)}</li>`).join('')}</ol>
       </div>`).join('')}
-    ${hasArea || travel ? `
-    <div class="label" style="margin-top:18px">Measured items (estimated)</div>
+    ${hasArea || hasTests ? `
+    <div class="label" style="margin-top:18px">Estimated items</div>
     <table>
       <thead><tr><th>Item</th><th class="r">Quantity</th><th class="r">Rate (ex GST)</th><th class="r">Amount</th></tr></thead>
       <tbody>
         ${(c.estimated_m2 ?? 0) > 0 || c.has_secondary ? measuredRows(c.has_secondary ? 'Primary zone (decontamination)' : 'Surface', c.area_amount, c.rate_per_m2, c.estimated_m2, c.rooms ?? []) : ''}
         ${c.has_secondary ? measuredRows('Secondary zone (odour and insects)', c.secondary_amount, c.secondary_rate_per_m2, c.secondary_m2, c.secondary_rooms ?? []) : ''}
-        ${travel}
+        ${testRows}
       </tbody>
     </table>
-    <div class="bcq-foot-note">${[hasArea ? esc(BIOHAZARD_ESTIMATE_NOTE) : '', travel ? `Travel: ${esc(BIOHAZARD_TRAVEL_NOTE)}` : ''].filter(Boolean).join(' ')}</div>` : ''}
-    <div class="label" style="margin-top:18px">Fixed items</div>
+    <div class="bcq-foot-note">${[hasArea ? esc(BIOHAZARD_ESTIMATE_NOTE) : '', hasTests ? esc(BIOHAZARD_TESTS_ESTIMATE_NOTE) : ''].filter(Boolean).join(' ')}</div>` : ''}
+    <div class="label" style="margin-top:18px">Fixed price items</div>
     ${clearanceTable('Quantity', fixed)}
+    ${hasTravel ? `<div class="bcq-foot-note">Travel: ${esc(BIOHAZARD_TRAVEL_NOTE)}</div>` : ''}
     ${c.mobilisation_reason ? `<div class="bcq-foot-note">${esc(c.mobilisation_reason)}</div>` : ''}
     <div class="label" style="margin-top:18px">Totals</div>
     <div class="totals bcq-totals">
