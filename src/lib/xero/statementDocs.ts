@@ -21,9 +21,12 @@ import { logAgentAction } from '@/lib/agentActions'
 import { formatAud } from '@/lib/disposalManifest'
 import {
   normalizeStatementCapture,
+  statementQuotes,
   statementV2Adjustments,
   statementV2Figures,
+  type StatementLineKey,
   type StatementOfAccountsCapture,
+  type StatementV2AdjustmentRow,
   type StatementV2Figures,
 } from '@/lib/statementOfAccounts'
 import { loadXeroConnection, xeroConfigured, xeroRequest, type XeroConnection } from './client'
@@ -44,17 +47,35 @@ export interface StatementXeroDoc {
 
 const round2 = (n: number) => Math.round(n * 100) / 100
 
+/** Where the figures on a Xero line come from, quoted on the line. */
+export interface StatementXeroRefs {
+  /** The latest composed Statement of Accounts, e.g. SOA-20261114-9207. */
+  statement?: string
+  /** Each quote's reference, by its statement label, e.g. CCQ-20260929-9207. */
+  quotes?: Record<string, string>
+}
+
+/** One Xero line's description: the working, the quote it is measured against, and the statement. */
+export function statementLineDescription(row: StatementV2AdjustmentRow, refs: StatementXeroRefs = {}): string {
+  const statement = refs.statement ? `As per Statement of Accounts ${refs.statement}.` : 'As per the Statement of Accounts.'
+  if (row.actual_ex == null || row.estimate_ex == null) return `${row.label}. ${statement}`
+  const diff = formatAud(Math.abs(row.difference_ex))
+  const working = row.difference_ex >= 0
+    ? `final ${formatAud(row.actual_ex)} less estimate ${formatAud(row.estimate_ex)} = ${diff} ex GST`
+    : `estimate ${formatAud(row.estimate_ex)} less final ${formatAud(row.actual_ex)} = ${diff} ex GST`
+  const quote = refs.quotes?.[row.label] ? ` Estimate from ${refs.quotes[row.label]}.` : ''
+  return `${row.label}: ${working}.${quote} ${statement}`
+}
+
 /** Ex GST lines for Xero, one per quote that moved, then any adjustment. */
-export function statementXeroDocs(f: StatementV2Figures, settings: XeroSettings): StatementXeroDoc[] {
+export function statementXeroDocs(f: StatementV2Figures, settings: XeroSettings, refs: StatementXeroRefs = {}): StatementXeroDoc[] {
   const { invoice2, credit_note } = statementV2Adjustments(f)
   const taxType = f.charges_gst ? settings.gst_tax_type : settings.no_gst_tax_type
   const build = (kind: StatementDocKind, part: NonNullable<typeof invoice2>): StatementXeroDoc => ({
     kind,
     amount: Math.abs(part.amount),
     lines: part.rows.filter(row => Math.abs(row.difference_ex) > 0.004).map(row => ({
-      Description: row.actual_ex == null || row.estimate_ex == null
-        ? row.label
-        : `${row.label}: final ${formatAud(row.actual_ex)}, estimate ${formatAud(row.estimate_ex)} (ex GST)`,
+      Description: statementLineDescription(row, refs),
       Quantity: 1,
       UnitAmount: round2(Math.abs(row.difference_ex)),
       AccountCode: settings.account_code,
@@ -141,7 +162,7 @@ export async function raiseStatementDocs(supabase: Supabase, orgId: string, jobI
   const conn = await loadXeroConnection(supabase, orgId)
   if (!conn) return fail(400, 'Xero is not connected. Connect it in Settings first.')
   const settings = xeroSettings(conn.settings)
-  const docs = statementXeroDocs(figures, settings)
+  const docs = statementXeroDocs(figures, settings, await statementRefs(supabase, jobId, ad))
   if (docs.length === 0 && !capture.xero_invoice2_id && !capture.xero_credit_note_id) {
     return fail(400, 'There is nothing to raise: the final figures match the estimate.')
   }
@@ -244,6 +265,33 @@ export async function raiseStatementDocs(supabase: Supabase, orgId: string, jobI
   } finally {
     if (Object.keys(patch).length > 0) await saveOnStatement(supabase, orgId, jobId, patch)
   }
+}
+
+const QUOTE_TYPES: Record<StatementLineKey, string> = {
+  surface: 'surface_area_cleaning_quote',
+  contents: 'contents_clearance_quote',
+  biohazard: 'biohazard_cleaning_quote',
+}
+
+/** The latest composed statement's reference and each quote's, from the job's documents. */
+async function statementRefs(supabase: Supabase, jobId: string, ad: AssessmentData | null): Promise<StatementXeroRefs> {
+  const { data } = await supabase
+    .from('documents')
+    .select('type, content, created_at')
+    .eq('job_id', jobId)
+    .in('type', ['statement_of_accounts', ...Object.values(QUOTE_TYPES)])
+    .order('created_at', { ascending: false })
+  const latest = new Map<string, string>()
+  for (const doc of (data ?? []) as { type: string; content: Record<string, unknown> | null }[]) {
+    const ref = typeof doc.content?.reference === 'string' ? doc.content.reference.trim() : ''
+    if (ref && !latest.has(doc.type)) latest.set(doc.type, ref)
+  }
+  const quotes: Record<string, string> = {}
+  for (const q of statementQuotes(ad)) {
+    const ref = latest.get(QUOTE_TYPES[q.key])
+    if (ref) quotes[q.label] = ref
+  }
+  return { statement: latest.get('statement_of_accounts'), quotes }
 }
 
 /** Written onto the latest saved statement, so nothing staff saved in the meantime is lost. */

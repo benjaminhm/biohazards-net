@@ -510,8 +510,10 @@ test('model 2: increases go on invoice 2 and decreases on a credit note, adding 
   assert.equal(invoices[2].amountShown, -credit_note.amount)
   const docs = statementXeroDocs(f, DEFAULT_XERO_SETTINGS)
   assert.deepEqual(docs.map(doc => [doc.kind, doc.lines.length]), [['invoice2', 1], ['credit_note', 2]])
-  assert.deepEqual(docs[0].lines[0], { Description: 'Adjustment (extra tip run)', Quantity: 1, UnitAmount: 200, AccountCode: '200', TaxType: 'OUTPUT' })
-  assert.match(docs[1].lines[1].Description, /^Biohazard cleaning \(BCQ\): final \$2,100\.00, estimate \$2,200\.00 \(ex GST\)$/)
+  assert.deepEqual(docs[0].lines[0], { Description: 'Adjustment (extra tip run). As per the Statement of Accounts.', Quantity: 1, UnitAmount: 200, AccountCode: '200', TaxType: 'OUTPUT' })
+  assert.equal(docs[1].lines[1].Description, 'Biohazard cleaning (BCQ): estimate $2,200.00 less final $2,100.00 = $100.00 ex GST. As per the Statement of Accounts.')
+  const referenced = statementXeroDocs(f, DEFAULT_XERO_SETTINGS, { statement: 'SOA-20261114-9207', quotes: { 'Biohazard cleaning (BCQ)': 'BCQ-20260929-9207' } })
+  assert.equal(referenced[1].lines[1].Description, 'Biohazard cleaning (BCQ): estimate $2,200.00 less final $2,100.00 = $100.00 ex GST. Estimate from BCQ-20260929-9207. As per Statement of Accounts SOA-20261114-9207.')
   assert.equal(docs[1].lines[1].UnitAmount, 100)
 })
 
