@@ -4206,12 +4206,19 @@ function buildBiohazardCleaningMid(
       secondary_amount: c.secondary_amount,
     },
   ))
-  const zoneCard = (title: string, variant: 'primary' | 'secondary', rooms: string, contaminant: string, objective: string) => `
+  const actionsOn = c.actions_included ?? []
+  const actionsOff = c.actions_excluded ?? []
+  const actionRows = actionsOn.length > 0
+    ? `<div><strong>Actions on this quote.</strong> ${esc(actionsOn.join('; '))}.</div>
+      ${actionsOff.length > 0 ? `<div><strong>Not on this quote.</strong> ${esc(actionsOff.join('; '))}.</div>` : ''}`
+    : ''
+  const zoneCard = (title: string, variant: 'primary' | 'secondary', rooms: string, contaminant: string, objective: string, extra = '') => `
     <div class="bcq-zone bcq-zone-${variant}">
       <h3>${esc(title)}</h3>
       <div><strong>Rooms.</strong> ${esc(rooms || '—')}</div>
       <div><strong>Contaminant.</strong> ${esc(contaminant || '—')}</div>
       <div><strong>Objective.</strong> ${esc(tidyBiohazardPrintText(objective) || '—')}</div>
+      ${extra}
     </div>`
   return `
     <div class="label">Quote summary</div>
@@ -4226,7 +4233,7 @@ function buildBiohazardCleaningMid(
     </div>
     ${section('Site findings', tidyBiohazardPrintText(c.description))}
     <div class="bcq-zones">
-      ${zoneCard('Primary decontamination zone', 'primary', c.area_affected, c.biohazard_type, c.objective)}
+      ${zoneCard('Primary decontamination zone', 'primary', c.area_affected, c.biohazard_type, c.objective, actionRows)}
       ${c.has_secondary ? zoneCard('Secondary zone — odour and insects', 'secondary', c.secondary_zone, c.secondary_contamination, c.secondary_objective) : ''}
     </div>
     <div class="label" style="margin-top:8px">Scope of work</div>

@@ -68,6 +68,8 @@ const LABELS: Record<string, string> = {
   secondary_m2: 'Secondary zone area',
   estimated_m3: 'Estimated volume',
   contents_items: 'Affected contents',
+  actions_included: 'Actions on this quote',
+  actions_excluded: 'Actions not on this quote',
   contents_m3: 'Affected contents volume',
   contents_disposal_fee: 'Disposal fee',
   estimated_km: 'Estimated distance',

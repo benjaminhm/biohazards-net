@@ -14,6 +14,7 @@ export const biohazardCleaningQuoteAgent: DocAgentDef = {
   readDocumentTypes: ['house_survey', 'assessment_document', 'sow'],
   extraReads: ['calls', 'progress_notes', 'acceptances'],
   shape: `biohazard_cleaning_quote:
+- Actions on this quote: actions [] from remove, wash, sanitise, deodorise. Leave null for a full clean. A triage that only removes contents is ["remove"]; steps, inclusions and check stages for the others are left off.
 - Wording: cleaning_kind, biohazard_types [], areas_affected, description, objective, rooms [], clauses (from the company template unless edited).
 - Zones: estimated_m2, rate_per_m2; secondary_zone, secondary_contaminations, secondary_objective, secondary_m2, secondary_rooms, secondary_rate_per_m2; other_zones [].
 - Affected contents removal (mattress, carpet, couch, clothing; not a contents clearance): contents_items [], contents_m3, contents_rate_per_m3, contents_disposal_fee (one fee). Line = m³ × rate, plus the disposal fee.

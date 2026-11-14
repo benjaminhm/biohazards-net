@@ -111,6 +111,40 @@ export const BIOHAZARD_CLEANING_SCHEMA = {
     'I accept this biohazard cleaning quote and the quantities, rates, and terms on this page.',
 } as const
 
+/**
+ * The actions a biohazard job can include. Ticking some of them says what this quote does and does not do,
+ * for example a triage that only removes contaminated contents, with no cleaning.
+ * `line` finds the scope steps that belong to the action. `phrase` is how it reads in a sentence.
+ */
+export const BIOHAZARD_ACTIONS = [
+  {
+    id: 'remove',
+    label: 'Remove contaminated contents and materials',
+    phrase: 'removal of contaminated contents and materials',
+    line: /gross contamination|porous materials|remove (?:the )?(?:contaminated|affected)/i,
+  },
+  {
+    id: 'wash',
+    label: 'Wash: apply detergent or degreaser',
+    phrase: 'washing with detergent or degreaser',
+    line: /detergent|degreaser/i,
+  },
+  {
+    id: 'sanitise',
+    label: 'Sanitise: apply hospital-grade sanitiser or biocide',
+    phrase: 'sanitising with a hospital-grade sanitiser or biocide',
+    line: /disinfect|saniti[sz]|biocide/i,
+  },
+  {
+    id: 'deodorise',
+    label: 'Deodorise: ozone or hydroxyl machine, or fogging',
+    phrase: 'deodorising by ozone or hydroxyl machine, or fogging',
+    line: /deodori[sz]|ozone|hydroxyl|fogg/i,
+  },
+] as const
+
+export type BiohazardActionId = (typeof BIOHAZARD_ACTIONS)[number]['id']
+
 export const BIOHAZARD_LABOUR_NOTE =
   'A labour day = 1 person onsite for 1 day. (It does not = estimate days onsite. It does not = number of people onsite per day).'
 
@@ -183,6 +217,8 @@ export interface BiohazardCleaningCapture extends JobOnlyClauses {
   description: string
   /** Null follows the Scope of Work objective. */
   objective: string | null
+  /** Actions on this quote. Null is not set: the quote is a full clean and the list stays off the print. */
+  actions: BiohazardActionId[] | null
   estimated_m2: number | null
   rooms: SurfaceAreaRoom[]
   /** Areas affected by odour or insects, not by bodily fluids. Fills [secondary zone]. Blank leaves the zone off the quote. */
@@ -296,6 +332,10 @@ export interface BiohazardCleaningQuoteContent {
   area_affected: string
   description: string
   objective: string
+  /** Labels of the actions on this quote. Empty when the actions are not set. */
+  actions_included: string[]
+  /** Labels of the actions that are not on this quote. */
+  actions_excluded: string[]
   scope_of_work: string[]
   estimated_m2: number
   rate_per_m2: number
@@ -482,6 +522,7 @@ export function emptyBiohazardCleaningCapture(): BiohazardCleaningCapture {
     areas_affected: null,
     description: '',
     objective: null,
+    actions: null,
     estimated_m2: null,
     rooms: [],
     secondary_zone: '',
@@ -672,6 +713,7 @@ export function normalizeBiohazardCleaningCapture(raw: unknown): BiohazardCleani
     areas_affected: nameList(o.areas_affected, o.area_affected),
     description: typeof o.description === 'string' ? o.description : '',
     objective: optionalText(o.objective),
+    actions: normalizeBiohazardActions(o.actions),
     estimated_m2: qty(o.estimated_m2),
     rooms: Array.isArray(o.rooms) ? o.rooms.map(normalizeSurfaceAreaRoom) : [],
     secondary_zone: typeof o.secondary_zone === 'string' ? o.secondary_zone : '',
@@ -727,6 +769,69 @@ export function normalizeBiohazardCleaningCapture(raw: unknown): BiohazardCleani
       : null,
     ...normalizeJobOnlyClauses(o),
   }
+}
+
+/** In the list order, without repeats. Nothing ticked is null: not set. */
+export function normalizeBiohazardActions(raw: unknown): BiohazardActionId[] | null {
+  if (!Array.isArray(raw)) return null
+  const ids = BIOHAZARD_ACTIONS.map(action => action.id).filter(id => raw.includes(id))
+  return ids.length > 0 ? ids : null
+}
+
+/** True when staff ticked some actions and left at least one off. */
+export function biohazardActionsLimited(capture: Pick<BiohazardCleaningCapture, 'actions'>): boolean {
+  return capture.actions != null && capture.actions.length < BIOHAZARD_ACTIONS.length
+}
+
+/** Not set counts as every action. */
+export function biohazardActionOn(capture: Pick<BiohazardCleaningCapture, 'actions'>, id: BiohazardActionId): boolean {
+  return capture.actions == null || capture.actions.includes(id)
+}
+
+export function biohazardActionsOff(capture: Pick<BiohazardCleaningCapture, 'actions'>): BiohazardActionId[] {
+  return BIOHAZARD_ACTIONS.map(action => action.id).filter(id => !biohazardActionOn(capture, id))
+}
+
+function actionPhrases(ids: readonly BiohazardActionId[]): string {
+  return joinBiohazardNames(BIOHAZARD_ACTIONS.filter(action => ids.includes(action.id)).map(action => action.phrase))
+}
+
+const ACTION_KEPT_LINE = /secondary zone|\[secondary|completion report|records of the works|records for the hygienist|occupational hygien|hold point/i
+const ACTION_VERIFY_LINE = /^\s*verify the (?:cleaning|decontamination)/i
+
+/**
+ * Leave off scope steps that belong only to actions not on this quote. A step that also covers a ticked action stays.
+ * The visual check of the cleaning goes when there is no washing and no sanitising.
+ */
+export function withoutUnusedActionLines(scope: string, capture: Pick<BiohazardCleaningCapture, 'actions'>): string {
+  if (!biohazardActionsLimited(capture)) return scope
+  const on = BIOHAZARD_ACTIONS.filter(action => biohazardActionOn(capture, action.id))
+  const off = BIOHAZARD_ACTIONS.filter(action => !biohazardActionOn(capture, action.id))
+  const cleaned = biohazardActionOn(capture, 'wash') || biohazardActionOn(capture, 'sanitise')
+  return scope
+    .split('\n')
+    .filter(line => {
+      if (ACTION_KEPT_LINE.test(line)) return true
+      if (!cleaned && ACTION_VERIFY_LINE.test(line)) return false
+      if (!off.some(action => action.line.test(line))) return true
+      return on.some(action => action.line.test(line))
+    })
+    .join('\n')
+}
+
+/** The inclusions with a line naming the actions on this quote, in place of the full-clean line. */
+export function biohazardInclusionsWithActions(inclusions: string, capture: Pick<BiohazardCleaningCapture, 'actions'>): string {
+  if (!biohazardActionsLimited(capture)) return inclusions
+  const lines = inclusions.split('\n').filter(line => !/^\s*removal, cleaning,? and disinfection of/i.test(line))
+  const phrases = actionPhrases(capture.actions ?? [])
+  return [`In the primary zone, the [area affected]: ${phrases}, as set out in the scope of work.`, ...lines].join('\n')
+}
+
+/** The exclusions with a line naming the actions that are not on this quote. */
+export function biohazardExclusionsWithActions(exclusions: string, capture: Pick<BiohazardCleaningCapture, 'actions'>): string {
+  if (!biohazardActionsLimited(capture)) return exclusions
+  const phrases = actionPhrases(biohazardActionsOff(capture))
+  return [...exclusions.split('\n'), `${sentenceStart(phrases)}. These are not on this quote and can be quoted separately.`].join('\n')
 }
 
 /** Room composite when any room has dimensions. Otherwise the typed square metres. */
@@ -1010,7 +1115,9 @@ export function biohazardCleaningQuoteContent(input: {
     area_affected: primaryLabel,
     description: fill(capture.description).trim(),
     objective: fill(resolvedObjective(capture, defaults)).trim(),
-    scope_of_work: lines(biohazardScopeWithServices(clauses.scope_of_work, capture)),
+    actions_included: capture.actions == null ? [] : BIOHAZARD_ACTIONS.filter(action => biohazardActionOn(capture, action.id)).map(action => action.label),
+    actions_excluded: capture.actions == null ? [] : BIOHAZARD_ACTIONS.filter(action => !biohazardActionOn(capture, action.id)).map(action => action.label),
+    scope_of_work: lines(biohazardScopeWithServices(withoutUnusedActionLines(clauses.scope_of_work, capture), capture)),
     estimated_m2: figures.estimated_m2,
     rate_per_m2: figures.rate_per_m2,
     area_amount: figures.area_amount,
@@ -1044,8 +1151,8 @@ export function biohazardCleaningQuoteContent(input: {
     subtotal: figures.subtotal,
     gst: figures.gst,
     total: figures.total,
-    inclusions: lines(withJobOnlyLines(biohazardInclusionsWithServices(clauses.inclusions, capture), capture.job_inclusions)),
-    exclusions: lines(withJobOnlyLines(clauses.exclusions, capture.job_exclusions)),
+    inclusions: lines(withJobOnlyLines(biohazardInclusionsWithServices(biohazardInclusionsWithActions(clauses.inclusions, capture), capture), capture.job_inclusions)),
+    exclusions: lines(withJobOnlyLines(biohazardExclusionsWithActions(clauses.exclusions, capture), capture.job_exclusions)),
     assumptions: lines(withJobOnlyLines(clauses.assumptions, capture.job_assumptions)),
     terms: fill(clauses.payment_terms).trim(),
     engagement_agreement: clauses.engagement_agreement.trim(),

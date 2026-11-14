@@ -1,5 +1,7 @@
 import {
+  BIOHAZARD_ACTIONS,
   BIOHAZARD_CLEANING_SCHEMA,
+  biohazardActionOn,
   BIOHAZARD_COMPLETION_REPORT_LINE,
   BIOHAZARD_PLACEHOLDERS,
   biohazardCleaningDocumentTitle,
@@ -18,6 +20,7 @@ import {
   BIOHAZARD_PASS_CRITERIA,
   BIOHAZARD_STAGES,
   BIOHAZARD_VAGUE_METHOD,
+  requiredBiohazardStages,
   type BiohazardAuditGap,
   type BiohazardCheckContext,
 } from '@/lib/biohazardCleaningCheck'
@@ -71,7 +74,9 @@ export function biohazardScopeDraftPayload(
       presenting_health_hazards: context.hazards,
       risks: context.risks,
     },
-    standard_stages: BIOHAZARD_STAGES.map(stage => stage.label),
+    standard_stages: requiredBiohazardStages(capture).map(stage => stage.label),
+    actions_on_quote: BIOHAZARD_ACTIONS.filter(action => biohazardActionOn(capture, action.id)).map(action => action.label),
+    actions_not_on_quote: BIOHAZARD_ACTIONS.filter(action => !biohazardActionOn(capture, action.id)).map(action => action.label),
     house_scope: (template?.scope_of_work ?? BIOHAZARD_CLEANING_SCHEMA.scope_of_work.join('\n'))
       .split('\n')
       .filter(line => line.trim() && !SERVICE_LINE.test(line)),

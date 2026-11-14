@@ -27,6 +27,12 @@ import {
   resolvedBiohazardType,
   biohazardScopeWithServices,
   biohazardInclusionsWithServices,
+  biohazardActionOn,
+  biohazardActionsOff,
+  biohazardExclusionsWithActions,
+  biohazardInclusionsWithActions,
+  BIOHAZARD_ACTIONS,
+  withoutUnusedActionLines,
   resolvedObjective,
   resolvedSecondaryContamination,
   secondaryZoneInUse,
@@ -52,6 +58,19 @@ export const BIOHAZARD_STAGES = [
 ] as const
 
 export type BiohazardStageId = (typeof BIOHAZARD_STAGES)[number]['id']
+
+/** The stages this quote's scope must have. A stage whose action is not on the quote is not asked for. */
+export function requiredBiohazardStages(capture: Pick<BiohazardCleaningCapture, 'actions'>) {
+  const cleaned = biohazardActionOn(capture, 'wash') || biohazardActionOn(capture, 'sanitise')
+  return BIOHAZARD_STAGES.filter(stage => {
+    if (stage.id === 'gross_removal') return biohazardActionOn(capture, 'remove')
+    if (stage.id === 'cleaning') return biohazardActionOn(capture, 'wash')
+    if (stage.id === 'disinfection') return biohazardActionOn(capture, 'sanitise')
+    if (stage.id === 'deodorisation') return biohazardActionOn(capture, 'deodorise')
+    if (stage.id === 'verification') return cleaned
+    return true
+  })
+}
 
 const SPECIAL_RISKS = [
   { key: 'sharps', label: 'Sharps', pattern: /sharps|needle|syringe/i },
@@ -312,8 +331,9 @@ export function biohazardCheckText(
       secondaryContamination,
       otherZones,
     }))
-  rawClauses.scope_of_work = biohazardScopeWithServices(rawClauses.scope_of_work, capture)
-  rawClauses.inclusions = biohazardInclusionsWithServices(rawClauses.inclusions, capture)
+  rawClauses.scope_of_work = biohazardScopeWithServices(withoutUnusedActionLines(rawClauses.scope_of_work, capture), capture)
+  rawClauses.inclusions = biohazardInclusionsWithServices(biohazardInclusionsWithActions(rawClauses.inclusions, capture), capture)
+  rawClauses.exclusions = biohazardExclusionsWithActions(rawClauses.exclusions, capture)
   const clauses = Object.fromEntries(
     BIOHAZARD_CLAUSE_KEYS.map(key => [key, fill(rawClauses[key] ?? '')]),
   ) as Record<BiohazardClauseKey, string>
@@ -404,7 +424,7 @@ export function biohazardRuleFlags(
   }
 
   const scope = text.clauses.scope_of_work
-  for (const stage of BIOHAZARD_STAGES) {
+  for (const stage of requiredBiohazardStages(capture)) {
     if (!stage.patterns.some(pattern => pattern.test(scope))) rule('stage_missing', 'scope_of_work', stage.id)
   }
 
@@ -564,7 +584,9 @@ export function biohazardCheckPayload(
       risks: context.risks,
     },
     rule_flags: ruleFlags.map(flag => ({ code: flag.code, subject: flag.subject })),
-    standard_stages: BIOHAZARD_STAGES.map(stage => ({ id: stage.id, label: stage.label })),
+    standard_stages: requiredBiohazardStages(capture).map(stage => ({ id: stage.id, label: stage.label })),
+    actions_on_quote: BIOHAZARD_ACTIONS.filter(action => biohazardActionOn(capture, action.id)).map(action => action.label),
+    actions_not_on_quote: BIOHAZARD_ACTIONS.filter(action => biohazardActionsOff(capture).includes(action.id)).map(action => action.label),
   }
 }
 

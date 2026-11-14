@@ -658,3 +658,37 @@ test('affected contents are m³ × rate plus one disposal fee, and stay off a qu
   assert.match(html, /Removal of affected contents at the rate per cubic metre/)
   assert.match(html, /Cubic metres of affected contents on this quote are an estimate/)
 })
+
+test('a triage quote that only removes contents leaves the cleaning steps off and says so', async () => {
+  const { biohazardCheckContext, biohazardRuleFlags } = await import('@/lib/biohazardCleaningCheck')
+  const base = { labour_days: 1, rate_per_labour_day: 600, biohazard_types: ['blood'], areas_affected: ['bedroom'], description: 'Stained mattress.', objective: 'Remove the mattress.' }
+  const context = biohazardCheckContext({ job_type: 'trauma', site_address: '1 St', assessment_data: null } as never)
+  const stagesMissing = (capture: ReturnType<typeof normalizeBiohazardCleaningCapture>) =>
+    biohazardRuleFlags(capture, context).filter(flag => flag.code === 'stage_missing').map(flag => flag.subject)
+
+  const full = normalizeBiohazardCleaningCapture(base)
+  assert.equal(full.actions, null)
+  const fullContent = biohazardCleaningQuoteContent({ reference: 'Q1', clientName: 'A', siteAddress: '1 St', capture: full })
+  assert.deepEqual(fullContent.actions_included, [])
+  assert.equal(fullContent.scope_of_work.some(line => /detergent/i.test(line)), true)
+  assert.deepEqual(stagesMissing(full), [])
+
+  const triage = normalizeBiohazardCleaningCapture({ ...base, actions: ['remove', 'nonsense'] })
+  assert.deepEqual(triage.actions, ['remove'])
+  const content = biohazardCleaningQuoteContent({ reference: 'Q1', clientName: 'A', siteAddress: '1 St', capture: triage })
+  assert.deepEqual(content.actions_included, ['Remove contaminated contents and materials'])
+  assert.equal(content.actions_excluded.length, 3)
+  const scope = content.scope_of_work.join('\n')
+  assert.match(scope, /Remove gross contamination/)
+  assert.match(scope, /clinical waste at a licensed facility/)
+  assert.match(scope, /records of the works/i)
+  assert.doesNotMatch(scope, /Clean all non-porous|Disinfect the cleaned|Deodorise|Verify the cleaning/)
+  assert.match(content.inclusions[0], /^In the primary zone: removal of contaminated contents and materials, as set out in the scope of work\.$/)
+  assert.equal(content.inclusions.some(line => /Removal, cleaning, and disinfection/.test(line)), false)
+  assert.match(content.exclusions[content.exclusions.length - 1], /^Washing with detergent or degreaser, sanitising .* and deodorising .*\. These are not on this quote and can be quoted separately\.$/)
+  assert.deepEqual(stagesMissing(triage), [])
+
+  const html = buildPrintHTML('biohazard_cleaning_quote', content as unknown as Record<string, unknown>, [], [], null, 'job-1', 'http://localhost')
+  assert.match(html, /Actions on this quote\.<\/strong> Remove contaminated contents and materials\./)
+  assert.match(html, /Not on this quote\.<\/strong> Wash: apply detergent or degreaser;/)
+})

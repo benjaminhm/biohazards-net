@@ -41,8 +41,10 @@ import {
   newBiohazardLineId,
   normalizeBiohazardCleaningCapture,
   normalizeBiohazardCleaningClauses,
+  BIOHAZARD_ACTIONS,
   BIOHAZARD_AREA_SUGGESTIONS,
   BIOHAZARD_CONTENTS_SUGGESTIONS,
+  normalizeBiohazardActions,
   BIOHAZARD_TYPE_SUGGESTIONS,
   SECONDARY_CONTAMINATION_SUGGESTIONS,
   resolvedAreaAffected,
@@ -1009,6 +1011,37 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate }: Props) {
           style={{ ...INPUT, resize: 'vertical', lineHeight: 1.5, fontFamily: 'inherit' }}
         />
         {capture.objective == null && objective && <div style={HINT}>From the Scope of Work objective.</div>}
+      </div>
+      <div style={SECTION}>
+        <div style={LABEL}>Actions on this quote</div>
+        <div style={{ display: 'grid', gap: 6 }}>
+          {BIOHAZARD_ACTIONS.map(action => {
+            const ticked = capture.actions?.includes(action.id) ?? false
+            return (
+              <label key={action.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={ticked}
+                  onChange={e => patch({
+                    actions: normalizeBiohazardActions(
+                      e.target.checked
+                        ? [...(capture.actions ?? []), action.id]
+                        : (capture.actions ?? []).filter(id => id !== action.id),
+                    ),
+                  })}
+                />
+                {action.label}
+              </label>
+            )
+          })}
+        </div>
+        <div style={HINT}>
+          {capture.actions == null
+            ? 'None ticked: the quote is a full clean and this list stays off the printed quote.'
+            : capture.actions.length < BIOHAZARD_ACTIONS.length
+              ? 'The printed quote lists these actions and says the others are not on it. Scope steps, inclusions, and the check follow the ticks.'
+              : 'The printed quote lists these actions.'}
+        </div>
       </div>
 
       <div style={{ marginBottom: 12, maxWidth: 480 }}>

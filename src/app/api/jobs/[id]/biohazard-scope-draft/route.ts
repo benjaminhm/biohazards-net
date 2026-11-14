@@ -16,6 +16,7 @@ import {
   normalizeBiohazardCleaningCapture,
   normalizeBiohazardCleaningClauses,
   secondaryZoneInUse,
+  withoutUnusedActionLines,
 } from '@/lib/biohazardCleaningQuote'
 import {
   acceptBiohazardScopeDraft,
@@ -32,6 +33,8 @@ const SYSTEM = `You draft the scope of work of an Australian biohazard cleaning 
 The standard: a Certified Occupational Hygienist auditing the job must be able to understand each step and check it on site. Every step says where (the rooms, surfaces, or limits), what is removed, cleaned, or treated, and how (the method, product, or standard). The verification step says what counts as a pass.
 
 You get DETAILS of this job, the ASSESSMENT, the STANDARD_STAGES of a biohazard clean, the HOUSE_SCOPE the company usually uses, and the PLACEHOLDERS you may use.
+
+ACTIONS_ON_QUOTE is what this job does. ACTIONS_NOT_ON_QUOTE is what it does not do, for example a triage that only removes contaminated contents. Write no step for an action that is not on the quote, and do not imply it is done. STANDARD_STAGES already leaves those stages out.
 
 Return the scope as a list of steps, in the order the work is done. For each step:
 - stage: the STANDARD_STAGE it belongs to, or secondary for a step in the secondary zone.
@@ -140,7 +143,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       }
     }
     if (!draft) return NextResponse.json({ error: 'The draft was not usable. Try again.' }, { status: 502 })
-    return NextResponse.json(draft)
+    const scope = withoutUnusedActionLines(draft.scope, capture)
+    const kept = new Set(scope.split('\n'))
+    return NextResponse.json({ scope, weak: draft.weak.filter(step => kept.has(step.line)) })
   } catch (e: unknown) {
     console.error('[biohazard-scope-draft]', e)
     return NextResponse.json(
