@@ -19,8 +19,8 @@
  */
 'use client'
 
-import { useState, type CSSProperties } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, type CSSProperties, type ReactNode } from 'react'
+import Link from 'next/link'
 import type { Document, DocumentBundle, DocType, DocWorkflowPhaseId } from '@/lib/types'
 import DocumentBundlesSection from '@/components/DocumentBundlesSection'
 import { DOC_TYPE_LABELS, DOC_TYPE_GROUPS } from '@/lib/types'
@@ -101,6 +101,32 @@ const GENERATE_ACCORDION_HEADER: CSSProperties = {
   cursor: 'pointer',
 }
 
+const COMPOSE_LINK: CSSProperties = {
+  padding: '9px 14px',
+  borderRadius: 8,
+  fontSize: 13,
+  fontWeight: 600,
+  lineHeight: 'normal',
+  background: 'var(--surface)',
+  border: '1px solid var(--border)',
+  color: 'var(--text)',
+  cursor: 'pointer',
+}
+
+/** "+ {kind}" chip that opens /jobs/<id>/docs/<type>?compose=1. */
+function ComposeLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <Link
+      href={href}
+      style={COMPOSE_LINK}
+      onMouseOver={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
+      onMouseOut={e => (e.currentTarget.style.borderColor = 'var(--border)')}
+    >
+      {children}
+    </Link>
+  )
+}
+
 /** Safety & Compliance doc rows: Data Capture uses empty-room tabs; Generate still opens /docs/[type]. */
 const SAFETY_COMPLIANCE_DOC_CAPTURE_TAB: Record<
   'authority_to_proceed' | 'swms' | 'jsa' | 'risk_assessment',
@@ -140,7 +166,6 @@ function DocRow({ doc, jobId, clientName, clientEmail, onDeleted, tradeAccountLi
   doc: Document; jobId: string; clientName: string; clientEmail: string; onDeleted: (id: string) => void
   tradeAccountLinked?: boolean
 }) {
-  const router = useRouter()
   const [copied,        setCopied]        = useState(false)
   const [deleting,      setDeleting]      = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -202,10 +227,10 @@ function DocRow({ doc, jobId, clientName, clientEmail, onDeleted, tradeAccountLi
           </div>
         </div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-          <button
-            onClick={() => router.push(`/jobs/${jobId}/docs/${doc.type}?docId=${doc.id}`)}
+          <Link
+            href={`/jobs/${jobId}/docs/${doc.type}?docId=${doc.id}`}
             className="btn btn-secondary" style={{ fontSize: 12, padding: '7px 12px' }}
-          >✏️ Edit</button>
+          >✏️ Edit</Link>
           <button onClick={copyLink} className="btn btn-secondary" style={{ fontSize: 12, padding: '7px 12px' }}>
             {copied ? '✓ Copied' : '🔗 Link'}
           </button>
@@ -491,22 +516,10 @@ function DataCaptureForPhase({
 function ComposeView({
   jobId,
   onNavigate,
-  router,
 }: {
   jobId: string
   onNavigate?: (tab: NavigateTab) => void
-  router: ReturnType<typeof useRouter>
 }) {
-  const composeBtn: CSSProperties = {
-    padding: '9px 14px',
-    borderRadius: 8,
-    fontSize: 13,
-    fontWeight: 600,
-    background: 'var(--surface)',
-    border: '1px solid var(--border)',
-    color: 'var(--text)',
-    cursor: 'pointer',
-  }
   const phaseHeader: CSSProperties = {
     fontSize: 10,
     fontWeight: 700,
@@ -530,16 +543,9 @@ function ComposeView({
         <div style={phaseHeader}>{workflowPhaseTitleNoNumber(pg.label)}</div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           {pg.types.map(type => (
-            <button
-              key={type}
-              type="button"
-              onClick={() => router.push(`/jobs/${jobId}/docs/${type}?compose=1`)}
-              style={composeBtn}
-              onMouseOver={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
-              onMouseOut={e => (e.currentTarget.style.borderColor = 'var(--border)')}
-            >
+            <ComposeLink key={type} href={`/jobs/${jobId}/docs/${type}?compose=1`}>
               + {DOC_TYPE_LABELS[type]}
-            </button>
+            </ComposeLink>
           ))}
         </div>
         {pg.id === 'quote' && (
@@ -565,15 +571,9 @@ function ComposeView({
               <span style={{ color: 'var(--border)', userSelect: 'none' }} aria-hidden>
                 |
               </span>
-              <button
-                type="button"
-                onClick={() => router.push(`/jobs/${jobId}/docs/iaq_multi?compose=1`)}
-                style={composeBtn}
-                onMouseOver={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
-                onMouseOut={e => (e.currentTarget.style.borderColor = 'var(--border)')}
-              >
+              <ComposeLink href={`/jobs/${jobId}/docs/iaq_multi?compose=1`}>
                 + Assessment/Scope/Quote
-              </button>
+              </ComposeLink>
             </div>
           </>
         )}
@@ -672,7 +672,6 @@ export default function DocumentsTab({
   showCreateSection = true,
   showSavedSection = true,
 }: Props) {
-  const router = useRouter()
   const MAJOR_PHASE_IDS: DocWorkflowPhaseId[] = DOC_TYPE_GROUPS.map(g => g.id)
 
   /** Consolidated IAQ generate accordion (first PER section render only, Job Home). */
@@ -686,7 +685,6 @@ export default function DocumentsTab({
       <ComposeView
         jobId={jobId}
         onNavigate={onNavigate}
-        router={router}
       />
     )
   }
@@ -764,25 +762,9 @@ export default function DocumentsTab({
                       </div>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                         {ig.types.map(type => (
-                          <button
-                            key={type}
-                            type="button"
-                            onClick={() => router.push(`/jobs/${jobId}/docs/${type}?compose=1`)}
-                            style={{
-                              padding: '9px 14px',
-                              borderRadius: 8,
-                              fontSize: 13,
-                              fontWeight: 600,
-                              background: 'var(--surface)',
-                              border: '1px solid var(--border)',
-                              color: 'var(--text)',
-                              cursor: 'pointer',
-                            }}
-                            onMouseOver={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
-                            onMouseOut={e => (e.currentTarget.style.borderColor = 'var(--border)')}
-                          >
+                          <ComposeLink key={type} href={`/jobs/${jobId}/docs/${type}?compose=1`}>
                             + {DOC_TYPE_LABELS[type]}
-                          </button>
+                          </ComposeLink>
                         ))}
                       </div>
                       {ig.id === 'quote' && (
@@ -826,24 +808,9 @@ export default function DocumentsTab({
                               Assessment/Scope/Quote
                             </button>
                             <span style={{ color: 'var(--border)', userSelect: 'none' }} aria-hidden>|</span>
-                            <button
-                              type="button"
-                              onClick={() => router.push(`/jobs/${jobId}/docs/iaq_multi?compose=1`)}
-                              style={{
-                                padding: '9px 14px',
-                                borderRadius: 8,
-                                fontSize: 13,
-                                fontWeight: 600,
-                                background: 'var(--surface)',
-                                border: '1px solid var(--border)',
-                                color: 'var(--text)',
-                                cursor: 'pointer',
-                              }}
-                              onMouseOver={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
-                              onMouseOut={e => (e.currentTarget.style.borderColor = 'var(--border)')}
-                            >
+                            <ComposeLink href={`/jobs/${jobId}/docs/iaq_multi?compose=1`}>
                               + Assessment/Scope/Quote
-                            </button>
+                            </ComposeLink>
                           </div>
                         </>
                       )}
@@ -932,25 +899,9 @@ export default function DocumentsTab({
                     </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                       {pg.types.map(type => (
-                        <button
-                          key={type}
-                          type="button"
-                          onClick={() => router.push(`/jobs/${jobId}/docs/${type}?compose=1`)}
-                          style={{
-                            padding: '9px 14px',
-                            borderRadius: 8,
-                            fontSize: 13,
-                            fontWeight: 600,
-                            background: 'var(--surface)',
-                            border: '1px solid var(--border)',
-                            color: 'var(--text)',
-                            cursor: 'pointer',
-                          }}
-                          onMouseOver={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
-                          onMouseOut={e => (e.currentTarget.style.borderColor = 'var(--border)')}
-                        >
+                        <ComposeLink key={type} href={`/jobs/${jobId}/docs/${type}?compose=1`}>
                           + {DOC_TYPE_LABELS[type]}
-                        </button>
+                        </ComposeLink>
                       ))}
                     </div>
                   </div>

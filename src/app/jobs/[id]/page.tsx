@@ -78,6 +78,7 @@ import { archivedMenuKeys, menuItemKey } from '@/lib/menuArchive'
 import { FILE_MENU_PARAM, JOB_EMBED_MSG, useJobEmbedBridge } from '@/lib/jobEmbed'
 import { HOME_SECTIONS, HOME_SECTION_IDS, HOME_SECTION_TO_CAP, isHomeSection, type HomeSection } from '@/lib/jobHomeSections'
 import { isTradingNameId, type TradingNameId } from '@/lib/tradingNames'
+import { isPlainClick } from '@/lib/plainClick'
 import { useUser } from '@/lib/userContext'
 import {
   UnsavedChangesProvider,
@@ -1360,16 +1361,25 @@ export default function JobPage() {
             paddingRight: 16,
           }}>
             {barTabs.map(t => (
-              <button key={t.id} onClick={() => requestTabChange(t.id)} style={{
-                padding: '8px 16px', fontSize: 13, fontWeight: 600,
-                color: activeTab === t.id ? 'var(--accent)' : 'var(--text-muted)',
-                borderBottom: activeTab === t.id ? '2px solid var(--accent)' : '2px solid transparent',
-                transition: 'color 0.15s, border-color 0.15s',
-                whiteSpace: 'nowrap',
-                flexShrink: 0,
-              }}>
+              <Link
+                key={t.id}
+                href={`/jobs/${id}?tab=${t.id}`}
+                onClick={e => {
+                  if (!isPlainClick(e)) return
+                  e.preventDefault()
+                  requestTabChange(t.id)
+                }}
+                style={{
+                  padding: '8px 16px', fontSize: 13, fontWeight: 600, lineHeight: 'normal',
+                  color: activeTab === t.id ? 'var(--accent)' : 'var(--text-muted)',
+                  borderBottom: activeTab === t.id ? '2px solid var(--accent)' : '2px solid transparent',
+                  transition: 'color 0.15s, border-color 0.15s',
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0,
+                }}
+              >
                 {t.label}
-              </button>
+              </Link>
             ))}
           </div>}
         </div>

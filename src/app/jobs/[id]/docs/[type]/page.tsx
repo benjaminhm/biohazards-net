@@ -12,6 +12,7 @@
 'use client'
 
 import { useEffect, useMemo, useState, useRef, Suspense } from 'react'
+import Link from 'next/link'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import type { AreaPricingRow, CompanyProfile, CustomPricingRow, DocType, Document, Job, OutcomeQuoteRow, Photo, ProgressNote, ProgressRoomNote, QuoteContent, QuoteLineItemRow, QuotePricingLayout, SectionTerms, StatementOfAccountsContent, VolumeDisposalFeeMode, VolumePricingBlock } from '@/lib/types'
 import { DOC_TYPE_LABELS } from '@/lib/types'
@@ -417,14 +418,13 @@ function DocViewerInner() {
         <div style={{ maxWidth: 560, margin: isMobile ? '32px auto' : '56px auto', textAlign: 'center', padding: '0 16px' }}>
           <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--text)', marginBottom: 8 }}>This statement could not be generated</div>
           <div style={{ fontSize: 14, lineHeight: 1.5, color: 'var(--text-muted)', marginBottom: 16 }}>{previewError}</div>
-          <button
-            type="button"
+          <Link
+            href={`/jobs/${jobId}?tab=home&section=statement`}
             className="btn btn-primary"
-            onClick={() => router.push(`/jobs/${jobId}?tab=home&section=statement`)}
             style={{ padding: '10px 16px', fontWeight: 700 }}
           >
             Back to the statement
-          </button>
+          </Link>
         </div>
       ) : !hasContent ? (
         <div style={{ maxWidth: 560, margin: isMobile ? '32px auto' : '56px auto', textAlign: 'center', color: 'var(--text-muted)', padding: '0 16px' }}>
@@ -457,7 +457,7 @@ function DocViewerInner() {
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--bg)', overflow: 'hidden' }}>
 
       <div data-devid="P3-E1" style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)', padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', flexShrink: 0, zIndex: 20 }}>
-        <button type="button" onClick={() => router.push(`/jobs/${jobId}?tab=documents`)} style={{ fontSize: 18, color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px', flexShrink: 0 }}>←</button>
+        <Link href={`/jobs/${jobId}?tab=documents`} aria-label="Back to job" style={{ fontSize: 18, lineHeight: 'normal', color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px', flexShrink: 0 }}>←</Link>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: 14 }}>{docLabel}</div>
           {job && <div style={{ fontSize: 11, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{job.client_name} — {job.site_address}</div>}

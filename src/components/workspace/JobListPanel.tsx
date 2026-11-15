@@ -9,6 +9,8 @@
  * lists the job's File agent and document agents to talk to directly.
  */
 import { useMemo, useState } from 'react'
+import Link from 'next/link'
+import { isPlainClick } from '@/lib/plainClick'
 import type { Job, JobStatus } from '@/lib/types'
 import type { DocAgentType } from '@/lib/agent/subagents/types'
 import DraftList, { type DraftView } from './DraftList'
@@ -121,12 +123,16 @@ export default function JobListPanel({
                     >
                       {open ? '▾' : '▸'}
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => onSelect(j.id)}
+                    <Link
+                      href={`/workspace?job=${j.id}`}
+                      onClick={e => {
+                        if (!isPlainClick(e)) return
+                        e.preventDefault()
+                        onSelect(j.id)
+                      }}
                       style={{
                         display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, textAlign: 'left',
-                        padding: '6px 12px 6px 4px', border: 'none', cursor: 'pointer', fontSize: 13,
+                        padding: '6px 12px 6px 4px', border: 'none', cursor: 'pointer', fontSize: 13, lineHeight: 'normal',
                         background: 'transparent', color: 'var(--text)',
                       }}
                     >
@@ -143,7 +149,7 @@ export default function JobListPanel({
                         </span>
                       ) : null}
                       {m?.unread ? <span title="New activity" style={{ width: 7, height: 7, borderRadius: 4, background: '#60A5FA', flexShrink: 0 }} /> : null}
-                    </button>
+                    </Link>
                   </div>
                   {open && (
                     <JobAgentList

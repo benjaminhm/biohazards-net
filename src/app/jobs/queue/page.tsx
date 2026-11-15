@@ -28,6 +28,7 @@ import { FILE_MENU_PARAM, JOB_EMBED_MSG, isFileMenuTabList, type FileMenuTab } f
 import { isHomeSection, visibleHomeSections, type HomeSection } from '@/lib/jobHomeSections'
 import { archivedMenuKeys, menuItemKey, splitArchived } from '@/lib/menuArchive'
 import { TRADING_NAME_OPTIONS, isTradingNameId } from '@/lib/tradingNames'
+import { isPlainClick } from '@/lib/plainClick'
 
 const STATUS_ORDER: JobStatus[] = [
   'lead', 'assessed', 'quoted', 'accepted', 'scheduled', 'underway',
@@ -160,13 +161,14 @@ function DeleteModal({ clientName, onConfirm, onCancel }: {
   )
 }
 
+/** Links to the job page; a plain click calls onSelect instead when given. */
 function JobRow({ job, active, showPrice, checked, onCheck, onSelect }: {
   job: Job
   active: boolean
   showPrice: boolean
   checked: boolean
   onCheck: (checked: boolean) => void
-  onSelect: () => void
+  onSelect?: () => void
 }) {
   const price = job.assessment_data?.target_price
   const isArchived = Boolean(job.archived_at)
@@ -187,12 +189,16 @@ function JobRow({ job, active, showPrice, checked, onCheck, onSelect }: {
           aria-label={`Select ${job.client_name || 'job'}`}
         />
       </label>
-      <button
-        type="button"
-        onClick={onSelect}
+      <Link
+        href={`/jobs/${job.id}`}
+        onClick={e => {
+          if (!onSelect || !isPlainClick(e)) return
+          e.preventDefault()
+          onSelect()
+        }}
         aria-current={active ? 'true' : undefined}
         style={{
-          display: 'block', flex: 1, minWidth: 0, textAlign: 'left', cursor: 'pointer',
+          display: 'block', flex: 1, minWidth: 0, textAlign: 'left', cursor: 'pointer', lineHeight: 'normal',
           padding: '8px 12px 8px 6px', border: 'none', background: 'transparent', color: 'var(--text)',
         }}
       >
@@ -215,7 +221,7 @@ function JobRow({ job, active, showPrice, checked, onCheck, onSelect }: {
           {place && <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>· {place}</span>}
           {isArchived && <span style={{ marginLeft: 'auto', fontWeight: 600, flexShrink: 0 }}>Archived</span>}
         </div>
-      </button>
+      </Link>
     </div>
   )
 }
@@ -279,16 +285,9 @@ function FileMenu({ job, sections, active, onOpen, tabs, activeTab, onOpenTab, a
   })
   const labelStyle: React.CSSProperties = { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
 
-  function row(key: string, label: string, selected: boolean, open: () => void, opts: { number?: number; muted?: boolean } = {}) {
-    return (
-      <button
-        key={key}
-        type="button"
-        aria-current={selected && !picking ? 'page' : undefined}
-        aria-pressed={picking ? checked.has(key) : undefined}
-        onClick={() => (picking ? toggle(key) : open())}
-        style={item(selected && !picking, opts.muted)}
-      >
+  function row(key: string, label: string, selected: boolean, href: string, open: () => void, opts: { number?: number; muted?: boolean } = {}) {
+    const content = (
+      <>
         {picking && (
           <input type="checkbox" checked={checked.has(key)} readOnly tabIndex={-1} aria-hidden style={{ flexShrink: 0, pointerEvents: 'none' }} />
         )}
@@ -303,9 +302,33 @@ function FileMenu({ job, sections, active, onOpen, tabs, activeTab, onOpenTab, a
           </span>
         )}
         <span style={labelStyle}>{label}</span>
-      </button>
+      </>
+    )
+    if (picking) {
+      return (
+        <button key={key} type="button" aria-pressed={checked.has(key)} onClick={() => toggle(key)} style={item(false, opts.muted)}>
+          {content}
+        </button>
+      )
+    }
+    return (
+      <Link
+        key={key}
+        href={href}
+        aria-current={selected ? 'page' : undefined}
+        onClick={e => {
+          if (!isPlainClick(e)) return
+          e.preventDefault()
+          open()
+        }}
+        style={{ ...item(selected, opts.muted), lineHeight: 'normal' }}
+      >
+        {content}
+      </Link>
     )
   }
+  const sectionHref = (id: HomeSection) => `/jobs/${job.id}?tab=home&section=${id}`
+  const tabHref = (id: string) => `/jobs/${job.id}?tab=${encodeURIComponent(id)}`
 
   const smallBtn: React.CSSProperties = { fontSize: 11, padding: '4px 8px' }
   const showArchivedGroup = archivedCount > 0 && (archivedOpen || picking)
@@ -344,11 +367,11 @@ function FileMenu({ job, sections, active, onOpen, tabs, activeTab, onOpenTab, a
       </div>
       <div style={{ flex: 1, overflowY: 'auto', padding: 6, display: 'flex', flexDirection: 'column', gap: 2 }}>
         {sectionSplit.shown.map((s, i) =>
-          row(menuItemKey('section', s.id), s.label, s.id === active, () => onOpen(s.id), { number: i + 1 }))}
+          row(menuItemKey('section', s.id), s.label, s.id === active, sectionHref(s.id), () => onOpen(s.id), { number: i + 1 }))}
         {tabSplit.shown.length > 0 && sectionSplit.shown.length > 0 && (
           <div role="separator" style={{ height: 1, background: 'var(--border)', margin: '6px 4px' }} />
         )}
-        {tabSplit.shown.map(t => row(menuItemKey('tab', t.id), t.label, t.id === activeTab, () => onOpenTab(t.id)))}
+        {tabSplit.shown.map(t => row(menuItemKey('tab', t.id), t.label, t.id === activeTab, tabHref(t.id), () => onOpenTab(t.id)))}
         {archivedCount > 0 && (
           <>
             <div role="separator" style={{ height: 1, background: 'var(--border)', margin: '6px 4px' }} />
@@ -364,8 +387,8 @@ function FileMenu({ job, sections, active, onOpen, tabs, activeTab, onOpenTab, a
             </button>
             {showArchivedGroup && (
               <>
-                {sectionSplit.archived.map(s => row(menuItemKey('section', s.id), s.label, s.id === active, () => onOpen(s.id), { muted: true }))}
-                {tabSplit.archived.map(t => row(menuItemKey('tab', t.id), t.label, t.id === activeTab, () => onOpenTab(t.id), { muted: true }))}
+                {sectionSplit.archived.map(s => row(menuItemKey('section', s.id), s.label, s.id === active, sectionHref(s.id), () => onOpen(s.id), { muted: true }))}
+                {tabSplit.archived.map(t => row(menuItemKey('tab', t.id), t.label, t.id === activeTab, tabHref(t.id), () => onOpenTab(t.id), { muted: true }))}
               </>
             )}
           </>
@@ -790,11 +813,6 @@ function JobQueue() {
     if (failed) window.alert(`${failed} of ${n} job${n === 1 ? '' : 's'} could not be ${archived ? 'archived' : 'restored'}.`)
   }
 
-  function onRowClick(id: string) {
-    if (wide) selectJob(id)
-    else router.push(`/jobs/${id}`)
-  }
-
   async function createJob() {
     if (creating) return
     setCreating(true)
@@ -998,7 +1016,7 @@ function JobQueue() {
                             showPrice={caps.view_quote}
                             checked={checkedIds.has(job.id)}
                             onCheck={on => setChecked([job.id], on)}
-                            onSelect={() => onRowClick(job.id)}
+                            onSelect={wide ? () => selectJob(job.id) : undefined}
                           />
                         ))}
                       </div>
