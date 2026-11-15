@@ -27,6 +27,7 @@ import { loadXeroConnection, xeroConfigured, xeroRequest, type XeroConnection } 
 import {
   buildInvoiceLines,
   contactFromJob,
+  contactSearchTerm,
   draftInvoiceBody,
   linesHash,
   staffCheckHold,
@@ -194,8 +195,10 @@ export async function findOrCreateContact(
     list.find(c => match(c) && c.ContactStatus !== 'ARCHIVED') ?? list.find(match)
 
   for (const term of [input.email, input.name].filter(Boolean)) {
+    const search = contactSearchTerm(term)
+    if (!search) continue
     const res = await xeroRequest<{ Contacts?: XeroContact[] }>(
-      supabase, conn, 'GET', `/Contacts?searchTerm=${encodeURIComponent(term)}`,
+      supabase, conn, 'GET', `/Contacts?searchTerm=${encodeURIComponent(search)}`,
     )
     const list = res.Contacts ?? []
     const lower = term.toLowerCase()

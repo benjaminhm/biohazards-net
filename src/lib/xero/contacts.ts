@@ -8,7 +8,7 @@
  */
 import type { createServiceClient } from '@/lib/supabase'
 import { xeroRequest, type XeroConnection } from '@/lib/xero/client'
-import { rankContacts, type ContactCandidate, type XeroContactLite } from '@/lib/xero/invoice'
+import { contactSearchTerm, rankContacts, type ContactCandidate, type XeroContactLite } from '@/lib/xero/invoice'
 
 type Supabase = ReturnType<typeof createServiceClient>
 
@@ -23,7 +23,7 @@ export async function findContactCandidates(
   conn: XeroConnection,
   who: { email: string; names: string[] },
 ): Promise<ContactCandidate[]> {
-  const terms = [...new Set([who.email, ...who.names].map(t => t.trim()).filter(Boolean))]
+  const terms = [...new Set([who.email, ...who.names].map(contactSearchTerm).filter(Boolean))]
   const found: XeroContactLite[] = []
   for (const term of terms) {
     const res = await xeroRequest<{ Contacts?: XeroContactLite[] }>(

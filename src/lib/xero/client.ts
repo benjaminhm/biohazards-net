@@ -175,10 +175,28 @@ export function xeroErrorMessage(body: unknown): string {
   const b = body as {
     Message?: string
     Detail?: string
+    Title?: string
     Elements?: { ValidationErrors?: { Message?: string }[] }[]
   } | null
   const validation = (b?.Elements ?? []).flatMap(e => e.ValidationErrors ?? []).map(v => v.Message).filter(Boolean)
-  return validation.join('; ') || b?.Detail || b?.Message || ''
+  return validation.join('; ') || b?.Detail || b?.Message || b?.Title || ''
+}
+
+/**
+ * An error response's body (parsed when it is JSON) and the part worth showing
+ * staff. Some Xero errors, such as a refused query, come back as plain text or
+ * HTML rather than JSON.
+ */
+export function xeroErrorDetail(text: string): { body: unknown; detail: string } {
+  let body: unknown = null
+  try {
+    body = JSON.parse(text)
+  } catch {
+    body = text
+  }
+  if (body && typeof body === 'object') return { body, detail: xeroErrorMessage(body) }
+  const plain = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+  return { body, detail: plain.length > 300 ? `${plain.slice(0, 300)}…` : plain }
 }
 
 export async function xeroRequest<T>(
@@ -202,12 +220,11 @@ export async function xeroRequest<T>(
     headers,
     body: body === undefined ? undefined : JSON.stringify(body),
   })
-  const json = await res.json().catch(() => null)
   if (!res.ok) {
-    const detail = xeroErrorMessage(json)
-    throw new XeroApiError(`Xero ${method} ${path.split('?')[0]} failed (${res.status})${detail ? `: ${detail}` : ''}`, res.status, json)
+    const { body: errorBody, detail } = xeroErrorDetail(await res.text().catch(() => ''))
+    throw new XeroApiError(`Xero ${method} ${path.split('?')[0]} failed (${res.status})${detail ? `: ${detail}` : ''}`, res.status, errorBody)
   }
-  return json as T
+  return await res.json().catch(() => null) as T
 }
 
 /** Revoke the refresh token at Xero and delete the stored connection. */

@@ -7,6 +7,7 @@ import {
   buildInvoiceLines,
   contactFromJob,
   contactFromSigner,
+  contactSearchTerm,
   draftInvoiceBody,
   linesHash,
   quoteAmount,
@@ -16,7 +17,7 @@ import {
   xeroInvoiceUrl,
   xeroSettings,
 } from './invoice'
-import { xeroErrorMessage, xeroRedirectUriFor } from './client'
+import { xeroErrorDetail, xeroErrorMessage, xeroRedirectUriFor } from './client'
 import { invoicePaid, xeroDate } from './payments'
 import { isAcceptableQuoteType } from '../acceptableQuotes'
 
@@ -91,6 +92,31 @@ test('contact prefers organisation, skips caller placeholders', () => {
 test('Xero validation errors are surfaced', () => {
   assert.equal(xeroErrorMessage({ Elements: [{ ValidationErrors: [{ Message: 'Account code is not valid' }] }] }), 'Account code is not valid')
   assert.equal(xeroErrorMessage({ Detail: 'TokenExpired' }), 'TokenExpired')
+  assert.equal(xeroErrorMessage({ Title: 'Bad request', Status: 400 }), 'Bad request')
+})
+
+test('Xero error bodies that are not JSON still give a detail', () => {
+  assert.deepEqual(xeroErrorDetail('{"Message":"A validation exception occurred"}'), {
+    body: { Message: 'A validation exception occurred' },
+    detail: 'A validation exception occurred',
+  })
+  assert.equal(xeroErrorDetail('  The search term is not valid\n').detail, 'The search term is not valid')
+  assert.equal(xeroErrorDetail('<html><body><h1>Bad Request</h1></body></html>').detail, 'Bad Request')
+  assert.equal(xeroErrorDetail('').detail, '')
+  assert.equal(xeroErrorDetail('x'.repeat(400)).detail.length, 301)
+})
+
+test('contact search terms leave out the punctuation Xero refuses', () => {
+  assert.equal(
+    contactSearchTerm('Christopher Lowcock (Representitive for The Deceased Estate of TBD)'),
+    'Representitive for The Deceased Estate of TBD',
+  )
+  assert.equal(contactSearchTerm('Jordan Lee'), 'Jordan Lee')
+  assert.equal(contactSearchTerm(' jo.bloggs-1@example.com.au '), 'jo.bloggs-1@example.com.au')
+  assert.equal(contactSearchTerm("O'Brien & Sons Pty Ltd"), 'Sons Pty Ltd')
+  assert.equal(contactSearchTerm('Smith "Jones"'), 'Smith')
+  assert.equal(contactSearchTerm('Zoë Müller'), 'Zoë Müller')
+  assert.equal(contactSearchTerm('()&"'), '')
 })
 
 test('BCQ, CCQ and SACQ are acceptable quotes', () => {

@@ -246,6 +246,20 @@ export function xeroContactBody(input: ContactInput): Record<string, unknown> {
   return contact
 }
 
+/**
+ * What to send as Xero's contact searchTerm for a name or email. Xero answers
+ * 400 to a term with brackets and other punctuation, e.g. "Jo Bloggs (for the
+ * Estate of ...)". Its search matches part of a field, so the longest run of
+ * plain characters still finds the contact; the caller compares the full name
+ * or email itself. Empty when there is nothing searchable.
+ */
+export function contactSearchTerm(term: string): string {
+  return term
+    .split(/[^\p{L}\p{N}\s@._-]+/u)
+    .map(run => run.replace(/\s+/g, ' ').trim())
+    .reduce((best, run) => (run.length > best.length ? run : best), '')
+}
+
 /** A contact as Xero's search returns it. */
 export interface XeroContactLite {
   ContactID: string
