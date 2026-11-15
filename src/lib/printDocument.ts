@@ -67,6 +67,7 @@ import { breakdownTotal, isStatementV2Content, presentStatementDocument, present
 import type { ContentsClearanceQuoteContent } from '@/lib/contentsClearanceQuote'
 import { fillBiohazardCleaningEngagement, fillContentsClearanceEngagement, fillInstantQuoteEngagement, fillSurfaceAreaCleaningEngagement } from '@/lib/quoteEngagement'
 import { INSTANT_QUOTE_SCHEMA, type InstantQuoteContent } from '@/lib/instantQuote'
+import { emailHandoffUrl, handoffQrSvg, textHandoffUrl } from '@/lib/phoneHandoff'
 import { SURFACE_AREA_ESTIMATE_NOTE, type SurfaceAreaCleaningQuoteContent } from '@/lib/surfaceAreaCleaningQuote'
 import {
   BIOHAZARD_CONTENTS_FIXED_LABEL,
@@ -816,7 +817,7 @@ function cssSowPrint(): string {
     }
     @media screen {
       body.sow-print-body .action-bar {
-        display: flex; gap: 10px; align-items: center;
+        display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
         position: fixed; top: 0; left: 0; right: 0; z-index: 999;
         background: #1a1a1a; padding: 12px 20px;
         box-shadow: 0 2px 12px rgba(0,0,0,0.3);
@@ -831,6 +832,24 @@ function cssSowPrint(): string {
       body.sow-print-body .ab-primary { background: #FF6B35; color: #fff; }
       body.sow-print-body .ab-secondary { background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.2); }
       body.sow-print-body .ab-secondary:hover { background: rgba(255,255,255,0.2); }
+      body.sow-print-body .ab-handoff[hidden] { display: none !important; }
+      body.sow-print-body .ab-handoff {
+        position: fixed; inset: 0; z-index: 1001;
+        background: rgba(0,0,0,0.72);
+        display: flex; align-items: center; justify-content: center;
+        padding: 24px;
+      }
+      body.sow-print-body .ab-handoff-card {
+        background: #fff; color: #1a1a1a;
+        border-radius: 14px; padding: 20px;
+        display: grid; gap: 12px; justify-items: center;
+        max-width: 320px; width: 100%;
+        text-align: center;
+      }
+      body.sow-print-body .ab-handoff-card p { margin: 0; font-size: 14px; font-weight: 700; }
+      body.sow-print-body .ab-handoff-card .ab-btn { width: 100%; justify-content: center; color: #fff; }
+      body.sow-print-body .ab-handoff[data-which="text"] [data-pane="email"],
+      body.sow-print-body .ab-handoff[data-which="email"] [data-pane="text"] { display: none; }
       .sow-root .sow-sheet { box-shadow: 0 8px 40px rgba(0,0,0,0.12); }
       /* Composed bundle: don’t stretch mid to full A4 — avoids huge gap before part 1 in preview */
       .sow-root.sow-root--composed-bundle .sow-sheet {
@@ -1019,7 +1038,8 @@ function cssSowPrint(): string {
         page-break-inside: avoid !important;
       }
       body.sow-print-body { background: white !important; padding-top: 0 !important; }
-      body.sow-print-body .action-bar { display: none !important; }
+      body.sow-print-body .action-bar,
+      body.sow-print-body .ab-handoff { display: none !important; }
       .sow-root .quote-accept { display: none !important; }
       .sow-root .sow-sheet {
         width: 100%;
@@ -1121,8 +1141,11 @@ function actionBar(docTitle: string, client: ClientInfo | undefined): string {
   const phone = (client?.client_phone ?? '').replace(/\s/g,'')
   const name  = client?.client_name ?? ''
   const line  = actionBarTitleLine(docTitle)
+  const first = name.split(' ')[0] ?? ''
   const subject = encodeURIComponent(line)
-  const body    = encodeURIComponent(`Hi ${name.split(' ')[0]},\n\nPlease find your document at the link below:\n\n${url}\n\nKind regards`)
+  const body    = encodeURIComponent(`Hi ${first},\n\nPlease find your document at the link below:\n\n${url}\n\nKind regards`)
+  const textQr = textHandoffUrl(client?.client_phone, first, url)
+  const emailQr = emailHandoffUrl(email, line, first, url)
 
   // Images On/Off reloads the page with ?images=on|off so the change is reflected
   // in the actual printed/saved PDF (server re-renders the photo sections).
@@ -1131,13 +1154,29 @@ function actionBar(docTitle: string, client: ClientInfo | undefined): string {
     ? `<a class="ab-btn ab-secondary" href="${esc(toggleImagesUrl(url, photosOn))}">🖼 Images: ${photosOn ? 'On' : 'Off'}</a>`
     : ''
 
+  const panes = [
+    textQr ? `<div class="ab-handoff-pane" data-pane="text">${handoffQrSvg(textQr.url)}<p>Opens Messages to ${esc(textQr.to)}</p></div>` : '',
+    emailQr ? `<div class="ab-handoff-pane" data-pane="email">${handoffQrSvg(emailQr.url)}<p>Opens Mail to ${esc(emailQr.to)}</p></div>` : '',
+  ].join('')
+  const handoff = panes ? `
+      ${textQr ? `<button type="button" class="ab-btn ab-secondary" onclick="var p=document.getElementById('ab-handoff');if(p){p.dataset.which='text';p.hidden=false}">Text from phone</button>` : ''}
+      ${emailQr ? `<button type="button" class="ab-btn ab-secondary" onclick="var p=document.getElementById('ab-handoff');if(p){p.dataset.which='email';p.hidden=false}">Email from phone</button>` : ''}
+      <div id="ab-handoff" class="ab-handoff" hidden onclick="if(event.target===this)this.hidden=true">
+        <div class="ab-handoff-card">
+          ${panes}
+          <button type="button" class="ab-btn ab-primary" onclick="document.getElementById('ab-handoff').hidden=true">Close</button>
+        </div>
+      </div>
+      <script>document.addEventListener('keydown',function(e){if(e.key==='Escape'){var p=document.getElementById('ab-handoff');if(p)p.hidden=true}})</script>` : ''
+
   return `
     <div class="action-bar">
       <span class="doc-title">${esc(line)}</span>
       <button class="ab-btn ab-primary" onclick="window.print()">🖨 Print / Save PDF</button>
       ${photoToggle}
       ${email ? `<a class="ab-btn ab-secondary" href="mailto:${esc(email)}?subject=${subject}&body=${body}">✉️ Email</a>` : ''}
-      ${phone ? `<a class="ab-btn ab-secondary" href="sms:${esc(phone)}&body=${encodeURIComponent(`Hi ${name.split(' ')[0]}, here is your document: ${url}`)}">💬 Text Link</a>` : ''}
+      ${phone ? `<a class="ab-btn ab-secondary" href="sms:${esc(phone)}&body=${encodeURIComponent(`Hi ${first}, here is your document: ${url}`)}">💬 Text Link</a>` : ''}
+      ${handoff}
       <button class="ab-btn ab-secondary" onclick="navigator.clipboard.writeText('${esc(url)}').then(()=>{this.textContent='✓ Copied';setTimeout(()=>this.textContent='🔗 Copy Link',2000)})">🔗 Copy Link</button>
     </div>
   `
