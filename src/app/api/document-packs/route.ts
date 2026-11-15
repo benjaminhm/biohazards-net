@@ -1,16 +1,23 @@
 /*
  * /api/document-packs — staff send a Statement of Accounts to the client as a
  * statement pack (lib/documentPack.ts): one private link that opens on the
- * statement and links on to the CDR and report staff chose.
+ * statement and links on to the other documents staff chose.
  *
- *   GET ?documentId=<statement>  what the send window needs: the job's CDRs and
- *                                reports to choose from, the From address, the
+ *   GET ?documentId=<statement>  what the send window needs: the job's CDRs, house
+ *                                surveys and reports to choose from, the From address, the
  *                                wording to start with, and the packs already sent
  *   GET ?jobId=                  the packs sent on a job
  *   POST { statementId, documentIds, mode, toName, toEmail, subject?, message? }
  *        mode 'link'   creates the link and a passcode, and returns them with a
  *                      message for staff to paste into their own text or email
- *        mode 'email'  emails the link from the brand address
+ *        mode 'email'  emails the pack from the brand address, laid out like a
+ *                      Xero invoice email (lib/statementEmail.ts): balance card,
+ *                      a pay button per invoice, a View link per document, and
+ *                      each document attached as a PDF. Documents whose PDF
+ *                      fails, or that would take the attachments past the
+ *                      limit, go as links only, and the reply says which.
+ *
+ * The emailed link has no passcode: the email is the key, as with Xero.
  *
  * Full-access staff who are shown money only: the statement is all money. A
  * person decides what goes to the client and sends it; nothing here is sent
@@ -31,21 +38,39 @@ import {
   newSigningToken,
   signedDateLabel,
 } from '@/lib/signing/core'
-import { sendSigningInviteEmail } from '@/lib/signing/email'
+import { sendDocumentEmail } from '@/lib/signing/email'
 import { documentHostStatus } from '@/lib/signing/links'
-import { MAX_PACK_EXTRAS, buildPackLinks, packExpiry, packItemLabel, packLinkMessage } from '@/lib/documentPack'
-import { listPacks, preparePack } from '@/lib/documentPackStore'
+import {
+  MAX_PACK_EXTRAS,
+  buildPackLinks,
+  packDocumentLink,
+  packExpiry,
+  packItemLabel,
+  packLinkMessage,
+  packPdfFilename,
+} from '@/lib/documentPack'
+import { findPackByToken, listPacks, loadPackItems, packPdfsForEmail, preparePack, removePackPdfs } from '@/lib/documentPackStore'
+import { renderDocumentEmail } from '@/lib/email/documentEmail'
+import { ATTACHMENT_LIMIT_BYTES, statementEmailInput, trimAttachments, uniqueFilenames } from '@/lib/statementEmail'
+import type { StatementEmailItemStatus } from '@/lib/statementEmail'
 
-export const maxDuration = 60
+// Each PDF for the email starts its own browser, one after another.
+export const maxDuration = 300
+const PDF_ITEM_MS = 60_000
+const PDF_BUDGET_MS = 180_000
+
+/** Names of the documents in an emailed pack, by how they went. */
+interface EmailedReport {
+  attached: string[]
+  /** Left off so the email stays under the size limit; they are links in the email. */
+  tooLarge: string[]
+  /** Their PDF could not be made; they are links in the email. */
+  failed: string[]
+}
 
 async function staffName(userId: string): Promise<string> {
   const name = (await getStaffFirstName(userId)).trim()
   return name === 'User' ? '' : name
-}
-
-function listLine(names: string[]): string {
-  if (names.length <= 1) return names[0] ?? ''
-  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
 }
 
 async function guard(req: Request) {
@@ -76,6 +101,7 @@ export async function GET(req: Request) {
       statement: prepared.statement,
       candidates: prepared.candidates,
       maxExtras: MAX_PACK_EXTRAS,
+      attachmentLimitMb: Math.round(ATTACHMENT_LIMIT_BYTES / (1024 * 1024)),
       blockers: prepared.blockers,
       warnings: prepared.warnings,
       sender: prepared.sender,
@@ -196,23 +222,51 @@ export async function POST(req: Request) {
   const links = buildPackLinks(token, appUrl, hostStatus.liveHost)
   const expiresLabel = signedDateLabel(expiresAt.toISOString())
 
+  let emailed: EmailedReport | null = null
   if (!byLink) {
+    const pack = await findPackByToken(supabase, token)
+    const packItems = pack ? await loadPackItems(supabase, packId) : []
+    const pdfs = pack ? await packPdfsForEmail(supabase, pack, packItems, { perItemMs: PDF_ITEM_MS, budgetMs: PDF_BUDGET_MS }) : []
+    const names = packItems.map(item => packItemLabel(item))
+    const filenames = uniqueFilenames(packItems.map(item => packPdfFilename(item)))
+    const files = packItems.flatMap((item, i) => {
+      const pdf = pdfs[i]
+      return pdf ? [{ index: i, size: pdf.length, keep: i === 0, filename: filenames[i], content: pdf }] : []
+    })
+    const { attached, tooLarge } = trimAttachments(files)
+    const attachedAt = new Set(attached.map(f => f.index))
+    const tooLargeAt = new Set(tooLarge.map(f => f.index))
+    const status = (i: number): StatementEmailItemStatus => (attachedAt.has(i) ? 'attached' : tooLargeAt.has(i) ? 'too_large' : 'failed')
+    const { html, text } = renderDocumentEmail(statementEmailInput({
+      brandLabel: sender.brandLabel,
+      reference: prepared.statement.reference,
+      message,
+      statementContent: prepared.statementContent,
+      packUrl: links.page,
+      items: packItems.map((_, i) => ({ name: names[i], href: packDocumentLink(links.page, i), status: status(i) })),
+      expiresLabel,
+      contact: prepared.contact,
+    }))
     try {
-      await sendSigningInviteEmail({
+      await sendDocumentEmail({
         from: sender.from,
         replyTo: sender.replyTo,
         to: toEmail,
         subject,
-        message,
-        brandLabel: sender.brandLabel,
-        documentLine: listLine(prepared.items.map(i => packItemLabel({ document_title: i.title, reference: i.reference }))),
-        signUrl: links.page,
-        expiresLabel,
+        html,
+        text,
+        attachments: attached.map(f => ({ filename: f.filename, content: f.content })),
       })
     } catch (err) {
       await supabase.from('document_packs').delete().eq('id', packId)
+      if (pack) await removePackPdfs(supabase, pack, packItems.length)
       const reason = err instanceof Error ? err.message : 'send rejected'
       return NextResponse.json({ error: `The email was not sent (${reason}). Nothing has gone to the client.` }, { status: 502 })
+    }
+    emailed = {
+      attached: packItems.flatMap((_, i) => (status(i) === 'attached' ? [names[i]] : [])),
+      tooLarge: packItems.flatMap((_, i) => (status(i) === 'too_large' ? [names[i]] : [])),
+      failed: packItems.flatMap((_, i) => (status(i) === 'failed' ? [names[i]] : [])),
     }
   }
 
@@ -238,5 +292,5 @@ export async function POST(req: Request) {
       },
     })
   }
-  return NextResponse.json({ packs })
+  return NextResponse.json({ packs, ...(emailed ? { emailed } : {}) })
 }

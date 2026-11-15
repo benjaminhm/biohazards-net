@@ -2,8 +2,8 @@
  * lib/documentPack.ts
  *
  * A statement pack: the Statement of Accounts sent to the client by private
- * link, with the Contents Disposal Record and report staff chose to put with
- * it. The link opens on the statement; a bar above each document links to the
+ * link, with the Contents Disposal Record, House Survey and report staff
+ * chose to put with it. The link opens on the statement; a bar above each document links to the
  * others in the pack and downloads the one in view as a PDF. View and download
  * only: nothing is signed or accepted.
  *
@@ -32,7 +32,7 @@ export const MAX_PACK_EXTRAS = 6
 export const PACK_STATEMENT_TYPE = 'statement_of_accounts'
 
 /** What can go in a pack with the statement, in the order it is shown. */
-export const PACK_EXTRA_TYPES = ['waste_disposal_manifest', 'report'] as const
+export const PACK_EXTRA_TYPES = ['waste_disposal_manifest', 'house_survey', 'report'] as const
 
 export function isPackExtraType(type: string): boolean {
   return (PACK_EXTRA_TYPES as readonly string[]).includes(type)
@@ -76,6 +76,11 @@ export function packPaths(token: string, onDocumentHost: boolean): { page: strin
     : { page: `/pack/${token}`, pdf: `/api/pack/${token}/pdf`, api: `/api/pack/${token}` }
 }
 
+/** One document in the pack: the page itself is the statement, ?doc=2 the second document, and so on. */
+export function packDocumentLink(page: string, index: number): string {
+  return index === 0 ? page : `${page}?doc=${index + 1}`
+}
+
 /** "Contents Disposal Record CDR-…": the name a document has in the pack. */
 export function packItemLabel(item: { document_title: string; reference: string | null }): string {
   return `${item.document_title}${item.reference ? ` ${item.reference}` : ''}`
@@ -94,7 +99,7 @@ export function packItemIndex(count: number, docParam: string | null): number {
 
 /**
  * The documents to put in a pack, statement first, then the others in the
- * order the job's document types are listed (CDR before report), newest first
+ * order the job's document types are listed (CDR, then house survey, then report), newest first
  * within each type. Ids that are not on the job, are the wrong type, or repeat
  * are dropped.
  */
@@ -129,8 +134,8 @@ export function packBarHtml(d: {
   pagePath: string
   pdfPath: string
 }): string {
-  const docHref = (index: number) => (index === 0 ? d.pagePath : `${d.pagePath}?doc=${index + 1}`)
-  const pdfHref = d.current === 0 ? d.pdfPath : `${d.pdfPath}?doc=${d.current + 1}`
+  const docHref = (index: number) => packDocumentLink(d.pagePath, index)
+  const pdfHref = packDocumentLink(d.pdfPath, d.current)
   const links = d.items
     .map((item, index) => {
       const label = `${esc(item.document_title)}${item.reference ? `<small>${esc(item.reference)}</small>` : ''}`
@@ -214,7 +219,7 @@ export function packDefaultMessage(d: {
   return [
     `Hi ${first},`,
     '',
-    `Please find your Statement of Accounts${site ? ` for ${site}` : ''} at the link below. It links to the other documents for the job, and each can be downloaded as a PDF.`,
+    `Please find your Statement of Accounts${site ? ` for ${site}` : ''} below, with the documents for the job attached as PDFs. You can also view each one online, and pay any balance using the buttons in this email.`,
     '',
     'Kind regards,',
     d.staffFirstName || d.brandLabel,

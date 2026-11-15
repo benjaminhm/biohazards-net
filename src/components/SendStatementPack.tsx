@@ -1,11 +1,14 @@
 /*
  * Send a saved Statement of Accounts to the client as a statement pack
  * (lib/documentPack.ts): one private link that opens on the statement, which
- * links on to the Contents Disposal Record and report ticked here. Each
- * document can be downloaded as a PDF. Nothing is signed.
+ * links on to the Contents Disposal Record, House Survey and report ticked
+ * here. Each document can be downloaded as a PDF. Nothing is signed. Emailed
+ * from here, the email also carries the balance, a pay button per invoice and
+ * each document attached as a PDF.
  *
  *   useJobPacks             the packs sent on a job
- *   SendStatementPackModal  the send window: tick what goes with the statement,
+ *   SendStatementPackModal  the send window: tick what goes with the statement
+ *                           (or start from what was ticked in Docs history),
  *                           then Link and passcode (a message to paste into your
  *                           own text or email) or Email from here (the brand address)
  *   PackStatus              the lines under the statement: sent, opened, expires,
@@ -49,6 +52,7 @@ interface Preview {
   statement: Candidate
   candidates: Candidate[]
   maxExtras: number
+  attachmentLimitMb: number
   blockers: string[]
   warnings: string[]
   sender: { brandLabel: string; from: string; replyTo: string | null; usesBrandAddress: boolean } | null
@@ -56,6 +60,12 @@ interface Preview {
   linkHost: string | null
   pendingLinkHost: string | null
   packs: PackSummary[]
+}
+
+interface EmailedReport {
+  attached: string[]
+  tooLarge: string[]
+  failed: string[]
 }
 
 interface CreatedLink {
@@ -68,12 +78,17 @@ interface CreatedLink {
 
 const CHANGED = 'bh-packs-changed'
 
+/** Tells every pack list on the job to load again. */
+export function packsChanged(jobId: string) {
+  window.dispatchEvent(new CustomEvent(CHANGED, { detail: jobId }))
+}
+
 /** The statement packs on a job. Pass null to skip (rows that are not statements). */
 export function useJobPacks(jobId: string | null) {
   const [packs, setPacks] = useState<PackSummary[]>([])
 
   const reload = useCallback(() => {
-    if (jobId) window.dispatchEvent(new CustomEvent(CHANGED, { detail: jobId }))
+    if (jobId) packsChanged(jobId)
   }, [jobId])
 
   useEffect(() => {
@@ -144,8 +159,10 @@ function startingPicks(candidates: Candidate[]): string[] {
   return picks
 }
 
-export function SendStatementPackModal({ documentId, onClose, onSent }: {
+export function SendStatementPackModal({ documentId, initialPicks, onClose, onSent }: {
   documentId: string
+  /** Documents to start ticked instead of the newest CDR and report. */
+  initialPicks?: string[]
   onClose: () => void
   onSent: () => void
 }) {
@@ -160,6 +177,7 @@ export function SendStatementPackModal({ documentId, onClose, onSent }: {
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
   const [created, setCreated] = useState<CreatedLink | null>(null)
+  const [emailed, setEmailed] = useState<EmailedReport | null>(null)
   const [pasteText, setPasteText] = useState('')
   const [copied, setCopied] = useState('')
 
@@ -174,7 +192,9 @@ export function SendStatementPackModal({ documentId, onClose, onSent }: {
       .then(data => {
         if (!live) return
         setPreview(data)
-        setPicked(startingPicks(data.candidates))
+        setPicked(initialPicks
+          ? initialPicks.filter(id => data.candidates.some(c => c.id === id)).slice(0, data.maxExtras)
+          : startingPicks(data.candidates))
         setToName(data.defaults.toName)
         setToEmail(data.defaults.toEmail)
         setSubject(data.defaults.subject)
@@ -182,9 +202,11 @@ export function SendStatementPackModal({ documentId, onClose, onSent }: {
       })
       .catch(err => { if (live) setLoadError(err instanceof Error ? err.message : 'Could not load') })
     return () => { live = false }
+    // Picks are read once, when the window opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [documentId])
 
-  const close = created ? onSent : onClose
+  const close = created || emailed ? onSent : onClose
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !sending) close() }
@@ -222,7 +244,8 @@ export function SendStatementPackModal({ documentId, onClose, onSent }: {
         setPasteText((data.link as CreatedLink).message)
         setSending(false)
       } else {
-        onSent()
+        setEmailed((data.emailed as EmailedReport | undefined) ?? { attached: [], tooLarge: [], failed: [] })
+        setSending(false)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'That did not work')
@@ -273,7 +296,7 @@ export function SendStatementPackModal({ documentId, onClose, onSent }: {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 14 }}>
           <div>
             <div id="send-pack-title" style={{ fontWeight: 700, fontSize: 18, color: 'var(--text)' }}>
-              {created ? 'Link and passcode ready' : 'Send statement to client'}
+              {created ? 'Link and passcode ready' : emailed ? 'Statement emailed' : 'Send statement to client'}
             </div>
             {preview && <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }}>{itemName(preview.statement)}</div>}
           </div>
@@ -332,7 +355,33 @@ export function SendStatementPackModal({ documentId, onClose, onSent }: {
           </>
         )}
 
-        {preview && !created && (
+        {emailed && (
+          <>
+            <div style={{ ...helpText, color: 'var(--text)', marginBottom: 12 }}>
+              Sent to {toEmail.trim()}. Every document is listed in the email with a View link.
+            </div>
+            {emailed.attached.length > 0 && (
+              <div style={{ ...helpText, color: 'var(--text)', marginBottom: 8 }}>
+                <strong>Attached as PDFs:</strong> {emailed.attached.join(', ')}
+              </div>
+            )}
+            {emailed.tooLarge.length > 0 && (
+              <div style={{ ...helpText, color: '#FBBF24', marginBottom: 8 }}>
+                <strong>Sent as links only, because the attachments would have been over {preview?.attachmentLimitMb ?? 20} MB:</strong> {emailed.tooLarge.join(', ')}
+              </div>
+            )}
+            {emailed.failed.length > 0 && (
+              <div style={{ ...helpText, color: '#FBBF24', marginBottom: 8 }}>
+                <strong>Sent as links only, because the PDF could not be made:</strong> {emailed.failed.join(', ')}
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }}>
+              <button type="button" className="btn btn-secondary" onClick={close} style={{ fontSize: 13, padding: '9px 18px' }}>Done</button>
+            </div>
+          </>
+        )}
+
+        {preview && !created && !emailed && (
           <>
             {preview.blockers.length > 0 && (
               <div role="alert" style={{ fontSize: 13, color: '#F87171', background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.35)', borderRadius: 8, padding: '10px 12px', marginBottom: 14, lineHeight: 1.5 }}>
@@ -372,7 +421,7 @@ export function SendStatementPackModal({ documentId, onClose, onSent }: {
                 )
               })}
               {preview.candidates.length === 0 && (
-                <div style={{ ...helpText, marginTop: 4 }}>This job has no saved Contents Disposal Record or report, so the statement goes on its own.</div>
+                <div style={{ ...helpText, marginTop: 4 }}>This job has no saved Contents Disposal Record, House Survey or report, so the statement goes on its own.</div>
               )}
               <div style={{ ...helpText, marginTop: 6 }}>Each document goes as it is saved right now; changes made afterwards are not included.</div>
             </fieldset>
@@ -435,7 +484,12 @@ export function SendStatementPackModal({ documentId, onClose, onSent }: {
                   <label htmlFor="ssp-message" style={fieldLabel}>Message</label>
                   <textarea id="ssp-message" style={{ ...fieldInput, minHeight: 150, resize: 'vertical', lineHeight: 1.5 }}
                     value={message} onChange={e => setMessage(e.target.value)} maxLength={4000} />
-                  <div style={{ ...helpText, marginTop: 6 }}>A View document button with the link goes under your message.</div>
+                  <div style={{ ...helpText, marginTop: 6 }}>
+                    Under your message the email shows the job total, paid to date and balance due, a Pay button for each
+                    invoice with an amount owing and a Xero pay link, a View statement button, and each document with its own
+                    View link. The statement and each ticked document are attached as PDFs. If they add up to more than{' '}
+                    {preview.attachmentLimitMb} MB, the largest go as links only; you are told which after sending.
+                  </div>
                 </div>
               </>
             )}

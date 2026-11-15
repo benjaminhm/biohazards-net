@@ -117,6 +117,31 @@ export async function sendSigningInviteEmail(data: SigningInviteEmail): Promise<
   })
 }
 
+/**
+ * A staff-composed client email laid out by lib/email/documentEmail.ts, such
+ * as a statement pack. Like the invitation, it is sent only from the From
+ * line staff saw in the send window, never from a fallback address.
+ */
+export async function sendDocumentEmail(data: {
+  from: string
+  replyTo: string | null
+  to: string
+  subject: string
+  html: string
+  text: string
+  attachments: { filename: string; content: Buffer }[]
+}): Promise<void> {
+  await send({
+    from: data.from,
+    to: data.to,
+    subject: data.subject,
+    html: data.html,
+    text: data.text,
+    ...(data.replyTo ? { replyTo: data.replyTo } : {}),
+    ...(data.attachments.length ? { attachments: data.attachments } : {}),
+  })
+}
+
 export interface SignedCopyEmail {
   from: string
   replyTo: string | null

@@ -33,6 +33,7 @@ const nextConfig: NextConfig = {
     '/api/signing/*': ['./node_modules/@sparticuz/chromium/bin/**'],
     '/api/signing/*/pdf': ['./node_modules/@sparticuz/chromium/bin/**'],
     '/api/pack/*/pdf': ['./node_modules/@sparticuz/chromium/bin/**'],
+    '/api/document-packs': ['./node_modules/@sparticuz/chromium/bin/**'],
   },
   images: {
     remotePatterns: [

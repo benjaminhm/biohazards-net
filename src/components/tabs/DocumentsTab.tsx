@@ -26,7 +26,8 @@ import DocumentBundlesSection from '@/components/DocumentBundlesSection'
 import { DOC_TYPE_LABELS, DOC_TYPE_GROUPS } from '@/lib/types'
 import { isAcceptableQuoteType } from '@/lib/acceptableQuotes'
 import { SendForSigningModal, SigningStatus, currentSigning, signedFor, useJobSigning } from '@/components/SendForSigning'
-import { PackStatus, SendStatementPackModal, useJobPacks } from '@/components/SendStatementPack'
+import { PackStatus, SendStatementPackModal, packsChanged, useJobPacks } from '@/components/SendStatementPack'
+import { MAX_PACK_EXTRAS, PACK_STATEMENT_TYPE, isPackExtraType } from '@/lib/documentPack'
 
 type NavigateTab =
   | 'details'
@@ -162,9 +163,11 @@ interface Props {
   showSavedSection?: boolean
 }
 
-function DocRow({ doc, jobId, clientName, clientEmail, onDeleted, tradeAccountLinked = false }: {
+function DocRow({ doc, jobId, clientName, clientEmail, onDeleted, tradeAccountLinked = false, pick }: {
   doc: Document; jobId: string; clientName: string; clientEmail: string; onDeleted: (id: string) => void
   tradeAccountLinked?: boolean
+  /** History only: a tick to choose this document for Send selected. */
+  pick?: { checked: boolean; onChange: (checked: boolean) => void }
 }) {
   const [copied,        setCopied]        = useState(false)
   const [deleting,      setDeleting]      = useState(false)
@@ -220,10 +223,21 @@ function DocRow({ doc, jobId, clientName, clientEmail, onDeleted, tradeAccountLi
   return (
     <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: 14, marginBottom: 10 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 10 }}>
-        <div>
-          <div style={{ fontWeight: 700, fontSize: 14 }}>{label}</div>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-            {new Date(doc.created_at).toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+          {pick && (
+            <input
+              type="checkbox"
+              checked={pick.checked}
+              onChange={e => pick.onChange(e.target.checked)}
+              aria-label={`Choose ${label} to send with the statement`}
+              style={{ marginTop: 3, width: 16, height: 16, cursor: 'pointer' }}
+            />
+          )}
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 14 }}>{label}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+              {new Date(doc.created_at).toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+            </div>
           </div>
         </div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -596,6 +610,9 @@ function ComposeView({
  * HistoryView — the Docs > History sub-tab.
  * Shows saved documents + bundles. Version chains and ⚠ stale chips land here
  * in the next phase; today it renders the existing Saved Documents list.
+ * Documents that can go with a statement have a tick: Send selected opens the
+ * statement's send window with them ticked (the newest statement unless one
+ * is ticked).
  */
 function HistoryView({
   jobId,
@@ -618,6 +635,42 @@ function HistoryView({
   onDocumentDeleted: (id: string) => void
   tradeAccountLinked?: boolean
 }) {
+  const [picked, setPicked] = useState<string[]>([])
+  const [sendFrom, setSendFrom] = useState<{ statementId: string; extras: string[] } | null>(null)
+  const [pickError, setPickError] = useState<ReactNode>(null)
+
+  const sendable = documents.filter(d => d.type === PACK_STATEMENT_TYPE || isPackExtraType(d.type))
+  const pickedIds = picked.filter(id => sendable.some(d => d.id === id))
+
+  function sendSelected() {
+    setPickError(null)
+    const chosen = sendable.filter(d => pickedIds.includes(d.id))
+    const ticked = chosen.filter(d => d.type === PACK_STATEMENT_TYPE)
+    if (ticked.length > 1) {
+      setPickError('Tick one Statement of Accounts. Each pack carries one statement.')
+      return
+    }
+    const newest = documents
+      .filter(d => d.type === PACK_STATEMENT_TYPE)
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))[0]
+    const statement = ticked[0] ?? newest
+    if (!statement) {
+      setPickError(
+        <>
+          There is no saved Statement of Accounts on this job, and documents go to the client with one.{' '}
+          <Link href={`/jobs/${jobId}/docs/statement_of_accounts?compose=1`} style={{ color: 'var(--accent)' }}>Make the statement</Link>, then send from here.
+        </>,
+      )
+      return
+    }
+    const extras = chosen.filter(d => d.type !== PACK_STATEMENT_TYPE).map(d => d.id)
+    if (extras.length > MAX_PACK_EXTRAS) {
+      setPickError(`A pack can carry the statement and up to ${MAX_PACK_EXTRAS} other documents. Untick ${extras.length - MAX_PACK_EXTRAS}.`)
+      return
+    }
+    setSendFrom({ statementId: statement.id, extras })
+  }
+
   if (documents.length === 0) {
     return (
       <div style={{ textAlign: 'center', padding: '32px 20px', color: 'var(--text-muted)', fontSize: 13 }}>
@@ -630,6 +683,22 @@ function HistoryView({
       <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 10 }}>
         Saved Documents
       </div>
+      {sendable.length > 0 && (
+        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '10px 14px', marginBottom: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5, flex: '1 1 240px' }}>
+              Tick documents to send to the client with the Statement of Accounts. The newest statement goes unless you tick one.
+            </div>
+            <button
+              type="button"
+              onClick={sendSelected}
+              disabled={pickedIds.length === 0}
+              className="btn btn-primary" style={{ fontSize: 12, padding: '7px 12px' }}
+            >Send selected{pickedIds.length ? ` (${pickedIds.length})` : ''}</button>
+          </div>
+          {pickError && <div role="alert" style={{ fontSize: 12, color: '#F87171', marginTop: 8, lineHeight: 1.5 }}>{pickError}</div>}
+        </div>
+      )}
       {documents.map(doc => (
         <DocRow
           key={doc.id}
@@ -639,8 +708,23 @@ function HistoryView({
           clientEmail={clientEmail}
           onDeleted={onDocumentDeleted}
           tradeAccountLinked={tradeAccountLinked}
+          pick={sendable.includes(doc) ? {
+            checked: pickedIds.includes(doc.id),
+            onChange: checked => {
+              setPickError(null)
+              setPicked(ids => checked ? [...ids, doc.id] : ids.filter(id => id !== doc.id))
+            },
+          } : undefined}
         />
       ))}
+      {sendFrom && (
+        <SendStatementPackModal
+          documentId={sendFrom.statementId}
+          initialPicks={sendFrom.extras}
+          onClose={() => setSendFrom(null)}
+          onSent={() => { setSendFrom(null); setPicked([]); packsChanged(jobId) }}
+        />
+      )}
       {(onBundlesRefresh || documentBundles.length > 0 || canComposeBundles) && (
         <DocumentBundlesSection
           jobId={jobId}

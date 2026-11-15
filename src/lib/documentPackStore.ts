@@ -7,10 +7,10 @@
  */
 import type { createServiceClient } from '@/lib/supabase'
 import type { StatementOfAccountsV2Content } from '@/lib/types'
-import { statementV2Invoices } from '@/lib/statementOfAccounts'
+import { statementPhone, statementV2Invoices } from '@/lib/statementOfAccounts'
 import { documentInOrg } from '@/lib/documentAccess'
 import { renderDocumentHtml } from '@/lib/documentRender'
-import { isTradingNameId, tradingNameShortList } from '@/lib/tradingNames'
+import { isTradingNameId, tradingNameOption, tradingNameShortList } from '@/lib/tradingNames'
 import type { TradingNameId } from '@/lib/tradingNames'
 import { hashSigningTokenSafe, resolveSender } from '@/lib/signing/core'
 import type { ResolvedSender } from '@/lib/signing/core'
@@ -87,11 +87,15 @@ export interface PreparedPackItem {
 export interface PreparedPack {
   jobId: string
   statement: PackCandidate
-  /** The job's CDRs and reports, newest first within each type. */
+  /** The job's CDRs, house surveys and reports, newest first within each type. */
   candidates: PackCandidate[]
   tradingName: TradingNameId | null
   siteAddress: string | null
   sender: ResolvedSender | null
+  /** The statement as saved, for the figures and pay links in the email. */
+  statementContent: Record<string, unknown> | null
+  /** The brand's phone and email, for the foot of the email. */
+  contact: { phone: string; email: string }
   blockers: string[]
   /** Things staff should know before sending; they do not stop the send. */
   warnings: string[]
@@ -149,7 +153,7 @@ export async function preparePack(
       .eq('id', statementDoc.job_id)
       .eq('org_id', orgId)
       .maybeSingle(),
-    supabase.from('company_profile').select('email').eq('org_id', orgId).limit(1).maybeSingle(),
+    supabase.from('company_profile').select('email, phone').eq('org_id', orgId).limit(1).maybeSingle(),
     supabase
       .from('documents')
       .select('id, job_id, type, content, created_at')
@@ -166,13 +170,18 @@ export async function preparePack(
   if (!tradingName) {
     blockers.push(`Choose the trading name on the job first (${tradingNameShortList()}), so the statement goes out under the right brand.`)
   }
+  const company = companyRes.data as { email?: string | null; phone?: string | null } | null
   const sender = tradingName
     ? resolveSender(
         tradingName,
         { RESEND_FROM_ACCOUNTS: process.env.RESEND_FROM_ACCOUNTS, RESEND_FROM_EMAIL: process.env.RESEND_FROM_EMAIL },
-        (companyRes.data as { email?: string | null } | null)?.email,
+        company?.email,
       )
     : null
+  const contact = {
+    phone: statementPhone(company?.phone ?? ''),
+    email: (tradingName ? tradingNameOption(tradingName)?.email?.trim() : '') || company?.email?.trim() || '',
+  }
 
   const warnings = statementWarnings(statementDoc)
   const otherDocs = (othersRes.data ?? []) as DocRow[]
@@ -220,6 +229,8 @@ export async function preparePack(
     tradingName,
     siteAddress,
     sender,
+    statementContent: statementDoc.content,
+    contact,
     blockers,
     warnings,
     defaults: {
@@ -254,6 +265,10 @@ export async function loadPackItemHtml(supabase: ServiceClient, item: PackItemRo
   return (data as { frozen_html: string }).frozen_html
 }
 
+function packPdfPath(pack: Pick<PackRow, 'id' | 'org_id' | 'job_id'>, position: number): string {
+  return `${pack.org_id}/${pack.job_id}/packs/${pack.id}-${position + 1}.pdf`
+}
+
 /** The PDF of one document in the pack: made the first time it is asked for, then kept. */
 export async function ensurePackPdf(supabase: ServiceClient, pack: PackRow, item: PackItemRow): Promise<Buffer> {
   if (item.pdf_path) {
@@ -261,7 +276,7 @@ export async function ensurePackPdf(supabase: ServiceClient, pack: PackRow, item
     if (data) return Buffer.from(await data.arrayBuffer())
   }
   const pdf = await renderPdf(await loadPackItemHtml(supabase, item))
-  const path = `${pack.org_id}/${pack.job_id}/packs/${pack.id}-${item.position + 1}.pdf`
+  const path = packPdfPath(pack, item.position)
   const { error } = await supabase.storage.from(SIGNED_BUCKET).upload(path, pdf, { contentType: 'application/pdf', upsert: true })
   if (error) {
     console.error('[pack] storing PDF failed', pack.id, error.message)
@@ -269,6 +284,50 @@ export async function ensurePackPdf(supabase: ServiceClient, pack: PackRow, item
     await supabase.from('document_pack_items').update({ pdf_path: path }).eq('id', item.id)
   }
   return pdf
+}
+
+/**
+ * The PDF of each document, for attaching to the email. One at a time, since
+ * each starts its own browser. A document whose PDF fails, takes longer than
+ * `perItemMs`, or is not reached within `budgetMs` comes back null and goes in
+ * the email as a link only: one document must never stop the send.
+ */
+export async function packPdfsForEmail(
+  supabase: ServiceClient,
+  pack: PackRow,
+  items: PackItemRow[],
+  options: { perItemMs: number; budgetMs: number },
+): Promise<(Buffer | null)[]> {
+  const started = Date.now()
+  const out: (Buffer | null)[] = []
+  for (const item of items) {
+    if (Date.now() - started > options.budgetMs) {
+      out.push(null)
+      continue
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      out.push(await Promise.race([
+        ensurePackPdf(supabase, pack, item),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('timed out')), options.perItemMs)
+        }),
+      ]))
+    } catch (err) {
+      console.error('[pack] PDF for the email failed', pack.id, item.position, err)
+      out.push(null)
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+  return out
+}
+
+/** Clears the PDFs made for a pack that was never sent. */
+export async function removePackPdfs(supabase: ServiceClient, pack: Pick<PackRow, 'id' | 'org_id' | 'job_id'>, count: number): Promise<void> {
+  const paths = Array.from({ length: count }, (_, position) => packPdfPath(pack, position))
+  const { error } = await supabase.storage.from(SIGNED_BUCKET).remove(paths)
+  if (error) console.error('[pack] clearing PDFs of an unsent pack failed', pack.id, error.message)
 }
 
 /** What the staff list shows for a pack. The passcode is shown to staff so they can give it again. */

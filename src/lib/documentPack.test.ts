@@ -6,6 +6,7 @@ import {
   insertAtBodyStart,
   orderPackExtras,
   packBarHtml,
+  packDocumentLink,
   packExpiry,
   packItemIndex,
   packLinkMessage,
@@ -55,7 +56,7 @@ test('?doc= picks the document, and anything else is the statement', () => {
   assert.equal(packItemIndex(3, '0'), 0)
 })
 
-test('chosen documents: CDR before report, newest first, others dropped', () => {
+test('chosen documents: CDR, then house survey, then report, newest first, others dropped', () => {
   const docs = [
     { id: 'r1', type: 'report', created_at: '2026-11-10' },
     { id: 'c1', type: 'waste_disposal_manifest', created_at: '2026-11-01' },
@@ -65,6 +66,15 @@ test('chosen documents: CDR before report, newest first, others dropped', () => 
   assert.deepEqual(orderPackExtras(['r1', 'c1', 'c2', 'q1', 'nope'], docs).map(d => d.id), ['c2', 'c1', 'r1'])
   assert.deepEqual(orderPackExtras(['r1'], docs).map(d => d.id), ['r1'])
   assert.deepEqual(orderPackExtras([], docs), [])
+  const withSurvey = [...docs, { id: 's1', type: 'house_survey', created_at: '2026-11-12' }]
+  assert.deepEqual(orderPackExtras(['r1', 's1', 'c1'], withSurvey).map(d => d.id), ['c1', 's1', 'r1'])
+})
+
+test('each document in the pack has its own link: the page for the statement, ?doc=n for the rest', () => {
+  const page = `https://document.example.com.au/p/${TOKEN}`
+  assert.equal(packDocumentLink(page, 0), page)
+  assert.equal(packDocumentLink(page, 1), `${page}?doc=2`)
+  assert.equal(packItemIndex(3, new URL(packDocumentLink(page, 2)).searchParams.get('doc')), 2)
 })
 
 test('the bar links to the other documents and downloads the one in view', () => {
