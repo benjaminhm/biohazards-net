@@ -34,6 +34,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
+import PhoneHandoffButtons from '@/components/PhoneHandoffButtons'
 import { depositAmount, money, percentLabel, signedNext } from '@/lib/signing/pay'
 import { addressLine, capacityLabel, detailsFieldLabel, formatCompanyNumber, readSignerDetails, shortDate } from '@/lib/signing/details'
 import { isPhonePasscode, phonePasscodeLabel } from '@/lib/signing/phone'
@@ -511,6 +512,12 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
                   {copied === 'code' ? '✓ Copied' : 'Copy passcode only'}
                 </button>
               )}
+              <PhoneHandoffButtons
+                message={pasteText}
+                phone={isPhonePasscode(created.passcode) ? created.passcode : toPhone}
+                email={toEmail}
+                subject={subject.trim() || docLine}
+              />
             </div>
             {copied === 'failed' && (
               <div role="alert" style={{ fontSize: 12, color: '#F87171', marginBottom: 10 }}>

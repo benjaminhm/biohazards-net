@@ -99,7 +99,8 @@ export interface PreparedPack {
   blockers: string[]
   /** Things staff should know before sending; they do not stop the send. */
   warnings: string[]
-  defaults: { toEmail: string; toName: string; subject: string; message: string }
+  /** `toPhone` is the job's mobile, for texting the link from the sender's own phone. */
+  defaults: { toEmail: string; toName: string; toPhone: string; subject: string; message: string }
   /** Statement first. Only filled when asked to render (on send). */
   items: PreparedPackItem[]
 }
@@ -149,7 +150,7 @@ export async function preparePack(
   const [jobRes, companyRes, othersRes] = await Promise.all([
     supabase
       .from('jobs')
-      .select('id, client_name, client_email, site_address, trading_name')
+      .select('id, client_name, client_email, client_phone, site_address, trading_name')
       .eq('id', statementDoc.job_id)
       .eq('org_id', orgId)
       .maybeSingle(),
@@ -236,6 +237,7 @@ export async function preparePack(
     defaults: {
       toEmail: ((job.client_email as string | null) ?? '').trim(),
       toName: clientName,
+      toPhone: ((job.client_phone as string | null) ?? '').trim(),
       subject: packDefaultSubject(brandLabel || 'us', statement.reference),
       message: packDefaultMessage({ clientName, siteAddress, staffFirstName, brandLabel }),
     },

@@ -1,14 +1,18 @@
 /*
- * The text and email links behind "Text from phone" and "Email from phone"
- * on a document's screen bar.
+ * The text and email links behind "Text from phone" and "Email from phone".
  *
- * Scanning the QR opens Messages or Mail with the client and the short link
- * message filled in. Nothing is sent until the phone's send button is tapped,
- * and the code carries the link, not a file. The code is drawn here, when the
- * bar is built, because the email subject is the document title.
+ * Scanning the QR opens Messages or Mail on the phone, addressed to the client
+ * with the message filled in. Nothing is sent until the phone's send button is
+ * tapped, and the code carries a message, not a file.
+ *
+ *   Document screen bar   the short "here is your document" message
+ *                         (textHandoffUrl, emailHandoffUrl)
+ *   Link ready boxes      the message in the box, as staff edited it
+ *                         (textMessageHandoff, emailMessageHandoff)
  */
 import { create } from 'qrcode'
 import { formatToTwilioE164 } from '@/lib/phone'
+import { phonePasscode } from '@/lib/signing/phone'
 
 /** First word of the client name, matching the Email and Text Link buttons. */
 export function handoffFirstName(clientName: string | undefined): string {
@@ -56,6 +60,44 @@ export function emailHandoffUrl(
   if (!to) return null
   const url = `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(emailHandoffBody(firstName, link))}`
   return { to, url }
+}
+
+/**
+ * The number to text, in + form: an Australian number however it was typed
+ * ("0412 345 678", "+61 412 345 678", the 9 digits kept on a signing link),
+ * or a number already written with its country code. Null for anything else.
+ */
+export function handoffNumber(typed: string | null | undefined): string | null {
+  const t = (typed ?? '').trim()
+  const nine = phonePasscode(t)
+  if (nine) return `+61${nine}`
+  const plain = t.replace(/[\s().-]/g, '')
+  return /^\+[1-9]\d{6,14}$/.test(plain) && !plain.startsWith('+61') ? plain : null
+}
+
+/** Text handoff for a message staff wrote. No link without a number to text. */
+export function textMessageHandoff(phone: string | null | undefined, message: string): PhoneHandoffLink | null {
+  const to = handoffNumber(phone)
+  if (!to) return null
+  return { to, url: smsHandoffUrl(to, message) }
+}
+
+/** Email handoff for a message staff wrote. No link without an email address. */
+export function emailMessageHandoff(
+  email: string | null | undefined,
+  subject: string,
+  message: string,
+): PhoneHandoffLink | null {
+  const to = (email ?? '').trim()
+  if (!/^\S+@\S+\.\S+$/.test(to)) return null
+  return { to, url: `mailto:${to}?subject=${encodeURIComponent(subject.trim())}&body=${encodeURIComponent(message)}` }
+}
+
+/** Longest link drawn as a QR. Past this the code is too fine to scan off a screen. */
+export const HANDOFF_QR_MAX_CHARS = 1000
+
+export function handoffFitsQr(url: string): boolean {
+  return url.length <= HANDOFF_QR_MAX_CHARS
 }
 
 /** A scannable QR for a handoff URL, with a white quiet zone. */

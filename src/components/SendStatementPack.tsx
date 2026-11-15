@@ -21,6 +21,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import type { CSSProperties } from 'react'
+import PhoneHandoffButtons from '@/components/PhoneHandoffButtons'
 
 export interface PackSummary {
   id: string
@@ -56,7 +57,7 @@ interface Preview {
   blockers: string[]
   warnings: string[]
   sender: { brandLabel: string; from: string; replyTo: string | null; usesBrandAddress: boolean } | null
-  defaults: { toEmail: string; toName: string; subject: string; message: string }
+  defaults: { toEmail: string; toName: string; toPhone?: string; subject: string; message: string }
   linkHost: string | null
   pendingLinkHost: string | null
   packs: PackSummary[]
@@ -331,6 +332,12 @@ export function SendStatementPackModal({ documentId, initialPicks, onClose, onSe
               <button type="button" className="btn btn-secondary" style={{ fontSize: 13, padding: '9px 14px' }} onClick={() => copy('code', created.passcode)}>
                 {copied === 'code' ? '✓ Copied' : 'Copy passcode only'}
               </button>
+              <PhoneHandoffButtons
+                message={pasteText}
+                phone={preview?.defaults.toPhone}
+                email={toEmail}
+                subject={subject.trim() || (preview ? itemName(preview.statement) : 'Statement of Accounts')}
+              />
             </div>
             {copied === 'failed' && (
               <div role="alert" style={{ fontSize: 12, color: '#F87171', marginBottom: 10 }}>
