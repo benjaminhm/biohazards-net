@@ -865,23 +865,27 @@ export interface StatementV2AdjustmentRow {
   difference_inc: number
 }
 
-/** The invoice 2 total row: inc GST is the invoice amount, so per-line rounding never changes what is billed. */
-export function breakdownTotal(invoice: Pick<StatementV2Invoice, 'amount' | 'breakdown'>): StatementV2AdjustmentRow {
+/** The breakdown's total row: inc GST is the document's amount, so per-line rounding never changes what is billed or credited. */
+export function breakdownTotal(invoice: Pick<StatementV2Invoice, 'kind' | 'amount' | 'amountShown' | 'breakdown'>): StatementV2AdjustmentRow {
+  const credit = invoice.kind === 'credit_note'
+  const total = credit ? -invoice.amountShown : invoice.amount
   const difference_ex = round2(invoice.breakdown.reduce((sum, row) => sum + row.difference_ex, 0))
-  return { label: invoice.amount < -0.004 ? 'Credit note total' : 'Invoice 2 total', actual_ex: null, estimate_ex: null, difference_ex, gst: round2(invoice.amount - difference_ex), difference_inc: invoice.amount }
+  return { label: credit ? 'Credit note total' : 'Invoice 2 total', actual_ex: null, estimate_ex: null, difference_ex, gst: round2(total - difference_ex), difference_inc: total }
 }
 
 type StatementV2Split = Pick<StatementOfAccountsV2Content,
   'charges_gst' | 'total_inc' | 'deposit' | 'deposit_date' | 'invoice1_paid_in_full' | 'adjustment' | 'adjustment_reason' | 'invoice_number' | 'invoice_url' | 'invoice2_number' | 'invoice2_url' | 'credit_note_number' | 'estimate_total' | 'adjustment_lines' | 'credit_note_applied'>
 
-export const STATEMENT_INVOICES_NOTE =
-  'The original estimate was invoiced on invoice 1 and the deposit was paid against it. Invoice 2 covers what came in higher than the estimate, and a credit note what came in lower, taken off invoice 1. Together they make up the balance.'
-
-export const STATEMENT_INVOICES_NOTE_PAID_IN_FULL =
-  'The original estimate was invoiced on invoice 1 and paid in full up front. Invoice 2 covers what came in higher than the estimate, and a credit note what came in lower.'
-
-export function statementInvoicesNote(c: Pick<StatementOfAccountsV2Content, 'invoice1_paid_in_full'>): string {
-  return c.invoice1_paid_in_full ? STATEMENT_INVOICES_NOTE_PAID_IN_FULL : STATEMENT_INVOICES_NOTE
+export function statementInvoicesNote(c: StatementV2AdjustmentInput & Pick<StatementOfAccountsV2Content, 'invoice1_paid_in_full'>): string {
+  const lead = c.invoice1_paid_in_full
+    ? 'The original estimate was invoiced on invoice 1 and paid in full up front.'
+    : 'The original estimate was invoiced on invoice 1 and the deposit was paid against it.'
+  const { net } = statementV2Adjustments(c)
+  if (net > 0.004) return `${lead} Invoice 2 covers what came in higher than the estimate.${c.invoice1_paid_in_full ? '' : ' Together they make up the balance.'}`
+  if (net < -0.004) {
+    return `${lead} The job came in lower than the estimate, so a credit note for the difference ${c.invoice1_paid_in_full ? 'is a credit in your favour' : 'is taken off invoice 1'}.`
+  }
+  return lead
 }
 
 export interface StatementV2Adjustment {
@@ -893,10 +897,10 @@ export interface StatementV2Adjustment {
 type StatementV2AdjustmentInput = Pick<StatementOfAccountsV2Content, 'charges_gst' | 'total_inc' | 'adjustment' | 'adjustment_reason' | 'estimate_total' | 'adjustment_lines'>
 
 /**
- * The actual total less the estimate, plus any adjustment, split by sign:
- * quotes that came in higher (and a positive adjustment) go on invoice 2,
- * quotes that came in lower (and a negative adjustment) on a credit note.
- * The two always add up to `net`; a cent of GST rounding goes on invoice 2.
+ * The actual total less the estimate, plus any adjustment, on one document:
+ * invoice 2 when the job came in higher, a credit note when it came in lower,
+ * neither when it matches. Quotes that moved the other way are netted on the
+ * same document, so an invoice 2 and a credit note never cancel each other out.
  */
 export function statementV2Adjustments(c: StatementV2AdjustmentInput): { invoice2: StatementV2Adjustment | null; credit_note: StatementV2Adjustment | null; net: number } {
   const estimate = c.estimate_total
@@ -919,15 +923,8 @@ export function statementV2Adjustments(c: StatementV2AdjustmentInput): { invoice
     })
   }
   const net = round2(c.total_inc - estimate + (c.adjustment ?? 0))
-  const up = rows.filter(row => row.difference_inc > 0.004)
-  const down = rows.filter(row => row.difference_inc < -0.004)
-  const sum = (list: StatementV2AdjustmentRow[]) => round2(list.reduce((total, row) => total + row.difference_inc, 0))
-  if (up.length > 0 && down.length > 0) {
-    const credit = sum(down)
-    return { invoice2: { amount: round2(net - credit), rows: up }, credit_note: { amount: credit, rows: down }, net }
-  }
   if (Math.abs(net) <= 0.004) return { invoice2: null, credit_note: null, net: 0 }
-  const single = { amount: net, rows }
+  const single = { amount: net, rows: rows.filter(row => Math.abs(row.difference_inc) > 0.004) }
   return net > 0 ? { invoice2: single, credit_note: null, net } : { invoice2: null, credit_note: single, net }
 }
 
@@ -943,13 +940,11 @@ export function statementV2Invoices(c: StatementV2Split): StatementV2Invoice[] {
   const gstNote = c.charges_gst ? ' inc GST' : ''
   const invoice1 = c.invoice1_paid_in_full ? 0 : round2(estimate - c.deposit)
   const { invoice2, credit_note, net } = statementV2Adjustments(c)
-  const both = Boolean(invoice2 && credit_note)
-  const single = both ? null : (invoice2 ?? credit_note)
-  const legacyNil = !both && !single && Boolean(c.invoice2_number?.trim())
-  const raised = both ? invoice2!.amount : net > 0.004 ? net : 0
-  const credit = both ? -credit_note!.amount : net < -0.004 ? -net : 0
-  const plan = creditPlan(invoice1, raised, credit)
-  const creditName = title('credit note', c.credit_note_number?.trim() || (single && credit > 0 ? c.invoice2_number : undefined))
+  const single = invoice2 ?? credit_note
+  const legacyNil = !single && Boolean(c.invoice2_number?.trim())
+  const credit = net < -0.004 ? -net : 0
+  const plan = creditPlan(invoice1, 0, credit)
+  const creditName = title('credit note', c.credit_note_number?.trim() || (credit > 0 ? c.invoice2_number : undefined))
   // Until the credit note is applied in Xero, the invoices it comes off still show their full amount there.
   const waiting = credit > 0.004 && !c.credit_note_applied
   const waitNote = 'The pay link is added once the credit note has been applied to this invoice.'
@@ -984,53 +979,25 @@ export function statementV2Invoices(c: StatementV2Split): StatementV2Invoice[] {
     breakdown: [],
   }]
 
-  const creditDetail = (lead: string) => {
-    const onto = [plan.toInvoice1 > 0.004 ? `invoice 1 (${formatAud(plan.toInvoice1)})` : '', plan.toInvoice2 > 0.004 ? `invoice 2 (${formatAud(plan.toInvoice2)})` : ''].filter(Boolean)
-    const applied = onto.length ? ` Taken off ${onto.join(' and ')}.` : ''
-    const left = plan.left > 0.004 ? ` ${formatAud(plan.left)} is a credit in your favour.` : ''
-    return `${lead}${applied}${left}`
-  }
-  const creditRow = (heading: string, lead: string, rows: StatementV2AdjustmentRow[]): StatementV2Invoice => ({
-    kind: 'credit_note',
-    heading,
-    detail: creditDetail(lead),
-    amount: plan.left > 0.004 ? -plan.left : 0,
-    amountLabel: 'Credit',
-    amountShown: credit,
-    payHref: null,
-    payLabel: null,
-    breakdown: rows,
-  })
-
-  if (both) {
-    const invoice2Due = round2(invoice2!.amount - plan.toInvoice2)
-    invoices.push({
-      kind: 'invoice2',
-      heading: `${title('Invoice 2', c.invoice2_number)} · adjustment to actual`,
-      detail: `What came in higher than the original estimate${lessCredit(plan.toInvoice2)}${gstNote}.`,
-      amount: invoice2Due,
-      amountLabel: invoice2Due > 0.004 ? 'To pay' : 'Paid',
-      amountShown: Math.abs(invoice2Due),
-      ...pay(c.invoice2_url, invoice2Due, plan.toInvoice2),
-      breakdown: invoice2!.rows,
-    }, creditRow(
-      `${title('Credit note', c.credit_note_number)} · adjustment to actual`,
-      `What came in lower than the original estimate${gstNote}.`,
-      credit_note!.rows,
-    ))
-    return invoices
-  }
   if (single || legacyNil) {
     const adjustment = c.adjustment == null
       ? ''
       : `, ${c.adjustment < 0 ? 'less' : 'plus'} ${c.adjustment_reason.trim() || 'adjustment'} ${formatAud(Math.abs(c.adjustment))}`
     const lead = `Actual job total ${formatAud(c.total_inc)} less the original estimate ${formatAud(estimate)}${adjustment}${gstNote}.`
     if (credit > 0.004) {
-      invoices.push(creditRow(
-        `${title('Credit note', c.credit_note_number?.trim() || c.invoice2_number)} · adjustment to actual`,
-        lead,
-        single?.rows ?? [],
-      ))
+      const applied = plan.toInvoice1 > 0.004 ? ` Taken off invoice 1 (${formatAud(plan.toInvoice1)}).` : ''
+      const left = plan.left > 0.004 ? ` ${formatAud(plan.left)} is a credit in your favour.` : ''
+      invoices.push({
+        kind: 'credit_note',
+        heading: `${title('Credit note', c.credit_note_number?.trim() || c.invoice2_number)} · adjustment to actual`,
+        detail: `${lead}${applied}${left}`,
+        amount: plan.left > 0.004 ? -plan.left : 0,
+        amountLabel: 'Credit',
+        amountShown: credit,
+        payHref: null,
+        payLabel: null,
+        breakdown: single?.rows ?? [],
+      })
       return invoices
     }
     invoices.push({

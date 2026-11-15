@@ -1,11 +1,10 @@
 /*
  * lib/xero/statementDocs.ts
  *
- * Invoice 2 and the credit note from the Statement of Accounts, raised in Xero
- * as drafts with one click. Invoice 2 carries the quotes that came in higher
- * than the estimate, the credit note the ones that came in lower
- * (statementV2Adjustments). Staff approve and send them from Xero, and
- * allocate the credit note against invoice 1 there.
+ * Invoice 2 or the credit note from the Statement of Accounts, raised in Xero
+ * as a draft with one click: invoice 2 when the job came in higher than the
+ * estimate, a credit note when it came in lower (statementV2Adjustments).
+ * Staff approve and send them from Xero.
  *
  *   - Not in Xero yet: create the draft for invoice 1's contact.
  *   - Still a draft: replace its lines with the statement's.
@@ -13,9 +12,10 @@
  *   - Voided or deleted in Xero: create a new draft.
  *
  * Once a person has approved the credit note in Xero, the next press applies
- * it: off invoice 1 first, then invoice 2 (creditPlan). Until then invoice 1
- * still shows its full amount in Xero, so the statement shows no pay button
- * for it.
+ * it to invoice 1: the one raised from the job (xero_job_invoices), else the
+ * invoice 1 number typed on the statement. Without either, staff allocate it
+ * by hand in Xero and press again. Until it is applied invoice 1 still shows
+ * its full amount in Xero, so the statement shows no pay button for it.
  *
  * The numbers, ids and statuses are saved on the statement. Every Xero write
  * is logged to agent_actions.
@@ -73,7 +73,11 @@ export function statementLineDescription(row: StatementV2AdjustmentRow, refs: St
   return `${row.label}: ${working}.${quote} ${statement}`
 }
 
-/** Ex GST lines for Xero, one per quote that moved, then any adjustment. */
+/**
+ * Ex GST lines for Xero, one per quote that moved, then any adjustment. A line
+ * that moved against the document (a quote that came in lower, on invoice 2)
+ * is negative; the document's total is always positive.
+ */
 export function statementXeroDocs(f: StatementV2Figures, settings: XeroSettings, refs: StatementXeroRefs = {}): StatementXeroDoc[] {
   const { invoice2, credit_note } = statementV2Adjustments(f)
   const taxType = f.charges_gst ? settings.gst_tax_type : settings.no_gst_tax_type
@@ -83,7 +87,7 @@ export function statementXeroDocs(f: StatementV2Figures, settings: XeroSettings,
     lines: part.rows.filter(row => Math.abs(row.difference_ex) > 0.004).map(row => ({
       Description: statementLineDescription(row, refs),
       Quantity: 1,
-      UnitAmount: round2(Math.abs(row.difference_ex)),
+      UnitAmount: round2(kind === 'credit_note' ? -row.difference_ex : row.difference_ex),
       AccountCode: settings.account_code,
       TaxType: taxType,
     })),
@@ -175,12 +179,13 @@ export async function raiseStatementDocs(supabase: Supabase, orgId: string, jobI
 
   const reference = (job.job_code as string | null)?.trim() || jobId.slice(0, 8)
   const trigger = 'statement_raised' as const
+  let invoice1: Promise<Invoice1Ref> | null = null
+  const findInvoice1 = () => (invoice1 ??= invoice1Ref(supabase, conn, jobId, capture.invoice_number))
   let contactId: string | null = null
   const contact = async () => {
     if (contactId) return contactId
-    const { data: row } = await supabase.from('xero_job_invoices').select('xero_contact_id').eq('job_id', jobId).maybeSingle()
-    const known = (row as { xero_contact_id?: string | null } | null)?.xero_contact_id
-    contactId = known || await findOrCreateContact(supabase, conn, contactFromJob(job), { orgId, jobId, trigger })
+    const ref = await findInvoice1()
+    contactId = ref.contactId || ref.invoice?.contactId || await findOrCreateContact(supabase, conn, contactFromJob(job), { orgId, jobId, trigger })
     return contactId
   }
   const patch: Partial<StatementOfAccountsCapture> = {}
@@ -212,7 +217,11 @@ export async function raiseStatementDocs(supabase: Supabase, orgId: string, jobI
         let note = `${name} ${current.number} is ${current.status.toLowerCase()} in Xero, so it was not changed.`
         if (doc && current.total != null && Math.abs(current.total - doc.amount) >= 0.015) {
           note += ` Xero has ${formatAud(current.total)} and the statement now has ${formatAud(doc.amount)}; change it in Xero if the statement is right.`
-        } else if (!doc) note += ' The statement no longer needs it; void it in Xero if that is right.'
+        } else if (!doc) {
+          note += kind === 'invoice2'
+            ? ' The statement no longer needs it; credit it in Xero if that is right.'
+            : ' The statement no longer needs it; check it in Xero.'
+        }
         if (kind === 'invoice2' && current.status === 'AUTHORISED' && !capture.invoice2_url) {
           const online = await xeroRequest<{ OnlineInvoices?: { OnlineInvoiceUrl?: string }[] }>(
             supabase, conn, 'GET', `/Invoices/${encodeURIComponent(current.id)}/OnlineInvoice`,
@@ -267,13 +276,13 @@ export async function raiseStatementDocs(supabase: Supabase, orgId: string, jobI
 
     const creditId = patch.xero_credit_note_id ?? capture.xero_credit_note_id
     const creditStatus = patch.xero_credit_note_status ?? capture.xero_credit_note_status
-    if (creditId && creditStatus === 'AUTHORISED' && !capture.credit_note_applied && docs.some(d => d.kind === 'credit_note')) {
+    const creditApproved = creditStatus === 'AUTHORISED' || creditStatus === 'PAID'
+    if (creditId && creditApproved && !capture.credit_note_applied && docs.some(d => d.kind === 'credit_note')) {
       const applied = await applyCreditNote(supabase, conn, {
-        jobId,
         creditId,
         creditNumber: patch.credit_note_number ?? capture.credit_note_number,
-        invoice2Id: (patch.xero_invoice2_status ?? capture.xero_invoice2_status) === 'AUTHORISED' ? (patch.xero_invoice2_id ?? capture.xero_invoice2_id) : '',
-        invoice2Pending: docs.some(d => d.kind === 'invoice2') && (patch.xero_invoice2_status ?? capture.xero_invoice2_status) !== 'AUTHORISED',
+        invoice1: await findInvoice1(),
+        typedInvoice1: capture.invoice_number,
         log: (target: string, amount: number, note: string) => logAgentAction(supabase, {
           org_id: orgId, job_id: jobId, agent: 'xero_sync', trigger, action: 'xero_credit_note_allocated',
           target_table: 'xero:CreditNotes', target_id: creditId, after: { invoice_id: target, amount }, note,
@@ -297,64 +306,99 @@ interface XeroDue {
   number: string
   status: string
   amountDue: number
+  contactId: string
 }
 
-async function invoiceDue(supabase: Supabase, conn: XeroConnection, id: string): Promise<XeroDue | null> {
-  if (!id) return null
-  const res = await xeroRequest<{ Invoices?: Record<string, unknown>[] }>(supabase, conn, 'GET', `/Invoices/${encodeURIComponent(id)}`)
-  const raw = res.Invoices?.[0]
-  if (!raw) return null
+function dueFromXero(raw: Record<string, unknown> | undefined): XeroDue | null {
+  if (!raw || typeof raw.InvoiceID !== 'string' || !raw.InvoiceID) return null
+  const contact = raw.Contact as { ContactID?: unknown } | undefined
   return {
-    id,
+    id: raw.InvoiceID,
     number: typeof raw.InvoiceNumber === 'string' ? raw.InvoiceNumber : '',
     status: typeof raw.Status === 'string' ? raw.Status : '',
     amountDue: typeof raw.AmountDue === 'number' ? raw.AmountDue : 0,
+    contactId: typeof contact?.ContactID === 'string' ? contact.ContactID : '',
+  }
+}
+
+interface Invoice1Ref {
+  /** Invoice 1 in Xero, or null when it cannot be found. */
+  invoice: XeroDue | null
+  /** The contact the job's own invoice was raised for. Empty without one. */
+  contactId: string
+}
+
+/** Invoice 1 in Xero: the one raised from the job, else the invoice number typed on the statement. Read only. */
+async function invoice1Ref(supabase: Supabase, conn: XeroConnection, jobId: string, typedNumber: string): Promise<Invoice1Ref> {
+  const { data: row } = await supabase.from('xero_job_invoices').select('xero_invoice_id, xero_contact_id').eq('job_id', jobId).maybeSingle()
+  const linked = row as { xero_invoice_id?: string | null; xero_contact_id?: string | null } | null
+  const contactId = linked?.xero_contact_id || ''
+  if (linked?.xero_invoice_id) {
+    const res = await xeroRequest<{ Invoices?: Record<string, unknown>[] }>(supabase, conn, 'GET', `/Invoices/${encodeURIComponent(linked.xero_invoice_id)}`)
+    return { invoice: dueFromXero(res.Invoices?.[0]), contactId }
+  }
+  const number = typedNumber.trim()
+  if (!number) return { invoice: null, contactId }
+  try {
+    const res = await xeroRequest<{ Invoices?: Record<string, unknown>[] }>(supabase, conn, 'GET', `/Invoices?InvoiceNumbers=${encodeURIComponent(number)}`)
+    const raw = (res.Invoices ?? []).find(inv => inv.Type === 'ACCREC' && inv.InvoiceNumber === number && inv.Status !== 'VOIDED' && inv.Status !== 'DELETED')
+    return { invoice: dueFromXero(raw), contactId }
+  } catch {
+    return { invoice: null, contactId }
   }
 }
 
 /**
- * Apply an approved credit note in Xero: off invoice 1 first, then invoice 2,
- * as far as each still has an amount due. `done` is true once nothing more
- * can come off them, so the statement can show invoice 1's pay button.
+ * Apply an approved credit note to invoice 1 in Xero, as far as invoice 1
+ * still has an amount due; the rest stays on the credit note for the client.
+ * `done` is true once nothing more can come off, so the statement can show
+ * invoice 1's pay button. Without invoice 1 in Xero it is left to staff.
  */
 async function applyCreditNote(
   supabase: Supabase,
   conn: XeroConnection,
-  d: { jobId: string; creditId: string; creditNumber: string; invoice2Id: string; invoice2Pending: boolean; log: (target: string, amount: number, note: string) => Promise<unknown> },
+  d: { creditId: string; creditNumber: string; invoice1: Invoice1Ref; typedInvoice1: string; log: (target: string, amount: number, note: string) => Promise<unknown> },
 ): Promise<{ done: boolean; note: string }> {
   const name = `Credit note ${d.creditNumber}`.trim()
   const res = await xeroRequest<{ CreditNotes?: Record<string, unknown>[] }>(supabase, conn, 'GET', `/CreditNotes/${encodeURIComponent(d.creditId)}`)
-  let remaining = round2(Number(res.CreditNotes?.[0]?.RemainingCredit ?? 0))
-  if (remaining <= 0.004) return { done: true, note: `${name} is already fully applied in Xero.` }
+  const credit = res.CreditNotes?.[0]
+  let remaining = round2(Number(credit?.RemainingCredit ?? 0))
+  if (remaining <= 0.004) {
+    return { done: true, note: `${name} is fully applied in Xero. Save the statement as a document again so the client's copy has the pay button.` }
+  }
 
-  const { data: row } = await supabase.from('xero_job_invoices').select('xero_invoice_id').eq('job_id', d.jobId).maybeSingle()
-  const invoice1 = await invoiceDue(supabase, conn, (row as { xero_invoice_id?: string | null } | null)?.xero_invoice_id ?? '')
-  const invoice2 = await invoiceDue(supabase, conn, d.invoice2Id)
-  if (invoice1 && invoice1.status !== 'AUTHORISED' && invoice1.status !== 'PAID') {
+  const invoice1 = d.invoice1.invoice
+  const byHand = 'Allocate it to invoice 1 by hand in Xero, then press again.'
+  if (!invoice1) {
+    const typed = d.typedInvoice1.trim()
+    return {
+      done: false,
+      note: typed
+        ? `${name} is approved, but Xero has no invoice ${typed} to apply it to. Check invoice 1's number under Invoices and press again, or allocate it to invoice 1 by hand in Xero and press again.`
+        : `${name} is approved, but invoice 1 was not raised from this job, so it cannot be applied automatically. ${byHand} Or type invoice 1's number under Invoices and press again.`,
+    }
+  }
+  const creditContact = (credit?.Contact as { ContactID?: unknown } | undefined)?.ContactID
+  if (typeof creditContact === 'string' && creditContact && invoice1.contactId && creditContact !== invoice1.contactId) {
+    return { done: false, note: `${name} is for a different Xero contact than invoice 1 ${invoice1.number}, so it cannot be applied automatically. ${byHand}` }
+  }
+  if (invoice1.status !== 'AUTHORISED' && invoice1.status !== 'PAID') {
     return { done: false, note: `${name} is approved, but invoice 1 ${invoice1.number} is ${invoice1.status.toLowerCase()} in Xero. Approve invoice 1, then press again to apply the credit.` }
   }
 
-  const plan = creditPlan(invoice1?.status === 'AUTHORISED' ? invoice1.amountDue : 0, invoice2?.status === 'AUTHORISED' ? invoice2.amountDue : 0, remaining)
-  const applied: string[] = []
-  const date = brisbaneDate(new Date())
-  for (const [target, amount] of [[invoice1, plan.toInvoice1], [invoice2, plan.toInvoice2]] as const) {
-    if (!target || amount <= 0.004) continue
+  const plan = creditPlan(invoice1.status === 'AUTHORISED' ? invoice1.amountDue : 0, 0, remaining)
+  if (plan.toInvoice1 > 0.004) {
     await xeroRequest(
       supabase, conn, 'PUT', `/CreditNotes/${encodeURIComponent(d.creditId)}/Allocations`,
-      { Allocations: [{ Amount: amount, Invoice: { InvoiceID: target.id }, Date: date }] },
-      { idempotencyKey: `soa-alloc-${d.creditId}-${target.id}-${amount.toFixed(2)}` },
+      { Allocations: [{ Amount: plan.toInvoice1, Invoice: { InvoiceID: invoice1.id }, Date: brisbaneDate(new Date()) }] },
+      { idempotencyKey: `soa-alloc-${d.creditId}-${invoice1.id}-${plan.toInvoice1.toFixed(2)}` },
     )
-    remaining = round2(remaining - amount)
-    applied.push(`${formatAud(amount)} to invoice ${target.number}`)
-    await d.log(target.id, amount, `${name}: ${formatAud(amount)} applied to invoice ${target.number}.`)
-  }
-  if (d.invoice2Pending && remaining > 0.004) {
-    const sofar = applied.length ? ` ${applied.join(' and ')} applied so far.` : ''
-    return { done: false, note: `${name}:${sofar} ${formatAud(remaining)} is still to come off invoice 2. Approve invoice 2 in Xero, then press again.` }
+    remaining = round2(remaining - plan.toInvoice1)
+    await d.log(invoice1.id, plan.toInvoice1, `${name}: ${formatAud(plan.toInvoice1)} applied to invoice ${invoice1.number}.`)
   }
   const left = remaining > 0.004 ? ` ${formatAud(remaining)} is left on it as credit for the client: refund it or keep it as credit in Xero.` : ''
-  if (!applied.length) return { done: true, note: `${name} had nothing to come off: the invoices have nothing due.${left}` }
-  return { done: true, note: `${name} applied in Xero: ${applied.join(' and ')}.${left} Save the statement as a document again so the client's copy has the pay button.` }
+  if (plan.toInvoice1 <= 0.004) return { done: true, note: `${name} had nothing to come off: invoice 1 ${invoice1.number} has nothing due.${left}` }
+  return { done: true, note: `${name} applied in Xero: ${formatAud(plan.toInvoice1)} to invoice ${invoice1.number}.${left} Save the statement as a document again so the client's copy has the pay button.` }
 }
 
 const QUOTE_TYPES: Record<StatementLineKey, string> = {

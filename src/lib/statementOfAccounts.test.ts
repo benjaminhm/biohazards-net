@@ -15,6 +15,7 @@ import {
   statementV2Invoices,
   statementV2InvoicesTotal,
   statementV2Adjustments,
+  statementInvoicesNote,
   creditPlan,
   statementV2Rows,
   breakdownTotal,
@@ -436,7 +437,8 @@ test('model 2 splits the balance into invoice 1 (estimate less deposit) and invo
   assert.equal(surfaceRow.actual_ex, 600)
   assert.equal(surfaceRow.difference_ex, Math.round((600 - surfaceAreaCaptureFigures(sacq).subtotal) * 100) / 100)
   assert.equal(surfaceRow.difference_inc, Math.round((surfaceRow.difference_ex + surfaceRow.gst) * 100) / 100)
-  assert.equal(breakdownTotal(two).difference_inc, two.amount)
+  assert.equal(breakdownTotal(two).label, 'Credit note total')
+  assert.equal(breakdownTotal(two).difference_inc, -two.amountShown)
   assert.match(two.detail, / inc GST\. Taken off invoice 1 \(\$550\.00\)\.$/)
 
   const fixedOnly = statementV2Figures({ house_survey: { areas: [], labour_days: 1, rate_per_labour_day: 100 }, statement_of_accounts: {} } as unknown as AssessmentData)
@@ -541,25 +543,76 @@ test('model 2: invoice 1 paid in full takes the whole estimate and says so', () 
   assert.deepEqual(statementV2Figures(v2Job({ invoice1_paid_in_full: true })).problems, ['Enter the date invoice 1 was paid.'])
 })
 
-test('model 2: increases go on invoice 2 and decreases on a credit note, adding up to the difference', () => {
-  const f = statementV2Figures(v2Job({ deposit_amount: 1000, deposit_date: '2026-11-02', manual_adjustment: 220, manual_adjustment_reason: 'extra tip run', credit_note_number: 'CN-7' }))
+// The fixture's estimate is $3,520 inc GST and its actual $2,970: $550 under before any adjustment.
+const underAdjusted = (manual_adjustment: number) => statementV2Figures(v2Job({
+  deposit_amount: 1000, deposit_date: '2026-11-02', invoice_number: 'INV-9', invoice_url: 'https://pay.example.com/inv-9',
+  manual_adjustment, manual_adjustment_reason: 'extra tip run', credit_note_number: 'CN-7',
+}))
+
+test('model 2: under the estimate makes only a credit note, with any increase netted on it', () => {
+  const f = underAdjusted(220)
   const { invoice2, credit_note, net } = statementV2Adjustments(f)
-  assert.ok(invoice2 && credit_note)
-  assert.deepEqual(invoice2.rows.map(row => row.label), ['Adjustment (extra tip run)'])
-  assert.deepEqual(credit_note.rows.map(row => row.label), ['Surface area cleaning (SACQ)', 'Biohazard cleaning (BCQ)'])
-  assert.ok(credit_note.amount < 0)
-  assert.equal(Math.round((invoice2.amount + credit_note.amount) * 100) / 100, net)
+  assert.equal(net, -330)
+  assert.equal(invoice2, null)
+  assert.ok(credit_note)
+  assert.equal(credit_note.amount, -330)
+  assert.deepEqual(credit_note.rows.map(row => row.label), ['Surface area cleaning (SACQ)', 'Biohazard cleaning (BCQ)', 'Adjustment (extra tip run)'])
+
   const invoices = statementV2Invoices(f)
-  assert.deepEqual(invoices.map(inv => inv.kind), ['invoice1', 'invoice2', 'credit_note'])
-  assert.match(invoices[2].heading, /^Credit note CN-7/)
-  assert.equal(invoices[2].amountShown, -credit_note.amount)
+  assert.deepEqual(invoices.map(inv => inv.kind), ['invoice1', 'credit_note'])
+  const [one, cn] = invoices
+  assert.equal(one.amount, 3520 - 1000 - 330)
+  assert.equal(one.amount, f.balance)
+  assert.match(one.detail, /less credit note CN-7 \$330\.00 inc GST\.$/)
+  assert.equal(cn.amountShown, 330)
+  assert.match(cn.detail, /Taken off invoice 1 \(\$330\.00\)\.$/)
+  assert.deepEqual(breakdownTotal(cn), { label: 'Credit note total', actual_ex: null, estimate_ex: null, difference_ex: -300, gst: -30, difference_inc: -330 })
+  assert.deepEqual(statementV2InvoicesTotal(invoices), { label: 'Total to pay', amount: f.balance })
+  assert.equal(statementInvoicesNote(f), 'The original estimate was invoiced on invoice 1 and the deposit was paid against it. The job came in lower than the estimate, so a credit note for the difference is taken off invoice 1.')
+
   const docs = statementXeroDocs(f, DEFAULT_XERO_SETTINGS)
-  assert.deepEqual(docs.map(doc => [doc.kind, doc.lines.length]), [['invoice2', 1], ['credit_note', 2]])
-  assert.deepEqual(docs[0].lines[0], { Description: 'Adjustment (extra tip run). As per the Statement of Accounts.', Quantity: 1, UnitAmount: 200, AccountCode: '200', TaxType: 'OUTPUT' })
-  assert.equal(docs[1].lines[1].Description, 'Biohazard cleaning (BCQ): estimate $2,200.00 less final $2,100.00 = $100.00 ex GST. As per the Statement of Accounts.')
+  assert.deepEqual(docs.map(doc => [doc.kind, doc.amount]), [['credit_note', 330]])
+  assert.deepEqual(docs[0].lines.map(line => line.UnitAmount), [400, 100, -200])
+  assert.deepEqual(docs[0].lines[2], { Description: 'Adjustment (extra tip run). As per the Statement of Accounts.', Quantity: 1, UnitAmount: -200, AccountCode: '200', TaxType: 'OUTPUT' })
+  assert.equal(docs[0].lines[1].Description, 'Biohazard cleaning (BCQ): estimate $2,200.00 less final $2,100.00 = $100.00 ex GST. As per the Statement of Accounts.')
   const referenced = statementXeroDocs(f, DEFAULT_XERO_SETTINGS, { statement: 'SOA-20261114-9207', quotes: { 'Biohazard cleaning (BCQ)': 'BCQ-20260929-9207' } })
-  assert.equal(referenced[1].lines[1].Description, 'Biohazard cleaning (BCQ): estimate $2,200.00 less final $2,100.00 = $100.00 ex GST. Estimate from BCQ-20260929-9207. As per Statement of Accounts SOA-20261114-9207.')
-  assert.equal(docs[1].lines[1].UnitAmount, 100)
+  assert.equal(referenced[0].lines[1].Description, 'Biohazard cleaning (BCQ): estimate $2,200.00 less final $2,100.00 = $100.00 ex GST. Estimate from BCQ-20260929-9207. As per Statement of Accounts SOA-20261114-9207.')
+
+  const html = statementHtml(statementV2Content({ ...f, credit_note_applied: true }, 'SOA-1', '1 Example Street'))
+  assert.match(html, /Total to pay<\/td><td class="r" style="font-weight:700">\$2,190\.00/)
+  assert.equal(/Invoice 2/.test(html), false)
+})
+
+test('model 2: over the estimate makes only invoice 2, with any decrease netted on it', () => {
+  const f = underAdjusted(880)
+  const { invoice2, credit_note, net } = statementV2Adjustments(f)
+  assert.equal(net, 330)
+  assert.equal(credit_note, null)
+  assert.ok(invoice2)
+  assert.equal(invoice2.amount, 330)
+  const invoices = statementV2Invoices(f)
+  assert.deepEqual(invoices.map(inv => inv.kind), ['invoice1', 'invoice2'])
+  assert.equal(invoices[0].amount, 2520)
+  assert.equal(invoices[0].payHref, 'https://pay.example.com/inv-9')
+  assert.equal(invoices[1].amount, 330)
+  assert.equal(breakdownTotal(invoices[1]).difference_inc, 330)
+  assert.deepEqual(statementV2InvoicesTotal(invoices), { label: 'Total to pay', amount: f.balance })
+  assert.match(statementInvoicesNote(f), /Invoice 2 covers what came in higher than the estimate\. Together they make up the balance\.$/)
+  const docs = statementXeroDocs(f, DEFAULT_XERO_SETTINGS)
+  assert.deepEqual(docs.map(doc => [doc.kind, doc.amount]), [['invoice2', 330]])
+  assert.deepEqual(docs[0].lines.map(line => line.UnitAmount), [-400, -100, 800])
+})
+
+test('model 2: an adjustment that cancels the difference needs no invoice 2 and no credit note', () => {
+  const f = underAdjusted(550)
+  assert.deepEqual(statementV2Adjustments(f), { invoice2: null, credit_note: null, net: 0 })
+  assert.deepEqual(statementXeroDocs(f, DEFAULT_XERO_SETTINGS), [])
+  const invoices = statementV2Invoices(f)
+  assert.deepEqual(invoices.map(inv => inv.kind), ['invoice1'])
+  assert.equal(invoices[0].amount, 2520)
+  assert.equal(invoices[0].amount, f.balance)
+  assert.equal(invoices[0].payHref, 'https://pay.example.com/inv-9')
+  assert.equal(statementInvoicesNote(f), 'The original estimate was invoiced on invoice 1 and the deposit was paid against it.')
 })
 
 test('model 2: all decreases make one credit note, and an older statement keeps its number in invoice 2', () => {

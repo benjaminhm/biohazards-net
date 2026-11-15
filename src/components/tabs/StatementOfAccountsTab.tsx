@@ -80,21 +80,76 @@ function capturesEqual(a: StatementOfAccountsCapture, b: StatementOfAccountsCapt
     && [...a.ignored_quotes].sort().join() === [...b.ignored_quotes].sort().join()
 }
 
-/** What the Xero button does next, for the documents this statement needs. */
-function xeroRaiseHelp(hasInvoice2: boolean, hasCredit: boolean, capture: StatementOfAccountsCapture): string {
-  const docs = [hasInvoice2 ? 'invoice 2' : '', hasCredit ? 'a credit note' : ''].filter(Boolean)
-  if (!docs.length) return 'The statement no longer needs an invoice 2 or credit note. Void or delete any draft left in Xero.'
-  const parts = [`Creates ${docs.join(' and ')} in Xero as ${docs.length > 1 ? 'drafts' : 'a draft'}. Check and approve ${docs.length > 1 ? 'them' : 'it'} in Xero.`]
-  if (hasCredit) {
-    parts.push(capture.credit_note_applied
-      ? 'The credit note has been applied in Xero.'
-      : `Once the credit note is approved, press again: it is applied to invoice 1${hasInvoice2 ? ', then invoice 2' : ''}, and invoice 1's pay button then asks for the reduced amount.`)
+const APPROVED = new Set(['AUTHORISED', 'PAID'])
+
+/**
+ * What the Xero button does next for this statement: its label and the help
+ * under it. `invoice1Linked` is whether invoice 1 was raised from the job.
+ */
+function xeroRaiseAction(
+  needs: { invoice2: boolean; credit: boolean },
+  capture: StatementOfAccountsCapture,
+  invoice1Linked: boolean,
+): { label: string; help: string } {
+  const stale = [
+    !needs.invoice2 && capture.xero_invoice2_id
+      ? `The statement no longer needs ${`invoice 2 ${capture.invoice2_number}`.trim()}: ${APPROVED.has(capture.xero_invoice2_status) ? 'credit it in Xero if that is right' : 'delete the draft in Xero'}.`
+      : '',
+    !needs.credit && capture.xero_credit_note_id
+      ? `The statement no longer needs ${`credit note ${capture.credit_note_number}`.trim()}: ${APPROVED.has(capture.xero_credit_note_status) ? 'check it in Xero' : 'delete the draft in Xero'}.`
+      : '',
+  ].filter(Boolean)
+  const help = (...parts: string[]) => [...parts, ...stale].filter(Boolean).join(' ')
+
+  if (needs.credit) {
+    const status = capture.xero_credit_note_status
+    const exists = Boolean(capture.xero_credit_note_id) && status !== 'VOIDED' && status !== 'DELETED'
+    if (capture.credit_note_applied) {
+      return { label: 'Update from the statement in Xero', help: help('The credit note has been applied to invoice 1 in Xero.') }
+    }
+    const typed = capture.invoice_number.trim()
+    const canApply = invoice1Linked || Boolean(typed)
+    const apply = capture.invoice1_paid_in_full
+      ? 'Invoice 1 was paid in full, so once the credit note is approved the credit is the client\'s: refund it or keep it as credit in Xero, then press again.'
+      : invoice1Linked
+        ? "Once it is approved, press again: it is applied to invoice 1, and invoice 1's pay button then asks for the reduced amount."
+        : typed
+          ? `Invoice 1 was not raised from this job. Once the credit note is approved, pressing again applies it to invoice ${typed} (typed under Invoices) if Xero has it for the same contact; if not, allocate it to invoice 1 by hand in Xero and press again.`
+          : "Invoice 1 was not raised from this job, so the credit note cannot be applied automatically. Once it is approved, allocate it to invoice 1 by hand in Xero, then press again so the statement shows invoice 1's reduced amount. Or type invoice 1's number under Invoices and the button applies it."
+    const save = "Then save the statement as a document again, so the client's copy has invoice 1's pay button."
+    if (!exists) {
+      return {
+        label: 'Create credit note in Xero (draft)',
+        help: help('The job came in under the estimate, so this creates only a credit note for the difference, as a draft; there is no invoice 2. Check and approve it in Xero.', apply, save),
+      }
+    }
+    if (!APPROVED.has(status)) {
+      return { label: 'Update the draft credit note in Xero', help: help('Updates the draft credit note from the statement. Check and approve it in Xero.', apply, save) }
+    }
+    return {
+      label: canApply && !capture.invoice1_paid_in_full ? 'Apply the credit note to invoice 1 in Xero' : 'Check the credit note in Xero',
+      help: help(apply, save),
+    }
   }
-  if (hasInvoice2 && !capture.invoice2_url) parts.push('Once invoice 2 is approved, press again to add its pay link.')
-  if ((hasCredit && !capture.credit_note_applied) || (hasInvoice2 && !capture.invoice2_url)) {
-    parts.push("Then save the statement as a document again, so the client's copy has the pay buttons.")
+
+  if (needs.invoice2) {
+    const status = capture.xero_invoice2_status
+    const exists = Boolean(capture.xero_invoice2_id) && status !== 'VOIDED' && status !== 'DELETED'
+    const save = "Then save the statement as a document again, so the client's copy has the pay buttons."
+    if (!exists) {
+      return {
+        label: 'Create invoice 2 in Xero (draft)',
+        help: help('The job came in over the estimate, so this creates invoice 2 for the extra, as a draft. Check and approve it in Xero, then press again to add its pay link.', save),
+      }
+    }
+    if (!APPROVED.has(status)) {
+      return { label: 'Update the draft invoice 2 in Xero', help: help('Updates the draft invoice 2 from the statement. Once it is approved in Xero, press again to add its pay link.', save) }
+    }
+    if (!capture.invoice2_url) return { label: "Add invoice 2's pay link", help: help('Invoice 2 is approved in Xero: press to add its pay link.', save) }
+    return { label: 'Update from the statement in Xero', help: help('Invoice 2 is approved in Xero and its pay link is on the statement.') }
   }
-  return parts.join(' ')
+
+  return { label: 'Update from the statement in Xero', help: help('The job came in at the estimate, so it needs no invoice 2 or credit note.') }
 }
 
 function signedAud(n: number): string {
@@ -117,6 +172,7 @@ export default function StatementOfAccountsTab({ job, onJobUpdate }: Props) {
   const [saveError, setSaveError] = useState('')
   const [xeroPaid, setXeroPaid] = useState<XeroInvoicePaid | null>(null)
   const [xeroConnected, setXeroConnected] = useState(false)
+  const [invoice1Linked, setInvoice1Linked] = useState(false)
   const [raising, setRaising] = useState(false)
   const [raiseNotes, setRaiseNotes] = useState<string[]>([])
   const [raiseError, setRaiseError] = useState('')
@@ -132,6 +188,7 @@ export default function StatementOfAccountsTab({ job, onJobUpdate }: Props) {
       .then(result => {
         if (!live || !result?.connected) return
         setXeroConnected(true)
+        setInvoice1Linked(result.linked)
         if (!result.invoice) return
         const paid = result.invoice
         setXeroPaid(paid)
@@ -219,20 +276,13 @@ export default function StatementOfAccountsTab({ job, onJobUpdate }: Props) {
 
   const invoicesTotal = statementV2InvoicesTotal(invoices)
   const split = statementV2Adjustments(figures)
-  const adjustmentDocs = [
-    ...(split.invoice2 ? ['invoice 2'] : []),
-    ...(split.credit_note ? ['credit note'] : []),
-  ]
-  const raiseHelp = xeroRaiseHelp(Boolean(split.invoice2), Boolean(split.credit_note), capture)
+  const needsXeroDoc = Boolean(split.invoice2 || split.credit_note)
+  const raiseAction = xeroRaiseAction({ invoice2: Boolean(split.invoice2), credit: Boolean(split.credit_note) }, capture, invoice1Linked)
   const xeroDrafts = [
     ...(capture.xero_invoice2_id ? [{ kind: 'invoice2' as const, id: capture.xero_invoice2_id, label: `Invoice 2 ${capture.invoice2_number}`.trim(), status: capture.xero_invoice2_status }] : []),
     ...(capture.xero_credit_note_id ? [{ kind: 'credit_note' as const, id: capture.xero_credit_note_id, label: `Credit note ${capture.credit_note_number}`.trim(), status: capture.xero_credit_note_status }] : []),
   ]
-  const raiseLabel = raising
-    ? 'Working with Xero…'
-    : xeroDrafts.length > 0
-      ? 'Update from the statement in Xero'
-      : `Create ${adjustmentDocs.join(' and ')} in Xero (draft)`
+  const raiseLabel = raising ? 'Working with Xero…' : raiseAction.label
 
   const amountsNote = capture.charges_gst ? 'Inc GST' : 'No GST'
 
@@ -313,13 +363,13 @@ export default function StatementOfAccountsTab({ job, onJobUpdate }: Props) {
               <span>{formatAud(invoicesTotal.amount)}</span>
             </div>
           )}
-          {xeroConnected && (adjustmentDocs.length > 0 || xeroDrafts.length > 0) && (
+          {xeroConnected && (needsXeroDoc || xeroDrafts.length > 0) && (
             <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
               <button type="button" className="btn btn-primary" disabled={raising || saving} onClick={() => void raiseInXero()} style={{ padding: '10px 14px', fontWeight: 700 }}>
                 {raiseLabel}
               </button>
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
-                {raiseHelp}
+                {raiseAction.help}
               </div>
               {xeroDrafts.length > 0 && (
                 <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 8, fontSize: 13 }}>

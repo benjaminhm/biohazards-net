@@ -22,7 +22,8 @@ export interface XeroInvoicePaid {
 
 export type XeroDepositResult =
   | { connected: false }
-  | { connected: true; invoice: XeroInvoicePaid | null }
+  /** `linked`: the job has its own Xero invoice 1 (xero_job_invoices). False when invoice 1 was made by hand in Xero. */
+  | { connected: true; linked: boolean; invoice: XeroInvoicePaid | null }
 
 interface XeroInvoiceBody {
   InvoiceNumber?: string
@@ -204,7 +205,7 @@ export async function jobInvoicePaid(supabase: Supabase, orgId: string, jobId: s
     .eq('org_id', orgId)
     .maybeSingle()
   const id = (data as { xero_invoice_id?: string | null } | null)?.xero_invoice_id
-  if (!id) return { connected: true, invoice: null }
+  if (!id) return { connected: true, linked: false, invoice: null }
   const res = await xeroRequest<{ Invoices?: XeroInvoiceBody[] }>(supabase, conn, 'GET', `/Invoices/${encodeURIComponent(id)}`)
-  return { connected: true, invoice: invoicePaid(res.Invoices?.[0]) }
+  return { connected: true, linked: true, invoice: invoicePaid(res.Invoices?.[0]) }
 }

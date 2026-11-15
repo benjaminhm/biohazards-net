@@ -1,10 +1,11 @@
 /*
  * POST /api/jobs/[id]/statement-xero
  *
- * Raise the Statement of Accounts' invoice 2 and credit note in Xero as
- * drafts, or update the drafts from the saved statement. Staff approve them in
- * Xero. Returns the job (with the Xero numbers saved on the statement) and one
- * result per document.
+ * Raise the Statement of Accounts' invoice 2 (job over the estimate) or credit
+ * note (under it) in Xero as a draft, update the draft from the saved
+ * statement, or apply an approved credit note to invoice 1. Staff approve
+ * them in Xero. Returns the job (with the Xero numbers saved on the statement)
+ * and one result per document.
  */
 import { NextResponse } from 'next/server'
 import { guardFullAccessStaff } from '@/lib/fullAccessStaff'
