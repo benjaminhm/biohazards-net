@@ -65,7 +65,8 @@ import { proseHasPrintableContent, richBodyHtmlForPrint } from '@/lib/richTextPr
 import type { CompanyLetterheadContent } from '@/lib/companyLetterhead'
 import { breakdownTotal, isStatementV2Content, presentStatementDocument, presentStatementV2, statementClientLines, statementPhone, StatementReconciliationError, type StatementPresentation, type StatementV2Presentation } from '@/lib/statementOfAccounts'
 import type { ContentsClearanceQuoteContent } from '@/lib/contentsClearanceQuote'
-import { fillBiohazardCleaningEngagement, fillContentsClearanceEngagement, fillSurfaceAreaCleaningEngagement } from '@/lib/quoteEngagement'
+import { fillBiohazardCleaningEngagement, fillContentsClearanceEngagement, fillInstantQuoteEngagement, fillSurfaceAreaCleaningEngagement } from '@/lib/quoteEngagement'
+import { INSTANT_QUOTE_SCHEMA, type InstantQuoteContent } from '@/lib/instantQuote'
 import { SURFACE_AREA_ESTIMATE_NOTE, type SurfaceAreaCleaningQuoteContent } from '@/lib/surfaceAreaCleaningQuote'
 import {
   BIOHAZARD_CONTENTS_FIXED_LABEL,
@@ -3971,11 +3972,12 @@ function clearanceAppendixHtml(
   photos: Photo[],
   include: (photo: { area_ref?: string | null }) => boolean = isContentsClearanceAppendixPhoto,
   ids?: string[],
+  heading = 'Photos',
 ): string {
   const pics = photosFor(ids, photos, list => list.filter(include))
   if (!pics.length) return ''
   return `
-    <div class="label" style="margin-top:22px">Photos</div>
+    <div class="label" style="margin-top:22px">${esc(heading)}</div>
     <div class="photos-grid photos-grid-single">
       ${pics.map(p => `
         <div class="photo-card">
@@ -4179,6 +4181,81 @@ function buildSurfaceAreaCleaningHTML(
 ): string {
   const mid = buildSurfaceAreaCleaningMid(c, company, client, photos) + quoteAcceptPanel(client)
   const title = clearancePrintTitle(c.title) || 'Surface Area Cleaning'
+  return wrapBranded(mid, title, title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
+}
+
+/**
+ * One fixed price for the scope of work, quoted without a site inspection.
+ * No quantities or rates are printed, because none are remeasured. The only photos are the client's own.
+ */
+function buildInstantQuoteMid(
+  c: InstantQuoteContent,
+  company: CompanyProfile | null = null,
+  client?: ClientInfo,
+  photos: Photo[] = [],
+): string {
+  const title = clearancePrintTitle(c.title) || 'Quote'
+  const clientPhotos = clearanceAppendixHtml(photos, () => false, c.photo_ids ?? [], INSTANT_QUOTE_SCHEMA.photosHeading)
+  return `
+    <div class="sow-summary" style="margin-bottom:20px;">
+      <div class="sow-meta-label" style="margin-bottom:6px;">Client</div>
+      <div class="body-text" style="font-weight:500;color:var(--sow-navy);">${esc(c.client_name || '—')}</div>
+      <div class="sow-meta-label" style="margin:10px 0 6px;">Job address</div>
+      <div class="body-text" style="font-weight:500;color:var(--sow-navy);">${esc(c.job_address || c.site_address || '—')}</div>
+      <div class="sow-meta-label" style="margin:10px 0 6px;">Basis of this quote</div>
+      <div class="body-text" style="font-weight:500;color:var(--sow-navy);">${esc(clientPhotos ? INSTANT_QUOTE_SCHEMA.basis.withPhotos : INSTANT_QUOTE_SCHEMA.basis.described)}</div>
+      ${c.earliest_start ? `
+      <div class="sow-meta-label" style="margin:10px 0 6px;">Earliest start</div>
+      <div class="body-text" style="font-weight:500;color:var(--sow-navy);">${esc(c.earliest_start)}</div>
+      <div class="body-text" style="font-size:8.5pt;font-style:italic;color:var(--sow-muted);">${esc(INSTANT_QUOTE_SCHEMA.startNote)}</div>` : ''}
+    </div>
+    ${section('Presentation', c.presentation)}
+    ${clearanceList('Scope of work', (c.scope_of_work ?? '').split('\n'))}
+    <div class="label" style="margin-top:18px">Fixed price</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th class="r">Amount (ex GST)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>${esc(title)}: the scope of work on this quote</td>
+          <td class="r">${fmtMoney(c.subtotal)}</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="totals">
+      <div class="tot-row"><span>Subtotal (ex GST)</span><span class="amt">${fmtMoney(c.subtotal)}</span></div>
+      <div class="tot-row"><span>GST (10%)</span><span class="amt">${fmtMoney(c.gst)}</span></div>
+      <div class="tot-row grand"><span>FIXED PRICE (INC GST)</span><span class="amt">${fmtMoney(c.total)}</span></div>
+    </div>
+    ${clientPhotos}
+    ${clearanceList('Inclusions', c.inclusions ?? [])}
+    ${clearanceList('Exclusions', c.exclusions ?? [])}
+    ${clearanceList('Assumptions', c.assumptions ?? [])}
+    ${section('Payment terms', c.terms)}
+    ${section('Engagement agreement', fillInstantQuoteEngagement(c, {
+      companyName: company?.name,
+      abn: company?.abn,
+      phone: client?.client_phone,
+      email: client?.client_email,
+    }))}
+    ${section('Authority', c.authority)}
+    ${section('Acceptance', c.acceptance)}
+  `
+}
+
+function buildInstantQuoteHTML(
+  c: InstantQuoteContent,
+  company: CompanyProfile | null,
+  client: ClientInfo | undefined,
+  screenActionBar: boolean,
+  photos: Photo[] = [],
+): string {
+  const mid = buildInstantQuoteMid(c, company, client, photos) + quoteAcceptPanel(client)
+  const title = clearancePrintTitle(c.title) || 'Quote'
   return wrapBranded(mid, title, title, c.reference, company, client, defaultBrandedMeta(company, client), wrapBrandedPrintOpts(screenActionBar))
 }
 
@@ -4474,6 +4551,8 @@ export function buildPrintMidHTML(
       return buildSurfaceAreaCleaningMid(c as unknown as SurfaceAreaCleaningQuoteContent, company, client, photos)
     case 'biohazard_cleaning_quote':
       return buildBiohazardCleaningMid(c as unknown as BiohazardCleaningQuoteContent, company, client, photos)
+    case 'instant_quote':
+      return buildInstantQuoteMid(c as unknown as InstantQuoteContent, company, client, photos)
     case 'company_letterhead':
       return buildCompanyLetterheadMid(c as unknown as CompanyLetterheadContent)
     default:
@@ -4583,6 +4662,7 @@ export function buildPrintHTML(
     case 'contents_clearance_quote':   return buildContentsClearanceHTML(c as unknown as ContentsClearanceQuoteContent, photos, company, client, screenActionBar)
     case 'surface_area_cleaning_quote': return buildSurfaceAreaCleaningHTML(c as unknown as SurfaceAreaCleaningQuoteContent, company, client, screenActionBar, photos)
     case 'biohazard_cleaning_quote':    return buildBiohazardCleaningHTML(c as unknown as BiohazardCleaningQuoteContent, company, client, screenActionBar, photos)
+    case 'instant_quote':               return buildInstantQuoteHTML(c as unknown as InstantQuoteContent, company, client, screenActionBar, photos)
     case 'company_letterhead':          return buildCompanyLetterheadHTML(c as unknown as CompanyLetterheadContent, company, client, screenActionBar)
     case 'iaq_multi': {
       const partsRaw = c.parts

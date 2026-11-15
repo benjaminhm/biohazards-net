@@ -2,6 +2,7 @@ import type { ContentsClearanceQuoteContent } from '@/lib/contentsClearanceQuote
 import { proseHasPrintableContent } from '@/lib/richTextPrint'
 import type { SurfaceAreaCleaningQuoteContent } from '@/lib/surfaceAreaCleaningQuote'
 import type { BiohazardCleaningQuoteContent } from '@/lib/biohazardCleaningQuote'
+import type { InstantQuoteContent } from '@/lib/instantQuote'
 
 /**
  * One engagement agreement for contents clearance and surface cleaning.
@@ -381,6 +382,33 @@ export function fillSurfaceAreaCleaningEngagement(
     surface: content.estimated_m2,
     surfaceAmount: content.area_amount,
     ratePerM2: content.rate_per_m2,
+    deposit: split.deposit,
+    balance: split.balance,
+    date: quoteDate(context),
+    company: companyLabel(context),
+    phone: context?.phone ?? undefined,
+    email: context?.email ?? undefined,
+  })
+}
+
+/**
+ * The fast quote is one fixed price with no quantities or rates. Only the price, the deposit and the parties
+ * are filled, so every line of the agreement that states a quantity or a rate is left off.
+ */
+export function fillInstantQuoteEngagement(
+  content: InstantQuoteContent,
+  context?: EngagementPrintContext,
+): string {
+  const title = content.title.trim().replace(/ Quote$/i, '')
+  const split = halfThePrice(content.total)
+  return fillEngagementAgreement(content.engagement_agreement, {
+    name: content.client_name,
+    address: content.job_address || content.site_address,
+    title,
+    reference: content.reference,
+    subtotal: content.subtotal,
+    gst: content.gst,
+    total: content.total,
     deposit: split.deposit,
     balance: split.balance,
     date: quoteDate(context),

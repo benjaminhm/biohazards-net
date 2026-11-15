@@ -56,6 +56,7 @@ const TYPE_LABELS: Record<string, string> = {
   biohazard_cleaning_quote: 'Biohazard cleaning',
   contents_clearance_quote: 'Contents clearance',
   surface_area_cleaning_quote: 'Surface area cleaning',
+  instant_quote: 'Fixed price quote',
 }
 
 function num(v: unknown): number | null {

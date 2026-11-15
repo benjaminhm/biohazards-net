@@ -55,7 +55,7 @@ export function usedPhotoIds(data: AssessmentData | null | undefined, photos: re
     add(a.during_photo_ids)
     add(a.after_photo_ids)
   }
-  for (const key of ['contents_clearance_quote', 'surface_area_cleaning_quote', 'biohazard_cleaning_quote']) {
+  for (const key of ['contents_clearance_quote', 'surface_area_cleaning_quote', 'biohazard_cleaning_quote', 'instant_quote']) {
     add(obj(d[key]).photo_ids)
   }
   add(obj(d.fast_quote).photo_ids)

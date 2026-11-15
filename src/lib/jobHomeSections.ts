@@ -12,6 +12,7 @@ export type HomeSection =
   | 'onsite_assessment'
   | 'survey'
   | 'scope_of_work'
+  | 'instant_quote'
   | 'biohazard_cleaning'
   | 'quote'
   | 'contents_clearance'
@@ -31,6 +32,7 @@ export const HOME_SECTIONS: { id: HomeSection; label: string }[] = [
   { id: 'onsite_assessment', label: 'Onsite Assessment' },
   { id: 'survey', label: 'Survey' },
   { id: 'scope_of_work', label: 'Scope of Work' },
+  { id: 'instant_quote', label: 'Fast Quote' },
   { id: 'biohazard_cleaning', label: 'BCQ' },
   { id: 'contents_clearance', label: 'CCQ' },
   { id: 'surface_area_cleaning', label: 'SACQ' },
@@ -61,6 +63,7 @@ export const HOME_SECTION_TO_CAP: Record<HomeSection, keyof TeamCapabilities> = 
   onsite_assessment: 'view_home_onsite_assessment',
   survey:            'view_home_onsite_assessment',
   scope_of_work:     'view_home_scope_of_work',
+  instant_quote:     'view_home_quote',
   biohazard_cleaning: 'view_home_quote',
   quote:             'view_home_quote',
   contents_clearance: 'view_home_quote',

@@ -55,6 +55,7 @@ import HouseSurveyTab from '@/components/tabs/HouseSurveyTab'
 import QuoteCaptureTab from '@/components/tabs/QuoteCaptureTab'
 import ContentsClearanceQuoteTab from '@/components/tabs/ContentsClearanceQuoteTab'
 import SurfaceAreaCleaningQuoteTab from '@/components/tabs/SurfaceAreaCleaningQuoteTab'
+import InstantQuoteTab from '@/components/tabs/InstantQuoteTab'
 import BiohazardCleaningQuoteTab from '@/components/tabs/BiohazardCleaningQuoteTab'
 import IaqBundleCaptureTab from '@/components/tabs/IaqBundleCaptureTab'
 import MessagesTab from '@/components/tabs/MessagesTab'
@@ -1032,6 +1033,8 @@ export default function JobPage() {
       ? DOC_TYPE_LABELS.company_letterhead
       : activeTab === 'home' && homeSection === 'payment_overdue'
       ? 'Payment Overdue'
+      : activeTab === 'home' && homeSection === 'instant_quote'
+      ? 'Fast Quote'
       : activeTab === 'home' && homeSection === 'biohazard_cleaning'
       ? 'BCQ'
       : activeTab === 'home' && homeSection === 'contents_clearance'
@@ -1070,6 +1073,7 @@ export default function JobPage() {
   const showContentsClearance = inHome('contents_clearance')
   const showSurfaceAreaCleaning = inHome('surface_area_cleaning')
   const showBiohazardCleaning = inHome('biohazard_cleaning')
+  const showInstantQuote = inHome('instant_quote')
   const showPRC            = activeTab === 'pre_remediation_checklist_capture' || inHome('plan')
   const showEngagementAgr  = activeTab === 'engagement_agreement_capture' || (inHome('legal') && legalSection === 'engagement_agreement')
   const showNda            = activeTab === 'nda_capture' || (inHome('legal') && legalSection === 'nda')
@@ -1874,6 +1878,9 @@ export default function JobPage() {
               else requestTabChange('scope_capture')
             }}
           />
+        )}
+        {showInstantQuote && (
+          <InstantQuoteTab job={job} photos={photos} onJobUpdate={setJob} onPhotosUpdate={setPhotos} />
         )}
         {showContentsClearance && (
           <ContentsClearanceQuoteTab

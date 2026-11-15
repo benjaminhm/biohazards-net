@@ -24,7 +24,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useMemo, type CSSProperties } from 'react'
-import type { Job, AssessmentData, Area, FastQuoteCapture, Photo } from '@/lib/types'
+import type { Job, AssessmentData, Area, Photo } from '@/lib/types'
 import SelectedPhotos from '@/components/SelectedPhotos'
 import { usedPhotoIds } from '@/lib/photoSelection'
 import { AREA_ROOM_TYPES, joinAreaName, splitAreaName } from '@/lib/areaRoomTypes'
@@ -82,16 +82,7 @@ type SpeechRecognitionEvent = {
 }
 
 /** Where browser speech-to-text is sending transcripts */
-type SpeechTarget = null | { kind: 'area'; index: number } | { kind: 'fast_quote' }
-
-function emptyFastQuote(): FastQuoteCapture {
-  return {
-    enabled: true,
-    transcript: '',
-    limitations_acknowledged: false,
-    updated_at: new Date().toISOString(),
-  }
-}
+type SpeechTarget = null | { kind: 'area'; index: number }
 
 /**
  * Picker for an Area's `name` that supports combining multiple rooms into a
@@ -350,20 +341,6 @@ export default function AssessmentTab({ job, onJobUpdate, photos, onPhotosUpdate
     setSaveError('')
   }
 
-  function updateFastQuote(patch: Partial<FastQuoteCapture>) {
-    setData(d => ({
-      ...d,
-      fast_quote: {
-        ...(d.fast_quote ?? emptyFastQuote()),
-        ...patch,
-        enabled: patch.enabled ?? d.fast_quote?.enabled ?? true,
-        updated_at: new Date().toISOString(),
-      },
-    }))
-    setSaved(false)
-    setSaveError('')
-  }
-
   async function polishAreaDescription(index: number) {
     const raw = data.areas[index]?.description ?? ''
     if (!raw.trim()) {
@@ -439,17 +416,6 @@ export default function AssessmentTab({ job, onJobUpdate, photos, onPhotosUpdate
             return { ...d, areas }
           })
           setSaved(false)
-        } else if (t && typeof t === 'object' && t.kind === 'fast_quote') {
-          setData(d => ({
-            ...d,
-            fast_quote: {
-              ...(d.fast_quote ?? emptyFastQuote()),
-              enabled: true,
-              transcript: `${d.fast_quote?.transcript ?? ''}${finalChunk}`,
-              updated_at: new Date().toISOString(),
-            },
-          }))
-          setSaved(false)
         }
       }
       setInterimText(interim)
@@ -475,7 +441,6 @@ export default function AssessmentTab({ job, onJobUpdate, photos, onPhotosUpdate
 
   const isAreaSpeech = (i: number) =>
     speechTarget !== null && typeof speechTarget === 'object' && speechTarget.kind === 'area' && speechTarget.index === i
-  const isFastQuoteSpeech = speechTarget !== null && typeof speechTarget === 'object' && speechTarget.kind === 'fast_quote'
 
   function micButtonStyle(active: boolean): CSSProperties {
     return {
@@ -532,13 +497,7 @@ export default function AssessmentTab({ job, onJobUpdate, photos, onPhotosUpdate
     () => (data.areas ?? []).map(a => (a.name || '').trim()).filter(Boolean),
     [data.areas]
   )
-  const fastQuote = data.fast_quote
-  /** Older jobs loaded Fast Quote photos with this area_ref; they are the selection until staff choose photos. */
-  const FAST_QUOTE_AREA_REF = 'Fast Quote'
   const usedIds = useMemo(() => usedPhotoIds(data, photos), [data, photos])
-  const fastQuotePhotos = photos.filter(
-    p => (p.area_ref || '').trim() === FAST_QUOTE_AREA_REF,
-  )
 
   return (
     <div style={{ paddingBottom: 40 }}>
@@ -557,129 +516,6 @@ export default function AssessmentTab({ job, onJobUpdate, photos, onPhotosUpdate
           {saveError}
         </div>
       )}
-
-      {/* Fast Quote */}
-      {section('Fast Quote')}
-      <div
-        className="card"
-        style={{
-          marginBottom: 14,
-          border: fastQuote?.enabled ? '1px solid rgba(255,107,53,0.35)' : '1px solid var(--border)',
-          background: fastQuote?.enabled ? 'rgba(255,107,53,0.06)' : 'var(--surface)',
-        }}
-      >
-        {!fastQuote?.enabled ? (
-          <div style={{ display: 'grid', gap: 10 }}>
-            <div style={{ fontSize: 14, fontWeight: 700 }}>Fast quote from a voice brief</div>
-            <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-              Use this when the quote is based on limited information or sight-unseen details. The Quote AI will draft with stronger assumptions, exclusions, and variation caveats.
-            </div>
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={() => updateFastQuote({ enabled: true })}
-              style={{ width: 'fit-content', fontSize: 13 }}
-            >
-              Fast Quote
-            </button>
-          </div>
-        ) : (
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 700 }}>Fast Quote mode enabled</div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.45 }}>
-                  Dictate the job brief here. Quote generation will treat this as limited-information, sight-unseen input.
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => (isFastQuoteSpeech ? stopSpeech() : startSpeech({ kind: 'fast_quote' }))}
-                title={isFastQuoteSpeech ? 'Stop dictation' : 'Speak fast quote brief'}
-                style={micButtonStyle(isFastQuoteSpeech)}
-              >
-                🎙
-              </button>
-            </div>
-            {isFastQuoteSpeech && interimText && (
-              <div
-                style={{
-                  background: 'rgba(255,107,53,0.06)',
-                  border: '1px dashed rgba(255,107,53,0.3)',
-                  borderRadius: 8,
-                  padding: '8px 10px',
-                  marginBottom: 8,
-                  fontSize: 12,
-                  color: 'var(--text-muted)',
-                  fontStyle: 'italic',
-                  lineHeight: 1.5,
-                }}
-              >
-                {interimText}
-              </div>
-            )}
-            <textarea
-              value={fastQuote.transcript}
-              onChange={e => updateFastQuote({ transcript: e.target.value, enabled: true })}
-              placeholder="Voice brief example: Sight unseen quote. Client reports affected bedroom and hallway, odour present, access tomorrow morning, include PPE, waste removal, and allow variation if conditions are worse than described..."
-              rows={5}
-              style={{ resize: 'vertical', marginBottom: 10 }}
-            />
-
-            <div
-              style={{
-                marginTop: 4,
-                marginBottom: 10,
-                paddingTop: 10,
-                borderTop: '1px dashed rgba(255,107,53,0.25)',
-              }}
-            >
-              <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.45, marginBottom: 8 }}>
-                Optional — attach client-supplied photos (text, email, etc). The Quote AI suggester reads them.
-                To print them, choose them on the quote as well.
-              </div>
-              <SelectedPhotos
-                jobId={job.id}
-                title="Fast Quote"
-                heading={false}
-                photos={photos}
-                ids={data.fast_quote?.photo_ids}
-                fallback={fastQuotePhotos}
-                onChange={ids => updateFastQuote({ photo_ids: ids })}
-                onPhotosUpdate={onPhotosUpdate}
-                usedIds={usedIds}
-                captions={false}
-                emptyText="No client photos attached."
-              />
-            </div>
-
-            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.45 }}>
-              <input
-                type="checkbox"
-                checked={fastQuote.limitations_acknowledged}
-                onChange={e => updateFastQuote({ limitations_acknowledged: e.target.checked, enabled: true })}
-                style={{ marginTop: 2 }}
-              />
-              <span>
-                Treat this as a limited-information quote. The generated quote should include strong assumptions, exclusions, concealed-condition wording, and variation rights.
-              </span>
-            </label>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', marginTop: 10 }}>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                {fastQuote.updated_at ? `Updated ${new Date(fastQuote.updated_at).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}
-              </div>
-              <button
-                type="button"
-                className="btn btn-ghost"
-                onClick={() => updateFastQuote({ enabled: false })}
-                style={{ fontSize: 12 }}
-              >
-                Disable Fast Quote
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
 
       {/* Areas */}
       {section('Areas')}

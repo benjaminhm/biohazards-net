@@ -66,6 +66,7 @@ export type DocType =
   | 'contents_clearance_quote'
   | 'surface_area_cleaning_quote'
   | 'biohazard_cleaning_quote'
+  | 'instant_quote'
 
 export const DOC_TYPE_LABELS: Record<DocType, string> = {
   iaq_multi:                  'Assessment / Scope / Quote',
@@ -89,6 +90,7 @@ export const DOC_TYPE_LABELS: Record<DocType, string> = {
   contents_clearance_quote:   'Contents Clearance Quote',
   surface_area_cleaning_quote: 'Surface Area Cleaning Quote',
   biohazard_cleaning_quote:   'Biohazard Cleaning Quote',
+  instant_quote:              'Fast Quote',
 }
 
 /**
@@ -141,7 +143,7 @@ export const DOC_TYPE_GROUPS: DocTypeGroup[] = [
   {
     id: 'quote',
     label: '4. Quote',
-    types: ['quote', 'biohazard_cleaning_quote', 'contents_clearance_quote', 'surface_area_cleaning_quote'],
+    types: ['instant_quote', 'quote', 'biohazard_cleaning_quote', 'contents_clearance_quote', 'surface_area_cleaning_quote'],
   },
   {
     id: 'legal',
@@ -248,7 +250,11 @@ export interface RisksHitl {
   last_reviewed_at?: string | null
 }
 
-/** Sight-unseen / limited-information quote brief captured from staff voice notes. */
+/**
+ * Sight-unseen / limited-information quote brief captured from staff voice notes.
+ * Legacy: the box that edited it is gone from Onsite Assessment (the Fast Quote above BCQ replaced it, see
+ * lib/instantQuote.ts). Jobs that used it keep the data; the legacy Quote/Estimate suggester still reads it.
+ */
 export interface FastQuoteCapture {
   enabled: boolean
   /** Client-supplied photos chosen from the job's folder. Unset: photos loaded as "Fast Quote". */
@@ -1213,6 +1219,8 @@ export interface AssessmentData {
   }
   /** Biohazard Cleaning Quote. Shape and defaults are in lib/biohazardCleaningQuote.ts. */
   biohazard_cleaning_quote?: Record<string, unknown>
+  /** Fast Quote: one fixed price, quoted without a site inspection, from what the client reported. Shape is in lib/instantQuote.ts. */
+  instant_quote?: Record<string, unknown>
   /** Biohazard Cleaning Record: measured actuals for the BCQ. Shape is in lib/biohazardCleaningRecord.ts. */
   biohazard_cleaning_record?: Record<string, unknown>
   /** Statement of Accounts. Model 2 bills the records' totals less the deposit; the invoice fields below it are model 1. */

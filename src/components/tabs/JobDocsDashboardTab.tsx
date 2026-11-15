@@ -32,6 +32,7 @@ const ROWS: Row[] = [
   { type: 'house_survey', target: { kind: 'home', section: 'survey' } },
   { type: 'assessment_document', target: { kind: 'home', section: 'onsite_assessment', sub: 'document' } },
   { type: 'sow', target: { kind: 'home', section: 'scope_of_work' } },
+  { type: 'instant_quote', target: { kind: 'home', section: 'instant_quote' }, quote: true },
   { type: 'biohazard_cleaning_quote', target: { kind: 'home', section: 'biohazard_cleaning' }, quote: true },
   { type: 'contents_clearance_quote', target: { kind: 'home', section: 'contents_clearance' }, quote: true },
   { type: 'surface_area_cleaning_quote', target: { kind: 'home', section: 'surface_area_cleaning' }, quote: true },

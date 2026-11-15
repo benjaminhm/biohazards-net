@@ -77,6 +77,7 @@ function DocViewerInner() {
     || docType === 'biohazard_cleaning_quote'
     || docType === 'contents_clearance_quote'
     || docType === 'surface_area_cleaning_quote'
+    || docType === 'instant_quote'
   const askText = useMemo(
     () => (canAskDocument && hasContent ? documentPlainText(content) : ''),
     [canAskDocument, hasContent, content],
@@ -272,6 +273,14 @@ function DocViewerInner() {
           composeOpts = {
             ...composeOpts,
             biohazardCleaningTemplate: normalizeBiohazardCleaningClauses(co?.biohazard_cleaning_standards ?? null, engagement),
+          }
+        }
+        if (docType === 'instant_quote') {
+          const clearance = normalizeContentsClearanceStandards(co?.contents_clearance_standards)
+          const surface = normalizeSurfaceAreaCleaningStandards(co?.surface_area_cleaning_standards)
+          composeOpts = {
+            ...composeOpts,
+            instantQuoteEngagement: sharedEngagementAgreement(clearance.engagement_agreement, surface.engagement_agreement),
           }
         }
         if (docType === 'statement_of_accounts') {

@@ -9,7 +9,7 @@ import type { JobStatus } from '@/lib/types'
 
 export const STATUS_ORDER: JobStatus[] = ['lead', 'assessed', 'quoted', 'accepted', 'scheduled', 'underway', 'completed', 'report_sent', 'paid']
 
-const QUOTE_TYPES = ['biohazard_cleaning_quote', 'contents_clearance_quote', 'surface_area_cleaning_quote', 'quote']
+const QUOTE_TYPES = ['biohazard_cleaning_quote', 'contents_clearance_quote', 'surface_area_cleaning_quote', 'instant_quote', 'quote']
 
 export interface StatusExpectation {
   /** At least one saved document of any of these types. */

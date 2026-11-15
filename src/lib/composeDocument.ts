@@ -42,6 +42,8 @@ import { preHasV2Content, resolvePreV2Parts, resolveQuotedLineContext } from '@/
 import { richBodyHtmlForPrint, proseHasPrintableContent } from '@/lib/richTextPrint'
 import { contentsClearanceQuoteContent, normalizeContentsClearanceCapture, type ContentsClearanceStandards } from '@/lib/contentsClearanceQuote'
 import { normalizeSurfaceAreaCleaningCapture, surfaceAreaCleaningQuoteContent, type SurfaceAreaCleaningStandards } from '@/lib/surfaceAreaCleaningQuote'
+import { instantQuoteContent, normalizeInstantQuoteCapture } from '@/lib/instantQuote'
+import { DEFAULT_ENGAGEMENT_AGREEMENT, storedEngagementAgreement } from '@/lib/quoteEngagement'
 import {
   biohazardCleaningQuoteContent,
   biohazardJobDefaults,
@@ -146,6 +148,8 @@ export interface ComposeDocumentOptions {
   surfaceAreaCleaningStandards?: SurfaceAreaCleaningStandards | null
   /** Company template for the biohazard cleaning quote. Used when the job has no copy of its own. */
   biohazardCleaningTemplate?: BiohazardCleaningClauses | null
+  /** The company's engagement agreement for the fast quote, brackets unfilled. Blank uses the default. */
+  instantQuoteEngagement?: string | null
 }
 
 const todayRef = () => new Date().toISOString().slice(0, 10).replace(/-/g, '')
@@ -172,6 +176,7 @@ function refPrefix(type: DocType, jobId: string): string {
     contents_clearance_quote: 'CCQ',
     surface_area_cleaning_quote: 'SACQ',
     biohazard_cleaning_quote: 'BCQ',
+    instant_quote: 'FQ',
     company_letterhead: 'CLH',
   }
   const p = map[type] ?? 'DOC'
@@ -1216,6 +1221,23 @@ function composeBiohazardCleaningQuote(
   }
 }
 
+function composeInstantQuote(
+  job: Job,
+  engagement?: ComposeDocumentOptions['instantQuoteEngagement'],
+): ComposeDocumentResult {
+  const capture = normalizeInstantQuoteCapture(job.assessment_data?.instant_quote)
+  return {
+    content: instantQuoteContent({
+      reference: refPrefix('instant_quote', job.id),
+      clientName: job.client_name || '',
+      siteAddress: job.site_address || '',
+      capture,
+      engagementAgreement: storedEngagementAgreement(engagement ?? '', DEFAULT_ENGAGEMENT_AGREEMENT),
+    }) as unknown as Record<string, unknown>,
+    source: job.assessment_data?.instant_quote != null ? 'assessment_capture' : 'skeleton',
+  }
+}
+
 function composeHouseSurvey(job: Job): ComposeDocumentResult {
   const record = biohazardRecordFromJob(job.assessment_data)
   const content: HouseSurveyDocumentContent = {
@@ -1309,6 +1331,8 @@ export function composeDocumentContent(type: DocType, job: Job, options?: Compos
       return composeSurfaceAreaCleaningQuote(job, options?.surfaceAreaCleaningStandards)
     case 'biohazard_cleaning_quote':
       return composeBiohazardCleaningQuote(job, options?.biohazardCleaningTemplate)
+    case 'instant_quote':
+      return composeInstantQuote(job, options?.instantQuoteEngagement)
     case 'company_letter':
       // Company Letter is composed in CompanyLetterTab and persisted through /api/documents;
       // it intentionally doesn't use the deterministic composer pipeline.
