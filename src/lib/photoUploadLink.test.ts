@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { isUploadTokenShape, newUploadToken, uploadLinkState, uploadLinkUrl } from './photoUploadLink'
+import { isUploadTokenShape, measureLinkUrl, newUploadToken, uploadLinkState, uploadLinkUrl } from './photoUploadLink'
 
 test('tokens are long, random and url-safe', () => {
   const a = newUploadToken()
@@ -22,4 +22,10 @@ test('a link is open until it expires or is stopped', () => {
 test('the live app links to the photo host; elsewhere stays on the same origin', () => {
   assert.equal(uploadLinkUrl('tok', 'https://app.biohazards.net'), 'https://photo.biohazards.net/drop/tok')
   assert.equal(uploadLinkUrl('tok', 'http://localhost:3000/'), 'http://localhost:3000/photo/drop/tok')
+})
+
+test('the room measure link opens the measure page on the same hosts', () => {
+  assert.equal(measureLinkUrl('tok', 'https://app.biohazards.net'), 'https://photo.biohazards.net/measure/tok')
+  assert.equal(measureLinkUrl('tok', 'https://biohazards.net/'), 'https://photo.biohazards.net/measure/tok')
+  assert.equal(measureLinkUrl('tok', 'http://localhost:3000/'), 'http://localhost:3000/photo/measure/tok')
 })

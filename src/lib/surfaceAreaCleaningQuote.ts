@@ -462,6 +462,126 @@ export function setPresetRoomCount(rooms: SurfaceAreaRoom[], preset: SurfaceArea
   return [...rooms, ...added]
 }
 
+/** The capture with these rooms. The estimated square metres follow the rooms that have dimensions. */
+export function withSurfaceAreaRooms(capture: SurfaceAreaCleaningCapture, rooms: SurfaceAreaRoom[]): SurfaceAreaCleaningCapture {
+  return { ...capture, rooms, estimated_m2: roomsSurfaceTotal(rooms, capture.exclude_ceiling) ?? capture.estimated_m2 }
+}
+
+/** A room measured on the phone is at most this long, wide or high, in metres. */
+export const ROOM_MEASURE_MAX_METRES = 100
+export const ROOM_MEASURE_NAME_MAX_CHARS = 60
+/** The phone link stops adding rooms at this many on one quote. */
+export const ROOM_MEASURE_MAX_ROOMS = 100
+
+/** One room as measured on the phone (lib/photoUploadLink measureLinkUrl). */
+export interface RoomMeasure {
+  /** The room being resized. Null adds a room. */
+  id: string | null
+  name: string
+  length_m: number
+  width_m: number
+  height_m: number
+}
+
+/** "Bedroom", then "Bedroom 2", "Bedroom 3": the first name of that kind not taken yet. */
+export function nextRoomName(base: string, taken: string[]): string {
+  const used = new Set(taken.map(name => name.trim().toLowerCase()))
+  if (!used.has(base.toLowerCase())) return base
+  let n = 2
+  while (used.has(`${base} ${n}`.toLowerCase())) n++
+  return `${base} ${n}`
+}
+
+/** What the phone sent, checked. A string says why it was refused. */
+export function parseRoomMeasure(raw: unknown): RoomMeasure | string {
+  const o = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {}
+  const name = typeof o.name === 'string' ? o.name.replace(/\s+/g, ' ').trim() : ''
+  if (!name) return 'Give the room a name.'
+  if (name.length > ROOM_MEASURE_NAME_MAX_CHARS) return `Keep the room name to ${ROOM_MEASURE_NAME_MAX_CHARS} characters.`
+  const metres: Record<'length_m' | 'width_m' | 'height_m', number> = { length_m: 0, width_m: 0, height_m: 0 }
+  for (const [key, label] of [['length_m', 'length'], ['width_m', 'width'], ['height_m', 'height']] as const) {
+    const value = o[key]
+    const n = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN
+    if (!Number.isFinite(n)) return `Enter the ${label} in metres.`
+    const rounded = round2(n)
+    if (rounded <= 0 || rounded > ROOM_MEASURE_MAX_METRES) return `The ${label} must be more than 0 and no more than ${ROOM_MEASURE_MAX_METRES} m.`
+    metres[key] = rounded
+  }
+  return { id: typeof o.id === 'string' && o.id ? o.id : null, name, ...metres }
+}
+
+/**
+ * The quote after one room measured on the phone. A room still on the quote takes the new name and size
+ * and keeps the rest (an average room keeps its tick). Anything else is added as a new room.
+ * A string says why it was refused.
+ */
+export function applyRoomMeasure(
+  capture: SurfaceAreaCleaningCapture,
+  measure: RoomMeasure,
+): { capture: SurfaceAreaCleaningCapture; room: SurfaceAreaRoom } | string {
+  const size = { name: measure.name, length_m: measure.length_m, width_m: measure.width_m, height_m: measure.height_m }
+  const existing = measure.id ? capture.rooms.find(room => room.id === measure.id) : undefined
+  if (existing) {
+    const room = { ...existing, ...size }
+    return { capture: withSurfaceAreaRooms(capture, capture.rooms.map(item => (item.id === room.id ? room : item))), room }
+  }
+  if (capture.rooms.length >= ROOM_MEASURE_MAX_ROOMS) return `This quote already has ${ROOM_MEASURE_MAX_ROOMS} rooms.`
+  const room: SurfaceAreaRoom = { id: newSurfaceAreaRoomId(), ...size, preset_id: null }
+  return { capture: withSurfaceAreaRooms(capture, [...capture.rooms, room]), room }
+}
+
+/** What the phone is shown of the quote: the rooms and their square metres. No rate, price or wording. */
+export interface RoomMeasureView {
+  rooms: { id: string; name: string; length_m: number | null; width_m: number | null; height_m: number | null; area_m2: number | null }[]
+  /** When set, a room's square metres are its floor and walls. */
+  exclude_ceiling: boolean
+  total_m2: number | null
+}
+
+export function roomMeasureView(capture: Pick<SurfaceAreaCleaningCapture, 'rooms' | 'exclude_ceiling'>): RoomMeasureView {
+  const excludeCeiling = capture.exclude_ceiling === true
+  return {
+    rooms: capture.rooms.map(room => ({
+      id: room.id,
+      name: room.name,
+      length_m: room.length_m,
+      width_m: room.width_m,
+      height_m: room.height_m,
+      area_m2: pricedRoomSurface(room, excludeCeiling)?.total ?? null,
+    })),
+    exclude_ceiling: excludeCeiling,
+    total_m2: roomsSurfaceTotal(capture.rooms, excludeCeiling),
+  }
+}
+
+function sameRoom(a: SurfaceAreaRoom, b: SurfaceAreaRoom): boolean {
+  return a.name === b.name
+    && a.length_m === b.length_m
+    && a.width_m === b.width_m
+    && a.height_m === b.height_m
+    && (a.preset_id ?? null) === (b.preset_id ?? null)
+}
+
+/**
+ * The rooms on an open quote after the saved rooms are read again (the phone may have measured some).
+ * `base` is the saved rooms the open quote started from, `local` the open quote, `remote` the saved rooms now.
+ *   - A saved room the open quote never had is added at the end.
+ *   - A room not edited on the open quote takes the saved name and size.
+ *   - A room edited on the open quote, or added there and not saved yet, stays as it is.
+ *   - A room removed on the open quote stays removed.
+ */
+export function mergeMeasuredRooms(base: SurfaceAreaRoom[], local: SurfaceAreaRoom[], remote: SurfaceAreaRoom[]): SurfaceAreaRoom[] {
+  const baseById = new Map(base.map(room => [room.id, room]))
+  const remoteById = new Map(remote.map(room => [room.id, room]))
+  const localIds = new Set(local.map(room => room.id))
+  const merged = local.map(room => {
+    const before = baseById.get(room.id)
+    const saved = remoteById.get(room.id)
+    return before && saved && sameRoom(room, before) ? saved : room
+  })
+  return [...merged, ...remote.filter(room => !localIds.has(room.id) && !baseById.has(room.id))]
+}
+
 export function surfaceAreaCleaningFigures(
   m2: number | null | undefined,
   schema: { ratePerM2: number; ratePerLabourDay: number } = SURFACE_AREA_SCHEMA,

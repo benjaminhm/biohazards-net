@@ -7,6 +7,13 @@ import type { Photo } from '@/lib/types'
 import {
   defaultSurfaceAreaCleaningStandards,
   emptySurfaceAreaCleaningCapture,
+  applyRoomMeasure,
+  mergeMeasuredRooms,
+  nextRoomName,
+  normalizeSurfaceAreaCleaningCapture,
+  parseRoomMeasure,
+  roomMeasureView,
+  type SurfaceAreaRoom,
   normalizeSurfaceAreaCleaningStandards,
   SURFACE_AREA_ROOM_PRESETS,
   roomSurfaceArea,
@@ -545,4 +552,138 @@ test('surface cleaning photos print before the engagement agreement, and another
   assert.ok(html.indexOf('living-room.jpg') < html.indexOf('Engagement agreement'))
   assert.ok(html.indexOf('Engagement agreement') < html.indexOf('Acceptance'))
   assert.doesNotMatch(html, /clearance-only\.jpg/)
+})
+
+function room(id: string, name: string, l: number | null = 4, w: number | null = 3, h: number | null = 2.4): SurfaceAreaRoom {
+  return { id, name, length_m: l, width_m: w, height_m: h, preset_id: null }
+}
+
+test('a room measured on the phone needs a name and three sizes in metres', () => {
+  assert.deepEqual(parseRoomMeasure({ name: '  Main   bedroom ', length_m: '4.004', width_m: 3.6, height_m: '2.4' }), {
+    id: null, name: 'Main bedroom', length_m: 4, width_m: 3.6, height_m: 2.4,
+  })
+  assert.equal((parseRoomMeasure({ id: 'room_1', name: 'Hall', length_m: 6, width_m: 1.2, height_m: 2.4 }) as { id: string }).id, 'room_1')
+  assert.equal(parseRoomMeasure({ name: ' ', length_m: 4, width_m: 3, height_m: 2.4 }), 'Give the room a name.')
+  assert.equal(parseRoomMeasure({ name: 'x'.repeat(61), length_m: 4, width_m: 3, height_m: 2.4 }), 'Keep the room name to 60 characters.')
+  assert.equal(parseRoomMeasure({ name: 'Hall', length_m: '', width_m: 3, height_m: 2.4 }), 'Enter the length in metres.')
+  assert.equal(parseRoomMeasure({ name: 'Hall', length_m: 4, width_m: 'wide', height_m: 2.4 }), 'Enter the width in metres.')
+  assert.equal(parseRoomMeasure({ name: 'Hall', length_m: 4, width_m: 3 }), 'Enter the height in metres.')
+  assert.match(String(parseRoomMeasure({ name: 'Hall', length_m: 0, width_m: 3, height_m: 2.4 })), /length must be more than 0/)
+  assert.match(String(parseRoomMeasure({ name: 'Hall', length_m: 4, width_m: -3, height_m: 2.4 })), /width must be more than 0/)
+  assert.match(String(parseRoomMeasure({ name: 'Hall', length_m: 4, width_m: 3, height_m: 100.01 })), /height must be more than 0 and no more than 100 m/)
+  assert.match(String(parseRoomMeasure({ name: 'Hall', length_m: 0.004, width_m: 3, height_m: 2.4 })), /length must be more than 0/)
+  assert.equal(parseRoomMeasure(null), 'Give the room a name.')
+})
+
+test('a measured room is added to the quote and the square metres follow', () => {
+  const start = { ...emptySurfaceAreaCleaningCapture(), rate_per_m2: 12, labour_days: 2, estimated_m2: 80 }
+  const first = applyRoomMeasure(start, { id: null, name: 'Bedroom', length_m: 4, width_m: 3, height_m: 2.4 })
+  assert.ok(typeof first !== 'string')
+  assert.equal(first.capture.rooms.length, 1)
+  assert.equal(first.room.name, 'Bedroom')
+  // Floor 12, ceiling 12, walls 2 × (4 + 3) × 2.4 = 33.6.
+  assert.equal(first.capture.estimated_m2, 57.6)
+  // Nothing else on the quote moves.
+  assert.equal(first.capture.rate_per_m2, 12)
+  assert.equal(first.capture.labour_days, 2)
+
+  const second = applyRoomMeasure(first.capture, { id: null, name: 'Hall', length_m: 6, width_m: 1.2, height_m: 2.4 })
+  assert.ok(typeof second !== 'string')
+  assert.deepEqual(second.capture.rooms.map(r => r.name), ['Bedroom', 'Hall'])
+  assert.notEqual(second.room.id, first.room.id)
+  assert.equal(second.capture.estimated_m2, 106.56)
+})
+
+test('with the ceiling excluded, a measured room adds its floor and walls only', () => {
+  const start = { ...emptySurfaceAreaCleaningCapture(), exclude_ceiling: true }
+  const applied = applyRoomMeasure(start, { id: null, name: 'Bedroom', length_m: 4, width_m: 3, height_m: 2.4 })
+  assert.ok(typeof applied !== 'string')
+  assert.equal(applied.capture.estimated_m2, 45.6)
+  assert.equal(applied.capture.exclude_ceiling, true)
+})
+
+test('measuring a room already on the quote replaces its name and size in place', () => {
+  const bedroom = SURFACE_AREA_ROOM_PRESETS.find(preset => preset.id === 'bedroom')!
+  const rooms = [...setPresetRoomCount([], bedroom, 2), room('r3', 'Hall', 6, 1.2, 2.4)]
+  const start = { ...emptySurfaceAreaCleaningCapture(), rooms }
+  const applied = applyRoomMeasure(start, { id: rooms[1].id, name: 'Back bedroom', length_m: 3.2, width_m: 2.9, height_m: 2.7 })
+  assert.ok(typeof applied !== 'string')
+  assert.deepEqual(applied.capture.rooms.map(r => r.name), ['Bedroom', 'Back bedroom', 'Hall'])
+  assert.deepEqual(applied.capture.rooms.map(r => r.id), rooms.map(r => r.id))
+  assert.equal(applied.capture.rooms[1].length_m, 3.2)
+  assert.equal(applied.capture.rooms[1].height_m, 2.7)
+  // An average room keeps its tick on the quote.
+  assert.equal(presetRoomCount(applied.capture.rooms, 'bedroom'), 2)
+  assert.equal(applied.capture.estimated_m2, roomsSurfaceTotal(applied.capture.rooms))
+})
+
+test('a measure for a room no longer on the quote is kept as a new room', () => {
+  const start = { ...emptySurfaceAreaCleaningCapture(), rooms: [room('r1', 'Kitchen')] }
+  const applied = applyRoomMeasure(start, { id: 'gone', name: 'Laundry', length_m: 2.2, width_m: 1.8, height_m: 2.4 })
+  assert.ok(typeof applied !== 'string')
+  assert.deepEqual(applied.capture.rooms.map(r => r.name), ['Kitchen', 'Laundry'])
+  assert.notEqual(applied.room.id, 'gone')
+})
+
+test('the phone link stops adding rooms at 100, and can still resize one', () => {
+  const rooms = Array.from({ length: 100 }, (_, i) => room(`r${i}`, `Room ${i + 1}`))
+  const start = { ...emptySurfaceAreaCleaningCapture(), rooms }
+  assert.equal(applyRoomMeasure(start, { id: null, name: 'One more', length_m: 4, width_m: 3, height_m: 2.4 }), 'This quote already has 100 rooms.')
+  assert.ok(typeof applyRoomMeasure(start, { id: 'r5', name: 'Room 6', length_m: 5, width_m: 3, height_m: 2.4 }) !== 'string')
+})
+
+test('the phone is shown the rooms and their square metres, and nothing about price', () => {
+  const capture = normalizeSurfaceAreaCleaningCapture({
+    rate_per_m2: 14.5, rate_per_labour_day: 880, labour_days: 3, mobilisation_fee: 250, scope_of_work: 'Clean all surfaces.',
+    rooms: [{ id: 'r1', name: 'Bedroom', length_m: 4, width_m: 3, height_m: 2.4 }, { id: 'r2', name: 'Hall', length_m: null, width_m: null, height_m: null }],
+  })
+  const view = roomMeasureView(capture)
+  assert.deepEqual(view, {
+    rooms: [
+      { id: 'r1', name: 'Bedroom', length_m: 4, width_m: 3, height_m: 2.4, area_m2: 57.6 },
+      { id: 'r2', name: 'Hall', length_m: null, width_m: null, height_m: null, area_m2: null },
+    ],
+    exclude_ceiling: false,
+    total_m2: 57.6,
+  })
+  assert.ok(!/14\.5|880|250|Clean all/.test(JSON.stringify(view)))
+  assert.equal(roomMeasureView({ ...capture, exclude_ceiling: true }).rooms[0].area_m2, 45.6)
+})
+
+test('a room name tapped twice gets the next number', () => {
+  assert.equal(nextRoomName('Bedroom', []), 'Bedroom')
+  assert.equal(nextRoomName('Bedroom', ['bedroom ', 'Kitchen']), 'Bedroom 2')
+  assert.equal(nextRoomName('Bedroom', ['Bedroom', 'Bedroom 2', 'Bedroom 4']), 'Bedroom 3')
+})
+
+test('rooms measured on the phone merge into an open quote without losing edits made there', () => {
+  const base = [room('r1', 'Bedroom'), room('r2', 'Kitchen'), room('r3', 'Hall')]
+  const local = [
+    room('r1', 'Bedroom'),                 // untouched on the laptop
+    room('r2', 'Kitchen', 5, 3.2, 2.4),    // edited on the laptop
+    room('new', 'Study', null, null, null), // added on the laptop, not saved (r3 was removed there)
+  ]
+  const remote = [
+    room('r1', 'Bedroom', 3.4, 3.1, 2.7),  // resized on the phone
+    room('r2', 'Kitchen', 4.2, 3, 2.4),    // also resized on the phone
+    room('r3', 'Hall'),
+    room('p1', 'Laundry', 2.2, 1.8, 2.4),  // added on the phone
+  ]
+  assert.deepEqual(mergeMeasuredRooms(base, local, remote), [
+    room('r1', 'Bedroom', 3.4, 3.1, 2.7),
+    room('r2', 'Kitchen', 5, 3.2, 2.4),
+    room('new', 'Study', null, null, null),
+    room('p1', 'Laundry', 2.2, 1.8, 2.4),
+  ])
+})
+
+test('merging is stable: an open quote with no edits ends up as the saved rooms, and merging again changes nothing', () => {
+  const base = [room('r1', 'Bedroom')]
+  const remote = [room('r1', 'Bedroom', 3.4, 3.1, 2.7), room('p1', 'Laundry', 2.2, 1.8, 2.4)]
+  const once = mergeMeasuredRooms(base, base, remote)
+  assert.deepEqual(once, remote)
+  assert.deepEqual(mergeMeasuredRooms(remote, once, remote), remote)
+  // A room saved without a preset id is the same room as one saved with a null preset id.
+  const bare = [{ id: 'r1', name: 'Bedroom', length_m: 4, width_m: 3, height_m: 2.4 }]
+  assert.deepEqual(mergeMeasuredRooms(bare, [room('r1', 'Bedroom')], remote), remote)
 })

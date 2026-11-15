@@ -40,14 +40,27 @@ export function uploadLinkState(link: Pick<UploadLinkRow, 'expires_at' | 'revoke
 }
 
 /**
- * The address the QR code opens. On the live site it is the photo host's short
+ * The address a QR code opens. On the live site it is the photo host's short
  * path; anywhere else (local, preview) it is the same origin's /photo path.
  */
-export function uploadLinkUrl(token: string, appOrigin: string): string {
+function phoneLinkUrl(page: 'drop' | 'measure', token: string, appOrigin: string): string {
   let host = ''
   try {
     host = new URL(appOrigin).hostname
   } catch {}
-  if (host === 'app.biohazards.net' || host === 'biohazards.net') return `https://photo.biohazards.net/drop/${token}`
-  return `${appOrigin.replace(/\/$/, '')}/photo/drop/${token}`
+  if (host === 'app.biohazards.net' || host === 'biohazards.net') return `https://photo.biohazards.net/${page}/${token}`
+  return `${appOrigin.replace(/\/$/, '')}/photo/${page}/${token}`
+}
+
+export function uploadLinkUrl(token: string, appOrigin: string): string {
+  return phoneLinkUrl('drop', token, appOrigin)
+}
+
+/**
+ * The room measure link (migration 081, table room_measure_links): the same
+ * kind of link, opened from the surface area cleaning quote. It adds rooms to
+ * that quote, or replaces a room's size. It cannot remove one or see a price.
+ */
+export function measureLinkUrl(token: string, appOrigin: string): string {
+  return phoneLinkUrl('measure', token, appOrigin)
 }

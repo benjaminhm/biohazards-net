@@ -97,6 +97,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
     const body = (await req.json()) as Record<string, unknown>
     delete body.inbound_email_token
+    // Optional. The save is written only if the job still has this updated_at, so a
+    // save made from an older copy cannot overwrite one made since (409 instead).
+    const expectedUpdatedAt = body.expected_updated_at
+    delete body.expected_updated_at
+    if (expectedUpdatedAt !== undefined && (typeof expectedUpdatedAt !== 'string' || Number.isNaN(Date.parse(expectedUpdatedAt)))) {
+      return NextResponse.json({ error: 'Invalid expected_updated_at' }, { status: 400 })
+    }
     if (body.archived === true) {
       body.archived_at = new Date().toISOString()
       body.archived_by_user_id = userId ?? null
@@ -152,15 +159,19 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     const { data: beforeRow } = watched.length
       ? await supabase.from('jobs').select(watched.join(', ')).eq('id', id).eq('org_id', orgId).maybeSingle()
       : { data: null }
-    const { data, error } = await supabase
+    const update = supabase
       .from('jobs')
       .update({ ...body, updated_at: new Date().toISOString() })
       .eq('id', id)
       .eq('org_id', orgId)
-      .select()
-      .single()
+    const { data, error } = typeof expectedUpdatedAt === 'string'
+      ? await update.eq('updated_at', expectedUpdatedAt).select().maybeSingle()
+      : await update.select().single()
 
     if (error) throw error
+    if (!data) {
+      return NextResponse.json({ error: 'This job was saved somewhere else since it was opened.', code: 'stale' }, { status: 409 })
+    }
     if (data && (beforeRow || 'assessment_data' in body)) {
       try {
         const firstName = await getStaffFirstName(userId)

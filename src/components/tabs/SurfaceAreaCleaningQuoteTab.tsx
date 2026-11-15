@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
 import DocumentAskPanel from '@/components/DocumentAskPanel'
+import PhoneMeasureQr from '@/components/PhoneMeasureQr'
 import SelectedPhotos from '@/components/SelectedPhotos'
 import { samePhotoIds } from '@/lib/photoIds'
 import { usedPhotoIds } from '@/lib/photoSelection'
@@ -18,6 +19,7 @@ import {
   SURFACE_AREA_SCHEMA,
   defaultSurfaceAreaCleaningStandards,
   emptySurfaceAreaCleaningCapture,
+  mergeMeasuredRooms,
   newSurfaceAreaOtherLine,
   newSurfaceAreaRoom,
   normalizeSurfaceAreaCleaningCapture,
@@ -33,6 +35,7 @@ import {
   surfaceAreaCleaningDocumentTitle,
   surfaceAreaCleaningFigures,
   surfaceAreaCleaningQuoteContent,
+  withSurfaceAreaRooms,
   type SurfaceAreaCleaningCapture,
   type SurfaceAreaCleaningStandards,
 } from '@/lib/surfaceAreaCleaningQuote'
@@ -53,6 +56,15 @@ interface Props {
   photos: Photo[]
   onJobUpdate: (job: Job) => void
   onPhotosUpdate: (photos: Photo[]) => void
+}
+
+/** While the phone measure QR is open, the saved quote is read this often for rooms measured on the phone. */
+const MEASURE_REFRESH_MS = 5000
+/** A save that finds the job saved elsewhere since it was read is tried again from a fresh read. */
+const SAVE_ATTEMPTS = 4
+
+function savedRooms(job: Job) {
+  return normalizeSurfaceAreaCleaningCapture(job.assessment_data?.surface_area_cleaning_quote).rooms
 }
 
 const INPUT: CSSProperties = {
@@ -155,6 +167,9 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
   const usedIds = useMemo(() => usedPhotoIds(job.assessment_data, photos), [job.assessment_data, photos])
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
+  const [measureOpen, setMeasureOpen] = useState(false)
+  /** Set when rooms measured on the phone were merged into unsaved edits, so the job update that follows does not reload the quote over them. */
+  const keepCaptureFor = useRef<string | null>(null)
   const [standards, setStandards] = useState<SurfaceAreaCleaningStandards>(defaultSurfaceAreaCleaningStandards)
   const [standardsReady, setStandardsReady] = useState(false)
   const skipStandardsSave = useRef(true)
@@ -163,6 +178,10 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
   const clearanceStandardsRef = useRef<ContentsClearanceStandards | null>(null)
 
   useEffect(() => {
+    if (keepCaptureFor.current === job.updated_at) {
+      keepCaptureFor.current = null
+      return
+    }
     setCapture(normalizeSurfaceAreaCleaningCapture(job.assessment_data?.surface_area_cleaning_quote))
   }, [job.id, job.updated_at])
 
@@ -196,6 +215,45 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
     || JSON.stringify(capture.other_lines) !== JSON.stringify(saved.other_lines)
     || !samePhotoIds(capture.photo_ids, saved.photo_ids)
   useRegisterUnsavedChanges('surface-area-cleaning-quote', isDirty)
+
+  const live = useRef({ job, isDirty, saving, onJobUpdate })
+  useEffect(() => {
+    live.current = { job, isDirty, saving, onJobUpdate }
+  })
+
+  /**
+   * Reads the saved job for rooms measured on the phone. With no unsaved edits the quote reloads from it.
+   * With unsaved edits only the rooms are merged in, and the edits stay.
+   */
+  async function readMeasuredRooms() {
+    const before = live.current
+    if (before.saving) return
+    const res = await fetch(`/api/jobs/${before.job.id}`, { cache: 'no-store' }).catch(() => null)
+    if (!res?.ok) return
+    const data = (await res.json().catch(() => null)) as { job?: Job; inbound_email_address?: string | null } | null
+    const now = live.current
+    const remote = data?.job
+    if (!remote || now.saving || remote.id !== now.job.id) return
+    if (!(Date.parse(remote.updated_at) > Date.parse(now.job.updated_at))) return
+    if (now.isDirty) {
+      const base = savedRooms(now.job)
+      const measured = savedRooms(remote)
+      keepCaptureFor.current = remote.updated_at
+      setCapture(prev => withSurfaceAreaRooms(prev, mergeMeasuredRooms(base, prev.rooms, measured)))
+    }
+    now.onJobUpdate({ ...remote, inbound_email_address: data?.inbound_email_address ?? now.job.inbound_email_address ?? null })
+  }
+
+  useEffect(() => {
+    if (!measureOpen) return
+    const timer = setInterval(() => { void readMeasuredRooms() }, MEASURE_REFRESH_MS)
+    return () => {
+      clearInterval(timer)
+      // Once more as the QR closes, for a room saved in the last few seconds.
+      void readMeasuredRooms()
+    }
+    // readMeasuredRooms reads the current job and edits through `live`, so it is not a dependency.
+  }, [measureOpen, job.id])
 
   const figures = useMemo(
     () => surfaceAreaCleaningFigures(quotedSquareMetres(capture), {
@@ -301,18 +359,28 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
     setSaving(true)
     setSaveError('')
     try {
-      const merged = mergeAssessmentData(job.assessment_data)
-      const res = await fetch(`/api/jobs/${job.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          assessment_data: { ...merged, surface_area_cleaning_quote: next },
-        }),
-      })
-      const data = (await res.json()) as { job?: Job; error?: string }
-      if (!res.ok || !data.job) throw new Error(data.error || `Save failed (${res.status})`)
-      onJobUpdate(data.job)
-      return true
+      // The phone may have measured rooms since this quote was opened. The saved job is read first, its rooms
+      // are merged in, and the save only lands if nothing else was saved in between.
+      for (let attempt = 0; attempt < SAVE_ATTEMPTS; attempt++) {
+        const latestRes = await fetch(`/api/jobs/${job.id}`, { cache: 'no-store' })
+        const latest = (await latestRes.json().catch(() => ({}))) as { job?: Job; error?: string }
+        if (!latestRes.ok || !latest.job) throw new Error(latest.error || `Save failed (${latestRes.status})`)
+        const toSave = withSurfaceAreaRooms(next, mergeMeasuredRooms(saved.rooms, next.rooms, savedRooms(latest.job)))
+        const res = await fetch(`/api/jobs/${job.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            assessment_data: { ...mergeAssessmentData(latest.job.assessment_data), surface_area_cleaning_quote: toSave },
+            ...(latest.job.updated_at ? { expected_updated_at: latest.job.updated_at } : {}),
+          }),
+        })
+        if (res.status === 409) continue
+        const data = (await res.json()) as { job?: Job; error?: string }
+        if (!res.ok || !data.job) throw new Error(data.error || `Save failed (${res.status})`)
+        onJobUpdate(data.job)
+        return true
+      }
+      throw new Error('This job keeps being saved somewhere else. Wait a moment and save again.')
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : 'Save failed')
       return false
@@ -571,6 +639,9 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
         <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <button type="button" className="btn" onClick={() => setRooms([...capture.rooms, newSurfaceAreaRoom()])}>
             Add a room
+          </button>
+          <button type="button" className="btn" onClick={() => setMeasureOpen(true)} title="Show a QR code. The phone names each room and types its length, width and height onto this quote.">
+            Measure on phone
           </button>
           {roomsSurfaceTotal(capture.rooms, capture.exclude_ceiling) != null && (
             <span style={{ fontSize: 13, fontWeight: 700 }}>
@@ -906,6 +977,9 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
           Generate quote
         </button>
       </div>
+      {measureOpen && (
+        <PhoneMeasureQr jobId={job.id} roomCount={capture.rooms.length} onClose={() => setMeasureOpen(false)} />
+      )}
     </div>
   )
 }
