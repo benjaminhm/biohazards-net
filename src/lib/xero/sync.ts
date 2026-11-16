@@ -40,7 +40,7 @@ import {
 
 type Supabase = ReturnType<typeof createServiceClient>
 
-export type XeroSyncTrigger = 'quote_accepted' | 'portal_quote_accepted' | 'quote_edited' | 'staff_confirmed' | 'statement_raised'
+export type XeroSyncTrigger = 'quote_accepted' | 'portal_quote_accepted' | 'quote_edited' | 'staff_confirmed' | 'statement_raised' | 'fast_quote_raised'
 
 /**
  * Who the invoice is made out to, as staff chose at the check: a contact

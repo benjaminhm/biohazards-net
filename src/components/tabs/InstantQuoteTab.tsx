@@ -6,8 +6,13 @@
  *
  * Staff tick the services, type or dictate what the client reported, and type the price. "Draft the wording" asks the
  * model for the presentation, scope, inclusions, exclusions and assumptions; staff read and edit them here.
- * The price is only ever typed by staff. Generate opens the standard document page, and the saved quote is
- * sent for signing from the Documents tab like any other quote.
+ * The price is only ever typed by staff.
+ *
+ * Two presses make a quote: "Draft the wording", then "Create quote in Xero", which saves the page, puts the
+ * quote in Xero as a draft with its scope and terms on it (lib/xero/fastQuote.ts), and opens it there for
+ * staff to send. Xero's API cannot email a quote, so the send is pressed in Xero.
+ * "Generate quote" is the other way out: it opens the standard document page, and the saved quote is sent for
+ * signing from the Documents tab like any other quote.
  */
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
@@ -35,6 +40,8 @@ import {
   type InstantQuoteService,
 } from '@/lib/instantQuote'
 import { INSTANT_DRAFT_DROP_LABELS, INSTANT_QUOTE_BRIEF_MIN_CHARS, type InstantQuoteDraft } from '@/lib/instantQuoteDraft'
+import type { FastQuoteXeroResult } from '@/lib/xero/fastQuote'
+import { xeroQuoteUrl } from '@/lib/xero/quote'
 
 interface Props {
   job: Job
@@ -102,6 +109,8 @@ export default function InstantQuoteTab({ job, photos, onJobUpdate, onPhotosUpda
   const [capture, setCapture] = useState<InstantQuoteCapture>(saved)
   const [saving, setSaving] = useState(false)
   const [drafting, setDrafting] = useState(false)
+  const [raising, setRaising] = useState(false)
+  const [xeroNote, setXeroNote] = useState('')
   const [error, setError] = useState('')
   const [dropped, setDropped] = useState<InstantQuoteDraft['dropped']>([])
   const usedIds = useMemo(() => usedPhotoIds(job.assessment_data, photos), [job.assessment_data, photos])
@@ -123,6 +132,11 @@ export default function InstantQuoteTab({ job, photos, onJobUpdate, onPhotosUpda
     || capture.job_inclusions.trim() || capture.job_exclusions.trim() || capture.job_assumptions.trim(),
   )
   const canDraft = capture.services.length > 0 && capture.brief.trim().length >= INSTANT_QUOTE_BRIEF_MIN_CHARS
+  const xeroQuote = capture.xero_quote
+  // A quote past draft in Xero is not changed from here; the press reads its status again.
+  const xeroLabel = !xeroQuote || xeroQuote.status === 'DELETED'
+    ? 'Create quote in Xero'
+    : xeroQuote.status === 'DRAFT' ? 'Update the quote in Xero' : 'Check the quote in Xero'
 
   function patch(next: Partial<InstantQuoteCapture>) {
     setCapture(prev => ({ ...prev, ...next }))
@@ -187,6 +201,41 @@ export default function InstantQuoteTab({ job, photos, onJobUpdate, onPhotosUpda
     }
     const ok = await save()
     if (ok) router.push(`/jobs/${job.id}/docs/instant_quote?compose=1`)
+  }
+
+  /** Saves the page, puts the quote in Xero as a draft, and opens it there for staff to send. */
+  async function createInXero() {
+    const problems = instantQuoteProblems(capture)
+    if (problems.length) {
+      setError(problems.join(' '))
+      return
+    }
+    // Opened now, during the press, because a browser blocks a tab opened after waiting on the server.
+    const tab = window.open('', '_blank')
+    if (tab) {
+      tab.opener = null
+      tab.document.title = 'Xero'
+      tab.document.body.textContent = 'Putting the quote in Xero…'
+    }
+    setRaising(true)
+    setXeroNote('')
+    try {
+      if (!(await save())) {
+        tab?.close()
+        return
+      }
+      const res = await fetch(`/api/jobs/${job.id}/instant-quote-xero`, { method: 'POST' })
+      const data = (await res.json().catch(() => ({}))) as { result?: FastQuoteXeroResult; job?: Job; error?: string }
+      if (data.job) onJobUpdate(data.job)
+      if (!res.ok || !data.result) throw new Error(data.error || `Xero failed (${res.status})`)
+      setXeroNote(data.result.note)
+      if (tab) tab.location.href = data.result.url
+    } catch (e) {
+      tab?.close()
+      setError(e instanceof Error ? e.message : 'Xero failed')
+    } finally {
+      setRaising(false)
+    }
   }
 
   return (
@@ -405,15 +454,27 @@ export default function InstantQuoteTab({ job, photos, onJobUpdate, onPhotosUpda
       </div>
 
       <div style={{ ...HINT, marginTop: 14 }}>
-        The quote also prints the payment terms and the company engagement agreement, the same agreement as the other quotes. After you generate and save it, send it for signing from the Documents tab.
+        <strong>Create quote in Xero</strong> saves this page and puts the quote in Xero as a draft, then opens it there. It carries the scope of work, the inclusions, exclusions and assumptions, the payment terms and the company engagement agreement. Press Send in Xero to email it to the client. The client&rsquo;s photos are not on the Xero quote.
       </div>
+      <div style={HINT}>
+        <strong>Generate quote</strong> makes the printed quote instead, with the photos. After you save it, send it for signing from the Documents tab.
+      </div>
+      {xeroQuote && (
+        <div style={{ fontSize: 13, marginTop: 10 }}>
+          {xeroNote || `Quote ${xeroQuote.number} is in Xero${xeroQuote.status ? ` (${xeroQuote.status.toLowerCase()})` : ''}.`}{' '}
+          <a href={xeroQuoteUrl(xeroQuote.id)} target="_blank" rel="noreferrer">Open it in Xero</a>
+        </div>
+      )}
       {error && <div style={{ color: 'var(--danger, #f87171)', fontSize: 13, marginTop: 10 }}>{error}</div>}
-      <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
-        <button type="button" className="btn" onClick={() => void save()} disabled={saving}>
-          {saving ? 'Saving…' : 'Save'}
+      <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
+        <button type="button" className="btn btn-primary" onClick={() => void createInXero()} disabled={saving || raising}>
+          {raising ? 'Working with Xero…' : xeroLabel}
         </button>
-        <button type="button" className="btn btn-primary" onClick={() => void saveAndCompose()} disabled={saving}>
+        <button type="button" className="btn" onClick={() => void saveAndCompose()} disabled={saving || raising}>
           Generate quote
+        </button>
+        <button type="button" className="btn" onClick={() => void save()} disabled={saving || raising}>
+          {saving ? 'Saving…' : 'Save'}
         </button>
       </div>
     </div>
