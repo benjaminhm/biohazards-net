@@ -30,12 +30,13 @@ function content(over: Record<string, unknown> = {}) {
   })
 }
 
-function body(over: Record<string, unknown> = {}, input: { priceIncludesGst?: boolean; quoteId?: string } = {}) {
+function body(over: Record<string, unknown> = {}, input: { inclusive?: boolean; notesAtZero?: boolean; quoteId?: string } = {}) {
   const c = content(over)
   return fastQuoteBody({
     content: c,
     agreement: fillInstantQuoteEngagement(c, { companyName: 'Test Cleaning', date: '16 November 2026' }),
-    priceIncludesGst: input.priceIncludesGst ?? true,
+    inclusive: input.inclusive ?? true,
+    notesAtZero: input.notesAtZero,
     contactId: 'contact-1',
     settings: DEFAULT_XERO_SETTINGS,
     date: '2026-11-16',
@@ -62,7 +63,7 @@ test('a fast quote goes to Xero as a draft with one priced line', () => {
 })
 
 test('a price typed excluding GST is sent as an exclusive line', () => {
-  const b = body({ price: 5000, price_includes_gst: false }, { priceIncludesGst: false })
+  const b = body({ price: 5000, price_includes_gst: false }, { inclusive: false })
   assert.equal(b.LineAmountTypes, 'EXCLUSIVE')
   assert.equal(b.LineItems[0].UnitAmount, 5000)
 })
@@ -108,6 +109,20 @@ test('no description is longer than Xero takes, and long sections carry on', () 
   // One line longer than a description holds is cut at a space, with nothing lost.
   assert.deepEqual(sectionDescriptions('S', ['aaaaa bbbbb ccccc'], { max: 30, bullet: '' }), ['S\naaaaa bbbbb\nccccc'])
   assert.deepEqual(sectionDescriptions('Inclusions', []), [])
+})
+
+test('the lines after the price can carry $0.00 instead of being description only, with the same words', () => {
+  const plain = body()
+  const zero = body({}, { notesAtZero: true })
+  assert.deepEqual(zero.LineItems.map(line => line.Description), plain.LineItems.map(line => line.Description))
+  assert.deepEqual(zero.LineItems[0], plain.LineItems[0])
+  for (const line of zero.LineItems.slice(1)) {
+    assert.deepEqual(
+      { Quantity: line.Quantity, UnitAmount: line.UnitAmount, AccountCode: line.AccountCode, TaxType: line.TaxType },
+      { Quantity: 1, UnitAmount: 0, AccountCode: '200', TaxType: 'OUTPUT' },
+    )
+  }
+  for (const line of plain.LineItems.slice(1)) assert.deepEqual(Object.keys(line), ['Description'])
 })
 
 test('client photos change the basis printed in the summary', () => {

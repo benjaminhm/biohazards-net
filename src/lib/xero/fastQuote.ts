@@ -93,6 +93,33 @@ function bodyHash(body: XeroQuoteBody): string {
   return createHash('sha256').update(JSON.stringify(body)).digest('hex').slice(0, 32)
 }
 
+interface Layout {
+  inclusive: boolean
+  notesAtZero: boolean
+  /** Waited before this try. */
+  pauseMs?: number
+}
+
+/**
+ * Xero answers some quotes with a 500 and no reason. The quote is then sent
+ * again after a pause, because a contact made a moment ago may not have
+ * reached Xero's quotes yet. If that fails too it is sent in the other layouts
+ * that carry the same words and the same price: the price on an exclusive
+ * line, and the lines after the price at $0.00 instead of description only.
+ */
+function layouts(priceIncludesGst: boolean): Layout[] {
+  const first: Layout = { inclusive: priceIncludesGst, notesAtZero: false }
+  return [
+    first,
+    { ...first, pauseMs: 3000 },
+    ...(priceIncludesGst ? [{ inclusive: false, notesAtZero: false }] : []),
+    { inclusive: priceIncludesGst, notesAtZero: true },
+    ...(priceIncludesGst ? [{ inclusive: false, notesAtZero: true }] : []),
+  ]
+}
+
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+
 function longDate(now: Date): string {
   return new Intl.DateTimeFormat('en-AU', { timeZone: 'Australia/Brisbane', day: 'numeric', month: 'long', year: 'numeric' }).format(now)
 }
@@ -167,25 +194,45 @@ export async function raiseFastQuote(supabase: Supabase, orgId: string, jobId: s
       contactId = (invoice as { xero_contact_id?: string | null } | null)?.xero_contact_id
         || await findOrCreateContact(supabase, conn, contactFromJob(job), ctx)
     }
-    const body = fastQuoteBody({
+    const base = {
       content,
       agreement,
-      priceIncludesGst: capture.price_includes_gst,
       contactId,
       settings: xeroSettings(conn.settings),
       date: brisbaneDate(now),
       quoteId: current?.QuoteID,
-    })
-    const tooLong = fastQuoteBodyProblems(body)
+    }
+    const tooLong = fastQuoteBodyProblems(fastQuoteBody({ ...base, inclusive: capture.price_includes_gst }))
     if (tooLong.length) return fail(400, tooLong.join(' '))
 
-    const res = current?.QuoteID
-      ? await xeroRequest<{ Quotes?: XeroQuote[] }>(supabase, conn, 'POST', `/Quotes/${encodeURIComponent(current.QuoteID)}`, { Quotes: [body] })
-      : await xeroRequest<{ Quotes?: XeroQuote[] }>(
-          supabase, conn, 'PUT', '/Quotes', { Quotes: [body] },
-          { idempotencyKey: `fast-quote-${jobId}-${capture.xero_quote?.id || 'new'}-${bodyHash(body)}` },
-        )
-    const quote = res.Quotes?.[0]
+    const tries = layouts(capture.price_includes_gst)
+    // A new key each minute: a second press straight away makes no second quote, and a later one is a new request.
+    const minute = Math.floor(now.getTime() / 60_000)
+    let sent: { body: XeroQuoteBody; layout: Layout; quote: XeroQuote | undefined } | null = null
+    let refused: XeroApiError | null = null
+    for (const [attempt, layout] of tries.entries()) {
+      const body = fastQuoteBody({ ...base, inclusive: layout.inclusive, notesAtZero: layout.notesAtZero })
+      if (layout.pauseMs) await sleep(layout.pauseMs)
+      try {
+        const res = current?.QuoteID
+          ? await xeroRequest<{ Quotes?: XeroQuote[] }>(supabase, conn, 'POST', `/Quotes/${encodeURIComponent(current.QuoteID)}`, { Quotes: [body] })
+          : await xeroRequest<{ Quotes?: XeroQuote[] }>(
+              supabase, conn, 'PUT', '/Quotes', { Quotes: [body] },
+              { idempotencyKey: `fq-${jobId}-${capture.xero_quote?.id || 'new'}-${bodyHash(body)}-${attempt}-${minute}` },
+            )
+        sent = { body, layout, quote: res.Quotes?.[0] }
+        break
+      } catch (err) {
+        // A refusal with a reason (a 400) is the answer; only a 500 with none is worth another layout.
+        if (!(err instanceof XeroApiError) || err.status < 500) throw err
+        refused = err
+        await log('xero_quote_attempt_failed', { status: 'failed', after: { attempt, ...layout }, note: err.message.slice(0, 1000) })
+      }
+    }
+    if (!sent) {
+      throw new Error(`${refused?.message ?? 'Xero refused the quote'} Tried ${tries.length} times in ${new Set(tries.map(t => `${t.inclusive}${t.notesAtZero}`)).size} layouts; Xero gave no reason for any.`)
+    }
+    const { body, quote } = sent
     if (!quote?.QuoteID) throw new Error('Xero did not return the quote')
     const number = quote.QuoteNumber ?? ''
     const status = quote.Status ?? 'DRAFT'
@@ -199,6 +246,9 @@ export async function raiseFastQuote(supabase: Supabase, orgId: string, jobId: s
     const totalNote = typeof quote.Total === 'number' && Math.abs(quote.Total - content.total) >= 0.005
       ? ` Xero's total is ${formatAud(quote.Total)} against ${formatAud(content.total)} on the Fast Quote; check the GST rounding before you send it.`
       : ''
+    const zeroNote = sent.layout.notesAtZero
+      ? ' Xero refused lines that are only a description, so the inclusions, exclusions, assumptions and engagement agreement are lines at $0.00.'
+      : ''
     return {
       ok: true,
       result: {
@@ -206,7 +256,7 @@ export async function raiseFastQuote(supabase: Supabase, orgId: string, jobId: s
         number,
         status,
         url: xeroQuoteUrl(quote.QuoteID),
-        note: `Draft quote ${number} ${outcome} in Xero. Open it there and press Send.${totalNote}`.replace(/\s+/g, ' '),
+        note: `Draft quote ${number} ${outcome} in Xero. Open it there and press Send.${zeroNote}${totalNote}`.replace(/\s+/g, ' '),
       },
     }
   } catch (err) {

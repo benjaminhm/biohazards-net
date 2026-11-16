@@ -116,8 +116,17 @@ export interface FastQuoteInput {
   content: InstantQuoteContent
   /** The engagement agreement as plain text, with its brackets already filled. */
   agreement: string
-  /** True when the price staff typed already includes GST. */
-  priceIncludesGst: boolean
+  /**
+   * True sends the price including GST on an inclusive line, so Xero's total is
+   * the price typed to the cent. False sends the ex-GST amount on an exclusive line.
+   */
+  inclusive: boolean
+  /**
+   * True gives the lines after the price a quantity of 1 at $0.00 with the
+   * account and tax type, for when Xero will not take a line that is only a
+   * description. False leaves them as description only.
+   */
+  notesAtZero?: boolean
   contactId: string
   settings: XeroSettings
   /** The quote's date, YYYY-MM-DD. */
@@ -128,11 +137,7 @@ export interface FastQuoteInput {
 
 const AGREEMENT_HEADING = 'Engagement agreement'
 
-/**
- * The quote as Xero takes it, always a draft.
- * A price typed including GST is sent as an inclusive line, so Xero's total is
- * the price typed to the cent. A price typed excluding GST is sent exclusive.
- */
+/** The quote as Xero takes it, always a draft. */
 export function fastQuoteBody(input: FastQuoteInput): XeroQuoteBody {
   const { content, settings } = input
   const title = content.title.trim() || 'Quote'
@@ -151,6 +156,7 @@ export function fastQuoteBody(input: FastQuoteInput): XeroQuoteBody {
     ...sectionDescriptions('Assumptions', content.assumptions),
     ...sectionDescriptions(AGREEMENT_HEADING.toUpperCase(), agreementLines, { bullet: '' }),
   ]
+  const coded = { AccountCode: settings.account_code, TaxType: settings.gst_tax_type }
   return {
     ...(input.quoteId ? { QuoteID: input.quoteId } : {}),
     Status: 'DRAFT',
@@ -160,16 +166,10 @@ export function fastQuoteBody(input: FastQuoteInput): XeroQuoteBody {
     Title: title,
     Summary: fastQuoteSummary(content),
     Terms: fastQuoteTerms(content),
-    LineAmountTypes: input.priceIncludesGst ? 'INCLUSIVE' : 'EXCLUSIVE',
+    LineAmountTypes: input.inclusive ? 'INCLUSIVE' : 'EXCLUSIVE',
     LineItems: [
-      {
-        Description: priced,
-        Quantity: 1,
-        UnitAmount: input.priceIncludesGst ? content.total : content.subtotal,
-        AccountCode: settings.account_code,
-        TaxType: settings.gst_tax_type,
-      },
-      ...notes.map(Description => ({ Description })),
+      { Description: priced, Quantity: 1, UnitAmount: input.inclusive ? content.total : content.subtotal, ...coded },
+      ...notes.map(Description => (input.notesAtZero ? { Description, Quantity: 1, UnitAmount: 0, ...coded } : { Description })),
     ],
   }
 }
