@@ -17,6 +17,10 @@
  * Nothing is shortened to fit. Text too long for a Xero box that cannot be
  * carried on is reported as a problem instead. The client's photos are not on
  * the Xero quote.
+ *
+ * Xero refuses some quotes with a 500 and no reason, so the quote can also be
+ * built from a chosen set of parts, each in its own characters or plain ones
+ * and with shorter lines (lib/xero/fastQuote.ts puts it on part by part).
  */
 import { INSTANT_QUOTE_SCHEMA, instantQuoteLines, type InstantQuoteContent } from '@/lib/instantQuote'
 import type { XeroSettings } from '@/lib/xero/invoice'
@@ -34,15 +38,51 @@ export interface XeroQuoteLine {
 
 export interface XeroQuoteBody {
   QuoteID?: string
-  Status: 'DRAFT'
+  Status?: 'DRAFT'
   Contact: { ContactID: string }
   Date: string
-  Reference: string
-  Title: string
-  Summary: string
-  Terms: string
-  LineAmountTypes: 'INCLUSIVE' | 'EXCLUSIVE'
+  Reference?: string
+  Title?: string
+  Summary?: string
+  Terms?: string
+  LineAmountTypes?: 'INCLUSIVE' | 'EXCLUSIVE'
   LineItems: XeroQuoteLine[]
+}
+
+/** The parts of a Fast Quote that go on a Xero quote besides the contact, the date and the price. */
+export const QUOTE_PARTS = ['title', 'summary', 'terms', 'scope', 'notes', 'agreement'] as const
+export type QuotePart = typeof QUOTE_PARTS[number]
+
+/** How one part is written: with its own characters or plain ones, and how long one line's description may be. */
+export interface PartForm {
+  plain: boolean
+  max: number
+}
+
+export const FULL_FORM: PartForm = { plain: false, max: XERO_QUOTE_LIMITS.description }
+
+const PLAIN_CHARACTERS: [RegExp, string][] = [
+  [/[\u2022\u2023\u25E6\u2043\u2219\u00B7]/g, '-'],
+  [/[\u2010-\u2015\u2212]/g, '-'],
+  [/[\u2018\u2019\u201A\u2032]/g, "'"],
+  [/[\u201C\u201D\u201E\u2033]/g, '"'],
+  [/\u2026/g, '...'],
+  [/\u2610/g, '[ ]'],
+  [/[\u2611\u2612\u2713\u2714]/g, '[x]'],
+  [/[\u00A0\u2000-\u200A\u202F\t]/g, ' '],
+  [/[\u200B-\u200D\uFEFF\r]/g, ''],
+  [/\u00D7/g, 'x'],
+]
+
+/**
+ * The text in keyboard characters only: bullets and dashes as hyphens, curly
+ * quotes straight, tick boxes as [ ], accents dropped. Any other character
+ * becomes a question mark.
+ */
+export function plainText(text: string): string {
+  let out = text
+  for (const [from, to] of PLAIN_CHARACTERS) out = out.replace(from, to)
+  return out.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^\n\x20-\x7E]/g, '?')
 }
 
 /** A line too long for one description, cut at a space into pieces that fit. */
@@ -122,11 +162,17 @@ export interface FastQuoteInput {
    */
   inclusive: boolean
   /**
-   * True gives the lines after the price a quantity of 1 at $0.00 with the
-   * account and tax type, for when Xero will not take a line that is only a
-   * description. False leaves them as description only.
+   * The parts to put on, and how each is written. Left out, every part goes on
+   * in its own characters. A part not named is left off the quote.
    */
-  notesAtZero?: boolean
+  parts?: Partial<Record<QuotePart, PartForm>>
+  /** False leaves the account code and tax type off the price line. */
+  coded?: boolean
+  /**
+   * False leaves out the draft status and the line amount type. Xero then reads
+   * the price as excluding GST, so the ex-GST amount is sent.
+   */
+  typed?: boolean
   contactId: string
   settings: XeroSettings
   /** The quote's date, YYYY-MM-DD. */
@@ -137,39 +183,60 @@ export interface FastQuoteInput {
 
 const AGREEMENT_HEADING = 'Engagement agreement'
 
+const ALL_PARTS: Record<QuotePart, PartForm> = {
+  title: FULL_FORM, summary: FULL_FORM, terms: FULL_FORM, scope: FULL_FORM, notes: FULL_FORM, agreement: FULL_FORM,
+}
+
 /** The quote as Xero takes it, always a draft. */
 export function fastQuoteBody(input: FastQuoteInput): XeroQuoteBody {
   const { content, settings } = input
+  const parts = input.parts ?? ALL_PARTS
+  const typed = input.typed ?? true
+  const inclusive = typed && input.inclusive
+  const write = (form: PartForm, text: string) => (form.plain ? plainText(text) : text)
+  const section = (form: PartForm, heading: string, lines: string[], opts: { bullet?: string; continued?: string } = {}) =>
+    sectionDescriptions(write(form, heading), lines.map(line => write(form, line)), {
+      ...opts,
+      bullet: opts.bullet ?? (form.plain ? '- ' : '• '),
+      max: form.max,
+    })
+
   const title = content.title.trim() || 'Quote'
-  const [priced = `${title}: the scope of work on this quote`, ...scopeMore] = sectionDescriptions(
-    `${title}: the scope of work on this quote`,
-    instantQuoteLines(content.scope_of_work),
-    { continued: 'Scope of work (continued)' },
-  )
+  // Without the scope part the price line is described by the title alone.
+  const [priced = plainText(title), ...scopeMore] = parts.scope
+    ? section(parts.scope, `${title}: the scope of work on this quote`, instantQuoteLines(content.scope_of_work), { continued: 'Scope of work (continued)' })
+    : []
   const agreementLines = instantQuoteLines(input.agreement)
   // The agreement usually opens with its own heading; it is not printed twice.
   if (agreementLines[0]?.toLowerCase() === AGREEMENT_HEADING.toLowerCase()) agreementLines.shift()
-  const notes = [
+  const after = [
     ...scopeMore,
-    ...sectionDescriptions('Inclusions', content.inclusions),
-    ...sectionDescriptions('Exclusions', content.exclusions),
-    ...sectionDescriptions('Assumptions', content.assumptions),
-    ...sectionDescriptions(AGREEMENT_HEADING.toUpperCase(), agreementLines, { bullet: '' }),
+    ...(parts.notes
+      ? [
+          ...section(parts.notes, 'Inclusions', content.inclusions),
+          ...section(parts.notes, 'Exclusions', content.exclusions),
+          ...section(parts.notes, 'Assumptions', content.assumptions),
+        ]
+      : []),
+    ...(parts.agreement ? section(parts.agreement, AGREEMENT_HEADING.toUpperCase(), agreementLines, { bullet: '' }) : []),
   ]
-  const coded = { AccountCode: settings.account_code, TaxType: settings.gst_tax_type }
   return {
     ...(input.quoteId ? { QuoteID: input.quoteId } : {}),
-    Status: 'DRAFT',
+    ...(typed ? { Status: 'DRAFT' as const } : {}),
     Contact: { ContactID: input.contactId },
     Date: input.date,
-    Reference: content.reference,
-    Title: title,
-    Summary: fastQuoteSummary(content),
-    Terms: fastQuoteTerms(content),
-    LineAmountTypes: input.inclusive ? 'INCLUSIVE' : 'EXCLUSIVE',
+    ...(parts.title ? { Reference: write(parts.title, content.reference), Title: write(parts.title, title) } : {}),
+    ...(parts.summary ? { Summary: write(parts.summary, fastQuoteSummary(content)) } : {}),
+    ...(parts.terms ? { Terms: write(parts.terms, fastQuoteTerms(content)) } : {}),
+    ...(typed ? { LineAmountTypes: inclusive ? 'INCLUSIVE' as const : 'EXCLUSIVE' as const } : {}),
     LineItems: [
-      { Description: priced, Quantity: 1, UnitAmount: input.inclusive ? content.total : content.subtotal, ...coded },
-      ...notes.map(Description => (input.notesAtZero ? { Description, Quantity: 1, UnitAmount: 0, ...coded } : { Description })),
+      {
+        Description: priced,
+        Quantity: 1,
+        UnitAmount: inclusive ? content.total : content.subtotal,
+        ...(input.coded === false ? {} : { AccountCode: settings.account_code, TaxType: settings.gst_tax_type }),
+      },
+      ...after.map(Description => ({ Description })),
     ],
   }
 }
@@ -178,11 +245,11 @@ export function fastQuoteBody(input: FastQuoteInput): XeroQuoteBody {
 export function fastQuoteBodyProblems(body: XeroQuoteBody): string[] {
   const problems: string[] = []
   const over = (text: string, max: number) => text.length - max
-  if (over(body.Title, XERO_QUOTE_LIMITS.title) > 0) {
-    problems.push(`The title is ${over(body.Title, XERO_QUOTE_LIMITS.title)} characters too long for a Xero quote (${XERO_QUOTE_LIMITS.title} at most).`)
+  if (over(body.Title ?? '', XERO_QUOTE_LIMITS.title) > 0) {
+    problems.push(`The title is ${over(body.Title ?? '', XERO_QUOTE_LIMITS.title)} characters too long for a Xero quote (${XERO_QUOTE_LIMITS.title} at most).`)
   }
-  if (over(body.Summary, XERO_QUOTE_LIMITS.summary) > 0) {
-    problems.push(`The presentation is ${over(body.Summary, XERO_QUOTE_LIMITS.summary)} characters too long for a Xero quote. Shorten it.`)
+  if (over(body.Summary ?? '', XERO_QUOTE_LIMITS.summary) > 0) {
+    problems.push(`The presentation is ${over(body.Summary ?? '', XERO_QUOTE_LIMITS.summary)} characters too long for a Xero quote. Shorten it.`)
   }
   return problems
 }

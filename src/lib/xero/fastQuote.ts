@@ -13,6 +13,12 @@
  * The quote goes to the contact the job's invoice has, else the contact found
  * or made from the job's client. Its id, number and status are saved on the
  * Fast Quote. Every Xero write is logged to agent_actions.
+ *
+ * Xero answers some quotes with a 500 and no reason. When the whole quote is
+ * refused, a quote with only the contact, the date and the price is made, and
+ * the rest is put on it one part at a time, so the part Xero will not take is
+ * found, tried in plainer forms, and named to staff if none is taken. Every
+ * refusal is logged with what was sent.
  */
 import { createHash } from 'node:crypto'
 import type { createServiceClient } from '@/lib/supabase'
@@ -33,7 +39,16 @@ import { normalizeSurfaceAreaCleaningStandards } from '@/lib/surfaceAreaCleaning
 import { applyTradingBrand, isTradingNameId } from '@/lib/tradingNames'
 import { XeroApiError, loadXeroConnection, xeroConfigured, xeroRequest, type XeroConnection } from './client'
 import { brisbaneDate, contactFromJob, xeroSettings } from './invoice'
-import { fastQuoteBody, fastQuoteBodyProblems, xeroQuoteUrl, type XeroQuoteBody } from './quote'
+import {
+  FULL_FORM,
+  QUOTE_PARTS,
+  fastQuoteBody,
+  fastQuoteBodyProblems,
+  xeroQuoteUrl,
+  type PartForm,
+  type QuotePart,
+  type XeroQuoteBody,
+} from './quote'
 import { findOrCreateContact } from './sync'
 
 type Supabase = ReturnType<typeof createServiceClient>
@@ -93,32 +108,52 @@ function bodyHash(body: XeroQuoteBody): string {
   return createHash('sha256').update(JSON.stringify(body)).digest('hex').slice(0, 32)
 }
 
-interface Layout {
-  inclusive: boolean
-  notesAtZero: boolean
-  /** Waited before this try. */
-  pauseMs?: number
+type Forms = Partial<Record<QuotePart, PartForm>>
+
+const ALL_FULL: Forms = Object.fromEntries(QUOTE_PARTS.map(part => [part, FULL_FORM]))
+
+/** The forms a part is tried in, closest to the printed quote first. */
+const TEXT_FORMS: PartForm[] = [FULL_FORM, { plain: true, max: FULL_FORM.max }]
+const LINE_FORMS: PartForm[] = [
+  FULL_FORM,
+  { plain: true, max: FULL_FORM.max },
+  { plain: false, max: 1900 },
+  { plain: false, max: 900 },
+  { plain: true, max: 900 },
+]
+const LINE_PARTS: QuotePart[] = ['scope', 'notes', 'agreement']
+
+const PART_LABEL: Record<QuotePart, string> = {
+  title: 'the title and reference',
+  summary: 'the summary',
+  terms: 'the payment terms, authority and acceptance',
+  scope: 'the scope of work',
+  notes: 'the inclusions, exclusions and assumptions',
+  agreement: 'the engagement agreement',
 }
 
-/**
- * Xero answers some quotes with a 500 and no reason. The quote is then sent
- * again after a pause, because a contact made a moment ago may not have
- * reached Xero's quotes yet. If that fails too it is sent in the other layouts
- * that carry the same words and the same price: the price on an exclusive
- * line, and the lines after the price at $0.00 instead of description only.
- */
-function layouts(priceIncludesGst: boolean): Layout[] {
-  const first: Layout = { inclusive: priceIncludesGst, notesAtZero: false }
-  return [
-    first,
-    { ...first, pauseMs: 3000 },
-    ...(priceIncludesGst ? [{ inclusive: false, notesAtZero: false }] : []),
-    { inclusive: priceIncludesGst, notesAtZero: true },
-    ...(priceIncludesGst ? [{ inclusive: false, notesAtZero: true }] : []),
-  ]
+/** How the quote with nothing but the contact, the date and the price is tried. */
+interface Bare {
+  coded: boolean
+  typed: boolean
+  /** False sends it without an idempotency key. */
+  keyed: boolean
 }
+const BARE: Bare[] = [
+  { coded: true, typed: true, keyed: true },
+  { coded: false, typed: true, keyed: true },
+  { coded: false, typed: false, keyed: true },
+  { coded: true, typed: true, keyed: false },
+]
 
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+/** Left for the route's 60 seconds once the parts are being put on. */
+const PARTS_BUDGET_MS = 42_000
+
+const sameForm = (a: PartForm, b: PartForm) => a.plain === b.plain && a.max === b.max
+
+function listed(items: string[]): string {
+  return items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`
+}
 
 function longDate(now: Date): string {
   return new Intl.DateTimeFormat('en-AU', { timeZone: 'Australia/Brisbane', day: 'numeric', month: 'long', year: 'numeric' }).format(now)
@@ -205,58 +240,141 @@ export async function raiseFastQuote(supabase: Supabase, orgId: string, jobId: s
     const tooLong = fastQuoteBodyProblems(fastQuoteBody({ ...base, inclusive: capture.price_includes_gst }))
     if (tooLong.length) return fail(400, tooLong.join(' '))
 
-    const tries = layouts(capture.price_includes_gst)
+    const build = (parts: Forms, shape: { coded: boolean; typed: boolean }, quoteId = '') =>
+      fastQuoteBody({ ...base, quoteId: quoteId || undefined, inclusive: capture.price_includes_gst, parts, ...shape })
     // A new key each minute: a second press straight away makes no second quote, and a later one is a new request.
     const minute = Math.floor(now.getTime() / 60_000)
-    let sent: { body: XeroQuoteBody; layout: Layout; quote: XeroQuote | undefined } | null = null
-    let refused: XeroApiError | null = null
-    for (const [attempt, layout] of tries.entries()) {
-      const body = fastQuoteBody({ ...base, inclusive: layout.inclusive, notesAtZero: layout.notesAtZero })
-      if (layout.pauseMs) await sleep(layout.pauseMs)
+    const key = (tag: string, body: XeroQuoteBody) => `fq-${jobId}-${tag}-${bodyHash(body)}-${minute}`
+    const send = async (body: XeroQuoteBody, opts: { quoteId?: string; key?: string }) => {
+      const res = opts.quoteId
+        ? await xeroRequest<{ Quotes?: XeroQuote[] }>(supabase, conn, 'POST', `/Quotes/${encodeURIComponent(opts.quoteId)}`, { Quotes: [body] })
+        : await xeroRequest<{ Quotes?: XeroQuote[] }>(supabase, conn, 'PUT', '/Quotes', { Quotes: [body] }, opts.key ? { idempotencyKey: opts.key } : {})
+      const quote = res.Quotes?.[0]
+      if (!quote?.QuoteID) throw new Error('Xero did not return the quote')
+      return quote
+    }
+    let lastRefusal = ''
+    const refused = new Set<string>()
+    /** One send. A refusal is logged with what it was and null comes back; a sign-in or rate-limit refusal ends the press. */
+    const attempt = async (step: string, detail: Record<string, unknown>, body: XeroQuoteBody, opts: { quoteId?: string; key?: string }) => {
+      // Two forms of a part can come out the same; what Xero has refused is not sent again.
+      const same = `${opts.quoteId ?? ''}:${Boolean(opts.key)}:${bodyHash(body)}`
+      if (refused.has(same)) return null
       try {
-        const res = current?.QuoteID
-          ? await xeroRequest<{ Quotes?: XeroQuote[] }>(supabase, conn, 'POST', `/Quotes/${encodeURIComponent(current.QuoteID)}`, { Quotes: [body] })
-          : await xeroRequest<{ Quotes?: XeroQuote[] }>(
-              supabase, conn, 'PUT', '/Quotes', { Quotes: [body] },
-              { idempotencyKey: `fq-${jobId}-${capture.xero_quote?.id || 'new'}-${bodyHash(body)}-${attempt}-${minute}` },
-            )
-        sent = { body, layout, quote: res.Quotes?.[0] }
-        break
+        return await send(body, opts)
       } catch (err) {
-        // A refusal with a reason (a 400) is the answer; only a 500 with none is worth another layout.
-        if (!(err instanceof XeroApiError) || err.status < 500) throw err
-        refused = err
-        await log('xero_quote_attempt_failed', { status: 'failed', after: { attempt, ...layout }, note: err.message.slice(0, 1000) })
+        if (!(err instanceof XeroApiError) || [401, 403, 429].includes(err.status)) throw err
+        refused.add(same)
+        lastRefusal = err.message
+        await log('xero_quote_attempt_failed', {
+          status: 'failed',
+          target_id: opts.quoteId ?? '',
+          after: {
+            step,
+            ...detail,
+            http: err.status,
+            xero: err.body,
+            lines: body.LineItems.map(line => line.Description.length),
+            keyed: Boolean(opts.key),
+          },
+          note: err.message.slice(0, 1000),
+        })
+        return null
       }
     }
-    if (!sent) {
-      throw new Error(`${refused?.message ?? 'Xero refused the quote'} Tried ${tries.length} times in ${new Set(tries.map(t => `${t.inclusive}${t.notesAtZero}`)).size} layouts; Xero gave no reason for any.`)
+
+    const whole = build(ALL_FULL, { coded: true, typed: true }, current?.QuoteID)
+    let quoteId = current?.QuoteID ?? ''
+    let created = false
+    let shape = { coded: true, typed: true }
+    let forms: Forms = ALL_FULL
+    let body = whole
+    let quote = await attempt('whole', {}, whole, { quoteId, key: key('whole', whole) })
+
+    if (!quote) {
+      // Not in Xero yet: the quote with nothing on it but the contact, the date and the price.
+      if (!quoteId) {
+        for (const [index, bare] of BARE.entries()) {
+          const bareBody = build({}, bare)
+          quote = await attempt('bare', { ...bare }, bareBody, { key: bare.keyed ? key(`bare${index}`, bareBody) : undefined })
+          if (quote) {
+            shape = { coded: bare.coded, typed: bare.typed }
+            body = bareBody
+            break
+          }
+        }
+        if (!quote) {
+          let readable = 'Quotes can be read through this connection'
+          try {
+            await xeroRequest(supabase, conn, 'GET', '/Quotes?page=1')
+          } catch (err) {
+            readable = `Reading quotes through this connection fails too (${err instanceof Error ? err.message : String(err)})`
+          }
+          throw new Error(`${lastRefusal} Xero refused the whole quote, and then a quote with nothing on it but the contact, the date and the price. ${readable}.`)
+        }
+        quoteId = quote.QuoteID ?? ''
+        created = true
+        // Linked straight away, so the next press carries on with this quote whatever happens below.
+        await saveOnFastQuote(supabase, orgId, jobId, { id: quoteId, number: quote.QuoteNumber ?? '', status: quote.Status ?? 'DRAFT' })
+        await log('xero_quote_created', {
+          target_id: quoteId,
+          after: { ...body, shape } as unknown as Record<string, unknown>,
+          note: `Draft quote ${quote.QuoteNumber ?? ''} created in Xero with the price only, after Xero refused the whole Fast Quote ${content.reference}. Its parts follow.`.replace(/\s+/g, ' '),
+        })
+      }
+
+      // Then one part at a time, each in the first form Xero takes.
+      forms = {}
+      let lineForm = null as PartForm | null
+      for (const part of QUOTE_PARTS) {
+        if (Date.now() - now.getTime() > PARTS_BUDGET_MS) break
+        const isLines = LINE_PARTS.includes(part)
+        const tried: PartForm[] = isLines ? [FULL_FORM, ...(lineForm ? [lineForm] : []), ...LINE_FORMS] : TEXT_FORMS
+        const candidates: PartForm[] = tried.filter((form, index) => tried.findIndex(other => sameForm(other, form)) === index)
+        for (const form of candidates) {
+          const next = build({ ...forms, [part]: form }, shape, quoteId)
+          const taken = await attempt('part', { part, ...form }, next, { quoteId })
+          if (taken) {
+            forms = { ...forms, [part]: form }
+            if (isLines) lineForm = form
+            body = next
+            quote = taken
+            break
+          }
+        }
+      }
+      if (!quote) throw new Error(`${lastRefusal} Xero refused the whole quote, and then every part of it on its own.`)
     }
-    const { body, quote } = sent
-    if (!quote?.QuoteID) throw new Error('Xero did not return the quote')
-    const number = quote.QuoteNumber ?? ''
+
+    const number = quote.QuoteNumber ?? capture.xero_quote?.number ?? ''
     const status = quote.Status ?? 'DRAFT'
     const outcome = current ? 'updated' : 'created'
-    await log(`xero_quote_${outcome}`, {
-      target_id: quote.QuoteID,
-      after: body,
-      note: `Draft quote ${number} ${outcome} in Xero from the Fast Quote ${content.reference}.`.replace(/\s+/g, ' '),
+    const missing = QUOTE_PARTS.filter(part => !forms[part])
+    const plain = QUOTE_PARTS.filter(part => forms[part]?.plain)
+    await log(created ? 'xero_quote_updated' : `xero_quote_${outcome}`, {
+      target_id: quote.QuoteID ?? quoteId,
+      after: { ...body, forms, shape, missing } as unknown as Record<string, unknown>,
+      note: `Draft quote ${number} ${outcome} in Xero from the Fast Quote ${content.reference}.${missing.length ? ` Not on it: ${listed(missing.map(part => PART_LABEL[part]))}.` : ''}`.replace(/\s+/g, ' '),
     })
-    await saveOnFastQuote(supabase, orgId, jobId, { id: quote.QuoteID, number, status })
+    await saveOnFastQuote(supabase, orgId, jobId, { id: quote.QuoteID ?? quoteId, number, status })
     const totalNote = typeof quote.Total === 'number' && Math.abs(quote.Total - content.total) >= 0.005
-      ? ` Xero's total is ${formatAud(quote.Total)} against ${formatAud(content.total)} on the Fast Quote; check the GST rounding before you send it.`
+      ? ` Xero's total is ${formatAud(quote.Total)} against ${formatAud(content.total)} on the Fast Quote; check the GST before you send it.`
       : ''
-    const zeroNote = sent.layout.notesAtZero
-      ? ' Xero refused lines that are only a description, so the inclusions, exclusions, assumptions and engagement agreement are lines at $0.00.'
+    const missingNote = missing.length
+      ? ` It is NOT complete. Not on it: ${listed(missing.map(part => PART_LABEL[part]))}. Do not send it as it is.`
+      : ' Open it there and press Send.'
+    const plainNote = plain.length
+      ? ` Xero would not take the bullets, dashes or tick boxes in ${listed(plain.map(part => PART_LABEL[part]))}, so plain characters stand in for them there.`
       : ''
+    const codedNote = shape.coded ? '' : ' Xero would not take the account code and tax rate on the price line; set them in Xero.'
     return {
       ok: true,
       result: {
         outcome,
         number,
         status,
-        url: xeroQuoteUrl(quote.QuoteID),
-        note: `Draft quote ${number} ${outcome} in Xero. Open it there and press Send.${zeroNote}${totalNote}`.replace(/\s+/g, ' '),
+        url: xeroQuoteUrl(quote.QuoteID ?? quoteId),
+        note: `Draft quote ${number} ${outcome} in Xero.${missingNote}${plainNote}${codedNote}${totalNote}`.replace(/\s+/g, ' '),
       },
     }
   } catch (err) {
