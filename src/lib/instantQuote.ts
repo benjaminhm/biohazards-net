@@ -55,15 +55,6 @@ export const INSTANT_QUOTE_SCHEMA = {
   startNote: 'The start date is confirmed when the deposit is received.',
 } as const
 
-/** The quote raised in Xero from this capture (lib/xero/fastQuote.ts). */
-export interface InstantQuoteXeroRef {
-  id: string
-  /** e.g. "QU-0042". */
-  number: string
-  /** Xero's status when it was last read: DRAFT, SENT, ACCEPTED, DECLINED, INVOICED or DELETED. */
-  status: string
-}
-
 /** `photo_ids` are the photos the client supplied, chosen from the job's folder. Unset means none. */
 export interface InstantQuoteCapture extends PhotoIdsField {
   services: InstantQuoteService[]
@@ -87,8 +78,6 @@ export interface InstantQuoteCapture extends PhotoIdsField {
   earliest_start: string
   /** Null follows the job site address. */
   job_address: string | null
-  /** Unset until the quote is raised in Xero. */
-  xero_quote?: InstantQuoteXeroRef
 }
 
 export interface InstantQuoteFigures {
@@ -164,17 +153,6 @@ export function emptyInstantQuoteCapture(): InstantQuoteCapture {
   }
 }
 
-function xeroQuoteRef(raw: unknown): InstantQuoteXeroRef | null {
-  const o = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {}
-  const id = typeof o.id === 'string' ? o.id.trim() : ''
-  if (!id) return null
-  return {
-    id,
-    number: typeof o.number === 'string' ? o.number : '',
-    status: typeof o.status === 'string' ? o.status : '',
-  }
-}
-
 export function normalizeInstantQuoteCapture(raw: unknown): InstantQuoteCapture {
   const o = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {}
   const text = (key: string) => (typeof o[key] === 'string' ? o[key] as string : '')
@@ -182,7 +160,6 @@ export function normalizeInstantQuoteCapture(raw: unknown): InstantQuoteCapture 
   const chosen = Array.isArray(o.services) ? o.services : []
   const price = o.price == null || o.price === '' ? null : Number(o.price)
   const start = text('earliest_start').trim()
-  const xero = xeroQuoteRef(o.xero_quote)
   return {
     // Kept in the fixed order, so the title reads the same however they were ticked.
     services: ids.filter(id => chosen.includes(id)),
@@ -198,7 +175,6 @@ export function normalizeInstantQuoteCapture(raw: unknown): InstantQuoteCapture 
     earliest_start: /^\d{4}-\d{2}-\d{2}$/.test(start) ? start : '',
     job_address: typeof o.job_address === 'string' ? o.job_address : null,
     ...normalizePhotoIds(o),
-    ...(xero ? { xero_quote: xero } : {}),
   }
 }
 

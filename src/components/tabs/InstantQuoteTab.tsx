@@ -8,11 +8,11 @@
  * model for the presentation, scope, inclusions, exclusions and assumptions; staff read and edit them here.
  * The price is only ever typed by staff.
  *
- * Two presses make a quote: "Draft the wording", then "Create quote in Xero", which saves the page, puts the
- * quote in Xero as a draft with its scope and terms on it (lib/xero/fastQuote.ts), and opens it there for
- * staff to send. Xero's API cannot email a quote, so the send is pressed in Xero.
- * "Generate quote" is the other way out: it opens the standard document page, and the saved quote is sent for
- * signing from the Documents tab like any other quote.
+ * Two presses make a quote: "Draft the wording", then "Text quote to client", which saves the page, saves
+ * the printed quote to Documents, makes the client's private link (opened with their mobile number) and shows
+ * a QR. Scanning it opens Messages on staff's phone with the message and link filled in; staff tap send.
+ * Nothing is sent from the app (docs/ai-product-principles.md).
+ * "Generate quote" opens the standard document page instead, to read the quote before sending.
  */
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
@@ -40,8 +40,9 @@ import {
   type InstantQuoteService,
 } from '@/lib/instantQuote'
 import { INSTANT_DRAFT_DROP_LABELS, INSTANT_QUOTE_BRIEF_MIN_CHARS, type InstantQuoteDraft } from '@/lib/instantQuoteDraft'
-import type { FastQuoteXeroResult } from '@/lib/xero/fastQuote'
-import { xeroQuoteUrl } from '@/lib/xero/quote'
+import { emailMessageHandoff, handoffFitsQr, handoffQrSvg, textMessageHandoff } from '@/lib/phoneHandoff'
+import { DEFAULT_DEPOSIT_PERCENT } from '@/lib/signing/pay'
+import { isPhonePasscode, phonePasscode, phonePasscodeLabel } from '@/lib/signing/phone'
 
 interface Props {
   job: Job
@@ -95,6 +96,87 @@ function savedCapture(job: Job): InstantQuoteCapture {
   }
 }
 
+/** The client link just made. It is shown this once: only a hash of it is kept. */
+interface ClientLink {
+  url: string
+  host: string
+  pendingHost: string | null
+  passcode: string
+  message: string
+}
+
+/** The link ready to send: a QR that opens Messages (or Mail) on staff's phone, with the message filled in. */
+function LinkReady({ link, phone, email, subject, onClose }: {
+  link: ClientLink
+  phone: string
+  email: string
+  subject: string
+  onClose: () => void
+}) {
+  const [message, setMessage] = useState(link.message)
+  const [copied, setCopied] = useState('')
+  const byPhone = isPhonePasscode(link.passcode)
+  const text = textMessageHandoff(byPhone ? link.passcode : phone, message)
+  const mail = emailMessageHandoff(email, subject, message)
+  const handoff = text ?? mail
+  const qr = useMemo(
+    () => (handoff && message.trim() && handoffFitsQr(handoff.url) ? `data:image/svg+xml;utf8,${encodeURIComponent(handoffQrSvg(handoff.url))}` : ''),
+    [handoff, message],
+  )
+
+  function copy(what: string, value: string) {
+    navigator.clipboard.writeText(value).then(
+      () => {
+        setCopied(what)
+        setTimeout(() => setCopied(current => (current === what ? '' : current)), 2000)
+      },
+      () => setCopied('failed'),
+    )
+  }
+
+  return (
+    <div style={{ ...SECTION, borderColor: 'var(--accent)', display: 'grid', gap: 10 }}>
+      <div style={{ fontWeight: 800, fontSize: 15 }}>Link ready. Nothing has been sent.</div>
+      {qr && handoff ? (
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={qr} alt="QR code for the message" width={220} height={220} style={{ borderRadius: 8, background: '#fff' }} />
+          <div style={{ flex: '1 1 220px', fontSize: 13, lineHeight: 1.5 }}>
+            <div style={{ fontWeight: 700 }}>Scan with your phone camera.</div>
+            <div style={{ color: 'var(--text-muted)' }}>
+              {text ? 'Messages' : 'Mail'} opens to {handoff.to} with the message below filled in. Tap send on the phone.
+            </div>
+            <a className="btn btn-secondary" href={handoff.url} style={{ display: 'inline-block', marginTop: 8, textDecoration: 'none', fontSize: 13 }}>
+              On this phone: open in {text ? 'Messages' : 'Mail'}
+            </a>
+          </div>
+        </div>
+      ) : (
+        <div style={HINT}>
+          {!handoff
+            ? 'The job has no mobile or email to send it to. Copy the message and send it yourself.'
+            : !message.trim() ? 'The message is empty.' : 'The message is too long for a QR code. Shorten it, or copy it.'}
+        </div>
+      )}
+      <textarea value={message} onChange={e => setMessage(e.target.value)} rows={7} style={TEXTAREA} aria-label="Message to send" />
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <button type="button" className="btn" onClick={() => copy('message', message)}>{copied === 'message' ? '✓ Copied' : 'Copy message'}</button>
+        <button type="button" className="btn" onClick={() => copy('link', link.url)}>{copied === 'link' ? '✓ Copied' : 'Copy link only'}</button>
+        <button type="button" className="btn" onClick={onClose}>Done</button>
+      </div>
+      {copied === 'failed' && <div style={HINT}>Could not copy. Select the message and copy it by hand.</div>}
+      <div style={HINT}>
+        {byPhone
+          ? <>The client opens the link by typing their mobile, {phonePasscodeLabel(link.passcode)}, so text it to that number. </>
+          : <>The link opens with the passcode <strong>{link.passcode}</strong>, which is in the message. </>}
+        They read the quote, accept and sign on their phone, then see the {DEFAULT_DEPOSIT_PERCENT}% deposit. Where it is up to shows under the quote in Documents.
+        {' '}This link is shown once; pressing the button again makes a new one and this one stops working.
+        {link.pendingHost && <> {link.pendingHost} is not connected yet, so the link opens on {link.host}.</>}
+      </div>
+    </div>
+  )
+}
+
 function StandardLines({ lines }: { lines: string[] }) {
   return (
     <ul style={{ margin: '0 0 8px', paddingLeft: 18, fontSize: 13, display: 'grid', gap: 4, color: 'var(--text-muted)' }}>
@@ -109,8 +191,8 @@ export default function InstantQuoteTab({ job, photos, onJobUpdate, onPhotosUpda
   const [capture, setCapture] = useState<InstantQuoteCapture>(saved)
   const [saving, setSaving] = useState(false)
   const [drafting, setDrafting] = useState(false)
-  const [raising, setRaising] = useState(false)
-  const [xeroNote, setXeroNote] = useState('')
+  const [sending, setSending] = useState(false)
+  const [link, setLink] = useState<ClientLink | null>(null)
   const [error, setError] = useState('')
   const [dropped, setDropped] = useState<InstantQuoteDraft['dropped']>([])
   const usedIds = useMemo(() => usedPhotoIds(job.assessment_data, photos), [job.assessment_data, photos])
@@ -132,11 +214,8 @@ export default function InstantQuoteTab({ job, photos, onJobUpdate, onPhotosUpda
     || capture.job_inclusions.trim() || capture.job_exclusions.trim() || capture.job_assumptions.trim(),
   )
   const canDraft = capture.services.length > 0 && capture.brief.trim().length >= INSTANT_QUOTE_BRIEF_MIN_CHARS
-  const xeroQuote = capture.xero_quote
-  // A quote past draft in Xero is not changed from here; the press reads its status again.
-  const xeroLabel = !xeroQuote || xeroQuote.status === 'DELETED'
-    ? 'Create quote in Xero'
-    : xeroQuote.status === 'DRAFT' ? 'Update the quote in Xero' : 'Check the quote in Xero'
+  const clientPhone = (job.client_phone ?? '').trim()
+  const clientEmail = (job.client_email ?? '').trim()
 
   function patch(next: Partial<InstantQuoteCapture>) {
     setCapture(prev => ({ ...prev, ...next }))
@@ -203,38 +282,48 @@ export default function InstantQuoteTab({ job, photos, onJobUpdate, onPhotosUpda
     if (ok) router.push(`/jobs/${job.id}/docs/instant_quote?compose=1`)
   }
 
-  /** Saves the page, puts the quote in Xero as a draft, and opens it there for staff to send. */
-  async function createInXero() {
+  /** Saves the page and the printed quote, makes the client's private link, and shows the QR to text it. */
+  async function sendToClient() {
     const problems = instantQuoteProblems(capture)
     if (problems.length) {
       setError(problems.join(' '))
       return
     }
-    // Opened now, during the press, because a browser blocks a tab opened after waiting on the server.
-    const tab = window.open('', '_blank')
-    if (tab) {
-      tab.opener = null
-      tab.document.title = 'Xero'
-      tab.document.body.textContent = 'Putting the quote in Xero…'
-    }
-    setRaising(true)
-    setXeroNote('')
+    setSending(true)
+    setLink(null)
     try {
-      if (!(await save())) {
-        tab?.close()
-        return
+      if (!(await save())) return
+      const docRes = await fetch(`/api/jobs/${job.id}/instant-quote-document`, { method: 'POST' })
+      const doc = (await docRes.json().catch(() => ({}))) as {
+        documentId?: string
+        waiting?: { sent_at: string; to_name: string } | null
+        error?: string
       }
-      const res = await fetch(`/api/jobs/${job.id}/instant-quote-xero`, { method: 'POST' })
-      const data = (await res.json().catch(() => ({}))) as { result?: FastQuoteXeroResult; job?: Job; error?: string }
-      if (data.job) onJobUpdate(data.job)
-      if (!res.ok || !data.result) throw new Error(data.error || `Xero failed (${res.status})`)
-      setXeroNote(data.result.note)
-      if (tab) tab.location.href = data.result.url
+      if (!docRes.ok || !doc.documentId) throw new Error(doc.error || `Saving the quote failed (${docRes.status})`)
+      if (doc.waiting) {
+        const when = new Date(doc.waiting.sent_at).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })
+        if (!window.confirm(`A link to this quote made on ${when} has not been signed yet. A new link replaces it, and the earlier one stops working. Make a new link?`)) return
+      }
+      const res = await fetch('/api/signing', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'link',
+          documentIds: [doc.documentId],
+          toName: (job.client_name ?? '').trim(),
+          // A number that cannot open the link is left off, so the link opens with a passcode instead.
+          toPhone: phonePasscode(clientPhone) ? clientPhone : '',
+          toEmail: /^\S+@\S+\.\S+$/.test(clientEmail) ? clientEmail : '',
+          depositPercent: DEFAULT_DEPOSIT_PERCENT,
+        }),
+      })
+      const data = (await res.json().catch(() => ({}))) as { link?: ClientLink; error?: string }
+      if (!res.ok || !data.link) throw new Error(data.error || `The link could not be made (${res.status})`)
+      setLink(data.link)
     } catch (e) {
-      tab?.close()
-      setError(e instanceof Error ? e.message : 'Xero failed')
+      setError(e instanceof Error ? e.message : 'The link could not be made')
     } finally {
-      setRaising(false)
+      setSending(false)
     }
   }
 
@@ -454,29 +543,32 @@ export default function InstantQuoteTab({ job, photos, onJobUpdate, onPhotosUpda
       </div>
 
       <div style={{ ...HINT, marginTop: 14 }}>
-        <strong>Create quote in Xero</strong> saves this page and puts the quote in Xero as a draft, then opens it there. It carries the scope of work, the inclusions, exclusions and assumptions, the payment terms and the company engagement agreement. Press Send in Xero to email it to the client. The client&rsquo;s photos are not on the Xero quote.
+        <strong>Text quote to client</strong> saves this page and the quote to Documents, then makes the client&rsquo;s private link and shows a QR code. Scan it with your phone and Messages opens with the message and link ready to send. The client opens it with their mobile number, reads the quote with its photos, and signs on their phone.
       </div>
       <div style={HINT}>
-        <strong>Generate quote</strong> makes the printed quote instead, with the photos. After you save it, send it for signing from the Documents tab.
+        <strong>Generate quote</strong> opens the printed quote to read first.
       </div>
-      {xeroQuote && (
-        <div style={{ fontSize: 13, marginTop: 10 }}>
-          {xeroNote || `Quote ${xeroQuote.number} is in Xero${xeroQuote.status ? ` (${xeroQuote.status.toLowerCase()})` : ''}.`}{' '}
-          <a href={xeroQuoteUrl(xeroQuote.id)} target="_blank" rel="noreferrer">Open it in Xero</a>
-        </div>
-      )}
       {error && <div style={{ color: 'var(--danger, #f87171)', fontSize: 13, marginTop: 10 }}>{error}</div>}
       <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
-        <button type="button" className="btn btn-primary" onClick={() => void createInXero()} disabled={saving || raising}>
-          {raising ? 'Working with Xero…' : xeroLabel}
+        <button type="button" className="btn btn-primary" onClick={() => void sendToClient()} disabled={saving || sending}>
+          {sending ? 'Making the link…' : 'Text quote to client'}
         </button>
-        <button type="button" className="btn" onClick={() => void saveAndCompose()} disabled={saving || raising}>
+        <button type="button" className="btn" onClick={() => void saveAndCompose()} disabled={saving || sending}>
           Generate quote
         </button>
-        <button type="button" className="btn" onClick={() => void save()} disabled={saving || raising}>
+        <button type="button" className="btn" onClick={() => void save()} disabled={saving || sending}>
           {saving ? 'Saving…' : 'Save'}
         </button>
       </div>
+      {link && (
+        <LinkReady
+          link={link}
+          phone={clientPhone}
+          email={clientEmail}
+          subject={`${title} ${figures.total ? formatAud(figures.total) : ''}`.trim()}
+          onClose={() => setLink(null)}
+        />
+      )}
     </div>
   )
 }
