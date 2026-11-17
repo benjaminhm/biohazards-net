@@ -31,6 +31,10 @@
  *   Only /portal and /api/portal are reachable on this host.
  *   The portal has its own bh_portal cookie.
  *
+ *   tracking.<brand>.com.au — a client's read-only photo feed for their job.
+ *   / is /tracking; only /tracking and /api/tracking/* are reachable. It has
+ *   its own bh_tracking cookie (lib/tracking/session.ts).
+ *
  * There is one company. The host never decides whose data a request sees: that
  * comes from the signed-in person's membership (lib/org.ts). Any other
  * [name].biohazards.net is a 404 (there are no per-company websites), and any
@@ -48,7 +52,8 @@
  */
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
-import { accountsHostTradingName, documentHostTradingName, isNewJobCaptureHost, isNotesCaptureHost, isPhotoCaptureHost, tradingNameLabel } from '@/lib/tradingNames'
+import { accountsHostTradingName, documentHostTradingName, isNewJobCaptureHost, isNotesCaptureHost, isPhotoCaptureHost, trackingHostTradingName, tradingNameLabel } from '@/lib/tradingNames'
+import { TRACKING_TRADING_NAME_HEADER } from '@/lib/tracking/header'
 import { DOCUMENT_HOST_HEADER, isSigningTokenShape } from '@/lib/signing/hostShape'
 import {
   STAFF_COOKIE,
@@ -140,6 +145,33 @@ export async function proxy(request: NextRequest) {
     if (parts.length === 3 && parts[0] === 'api' && (parts[1] === 'sign' || parts[1] === 'pack') && request.method === 'POST') {
       return NextResponse.next({ request: { headers: requestHeaders } })
     }
+    return new NextResponse('Not found', { status: 404 })
+  }
+
+  // Client photo feed: tracking.<brand>.com.au. Preview and local dev serve it
+  // from the app origin at /tracking so it can be tried before DNS exists.
+  const isTrackingPath = pathname === '/tracking' || pathname.startsWith('/api/tracking/')
+  const trackingOnAppOrigin = isLocalDev || process.env.VERCEL_ENV === 'preview'
+  const trackingHostBrand = trackingHostTradingName(host)
+  const trackingBrand =
+    trackingHostBrand ??
+    (trackingOnAppOrigin && isTrackingPath
+      ? process.env.ACCOUNTS_PORTAL_DEV_TRADING_NAME || 'forensic_cleaning_qld'
+      : null)
+  if (trackingBrand) {
+    requestHeaders.set('x-subdomain', 'tracking')
+    requestHeaders.set(TRACKING_TRADING_NAME_HEADER, trackingBrand)
+    if (isSharedAsset(pathname) || isTrackingPath) {
+      return NextResponse.next({ request: { headers: requestHeaders } })
+    }
+    if (trackingHostBrand && pathname === '/') {
+      const url = request.nextUrl.clone()
+      url.pathname = '/tracking'
+      return NextResponse.rewrite(url, { request: { headers: requestHeaders } })
+    }
+    return new NextResponse('Not found', { status: 404 })
+  }
+  if (isTrackingPath) {
     return new NextResponse('Not found', { status: 404 })
   }
 

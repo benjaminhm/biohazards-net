@@ -13,6 +13,8 @@
  *   Rendered without UserProvider. Trade contacts authenticate with the
  *   portal's own magic-link cookie, and the staff banners stay off a
  *   client-facing surface.
+ *
+ * Client photo feed (x-subdomain: tracking): same, with its own bh_tracking cookie.
  */
 import type { Metadata, Viewport } from 'next'
 import { headers } from 'next/headers'
@@ -48,6 +50,16 @@ export async function generateMetadata(): Promise<Metadata> {
     return {
       title: `${brand} — Trade Accounts`,
       description: `Trade account portal for ${brand}`,
+      robots: { index: false, follow: false },
+    }
+  }
+
+  if (headersList.get('x-subdomain') === 'tracking') {
+    const id = headersList.get('x-tracking-trading-name')
+    const brand = (isTradingNameId(id) ? tradingNameOption(id)?.label : null) ?? 'Job updates'
+    return {
+      title: `${brand} — Job photos`,
+      description: `Photos of your job from ${brand}`,
       robots: { index: false, follow: false },
     }
   }
@@ -94,6 +106,14 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     return (
       <html lang="en">
         <body style={{ background: '#F5F5F5', color: '#111111' }}>{children}</body>
+      </html>
+    )
+  }
+
+  if (headersList.get('x-subdomain') === 'tracking') {
+    return (
+      <html lang="en">
+        <body style={{ background: '#FAFAFA', color: '#111111' }}>{children}</body>
       </html>
     )
   }

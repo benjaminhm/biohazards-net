@@ -452,3 +452,44 @@ export async function sendStaffMagicLinkEmail(data: {
     text,
   })
 }
+
+/** Sign-in code for the client photo feed (tracking.<brand>.com.au), when the client has no mobile. */
+export async function sendTrackingCodeEmail(data: {
+  tradingName: TradingNameId
+  to: string
+  code: string
+  trackingUrl: string
+  expiresInMinutes: number
+}): Promise<void> {
+  const brandLabel = tradingNameOption(data.tradingName)?.label ?? 'Job updates'
+  const expiry = expiryLabel(data.expiresInMinutes)
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px;">
+      <div style="border-top: 4px solid #FF6B35; padding-top: 24px; margin-bottom: 28px;">
+        <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #FF6B35; margin-bottom: 6px;">
+          ${esc(brandLabel)}
+        </div>
+        <h1 style="font-size: 22px; font-weight: 700; color: #111; margin: 0;">Your sign-in code</h1>
+      </div>
+      <p style="font-size: 15px; color: #333; line-height: 1.6; margin: 0;">
+        Use this code to see the photos of your job.
+      </p>
+      <div style="margin: 24px 0 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 30px; font-weight: 700; letter-spacing: 0.22em; color: #111;">
+        ${esc(data.code)}
+      </div>
+      <p style="font-size: 13px; color: #555; line-height: 1.6; margin: 16px 0 0;">
+        Enter it at ${esc(hostOf(data.trackingUrl))}.
+      </p>
+      <p style="font-size: 13px; color: #777; line-height: 1.6; margin: 24px 0 0;">
+        The code works once and expires in ${esc(expiry)}. If you did not ask for it, you can ignore this email.
+      </p>
+    </div>
+  `
+  const text = [
+    `Your ${brandLabel} sign-in code is ${data.code}.`,
+    `Enter it at ${data.trackingUrl}`,
+    '',
+    `It works once and expires in ${expiry}.`,
+  ].join('\n')
+  await send({ from: fromAddress(data.tradingName), to: data.to, subject: `${brandLabel} sign-in code: ${data.code}`, html, text })
+}

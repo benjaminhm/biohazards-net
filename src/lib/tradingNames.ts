@@ -58,6 +58,12 @@ interface BrandDetails {
    * host is connected in Vercel and DNS (lib/signing/links.ts checks).
    */
   documentHost?: string
+  /**
+   * Host where clients sign in to follow a job's photo feed
+   * (e.g. tracking.forensiccleaningqld.com.au). Only the tracking pages and
+   * their API are reachable on it.
+   */
+  trackingHost?: string
 }
 
 /** Default reply-to on Authorisation to Proceed when Settings email is empty. */
@@ -74,6 +80,7 @@ const BRANDS = [
     // not verified in Resend yet, so mail is sent from the shared address.
     email: 'admin@biohazardcleaningqld.com.au',
     documentHost: 'document.biohazardcleaningqld.com.au',
+    trackingHost: 'tracking.biohazardcleaningqld.com.au',
   },
   {
     id: 'forensic_cleaning_qld',
@@ -85,6 +92,7 @@ const BRANDS = [
     accountsHost: 'accounts.forensiccleaningqld.com.au',
     photoHost: 'photo.forensiccleaningqld.com.au',
     documentHost: 'document.forensiccleaningqld.com.au',
+    trackingHost: 'tracking.forensiccleaningqld.com.au',
   },
   {
     // Stored id predates the correction to Hoarding Clearance QLD; existing jobs reference it.
@@ -97,6 +105,7 @@ const BRANDS = [
     email: 'admin@hoardingclearanceqld.com.au',
     useWordmark: true,
     documentHost: 'document.hoardingclearanceqld.com.au',
+    trackingHost: 'tracking.hoardingclearanceqld.com.au',
   },
 ] as const satisfies readonly ({ id: string } & BrandDetails)[]
 
@@ -145,6 +154,20 @@ export function documentHostTradingName(host: string | null | undefined): Tradin
   if (!normalised) return null
   const match = TRADING_NAME_OPTIONS.find(o => o.documentHost?.toLowerCase() === normalised)
   return match?.id ?? null
+}
+
+/** Map a request host to the trading brand whose client photo feed it serves. */
+export function trackingHostTradingName(host: string | null | undefined): TradingNameId | null {
+  const normalised = (host ?? '').split(':')[0].trim().toLowerCase()
+  if (!normalised) return null
+  const match = TRADING_NAME_OPTIONS.find(o => o.trackingHost?.toLowerCase() === normalised)
+  return match?.id ?? null
+}
+
+/** Address a client opens to follow their job's photos. */
+export function trackingBaseUrl(id: TradingNameId | null | undefined): string {
+  const host = tradingNameOption(id)?.trackingHost ?? TRADING_NAME_OPTIONS[0].trackingHost
+  return `https://${host}`
 }
 
 /**
