@@ -7,7 +7,7 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import type { TradingNameId } from '@/lib/tradingNames'
-import { trackingTradingNameFromRequest } from '@/lib/tracking/header'
+import { trackingIsShared, trackingTradingNameFromRequest } from '@/lib/tracking/header'
 import { trackingSessionFromRequest, type TrackingClaims } from '@/lib/tracking/session'
 import { viewerJobs, type ViewerJob } from '@/lib/tracking/server'
 
@@ -23,6 +23,6 @@ export async function gateViewer(req: Request): Promise<ViewerGate> {
   const session = await trackingSessionFromRequest(req, tradingName)
   if (!session) return { ok: false, response: NextResponse.json({ error: 'Signed out' }, { status: 401 }) }
   const supabase = createServiceClient()
-  const jobs = await viewerJobs(supabase, session.identity, tradingName)
+  const jobs = await viewerJobs(supabase, session.identity, tradingName, trackingIsShared(req))
   return { ok: true, supabase, tradingName, session, jobs }
 }

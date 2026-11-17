@@ -164,10 +164,20 @@ export function trackingHostTradingName(host: string | null | undefined): Tradin
   return match?.id ?? null
 }
 
-/** Address a client opens to follow their job's photos. */
+/** Brand-neutral tracking address: a client sees their jobs on every brand there. */
+export const SHARED_TRACKING_HOST = 'tracking.biohazards.net'
+
+export function isSharedTrackingHost(host: string | null | undefined): boolean {
+  return (host ?? '').split(':')[0].trim().toLowerCase() === SHARED_TRACKING_HOST
+}
+
+/**
+ * Address a client opens to follow their job's photos. The shared host until
+ * TRACKING_BRAND_HOSTS=1 says the brand hosts are connected in Vercel and DNS.
+ */
 export function trackingBaseUrl(id: TradingNameId | null | undefined): string {
-  const host = tradingNameOption(id)?.trackingHost ?? TRADING_NAME_OPTIONS[0].trackingHost
-  return `https://${host}`
+  const host = process.env.TRACKING_BRAND_HOSTS === '1' ? tradingNameOption(id)?.trackingHost : null
+  return `https://${host ?? SHARED_TRACKING_HOST}`
 }
 
 /**

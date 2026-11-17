@@ -34,6 +34,7 @@
  *   tracking.<brand>.com.au — a client's read-only photo feed for their job.
  *   / is /tracking; only /tracking and /api/tracking/* are reachable. It has
  *   its own bh_tracking cookie (lib/tracking/session.ts).
+ *   tracking.biohazards.net is the same, for jobs on every brand.
  *
  * There is one company. The host never decides whose data a request sees: that
  * comes from the signed-in person's membership (lib/org.ts). Any other
@@ -52,8 +53,8 @@
  */
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
-import { accountsHostTradingName, documentHostTradingName, isNewJobCaptureHost, isNotesCaptureHost, isPhotoCaptureHost, trackingHostTradingName, tradingNameLabel } from '@/lib/tradingNames'
-import { TRACKING_TRADING_NAME_HEADER } from '@/lib/tracking/header'
+import { accountsHostTradingName, documentHostTradingName, isNewJobCaptureHost, isNotesCaptureHost, isPhotoCaptureHost, isSharedTrackingHost, trackingHostTradingName, tradingNameLabel } from '@/lib/tradingNames'
+import { TRACKING_SHARED_HEADER, TRACKING_TRADING_NAME_HEADER } from '@/lib/tracking/header'
 import { DOCUMENT_HOST_HEADER, isSigningTokenShape } from '@/lib/signing/hostShape'
 import {
   STAFF_COOKIE,
@@ -93,7 +94,7 @@ function isPublicPath(pathname: string): boolean {
   return false
 }
 
-const RESERVED_SUBDOMAINS = new Set(['www', 'app', 'login', 'platform', 'admin', 'accounts', 'photo', 'notes', 'newjob'])
+const RESERVED_SUBDOMAINS = new Set(['www', 'app', 'login', 'platform', 'admin', 'accounts', 'photo', 'notes', 'newjob', 'tracking'])
 
 function isSharedAsset(pathname: string): boolean {
   return (
@@ -152,7 +153,9 @@ export async function proxy(request: NextRequest) {
   // from the app origin at /tracking so it can be tried before DNS exists.
   const isTrackingPath = pathname === '/tracking' || pathname.startsWith('/api/tracking/')
   const trackingOnAppOrigin = isLocalDev || process.env.VERCEL_ENV === 'preview'
-  const trackingHostBrand = trackingHostTradingName(host)
+  requestHeaders.delete(TRACKING_SHARED_HEADER)
+  const sharedTracking = isSharedTrackingHost(host) || (trackingOnAppOrigin && isTrackingPath)
+  const trackingHostBrand = trackingHostTradingName(host) ?? (isSharedTrackingHost(host) ? 'forensic_cleaning_qld' : null)
   const trackingBrand =
     trackingHostBrand ??
     (trackingOnAppOrigin && isTrackingPath
@@ -161,6 +164,7 @@ export async function proxy(request: NextRequest) {
   if (trackingBrand) {
     requestHeaders.set('x-subdomain', 'tracking')
     requestHeaders.set(TRACKING_TRADING_NAME_HEADER, trackingBrand)
+    if (sharedTracking) requestHeaders.set(TRACKING_SHARED_HEADER, '1')
     if (isSharedAsset(pathname) || isTrackingPath) {
       return NextResponse.next({ request: { headers: requestHeaders } })
     }

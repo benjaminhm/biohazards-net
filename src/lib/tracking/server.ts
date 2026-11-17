@@ -142,9 +142,15 @@ interface ViewerJobRow {
 
 /**
  * Jobs this person may see on this brand's host: they are a current viewer and
- * staff have turned the feed on. A job with no brand set shows on any host.
+ * staff have turned the feed on. A job with no brand set shows on any host,
+ * and every job shows on the shared host.
  */
-export async function viewerJobs(supabase: Supabase, identity: string, tradingName: TradingNameId): Promise<ViewerJob[]> {
+export async function viewerJobs(
+  supabase: Supabase,
+  identity: string,
+  tradingName: TradingNameId,
+  anyBrand = false
+): Promise<ViewerJob[]> {
   const select = 'id, name, jobs!inner(id, org_id, client_name, site_address, trading_name, client_feed_enabled, archived_at)'
   const column = identity.includes('@') ? 'email' : 'mobile'
   const { data } = await supabase.from('job_viewers').select(select).eq(column, identity).is('revoked_at', null)
@@ -153,7 +159,7 @@ export async function viewerJobs(supabase: Supabase, identity: string, tradingNa
   for (const row of (data ?? []) as unknown as ViewerJobRow[]) {
     const job = row.jobs
     if (!job || !job.client_feed_enabled || job.archived_at) continue
-    if (job.trading_name && job.trading_name !== tradingName) continue
+    if (!anyBrand && job.trading_name && job.trading_name !== tradingName) continue
     if (seen.has(job.id)) continue
     seen.add(job.id)
     out.push({

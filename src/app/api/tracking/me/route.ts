@@ -5,12 +5,12 @@
  */
 import { NextResponse } from 'next/server'
 import { tradingNameLabel } from '@/lib/tradingNames'
-import { trackingTradingNameFromRequest } from '@/lib/tracking/header'
+import { trackingIsShared, trackingTradingNameFromRequest } from '@/lib/tracking/header'
 import { gateViewer } from '@/lib/tracking/route'
 
 export async function GET(req: Request) {
   const tradingName = trackingTradingNameFromRequest(req)
-  const brand = tradingNameLabel(tradingName) ?? 'Job updates'
+  const brand = trackingIsShared(req) ? 'Job photos' : tradingNameLabel(tradingName) ?? 'Job updates'
   const g = await gateViewer(req)
   if (!g.ok) {
     return g.response.status === 401

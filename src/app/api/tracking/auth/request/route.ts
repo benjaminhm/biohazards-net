@@ -9,8 +9,8 @@ import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import { clientIpFromRequest } from '@/lib/portalAuth'
 import { sendTrackingCodeEmail } from '@/lib/portal/email'
-import { tradingNameLabel, trackingBaseUrl, tradingNameOption } from '@/lib/tradingNames'
-import { trackingTradingNameFromRequest } from '@/lib/tracking/header'
+import { SHARED_TRACKING_HOST, tradingNameLabel, trackingBaseUrl, tradingNameOption } from '@/lib/tradingNames'
+import { trackingIsShared, trackingTradingNameFromRequest } from '@/lib/tracking/header'
 import { parseTrackingIdentity } from '@/lib/tracking/identity'
 import { CODE_TTL_MINUTES, isCodeRateLimited, issueCode, textCode, viewerJobs } from '@/lib/tracking/server'
 
@@ -34,21 +34,23 @@ export async function POST(req: Request) {
   }
 
   const code = await issueCode(supabase, identity.value, tradingName, ip)
-  const jobs = await viewerJobs(supabase, identity.value, tradingName)
+  const shared = trackingIsShared(req)
+  const jobs = await viewerJobs(supabase, identity.value, tradingName, shared)
   if (jobs.length) {
+    const host = shared ? SHARED_TRACKING_HOST : tradingNameOption(tradingName)?.trackingHost
     try {
       if (identity.kind === 'mobile') {
-        const host = tradingNameOption(tradingName)?.trackingHost
+        const brand = shared ? '' : `${tradingNameLabel(tradingName) ?? ''} `
         await textCode(
           identity.value,
-          `Your ${tradingNameLabel(tradingName) ?? ''} code is ${code}. It expires in ${CODE_TTL_MINUTES} minutes.${host ? `\n\n@${host} #${code}` : ''}`
+          `Your ${brand}code is ${code}. It expires in ${CODE_TTL_MINUTES} minutes.${host ? `\n\n@${host} #${code}` : ''}`
         )
       } else {
         await sendTrackingCodeEmail({
           tradingName,
           to: identity.value,
           code,
-          trackingUrl: trackingBaseUrl(tradingName),
+          trackingUrl: shared ? `https://${SHARED_TRACKING_HOST}` : trackingBaseUrl(tradingName),
           expiresInMinutes: CODE_TTL_MINUTES,
         })
       }
