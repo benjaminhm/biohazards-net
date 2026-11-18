@@ -19,6 +19,7 @@ import PhotoCard from '@/components/PhotoCard'
 import PhoneUploadQr from '@/components/PhoneUploadQr'
 import ReceiptsPanel from '@/components/ReceiptsPanel'
 import ClientFeedPanel from '@/components/ClientFeedPanel'
+import SpatialScansPanel from '@/components/tabs/SpatialScansPanel'
 import type { JobReceipt } from '@/lib/jobReceipts'
 import { usedPhotoIds } from '@/lib/photoSelection'
 
@@ -40,7 +41,7 @@ function newestFirst(a: Photo, b: Photo): number {
 export default function PhotosTab({ jobId, photos, assessmentData = null, onAssessmentDataUpdate, onPhotosUpdate }: Props) {
   const [filter, setFilter] = useState<Filter>('all')
   const [phoneUpload, setPhoneUpload] = useState(false)
-  const [view, setView] = useState<'photos' | 'receipts' | 'client'>('photos')
+  const [view, setView] = useState<'photos' | 'scans' | 'receipts' | 'client'>('photos')
   const [receipts, setReceipts] = useState<JobReceipt[] | null>(null)
   const [receiptsError, setReceiptsError] = useState('')
   const [roomNotesDraft, setRoomNotesDraft] = useState<Record<string, string>>({})
@@ -138,7 +139,7 @@ export default function PhotosTab({ jobId, photos, assessmentData = null, onAsse
       )}
 
       <div role="tablist" aria-label="Folder" style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-        {(['photos', 'receipts', 'client'] as const).map(id => (
+        {(['photos', 'scans', 'receipts', 'client'] as const).map(id => (
           <button
             key={id}
             type="button"
@@ -150,12 +151,14 @@ export default function PhotosTab({ jobId, photos, assessmentData = null, onAsse
               background: view === id ? 'var(--accent)' : 'var(--surface)', color: view === id ? '#fff' : 'var(--text-muted)',
             }}
           >
-            {id === 'photos' ? `Photos (${photos.length})` : id === 'client' ? 'Client view' : `Receipts${receipts ? ` (${receipts.length})` : ''}`}
+            {id === 'photos' ? `Photos (${photos.length})` : id === 'scans' ? 'Scans' : id === 'client' ? 'Client view' : `Receipts${receipts ? ` (${receipts.length})` : ''}`}
           </button>
         ))}
       </div>
 
-      {view === 'client' ? (
+      {view === 'scans' ? (
+        <SpatialScansPanel jobId={jobId} />
+      ) : view === 'client' ? (
         <ClientFeedPanel jobId={jobId} />
       ) : view === 'receipts' ? (
         <div className="card" style={{ padding: 16, marginBottom: 20 }}>

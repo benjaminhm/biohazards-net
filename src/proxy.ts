@@ -14,7 +14,8 @@
  *                              /notes the job notepad (/photo/notes),
  *                              /drop/<token> a QR upload link (/photo/drop),
  *                              /measure/<token> a QR room measure link (/photo/measure).
- *                              Only /photo and /api/photo are reachable.
+ *                              Only /photo and /api/photo are reachable,
+ *                              including /api/photo/scan for the iPhone LiDAR app.
  *
  *   notes.biohazards.net     — the job notepad on its own host. / is /photo/notes;
  *                              same PIN session and path limits as photo.
