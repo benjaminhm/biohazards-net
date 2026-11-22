@@ -23,6 +23,7 @@ import ServiceWorkerRegistration from '@/components/ServiceWorkerRegistration'
 import ThemeSync from '@/components/ThemeSync'
 import { UserProvider } from '@/lib/userContext'
 import Notepad from '@/components/Notepad'
+import UxTagger from '@/components/UxTagger'
 import { isTradingNameId, tradingNameOption } from '@/lib/tradingNames'
 
 /** Pre-paint theme bootstrap so Light/Dark never flickers on reload or inside the JobPanel iframe. */
@@ -133,6 +134,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <ServiceWorkerRegistration />
           {children}
           <Notepad />
+          <UxTagger />
         </UserProvider>
       </body>
     </html>

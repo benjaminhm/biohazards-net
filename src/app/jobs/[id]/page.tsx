@@ -77,6 +77,7 @@ import JobFlags from '@/components/workspace/JobFlags'
 import ViewToggle from '@/components/workspace/ViewToggle'
 import ThemeToggle from '@/components/ThemeToggle'
 import { archivedMenuKeys, menuItemKey } from '@/lib/menuArchive'
+import { UX_CONTEXT_EVENT, catalogItemForKey } from '@/lib/uxTags'
 import { FILE_MENU_PARAM, JOB_EMBED_MSG, useJobEmbedBridge } from '@/lib/jobEmbed'
 import { HOME_SECTIONS, HOME_SECTION_IDS, HOME_SECTION_TO_CAP, isHomeSection, type HomeSection } from '@/lib/jobHomeSections'
 import { isTradingNameId, type TradingNameId } from '@/lib/tradingNames'
@@ -916,6 +917,25 @@ export default function JobPage() {
     if (currentQs === nextQs) return
     router.replace(`${pathname}${nextQs ? `?${nextQs}` : ''}`, { scroll: false })
   }, [activeTab, homeSection, docsSection, pathname, router, searchParams])
+
+  // Broadcast active section/tab to the admin UX Feature Tagger (works both direct and inside Job Manager / Workspace iframes).
+  useEffect(() => {
+    const key = activeTab === 'home' ? `section:${homeSection}` : `tab:${activeTab}`
+    const catalog = catalogItemForKey(key)
+    const detail = {
+      key,
+      label: catalog?.label ?? (activeTab === 'home' ? homeSection : activeTab),
+      file: catalog?.file,
+    }
+    try {
+      window.dispatchEvent(new CustomEvent(UX_CONTEXT_EVENT, { detail }))
+      if (window.top && window.top !== window) {
+        window.top.dispatchEvent(new CustomEvent(UX_CONTEXT_EVENT, { detail }))
+      }
+    } catch {
+      /* ignore cross-origin */
+    }
+  }, [activeTab, homeSection])
 
   async function refreshDocumentBundles() {
     const bundlesRes = await fetch(`/api/jobs/${id}/document-bundles`)
