@@ -27,6 +27,16 @@ import { useUser } from '@/lib/userContext'
 import { FILE_MENU_PARAM, JOB_EMBED_MSG, isFileMenuTabList, type FileMenuTab } from '@/lib/jobEmbed'
 import { isHomeSection, visibleHomeSections, type HomeSection } from '@/lib/jobHomeSections'
 import { archivedMenuKeys, menuItemKey, splitArchived } from '@/lib/menuArchive'
+import {
+  applyOrderAndLabels,
+  broadcastOrgFeatures,
+  hasCustomMenuConfig,
+  orderMenuItems,
+  readMenuConfig,
+  type MenuConfig,
+  type MenuConfigPatch,
+} from '@/lib/menuConfig'
+import { MenuEditList, moveItem, type EditableMenuItem } from '@/components/MenuEditList'
 import { ignoredUxKeys } from '@/lib/uxTags'
 import { TRADING_NAME_OPTIONS, isTradingNameId } from '@/lib/tradingNames'
 import { isPlainClick } from '@/lib/plainClick'
@@ -237,51 +247,135 @@ function JobRow({ job, active, showPrice, checked, onCheck, onSelect }: {
   )
 }
 
-function FileMenu({ job, sections, active, onOpen, tabs, activeTab, onOpenTab, archived, canArchive, onArchive }: {
+function FileMenu({
+  job,
+  sections,
+  active,
+  onOpen,
+  tabs,
+  activeTab,
+  onOpenTab,
+  archived,
+  menuConfig,
+  canEdit,
+  onSaveConfig,
+  onEditingChange,
+}: {
   job: Job
-  sections: { id: HomeSection; label: string }[]
+  sections: { id: HomeSection; label: string; defaultLabel: string }[]
   active: HomeSection | null
   onOpen: (section: HomeSection) => void
   tabs: FileMenuTab[]
   activeTab: string | null
   onOpenTab: (tab: string) => void
   archived: Set<string>
-  canArchive: boolean
-  onArchive: (keys: string[], archived: boolean) => Promise<void>
+  menuConfig: MenuConfig
+  canEdit: boolean
+  onSaveConfig: (patch: MenuConfigPatch) => Promise<void>
+  onEditingChange?: (editing: boolean) => void
 }) {
-  const [picking, setPicking] = useState(false)
-  const [checked, setChecked] = useState<Set<string>>(() => new Set())
+  const [editing, setEditing] = useState(false)
   const [archivedOpen, setArchivedOpen] = useState(false)
   const [saving, setSaving] = useState(false)
 
-  const sectionSplit = splitArchived(sections, 'section', archived)
-  const tabSplit = splitArchived(tabs, 'tab', archived)
-  const archivedCount = sectionSplit.archived.length + tabSplit.archived.length
-  const toArchive = [...checked].filter(k => !archived.has(k))
-  const toRestore = [...checked].filter(k => archived.has(k))
+  // Draft state populated when Edit mode starts
+  const [draftSectionIds, setDraftSectionIds] = useState<HomeSection[]>([])
+  const [draftTabIds, setDraftTabIds] = useState<string[]>([])
+  const [draftLabels, setDraftLabels] = useState<Record<string, string>>({})
+  const [draftArchived, setDraftArchived] = useState<Set<string>>(() => new Set())
 
-  function stopPicking() {
-    setPicking(false)
-    setChecked(new Set())
+  const orderedTabs = useMemo(
+    () => orderMenuItems(tabs, menuConfig.tabOrder),
+    [tabs, menuConfig.tabOrder],
+  )
+  const sectionSplit = splitArchived(sections, 'section', archived)
+  const tabSplit = splitArchived(orderedTabs, 'tab', archived)
+  const archivedCount = sectionSplit.archived.length + tabSplit.archived.length
+
+  const sectionById = useMemo(() => new Map(sections.map(s => [s.id, s])), [sections])
+  const tabById = useMemo(() => new Map(orderedTabs.map(t => [t.id, t])), [orderedTabs])
+
+  function startEditing() {
+    setDraftSectionIds(sections.map(s => s.id))
+    setDraftTabIds(orderedTabs.map(t => t.id))
+    const initialLabels: Record<string, string> = {}
+    for (const s of sections) {
+      initialLabels[menuItemKey('section', s.id)] = s.label
+    }
+    for (const t of orderedTabs) {
+      const k = menuItemKey('tab', t.id)
+      initialLabels[k] = menuConfig.labels[k] || t.defaultLabel || t.label
+    }
+    setDraftLabels(initialLabels)
+    setDraftArchived(new Set(archived))
+    setEditing(true)
+    onEditingChange?.(true)
   }
 
-  function toggle(key: string) {
-    setChecked(prev => {
+  function stopEditing() {
+    setEditing(false)
+    onEditingChange?.(false)
+  }
+
+  function setDraftHidden(key: string, hidden: boolean) {
+    setDraftArchived(prev => {
       const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
+      if (hidden) next.add(key)
+      else next.delete(key)
       return next
     })
   }
 
-  async function save(keys: string[], archive: boolean) {
-    if (keys.length === 0 || saving) return
+  async function saveEdits() {
+    if (saving) return
     setSaving(true)
     try {
-      await onArchive(keys, archive)
-      stopPicking()
+      const labelsPatch: Record<string, string> = {}
+      for (const s of sections) {
+        const k = menuItemKey('section', s.id)
+        const val = (draftLabels[k] ?? '').trim()
+        labelsPatch[k] = !val || val === s.defaultLabel ? '' : val
+      }
+      for (const t of orderedTabs) {
+        const k = menuItemKey('tab', t.id)
+        const baseDefault = t.defaultLabel || t.label
+        const val = (draftLabels[k] ?? '').trim()
+        labelsPatch[k] = !val || val === baseDefault ? '' : val
+      }
+
+      const archivedKeys: string[] = []
+      const restoredKeys: string[] = []
+      for (const k of draftArchived) {
+        if (!archived.has(k)) archivedKeys.push(k)
+      }
+      for (const k of archived) {
+        if (!draftArchived.has(k)) restoredKeys.push(k)
+      }
+
+      await onSaveConfig({
+        sectionOrder: draftSectionIds,
+        tabOrder: draftTabIds,
+        labels: labelsPatch,
+        ...(archivedKeys.length ? { archivedKeys } : {}),
+        ...(restoredKeys.length ? { restoredKeys } : {}),
+      })
+      stopEditing()
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : 'Could not save the menu')
+      window.alert(e instanceof Error ? e.message : 'Could not save menu edits')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function resetDefaults() {
+    if (saving) return
+    if (!window.confirm('Reset menu names and item order back to defaults?')) return
+    setSaving(true)
+    try {
+      await onSaveConfig({ reset: true })
+      stopEditing()
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : 'Could not reset menu')
     } finally {
       setSaving(false)
     }
@@ -297,31 +391,6 @@ function FileMenu({ job, sections, active, onOpen, tabs, activeTab, onOpenTab, a
   const labelStyle: React.CSSProperties = { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
 
   function row(key: string, label: string, selected: boolean, href: string, open: () => void, opts: { number?: number; muted?: boolean } = {}) {
-    const content = (
-      <>
-        {picking && (
-          <input type="checkbox" checked={checked.has(key)} readOnly tabIndex={-1} aria-hidden style={{ flexShrink: 0, pointerEvents: 'none' }} />
-        )}
-        {opts.number !== undefined && (
-          <span style={{
-            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-            width: 22, height: 22, borderRadius: '50%', fontSize: 11, fontWeight: 700, flexShrink: 0,
-            background: selected && !picking ? 'var(--blue)' : 'var(--surface-2)',
-            color: selected && !picking ? '#fff' : 'var(--text-muted)',
-          }}>
-            {opts.number}
-          </span>
-        )}
-        <span style={labelStyle}>{label}</span>
-      </>
-    )
-    if (picking) {
-      return (
-        <button key={key} type="button" aria-pressed={checked.has(key)} onClick={() => toggle(key)} style={item(false, opts.muted)}>
-          {content}
-        </button>
-      )
-    }
     return (
       <Link
         key={key}
@@ -334,15 +403,70 @@ function FileMenu({ job, sections, active, onOpen, tabs, activeTab, onOpenTab, a
         }}
         style={{ ...item(selected, opts.muted), lineHeight: 'normal' }}
       >
-        {content}
+        {opts.number !== undefined && (
+          <span style={{
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            width: 22, height: 22, borderRadius: '50%', fontSize: 11, fontWeight: 700, flexShrink: 0,
+            background: selected ? 'var(--blue)' : 'var(--surface-2)',
+            color: selected ? '#fff' : 'var(--text-muted)',
+          }}>
+            {opts.number}
+          </span>
+        )}
+        <span style={labelStyle}>{label}</span>
       </Link>
     )
   }
   const sectionHref = (id: HomeSection) => `/jobs/${job.id}?tab=home&section=${id}`
   const tabHref = (id: string) => `/jobs/${job.id}?tab=${encodeURIComponent(id)}`
 
-  const smallBtn: React.CSSProperties = { fontSize: 11, padding: '4px 8px' }
-  const showArchivedGroup = archivedCount > 0 && (archivedOpen || picking)
+  const smallBtn: React.CSSProperties = { fontSize: 11, padding: '5px 9px', minHeight: 30 }
+  const showArchivedGroup = archivedCount > 0 && archivedOpen
+
+  // Draft visible & hidden lists when editing
+  const draftVisibleSections: EditableMenuItem[] = editing
+    ? draftSectionIds
+        .filter(id => !draftArchived.has(menuItemKey('section', id)))
+        .map(id => {
+          const s = sectionById.get(id)
+          const k = menuItemKey('section', id)
+          return { id, label: draftLabels[k] ?? s?.label ?? id, defaultLabel: s?.defaultLabel ?? id }
+        })
+    : []
+  const draftHiddenSections = editing
+    ? draftSectionIds
+        .filter(id => draftArchived.has(menuItemKey('section', id)))
+        .map(id => sectionById.get(id))
+        .filter((s): s is { id: HomeSection; label: string; defaultLabel: string } => Boolean(s))
+    : []
+
+  const draftVisibleTabs: EditableMenuItem[] = editing
+    ? draftTabIds
+        .filter(id => !draftArchived.has(menuItemKey('tab', id)))
+        .map(id => {
+          const t = tabById.get(id)
+          const k = menuItemKey('tab', id)
+          return { id, label: draftLabels[k] ?? t?.defaultLabel ?? t?.label ?? id, defaultLabel: t?.defaultLabel ?? t?.label ?? id }
+        })
+    : []
+  const draftHiddenTabs = editing
+    ? draftTabIds
+        .filter(id => draftArchived.has(menuItemKey('tab', id)))
+        .map(id => tabById.get(id))
+        .filter((t): t is FileMenuTab => Boolean(t))
+    : []
+
+  function moveVisibleSection(fromVisibleIdx: number, toVisibleIdx: number) {
+    const visible = draftSectionIds.filter(id => !draftArchived.has(menuItemKey('section', id)))
+    const hidden = draftSectionIds.filter(id => draftArchived.has(menuItemKey('section', id)))
+    setDraftSectionIds([...moveItem(visible, fromVisibleIdx, toVisibleIdx), ...hidden])
+  }
+
+  function moveVisibleTab(fromVisibleIdx: number, toVisibleIdx: number) {
+    const visible = draftTabIds.filter(id => !draftArchived.has(menuItemKey('tab', id)))
+    const hidden = draftTabIds.filter(id => draftArchived.has(menuItemKey('tab', id)))
+    setDraftTabIds([...moveItem(visible, fromVisibleIdx, toVisibleIdx), ...hidden])
+  }
 
   return (
     <nav aria-label="Job file sections" style={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%', borderRight: '1px solid var(--border)' }}>
@@ -351,55 +475,136 @@ function FileMenu({ job, sections, active, onOpen, tabs, activeTab, onOpenTab, a
           <div style={{ flex: 1, fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 11, fontWeight: 800, color: 'var(--accent)' }}>
             {job.job_code ? `#${job.job_code}` : 'Job file'}
           </div>
-          {canArchive && !picking && (
-            <button type="button" className="btn btn-ghost" style={{ ...smallBtn, color: 'var(--text-muted)' }} onClick={() => setPicking(true)} title="Hide menu items nobody uses, for the whole organisation">
-              Archive items
+          {canEdit && !editing && (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              style={smallBtn}
+              onClick={startEditing}
+              title="Rename, reorder, or hide menu items for the whole organisation"
+            >
+              ✎ Edit
             </button>
           )}
         </div>
         <div style={{ fontWeight: 700, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {job.client_name || 'Unnamed'}
         </div>
-        {picking && (
+        {editing && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-            <button type="button" className="btn btn-primary" style={smallBtn} disabled={saving || toArchive.length === 0} onClick={() => void save(toArchive, true)}>
-              Archive{toArchive.length ? ` (${toArchive.length})` : ''}
+            <button type="button" className="btn btn-primary" style={smallBtn} disabled={saving} onClick={() => void saveEdits()}>
+              {saving ? 'Saving…' : 'Save'}
             </button>
-            {archivedCount > 0 && (
-              <button type="button" className="btn btn-secondary" style={smallBtn} disabled={saving || toRestore.length === 0} onClick={() => void save(toRestore, false)}>
-                Restore{toRestore.length ? ` (${toRestore.length})` : ''}
-              </button>
-            )}
-            <button type="button" className="btn btn-ghost" style={smallBtn} disabled={saving} onClick={stopPicking}>
+            <button type="button" className="btn btn-ghost" style={smallBtn} disabled={saving} onClick={stopEditing}>
               Cancel
             </button>
+            {hasCustomMenuConfig(menuConfig) && (
+              <button type="button" className="btn btn-ghost" style={{ ...smallBtn, marginLeft: 'auto', color: 'var(--text-muted)' }} disabled={saving} onClick={() => void resetDefaults()}>
+                Reset
+              </button>
+            )}
           </div>
         )}
       </div>
       <div style={{ flex: 1, overflowY: 'auto', padding: 6, display: 'flex', flexDirection: 'column', gap: 2 }}>
-        {sectionSplit.shown.map((s, i) =>
-          row(menuItemKey('section', s.id), s.label, s.id === active, sectionHref(s.id), () => onOpen(s.id), { number: i + 1 }))}
-        {tabSplit.shown.length > 0 && sectionSplit.shown.length > 0 && (
-          <div role="separator" style={{ height: 1, background: 'var(--border)', margin: '6px 4px' }} />
-        )}
-        {tabSplit.shown.map(t => row(menuItemKey('tab', t.id), t.label, t.id === activeTab, tabHref(t.id), () => onOpenTab(t.id)))}
-        {archivedCount > 0 && (
+        {editing ? (
           <>
-            <div role="separator" style={{ height: 1, background: 'var(--border)', margin: '6px 4px' }} />
-            <button
-              type="button"
-              aria-expanded={showArchivedGroup}
-              onClick={() => setArchivedOpen(o => !o)}
-              disabled={picking}
-              style={{ ...item(false, true), fontSize: 12, cursor: picking ? 'default' : 'pointer' }}
-            >
-              <span aria-hidden style={{ width: 10, flexShrink: 0 }}>{showArchivedGroup ? '▾' : '▸'}</span>
-              <span style={labelStyle}>Archived ({archivedCount})</span>
-            </button>
-            {showArchivedGroup && (
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: '2px 4px 6px' }}>
+              Drag ⋮⋮ or tap ↑ ↓ to reorder, type to rename, ✕ to hide.
+            </div>
+            <MenuEditList
+              items={draftVisibleSections}
+              numbered
+              compact
+              onMove={moveVisibleSection}
+              onRename={(id, next) => setDraftLabels(prev => ({ ...prev, [menuItemKey('section', id)]: next }))}
+              onHide={id => setDraftHidden(menuItemKey('section', id), true)}
+            />
+            {draftVisibleTabs.length > 0 && (
               <>
-                {sectionSplit.archived.map(s => row(menuItemKey('section', s.id), s.label, s.id === active, sectionHref(s.id), () => onOpen(s.id), { muted: true }))}
-                {tabSplit.archived.map(t => row(menuItemKey('tab', t.id), t.label, t.id === activeTab, tabHref(t.id), () => onOpenTab(t.id), { muted: true }))}
+                <div role="separator" style={{ height: 1, background: 'var(--border)', margin: '8px 4px' }} />
+                <MenuEditList
+                  items={draftVisibleTabs}
+                  compact
+                  onMove={moveVisibleTab}
+                  onRename={(id, next) => setDraftLabels(prev => ({ ...prev, [menuItemKey('tab', id)]: next }))}
+                  onHide={id => setDraftHidden(menuItemKey('tab', id), true)}
+                />
+              </>
+            )}
+            {(draftHiddenSections.length > 0 || draftHiddenTabs.length > 0) && (
+              <>
+                <div role="separator" style={{ height: 1, background: 'var(--border)', margin: '8px 4px' }} />
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', padding: '2px 6px 4px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  Hidden ({draftHiddenSections.length + draftHiddenTabs.length})
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {draftHiddenSections.map(s => {
+                    const k = menuItemKey('section', s.id)
+                    return (
+                      <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 8px', borderRadius: 6, background: 'var(--surface)', border: '1px solid var(--border)' }}>
+                        <span style={{ ...labelStyle, flex: 1, fontSize: 12, color: 'var(--text-muted)' }}>
+                          {draftLabels[k] || s.label}
+                        </span>
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          style={{ fontSize: 11, padding: '3px 8px', minHeight: 28 }}
+                          onClick={() => setDraftHidden(k, false)}
+                        >
+                          Show
+                        </button>
+                      </div>
+                    )
+                  })}
+                  {draftHiddenTabs.map(t => {
+                    const k = menuItemKey('tab', t.id)
+                    return (
+                      <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 8px', borderRadius: 6, background: 'var(--surface)', border: '1px solid var(--border)' }}>
+                        <span style={{ ...labelStyle, flex: 1, fontSize: 12, color: 'var(--text-muted)' }}>
+                          {draftLabels[k] || t.defaultLabel || t.label}
+                        </span>
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          style={{ fontSize: 11, padding: '3px 8px', minHeight: 28 }}
+                          onClick={() => setDraftHidden(k, false)}
+                        >
+                          Show
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              </>
+            )}
+          </>
+        ) : (
+          <>
+            {sectionSplit.shown.map((s, i) =>
+              row(menuItemKey('section', s.id), s.label, s.id === active, sectionHref(s.id), () => onOpen(s.id), { number: i + 1 }))}
+            {tabSplit.shown.length > 0 && sectionSplit.shown.length > 0 && (
+              <div role="separator" style={{ height: 1, background: 'var(--border)', margin: '6px 4px' }} />
+            )}
+            {tabSplit.shown.map(t => row(menuItemKey('tab', t.id), t.label, t.id === activeTab, tabHref(t.id), () => onOpenTab(t.id)))}
+            {archivedCount > 0 && (
+              <>
+                <div role="separator" style={{ height: 1, background: 'var(--border)', margin: '6px 4px' }} />
+                <button
+                  type="button"
+                  aria-expanded={showArchivedGroup}
+                  onClick={() => setArchivedOpen(o => !o)}
+                  style={{ ...item(false, true), fontSize: 12 }}
+                >
+                  <span aria-hidden style={{ width: 10, flexShrink: 0 }}>{showArchivedGroup ? '▾' : '▸'}</span>
+                  <span style={labelStyle}>Archived ({archivedCount})</span>
+                </button>
+                {showArchivedGroup && (
+                  <>
+                    {sectionSplit.archived.map(s => row(menuItemKey('section', s.id), s.label, s.id === active, sectionHref(s.id), () => onOpen(s.id), { muted: true }))}
+                    {tabSplit.archived.map(t => row(menuItemKey('tab', t.id), t.label, t.id === activeTab, tabHref(t.id), () => onOpenTab(t.id), { muted: true }))}
+                  </>
+                )}
               </>
             )}
           </>
@@ -419,11 +624,13 @@ function JobViewer({
   onRemoveJob,
   onEmbedChanged,
   menuArchived,
-  canArchiveMenu,
-  onArchiveMenu,
+  menuConfig,
+  orgFeatures,
+  canEditMenu,
+  onSaveMenuConfig,
 }: {
   job: Job
-  sections: { id: HomeSection; label: string }[]
+  sections: { id: HomeSection; label: string; defaultLabel: string }[]
   section: HomeSection | null
   showArchived: boolean
   onSectionShown: (section: HomeSection) => void
@@ -431,10 +638,13 @@ function JobViewer({
   onRemoveJob: (id: string) => void
   onEmbedChanged: () => void
   menuArchived: Set<string>
-  canArchiveMenu: boolean
-  onArchiveMenu: (keys: string[], archived: boolean) => Promise<void>
+  menuConfig: MenuConfig
+  orgFeatures: Record<string, unknown> | null
+  canEditMenu: boolean
+  onSaveMenuConfig: (patch: MenuConfigPatch) => Promise<void>
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
+  const [editingMenu, setEditingMenu] = useState(false)
   const [showModal, setShowModal] = useState(false)
   const [statusSaving, setStatusSaving] = useState(false)
   const [archiveSaving, setArchiveSaving] = useState(false)
@@ -566,10 +776,22 @@ function JobViewer({
     return () => window.removeEventListener(THEME_EVENT, onTheme)
   }, [syncIframeTheme])
 
+  useEffect(() => {
+    if (!orgFeatures) return
+    try {
+      iframeRef.current?.contentWindow?.postMessage(
+        { type: 'bh-org-features:sync', features: orgFeatures },
+        window.location.origin,
+      )
+    } catch {
+      /* ignore */
+    }
+  }, [orgFeatures])
+
   const btn: React.CSSProperties = { fontSize: 12, padding: '5px 10px' }
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '230px minmax(0, 1fr)', minHeight: 0, height: '100%' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: `${editingMenu ? 330 : 230}px minmax(0, 1fr)`, transition: 'grid-template-columns 0.15s ease', minHeight: 0, height: '100%' }}>
       <FileMenu
         job={job}
         sections={sections}
@@ -579,8 +801,10 @@ function JobViewer({
         activeTab={shownTab}
         onOpenTab={next => openInFrame(next, null)}
         archived={menuArchived}
-        canArchive={canArchiveMenu}
-        onArchive={onArchiveMenu}
+        menuConfig={menuConfig}
+        canEdit={canEditMenu}
+        onSaveConfig={onSaveMenuConfig}
+        onEditingChange={setEditingMenu}
       />
       <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
         {showModal && (
@@ -698,29 +922,33 @@ function JobQueue() {
   const [screenAwake, setScreenAwake] = useState(() => readNativeKeepScreenOn())
   const isTablet = useIsTabletApp()
   const { org: ctxOrg, loading: userLoading, isAdmin, caps } = useUser()
-  const fileSections = useMemo(
-    () => visibleHomeSections(caps).filter(s => !isTablet || !TABLET_HIDDEN_HOME_SECTIONS.has(s.id)),
-    [caps, isTablet],
-  )
   const [savedFeatures, setSavedFeatures] = useState<Record<string, unknown> | null>(null)
+  const activeFeatures = savedFeatures ?? (ctxOrg?.features as Record<string, unknown> | undefined) ?? null
+  const menuConfig = useMemo(() => readMenuConfig(activeFeatures), [activeFeatures])
+  const fileSections = useMemo(() => {
+    const raw = visibleHomeSections(caps)
+      .filter(s => !isTablet || !TABLET_HIDDEN_HOME_SECTIONS.has(s.id))
+      .map(s => ({ id: s.id, label: s.label, defaultLabel: s.label }))
+    return applyOrderAndLabels(raw, 'section', menuConfig)
+  }, [caps, isTablet, menuConfig])
   const menuArchived = useMemo(() => {
-    const f = savedFeatures ?? ctxOrg?.features
-    const merged = new Set(archivedMenuKeys(f))
-    for (const k of ignoredUxKeys(f)) {
+    const merged = new Set(archivedMenuKeys(activeFeatures))
+    for (const k of ignoredUxKeys(activeFeatures)) {
       if (k.startsWith('section:') || k.startsWith('tab:')) merged.add(k)
     }
     return merged
-  }, [savedFeatures, ctxOrg?.features])
+  }, [activeFeatures])
 
-  const archiveMenuItems = useCallback(async (keys: string[], archived: boolean) => {
-    const res = await fetch('/api/org/menu-archive', {
+  const saveMenuConfig = useCallback(async (patch: MenuConfigPatch) => {
+    const res = await fetch('/api/org/menu-config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ keys, archived }),
+      body: JSON.stringify(patch),
     })
     const data = (await res.json().catch(() => ({}))) as { features?: Record<string, unknown>; error?: string }
     if (!res.ok || !data.features) throw new Error(data.error ?? 'Could not save the menu')
     setSavedFeatures(data.features)
+    broadcastOrgFeatures(data.features)
   }, [])
 
   // The pipeline board is for admins and managers.
@@ -1176,8 +1404,10 @@ function JobQueue() {
                 onRemoveJob={handleRemoveJob}
                 onEmbedChanged={() => void loadJobs(true)}
                 menuArchived={menuArchived}
-                canArchiveMenu={isAdmin}
-                onArchiveMenu={archiveMenuItems}
+                menuConfig={menuConfig}
+                orgFeatures={activeFeatures}
+                canEditMenu={isAdmin}
+                onSaveMenuConfig={saveMenuConfig}
               />
             ) : (
               <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: 14 }}>

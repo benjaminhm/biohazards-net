@@ -37,6 +37,8 @@ export const FILE_MENU_PARAM = 'filemenu'
 export interface FileMenuTab {
   id: string
   label: string
+  /** Original un-customized default label (e.g. "Photos" for "Photos (12)") so editing doesn't bake counts into saved names. */
+  defaultLabel?: string
 }
 
 export function isFileMenuTabList(v: unknown): v is FileMenuTab[] {

@@ -14,6 +14,7 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import type { TeamCapabilities } from './types'
 import { ALL_CAPABILITIES, DEFAULT_MANAGER_CAPABILITIES, DEFAULT_MEMBER_CAPABILITIES } from './types'
+import { ORG_FEATURES_UPDATED_EVENT } from './menuConfig'
 
 export type UserRole = 'admin' | 'manager' | 'member'
 
@@ -26,8 +27,8 @@ interface UserCtx {
   caps: TeamCapabilities
   org_id: string | null
   has_org: boolean
-  /** Tenant org; `show_quick_feedback`, `training_education`, `consultation` (Consultation tile). */
-  org: { name: string; slug: string; features?: Record<string, boolean> } | null
+  /** Tenant org; `show_quick_feedback`, `training_education`, `consultation`, `menu_*`, `ux_tag:*`. */
+  org: { name: string; slug: string; features?: Record<string, unknown> } | null
   loading: boolean
 }
 
@@ -57,6 +58,28 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         setCtx({ ...d, role, isAdmin, isManager, caps, loading: false })
       })
       .catch(() => setCtx(c => ({ ...c, loading: false })))
+  }, [])
+
+  useEffect(() => {
+    const applyFeatures = (features: Record<string, unknown>) => {
+      setCtx(c => (c.org ? { ...c, org: { ...c.org, features } } : c))
+    }
+    const onCustom = (e: Event) => {
+      const detail = (e as CustomEvent<Record<string, unknown>>).detail
+      if (detail && typeof detail === 'object') applyFeatures(detail)
+    }
+    const onMsg = (e: MessageEvent) => {
+      if (e.origin !== window.location.origin) return
+      if (e.data?.type === 'bh-org-features:sync' && e.data.features && typeof e.data.features === 'object') {
+        applyFeatures(e.data.features as Record<string, unknown>)
+      }
+    }
+    window.addEventListener(ORG_FEATURES_UPDATED_EVENT, onCustom)
+    window.addEventListener('message', onMsg)
+    return () => {
+      window.removeEventListener(ORG_FEATURES_UPDATED_EVENT, onCustom)
+      window.removeEventListener('message', onMsg)
+    }
   }, [])
 
   return <UserContext.Provider value={ctx}>{children}</UserContext.Provider>
