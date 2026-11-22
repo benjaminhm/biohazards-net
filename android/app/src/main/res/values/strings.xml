@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Biohazards Data</string>
+    <string name="paste_hint">Email link arrived? Paste it so this tablet stays signed in.</string>
+    <string name="paste_button">Paste link</string>
+    <string name="paste_title">Sign-in link</string>
+    <string name="paste_message">Copy the link from the sign-in email, then paste it here.</string>
+    <string name="paste_open">Open</string>
+    <string name="paste_cancel">Cancel</string>
+    <string name="paste_invalid">That is not a biohazards.net sign-in link.</string>
+    <string name="offline_title">Can’t reach biohazards.net</string>
+    <string name="offline_body">Check the tablet’s connection, then try again. Job data stays on the server.</string>
+    <string name="offline_banner">Offline — waiting for connection…</string>
+    <string name="retry">Try again</string>
+    <string name="cloud_documents">Document generation and PDF downloads stay on the web app. You can still send saved document links from Docs.</string>
+    <string name="add_photo">Add photos</string>
+    <string name="photo_source_title">Add photos</string>
+    <string name="photo_source_rapid_camera">Rapid camera (take multiple shots)</string>
+    <string name="photo_source_camera">Take a photo</string>
+    <string name="photo_source_gallery">Choose from gallery</string>
+    <string name="photo_batch_count_one">1 photo ready to upload</string>
+    <string name="photo_batch_count_many">%1$d photos ready to upload</string>
+    <string name="photo_batch_another">+ Take another</string>
+    <string name="photo_batch_done">Upload (%1$d)</string>
+    <string name="photo_batch_cancel">Cancel</string>
+</resources>

@@ -9,7 +9,9 @@
     "start": "next start",
     "lint": "eslint",
     "postinstall": "cp node_modules/pdfjs-dist/build/pdf.worker.min.mjs public/pdf.worker.min.mjs",
-    "migrate:phones": "npx tsx scripts/migrate-phones-to-e164.ts"
+    "migrate:phones": "npx tsx scripts/migrate-phones-to-e164.ts",
+    "android:build": "cd android && JAVA_HOME=\"$PWD/.toolchain/jdk\" ANDROID_HOME=\"$PWD/.toolchain/sdk\" GRADLE_USER_HOME=\"$PWD/.toolchain/gradle\" ./gradlew assembleRelease && cp app/build/outputs/apk/release/app-release.apk BiohazardsData.apk",
+    "android:deploy": "npm run android:build && ./android/.toolchain/sdk/platform-tools/adb install -r android/BiohazardsData.apk && ./android/.toolchain/sdk/platform-tools/adb shell am force-stop net.biohazards.data && ./android/.toolchain/sdk/platform-tools/adb shell am start -n net.biohazards.data/.MainActivity"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",

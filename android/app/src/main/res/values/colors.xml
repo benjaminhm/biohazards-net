@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg">#020617</color>
+    <color name="bg_light">#F8FAFC</color>
+    <color name="surface">#0F172A</color>
+    <color name="bar">#0F172A</color>
+    <color name="border">#1E293B</color>
+    <color name="accent">#F97316</color>
+    <color name="accent_dark">#EA580C</color>
+    <color name="amber">#F59E0B</color>
+    <color name="emerald">#22C55E</color>
+    <color name="text_primary">#F8FAFC</color>
+    <color name="text_muted">#94A3B8</color>
+</resources>

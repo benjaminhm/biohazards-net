@@ -33,6 +33,7 @@ export interface BiohazardsNativeBridge {
   openEmailCompose?: (to: string, subject: string, body: string) => boolean
   openSmsCompose?: (to: string, body: string) => boolean
   shareText?: (subject: string, body: string) => boolean
+  clearCacheAndReload?: () => void
 }
 
 declare global {
@@ -197,6 +198,17 @@ export function openNativeShare(subject: string, body: string): boolean {
   if (!bridge?.shareText) return false
   try {
     return Boolean(bridge.shareText(subject, body))
+  } catch {
+    return false
+  }
+}
+
+export function nativeHardReload(): boolean {
+  const bridge = getNativeBridge()
+  if (!bridge?.clearCacheAndReload) return false
+  try {
+    bridge.clearCacheAndReload()
+    return true
   } catch {
     return false
   }
