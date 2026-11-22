@@ -28,6 +28,11 @@ import { isAcceptableQuoteType } from '@/lib/acceptableQuotes'
 import { SendForSigningModal, SigningStatus, currentSigning, signedFor, useJobSigning } from '@/components/SendForSigning'
 import { PackStatus, SendStatementPackModal, packsChanged, useJobPacks } from '@/components/SendStatementPack'
 import { MAX_PACK_EXTRAS, PACK_STATEMENT_TYPE, isPackExtraType } from '@/lib/documentPack'
+import {
+  openNativeEmailCompose,
+  triggerNativeHaptic,
+  useIsTabletApp,
+} from '@/lib/tabletApp'
 
 type NavigateTab =
   | 'details'
@@ -177,6 +182,15 @@ function DocRow({ doc, jobId, clientName, clientEmail, onDeleted, tradeAccountLi
   const [releaseError,  setReleaseError]  = useState('')
   const [sendingToSign, setSendingToSign] = useState(false)
   const [sendingPack,   setSendingPack]   = useState(false)
+  const [sharingBusy,   setSharingBusy]   = useState<'copy' | 'email' | null>(null)
+  const [shareError,    setShareError]    = useState('')
+  const [sharedLink,    setSharedLink]    = useState<{
+    url: string
+    toEmail: string
+    subject: string
+    body: string
+  } | null>(null)
+  const isTablet = useIsTabletApp()
 
   // Quotes can be sent to the client to sign; other documents cannot.
   const canSign = isAcceptableQuoteType(doc.type)
@@ -189,8 +203,64 @@ function DocRow({ doc, jobId, clientName, clientEmail, onDeleted, tradeAccountLi
   const printUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/api/print/${doc.id}`
   const label    = DOC_TYPE_LABELS[doc.type as DocType] ?? doc.type
 
-  function copyLink() {
-    navigator.clipboard.writeText(printUrl).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000) })
+  /** Mint (once per row session) a branded document.<brand>.com.au/p/<token> client link. */
+  async function ensureShareLink() {
+    if (sharedLink) return sharedLink
+    setShareError('')
+    const res = await fetch(`/api/documents/${doc.id}/share-link`, { method: 'POST' })
+    const data = (await res.json().catch(() => ({}))) as {
+      url?: string
+      toEmail?: string
+      subject?: string
+      body?: string
+      error?: string
+    }
+    if (!res.ok || !data.url) {
+      throw new Error(data.error ?? 'Could not create branded document link')
+    }
+    const created = {
+      url: data.url,
+      toEmail: data.toEmail ?? clientEmail,
+      subject: data.subject ?? `${label} — ${clientName}`,
+      body: data.body ?? `Hi ${clientName.split(' ')[0]},\n\nPlease find your ${label.toLowerCase()} at the link below:\n\n${data.url}\n\nKind regards`,
+    }
+    setSharedLink(created)
+    return created
+  }
+
+  async function copyLink() {
+    if (sharingBusy) return
+    setSharingBusy('copy')
+    try {
+      const link = await ensureShareLink()
+      await navigator.clipboard.writeText(link.url)
+      triggerNativeHaptic('confirm')
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch (err) {
+      triggerNativeHaptic('warning')
+      setShareError(err instanceof Error ? err.message : 'Could not copy document link')
+    } finally {
+      setSharingBusy(null)
+    }
+  }
+
+  async function emailLink() {
+    if (sharingBusy) return
+    setSharingBusy('email')
+    try {
+      const link = await ensureShareLink()
+      triggerNativeHaptic('confirm')
+      const openedNative = openNativeEmailCompose(link.toEmail, link.subject, link.body)
+      if (!openedNative) {
+        window.location.href = `mailto:${link.toEmail}?subject=${encodeURIComponent(link.subject)}&body=${encodeURIComponent(link.body)}`
+      }
+    } catch (err) {
+      triggerNativeHaptic('warning')
+      setShareError(err instanceof Error ? err.message : 'Could not create document link')
+    } finally {
+      setSharingBusy(null)
+    }
   }
 
   async function handleDelete() {
@@ -241,19 +311,35 @@ function DocRow({ doc, jobId, clientName, clientEmail, onDeleted, tradeAccountLi
           </div>
         </div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-          <Link
-            href={`/jobs/${jobId}/docs/${doc.type}?docId=${doc.id}`}
-            className="btn btn-secondary" style={{ fontSize: 12, padding: '7px 12px' }}
-          >✏️ Edit</Link>
-          <button onClick={copyLink} className="btn btn-secondary" style={{ fontSize: 12, padding: '7px 12px' }}>
-            {copied ? '✓ Copied' : '🔗 Link'}
+          {!isTablet && (
+            <Link
+              href={`/jobs/${jobId}/docs/${doc.type}?docId=${doc.id}`}
+              className="btn btn-secondary" style={{ fontSize: 12, padding: '7px 12px' }}
+            >✏️ Edit</Link>
+          )}
+          <button
+            type="button"
+            onClick={() => void copyLink()}
+            disabled={sharingBusy !== null}
+            className="btn btn-secondary"
+            style={{ fontSize: 12, padding: '7px 12px' }}
+          >
+            {sharingBusy === 'copy' ? 'Creating…' : copied ? '✓ Copied' : '🔗 Link'}
           </button>
-          <a href={`mailto:${clientEmail}?subject=${encodeURIComponent(`${label} — ${clientName}`)}&body=${encodeURIComponent(`Hi ${clientName.split(' ')[0]},\n\nPlease find your ${label.toLowerCase()} at the link below:\n\n${printUrl}\n\nKind regards`)}`}>
-            <button className="btn btn-secondary" style={{ fontSize: 12, padding: '7px 12px' }}>✉️ Email</button>
-          </a>
-          <a href={printUrl} target="_blank" rel="noopener noreferrer">
-            <button className="btn btn-secondary" style={{ fontSize: 12, padding: '7px 12px' }}>↗ Open</button>
-          </a>
+          <button
+            type="button"
+            onClick={() => void emailLink()}
+            disabled={sharingBusy !== null}
+            className="btn btn-secondary"
+            style={{ fontSize: 12, padding: '7px 12px' }}
+          >
+            {sharingBusy === 'email' ? 'Opening…' : isTablet ? '✉️ Gmail' : '✉️ Email'}
+          </button>
+          {!isTablet && (
+            <a href={printUrl} target="_blank" rel="noopener noreferrer">
+              <button className="btn btn-secondary" style={{ fontSize: 12, padding: '7px 12px' }}>↗ Open</button>
+            </a>
+          )}
           {/* A quote the client declined on a link they signed for others can be sent again. */}
           {canSign && !signedFor(signing, doc.id) && (
             <button
@@ -286,10 +372,20 @@ function DocRow({ doc, jobId, clientName, clientEmail, onDeleted, tradeAccountLi
           )}
         </div>
       </div>
-      <div onClick={copyLink} title="Click to copy"
-        style={{ fontSize: 11, color: 'var(--text-muted)', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 10px', wordBreak: 'break-all', cursor: 'pointer', userSelect: 'all' }}>
-        {printUrl}
-      </div>
+      {shareError && (
+        <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 8 }}>{shareError}</div>
+      )}
+      {sharedLink ? (
+        <div onClick={() => void copyLink()} title="Click to copy branded client link"
+          style={{ fontSize: 11, color: 'var(--accent)', background: 'var(--accent-dim)', border: '1px solid var(--accent-border)', borderRadius: 6, padding: '6px 10px', wordBreak: 'break-all', cursor: 'pointer', userSelect: 'all' }}>
+          {sharedLink.url}
+        </div>
+      ) : !isTablet ? (
+        <div onClick={() => void copyLink()} title="Click to create and copy branded client link"
+          style={{ fontSize: 11, color: 'var(--text-muted)', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 10px', wordBreak: 'break-all', cursor: 'pointer' }}>
+          Click 🔗 Link or ✉️ Email to generate a branded document link
+        </div>
+      ) : null}
 
       {signing && <SigningStatus request={signing} invoice={signingInvoice} onChanged={reloadSigning} documentId={doc.id} />}
       {sendingToSign && (
