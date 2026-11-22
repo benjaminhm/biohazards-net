@@ -53,6 +53,7 @@ import { findPackByToken, listPacks, loadPackItems, packPdfsForEmail, preparePac
 import { renderDocumentEmail } from '@/lib/email/documentEmail'
 import { ATTACHMENT_LIMIT_BYTES, statementEmailInput, trimAttachments, uniqueFilenames } from '@/lib/statementEmail'
 import type { StatementEmailItemStatus } from '@/lib/statementEmail'
+import { resolveBrandSmsSenderId } from '@/lib/twilioSender'
 
 // Each PDF for the email starts its own browser, one after another.
 export const maxDuration = 300
@@ -98,6 +99,8 @@ export async function GET(req: Request) {
       listPacks(supabase, orgId, prepared.jobId),
     ])
     return NextResponse.json({
+      jobId: prepared.jobId,
+      smsSenderId: resolveBrandSmsSenderId(prepared.tradingName),
       statement: prepared.statement,
       candidates: prepared.candidates,
       maxExtras: MAX_PACK_EXTRAS,

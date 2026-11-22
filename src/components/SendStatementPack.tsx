@@ -22,6 +22,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { CSSProperties } from 'react'
 import PhoneHandoffButtons from '@/components/PhoneHandoffButtons'
+import { SendBrandSmsButton } from '@/components/SendBrandSms'
 
 export interface PackSummary {
   id: string
@@ -50,6 +51,8 @@ interface Candidate {
 }
 
 interface Preview {
+  jobId?: string
+  smsSenderId?: string | null
   statement: Candidate
   candidates: Candidate[]
   maxExtras: number
@@ -313,7 +316,9 @@ export function SendStatementPackModal({ documentId, initialPicks, onClose, onSe
         {created && (
           <>
             <div style={{ ...helpText, color: 'var(--text)', marginBottom: 12 }}>
-              Nothing has been sent. Copy the message into a text or an email and send it yourself. You can edit it here first.
+              {preview?.smsSenderId
+                ? `Nothing has been sent yet. Review or edit the message below, then send it by SMS from ${preview.smsSenderId} or copy it to send yourself.`
+                : 'Nothing has been sent. Copy the message into a text or an email and send it yourself. You can edit it here first.'}
             </div>
             <label htmlFor="ssp-paste" style={fieldLabel}>Message to send</label>
             <textarea
@@ -323,7 +328,14 @@ export function SendStatementPackModal({ documentId, initialPicks, onClose, onSe
               onChange={e => setPasteText(e.target.value)}
             />
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '10px 0 14px' }}>
-              <button type="button" className="btn btn-primary" style={{ fontSize: 13, padding: '9px 16px' }} onClick={() => copy('message', pasteText)}>
+              <SendBrandSmsButton
+                jobId={preview?.jobId}
+                senderId={preview?.smsSenderId}
+                phone={preview?.defaults.toPhone}
+                message={pasteText}
+                replyEmail={preview?.sender?.replyTo}
+              />
+              <button type="button" className={preview?.smsSenderId ? 'btn btn-secondary' : 'btn btn-primary'} style={{ fontSize: 13, padding: '9px 16px' }} onClick={() => copy('message', pasteText)}>
                 {copied === 'message' ? '✓ Copied' : 'Copy message'}
               </button>
               <button type="button" className="btn btn-secondary" style={{ fontSize: 13, padding: '9px 14px' }} onClick={() => copy('link', created.url)}>
@@ -440,13 +452,15 @@ export function SendStatementPackModal({ documentId, initialPicks, onClose, onSe
             )}
 
             <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-              {tab('link', 'Link and passcode')}
+              {tab('link', preview.smsSenderId ? `SMS (${preview.smsSenderId}) / Link` : 'Link and passcode')}
               {tab('email', 'Email from here')}
             </div>
 
             {mode === 'link' && (
               <div style={{ ...helpText, marginBottom: 14 }}>
-                Creates a private link and a 4-character passcode, with a message to paste into your own text or email. Nothing is sent from here.
+                {preview.smsSenderId
+                  ? `Creates a private link and 4-character passcode. On the next screen you can review/edit the message and send it via ${preview.smsSenderId} SMS (one-way) or copy it yourself.`
+                  : 'Creates a private link and a 4-character passcode, with a message to paste into your own text or email. Nothing is sent from here.'}
                 {preview.linkHost && <> The link opens on {preview.linkHost}.</>}
                 {preview.pendingLinkHost && (
                   <span style={{ color: '#FBBF24' }}> {preview.pendingLinkHost} is not connected yet, so for now the link opens on the app address.</span>

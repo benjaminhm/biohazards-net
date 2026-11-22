@@ -62,6 +62,7 @@ import { loadBankDetails } from '@/lib/paymentDetails'
 import { loadXeroConnection, xeroConfigured } from '@/lib/xero/client'
 import { xeroInvoiceUrl } from '@/lib/xero/invoice'
 import { jobPayState } from '@/lib/xero/payments'
+import { resolveBrandSmsSenderId } from '@/lib/twilioSender'
 
 export const maxDuration = 60
 
@@ -125,6 +126,8 @@ export async function GET(req: Request) {
       })
     return NextResponse.json({
       documentId,
+      jobId: prepared.jobId,
+      smsSenderId: resolveBrandSmsSenderId(prepared.tradingName),
       others,
       maxQuotes: MAX_QUOTES_PER_LINK,
       linkHost: hostStatus.liveHost,

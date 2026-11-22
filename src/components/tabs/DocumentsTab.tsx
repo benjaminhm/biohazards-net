@@ -27,7 +27,9 @@ import { DOC_TYPE_LABELS, DOC_TYPE_GROUPS } from '@/lib/types'
 import { isAcceptableQuoteType } from '@/lib/acceptableQuotes'
 import { SendForSigningModal, SigningStatus, currentSigning, signedFor, useJobSigning } from '@/components/SendForSigning'
 import { PackStatus, SendStatementPackModal, packsChanged, useJobPacks } from '@/components/SendStatementPack'
+import { SendBrandSmsDialog } from '@/components/SendBrandSms'
 import { MAX_PACK_EXTRAS, PACK_STATEMENT_TYPE, isPackExtraType } from '@/lib/documentPack'
+import { isTradingNameId, tradingSmsSenderId } from '@/lib/tradingNames'
 import {
   openNativeEmailCompose,
   triggerNativeHaptic,
@@ -152,6 +154,8 @@ interface Props {
   canComposeBundles?: boolean
   clientName: string
   clientEmail: string
+  clientPhone?: string
+  tradingName?: string | null
   onDocumentDeleted: (id: string) => void
   onNavigate?: (tab: NavigateTab) => void
   /**
@@ -168,8 +172,8 @@ interface Props {
   showSavedSection?: boolean
 }
 
-function DocRow({ doc, jobId, clientName, clientEmail, onDeleted, tradeAccountLinked = false, pick }: {
-  doc: Document; jobId: string; clientName: string; clientEmail: string; onDeleted: (id: string) => void
+function DocRow({ doc, jobId, clientName, clientEmail, clientPhone = '', tradingName = null, onDeleted, tradeAccountLinked = false, pick }: {
+  doc: Document; jobId: string; clientName: string; clientEmail: string; clientPhone?: string; tradingName?: string | null; onDeleted: (id: string) => void
   tradeAccountLinked?: boolean
   /** History only: a tick to choose this document for Send selected. */
   pick?: { checked: boolean; onChange: (checked: boolean) => void }
@@ -182,13 +186,19 @@ function DocRow({ doc, jobId, clientName, clientEmail, onDeleted, tradeAccountLi
   const [releaseError,  setReleaseError]  = useState('')
   const [sendingToSign, setSendingToSign] = useState(false)
   const [sendingPack,   setSendingPack]   = useState(false)
-  const [sharingBusy,   setSharingBusy]   = useState<'copy' | 'email' | null>(null)
+  const [sharingBusy,   setSharingBusy]   = useState<'copy' | 'email' | 'sms' | null>(null)
   const [shareError,    setShareError]    = useState('')
+  const [smsOpen,       setSmsOpen]       = useState(false)
+  const [smsSentTo,     setSmsSentTo]     = useState<string | null>(null)
   const [sharedLink,    setSharedLink]    = useState<{
     url: string
     toEmail: string
+    toPhone: string
+    replyEmail: string
+    smsSenderId: string | null
     subject: string
     body: string
+    smsBody: string
   } | null>(null)
   const isTablet = useIsTabletApp()
 
@@ -199,6 +209,7 @@ function DocRow({ doc, jobId, clientName, clientEmail, onDeleted, tradeAccountLi
   // A statement goes to the client as a pack, with the CDR and report chosen in the send window.
   const isStatement = doc.type === 'statement_of_accounts'
   const { packs, reload: reloadPacks } = useJobPacks(isStatement ? jobId : null)
+  const brandSmsSenderId = isTradingNameId(tradingName) ? tradingSmsSenderId(tradingName) : null
 
   const printUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/api/print/${doc.id}`
   const label    = DOC_TYPE_LABELS[doc.type as DocType] ?? doc.type
@@ -211,18 +222,27 @@ function DocRow({ doc, jobId, clientName, clientEmail, onDeleted, tradeAccountLi
     const data = (await res.json().catch(() => ({}))) as {
       url?: string
       toEmail?: string
+      toPhone?: string
+      replyEmail?: string
+      smsSenderId?: string | null
       subject?: string
       body?: string
+      smsBody?: string
       error?: string
     }
     if (!res.ok || !data.url) {
       throw new Error(data.error ?? 'Could not create branded document link')
     }
+    const fallbackBody = `Hi ${clientName.split(' ')[0]},\n\nPlease find your ${label.toLowerCase()} at the link below:\n\n${data.url}\n\nKind regards`
     const created = {
       url: data.url,
       toEmail: data.toEmail ?? clientEmail,
+      toPhone: data.toPhone ?? clientPhone,
+      replyEmail: data.replyEmail ?? '',
+      smsSenderId: data.smsSenderId ?? brandSmsSenderId,
       subject: data.subject ?? `${label} — ${clientName}`,
-      body: data.body ?? `Hi ${clientName.split(' ')[0]},\n\nPlease find your ${label.toLowerCase()} at the link below:\n\n${data.url}\n\nKind regards`,
+      body: data.body ?? fallbackBody,
+      smsBody: data.smsBody ?? fallbackBody,
     }
     setSharedLink(created)
     return created
@@ -255,6 +275,21 @@ function DocRow({ doc, jobId, clientName, clientEmail, onDeleted, tradeAccountLi
       if (!openedNative) {
         window.location.href = `mailto:${link.toEmail}?subject=${encodeURIComponent(link.subject)}&body=${encodeURIComponent(link.body)}`
       }
+    } catch (err) {
+      triggerNativeHaptic('warning')
+      setShareError(err instanceof Error ? err.message : 'Could not create document link')
+    } finally {
+      setSharingBusy(null)
+    }
+  }
+
+  async function openSmsLink() {
+    if (sharingBusy) return
+    setSharingBusy('sms')
+    try {
+      await ensureShareLink()
+      triggerNativeHaptic('light')
+      setSmsOpen(true)
     } catch (err) {
       triggerNativeHaptic('warning')
       setShareError(err instanceof Error ? err.message : 'Could not create document link')
@@ -335,6 +370,21 @@ function DocRow({ doc, jobId, clientName, clientEmail, onDeleted, tradeAccountLi
           >
             {sharingBusy === 'email' ? 'Opening…' : isTablet ? '✉️ Gmail' : '✉️ Email'}
           </button>
+          {!canSign && !isStatement && brandSmsSenderId && (
+            <button
+              type="button"
+              onClick={() => void openSmsLink()}
+              disabled={sharingBusy !== null}
+              className="btn btn-primary"
+              style={{ fontSize: 12, padding: '7px 12px' }}
+            >
+              {sharingBusy === 'sms'
+                ? 'Preparing…'
+                : smsSentTo
+                  ? `✓ SMS (${brandSmsSenderId})`
+                  : `💬 SMS (${brandSmsSenderId})`}
+            </button>
+          )}
           {!isTablet && (
             <a href={printUrl} target="_blank" rel="noopener noreferrer">
               <button className="btn btn-secondary" style={{ fontSize: 12, padding: '7px 12px' }}>↗ Open</button>
@@ -401,6 +451,17 @@ function DocRow({ doc, jobId, clientName, clientEmail, onDeleted, tradeAccountLi
           documentId={doc.id}
           onClose={() => setSendingPack(false)}
           onSent={() => { setSendingPack(false); reloadPacks() }}
+        />
+      )}
+      {smsOpen && sharedLink && (sharedLink.smsSenderId || brandSmsSenderId) && (
+        <SendBrandSmsDialog
+          jobId={jobId}
+          senderId={(sharedLink.smsSenderId || brandSmsSenderId) as string}
+          initialPhone={sharedLink.toPhone || clientPhone}
+          initialMessage={sharedLink.smsBody}
+          replyEmail={sharedLink.replyEmail}
+          onClose={() => setSmsOpen(false)}
+          onSent={info => setSmsSentTo(info.to)}
         />
       )}
 
@@ -718,6 +779,8 @@ function HistoryView({
   canComposeBundles = false,
   clientName,
   clientEmail,
+  clientPhone = '',
+  tradingName = null,
   onDocumentDeleted,
   tradeAccountLinked = false,
 }: {
@@ -728,6 +791,8 @@ function HistoryView({
   canComposeBundles?: boolean
   clientName: string
   clientEmail: string
+  clientPhone?: string
+  tradingName?: string | null
   onDocumentDeleted: (id: string) => void
   tradeAccountLinked?: boolean
 }) {
@@ -802,6 +867,8 @@ function HistoryView({
           jobId={jobId}
           clientName={clientName}
           clientEmail={clientEmail}
+          clientPhone={clientPhone}
+          tradingName={tradingName}
           onDeleted={onDocumentDeleted}
           tradeAccountLinked={tradeAccountLinked}
           pick={sendable.includes(doc) ? {
@@ -845,6 +912,8 @@ export default function DocumentsTab({
   canComposeBundles = false,
   clientName,
   clientEmail,
+  clientPhone = '',
+  tradingName = null,
   onDocumentDeleted,
   onNavigate,
   mode,
@@ -879,6 +948,8 @@ export default function DocumentsTab({
         canComposeBundles={canComposeBundles}
         clientName={clientName}
         clientEmail={clientEmail}
+        clientPhone={clientPhone}
+        tradingName={tradingName}
         onDocumentDeleted={onDocumentDeleted}
         tradeAccountLinked={tradeAccountLinked}
       />
@@ -1104,6 +1175,8 @@ export default function DocumentsTab({
               jobId={jobId}
               clientName={clientName}
               clientEmail={clientEmail}
+              clientPhone={clientPhone}
+              tradingName={tradingName}
               onDeleted={onDocumentDeleted}
               tradeAccountLinked={tradeAccountLinked}
             />

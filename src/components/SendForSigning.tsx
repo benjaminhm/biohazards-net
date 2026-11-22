@@ -35,6 +35,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import PhoneHandoffButtons from '@/components/PhoneHandoffButtons'
+import { SendBrandSmsButton } from '@/components/SendBrandSms'
 import { depositAmount, money, percentLabel, signedNext } from '@/lib/signing/pay'
 import { addressLine, capacityLabel, detailsFieldLabel, formatCompanyNumber, readSignerDetails, shortDate } from '@/lib/signing/details'
 import { isPhonePasscode, phonePasscodeLabel } from '@/lib/signing/phone'
@@ -182,6 +183,8 @@ interface OtherQuote {
 }
 
 interface Preview {
+  jobId?: string
+  smsSenderId?: string | null
   title: string
   reference: string | null
   /** The job's other quotes that have not been accepted yet. */
@@ -491,7 +494,9 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
         {created && (
           <>
             <div style={{ ...helpText, color: 'var(--text)', marginBottom: 12 }}>
-              Nothing has been sent. Copy the message into a text or an email and send it yourself. You can edit it here first.
+              {preview?.smsSenderId
+                ? `Nothing has been sent yet. Review or edit the message below, then send it by SMS from ${preview.smsSenderId} or copy it to send yourself.`
+                : 'Nothing has been sent. Copy the message into a text or an email and send it yourself. You can edit it here first.'}
             </div>
             <label htmlFor="sfs-paste" style={fieldLabel}>Message to send</label>
             <textarea
@@ -501,7 +506,14 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
               onChange={e => setPasteText(e.target.value)}
             />
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '10px 0 14px' }}>
-              <button type="button" className="btn btn-primary" style={{ fontSize: 13, padding: '9px 16px' }} onClick={() => copy('message', pasteText)}>
+              <SendBrandSmsButton
+                jobId={preview?.jobId}
+                senderId={preview?.smsSenderId}
+                phone={isPhonePasscode(created.passcode) ? created.passcode : toPhone}
+                message={pasteText}
+                replyEmail={preview?.sender?.replyTo}
+              />
+              <button type="button" className={preview?.smsSenderId ? 'btn btn-secondary' : 'btn btn-primary'} style={{ fontSize: 13, padding: '9px 16px' }} onClick={() => copy('message', pasteText)}>
                 {copied === 'message' ? '✓ Copied' : 'Copy message'}
               </button>
               <button type="button" className="btn btn-secondary" style={{ fontSize: 13, padding: '9px 14px' }} onClick={() => copy('link', created.url)}>
@@ -609,13 +621,21 @@ export function SendForSigningModal({ documentId, onClose, onSent }: {
             )}
 
             <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-              {tab('link', 'Text it yourself', 'You copy a link and text it from your phone. It opens with their mobile number.')}
+              {tab(
+                'link',
+                preview.smsSenderId ? `SMS (${preview.smsSenderId}) / Link` : 'Text it yourself',
+                preview.smsSenderId
+                  ? `Creates a private link you can send by SMS from ${preview.smsSenderId} or copy. Opens with their mobile number.`
+                  : 'You copy a link and text it from your phone. It opens with their mobile number.',
+              )}
               {tab('email', 'Email it from here', 'We email them a link, like a Xero invoice. It opens in one tap, no code.')}
             </div>
 
             {mode === 'link' && (
               <div style={{ ...helpText, marginBottom: 14 }}>
-                Nothing is sent from here. You get a link and a ready-made message to paste into a text from your own phone. When the client taps the link, they type their mobile number to open it, so it must be the number you text. Leave the mobile empty to use a 4-character passcode instead.
+                {preview.smsSenderId
+                  ? `Nothing is sent yet. On the next screen you can review/edit the message and send it via ${preview.smsSenderId} SMS (one-way) or copy it to your own phone. When the client taps the link, they type their mobile number to open it, so it must be the number you text. Leave the mobile empty to use a 4-character passcode instead.`
+                  : 'Nothing is sent from here. You get a link and a ready-made message to paste into a text from your own phone. When the client taps the link, they type their mobile number to open it, so it must be the number you text. Leave the mobile empty to use a 4-character passcode instead.'}
                 {preview.linkHost && <> The link opens on {preview.linkHost}.</>}
                 {preview.pendingLinkHost && (
                   <span style={{ color: '#FBBF24' }}> {preview.pendingLinkHost} is not connected yet, so for now the link opens on the app address.</span>

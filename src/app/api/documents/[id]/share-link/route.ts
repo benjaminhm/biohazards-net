@@ -20,6 +20,7 @@ import { isTradingNameId, tradingNameShortList } from '@/lib/tradingNames'
 import { newSigningToken, resolveSender } from '@/lib/signing/core'
 import { documentHostStatus } from '@/lib/signing/links'
 import { buildPackLinks, packDocumentTitle, packExpiry } from '@/lib/documentPack'
+import { resolveBrandSmsSenderId } from '@/lib/twilioSender'
 
 export const maxDuration = 60
 
@@ -59,7 +60,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const [jobRes, companyRes, staffNameRaw] = await Promise.all([
     supabase
       .from('jobs')
-      .select('id, client_name, client_email, site_address, trading_name')
+      .select('id, client_name, client_email, client_phone, site_address, trading_name')
       .eq('id', doc.job_id)
       .eq('org_id', orgId)
       .maybeSingle(),
@@ -76,6 +77,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     id: string
     client_name: string | null
     client_email: string | null
+    client_phone: string | null
     site_address: string | null
     trading_name: string | null
   } | null
@@ -192,14 +194,30 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     .filter((line, idx, arr) => !(line === '' && idx === arr.length - 1))
     .join('\n')
 
+  const toPhone = (job.client_phone ?? '').trim()
+  const smsSenderId = resolveBrandSmsSenderId(tradingName)
+  const replyEmail = sender.replyTo || companyEmail || ''
+  const smsBody = [
+    `Hi ${firstName}, your ${title.toLowerCase()} from ${sender.brandLabel} is ready to view:`,
+    links.page,
+    replyEmail
+      ? `This is a no-reply SMS — please email ${replyEmail} if you have any questions.`
+      : 'This is a no-reply SMS — please contact our office if you have any questions.',
+  ].join('\n\n')
+
   return NextResponse.json({
+    jobId: job.id,
     url: links.page,
     host: links.host,
     pendingHost: hostStatus.pendingHost,
     brandLabel: sender.brandLabel,
     toEmail,
+    toPhone,
+    replyEmail,
+    smsSenderId,
     subject,
     body,
+    smsBody,
     expiresAt: expiresAt.toISOString(),
   })
 }

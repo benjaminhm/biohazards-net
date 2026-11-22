@@ -2025,6 +2025,8 @@ export default function JobPage() {
                 canComposeBundles={caps.edit_documents && !isTablet}
                 clientName={job.client_name}
                 clientEmail={job.client_email ?? ''}
+                clientPhone={job.client_phone ?? ''}
+                tradingName={job.trading_name ?? null}
                 onDocumentDeleted={docId => setDocuments(prev => prev.filter(d => d.id !== docId))}
                 mode="history"
                 tradeAccountLinked={!!job.client_account_id}

@@ -64,6 +64,12 @@ interface BrandDetails {
    * their API are reachable on it.
    */
   trackingHost?: string
+  /**
+   * Approved Twilio/ACMA Alphanumeric Sender ID for one-way transactional SMS
+   * (e.g. 'FCQ'). Omit until the Sender ID is registered and approved in Twilio
+   * — Twilio rejects unregistered alphanumeric senders in Australia.
+   */
+  smsSenderId?: string
 }
 
 /** Default reply-to on Authorisation to Proceed when Settings email is empty. */
@@ -93,6 +99,7 @@ const BRANDS = [
     photoHost: 'photo.forensiccleaningqld.com.au',
     documentHost: 'document.forensiccleaningqld.com.au',
     trackingHost: 'tracking.forensiccleaningqld.com.au',
+    smsSenderId: 'FCQ',
   },
   {
     // Stored id predates the correction to Hoarding Clearance QLD; existing jobs reference it.
@@ -215,6 +222,15 @@ export function accountsPortalBaseUrl(id: TradingNameId | null | undefined): str
 export function tradingSendingEmail(id: TradingNameId | null | undefined): string | null {
   const option = tradingNameOption(id)
   return (option?.sendsFromEmail && option.email?.trim()) || null
+}
+
+/**
+ * Approved Twilio/ACMA Alphanumeric Sender ID for one-way transactional SMS
+ * (e.g. 'FCQ'), or null when the brand does not have one approved yet.
+ */
+export function tradingSmsSenderId(id: TradingNameId | null | undefined): string | null {
+  const option = tradingNameOption(id)
+  return option?.smsSenderId?.trim() || null
 }
 
 export function tradingNameLabel(id: TradingNameId | null | undefined): string | null {
