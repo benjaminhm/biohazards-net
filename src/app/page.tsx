@@ -31,7 +31,9 @@ import { useUser } from '@/lib/userContext'
 import type { CompanyProfile, Job } from '@/lib/types'
 import OrgAdminHealthCard from '@/components/OrgAdminHealthCard'
 import ViewToggle from '@/components/workspace/ViewToggle'
+import ThemeToggle from '@/components/ThemeToggle'
 import { isWideScreen, readViewMode } from '@/lib/viewMode'
+import { TABLET_HIDDEN_DASHBOARD_HREFS, useIsTabletApp } from '@/lib/tabletApp'
 
 const LS_HIDE_FEEDBACK = 'bh_dash_quick_feedback_hidden'
 function fmtBooking(iso: string) {
@@ -55,6 +57,7 @@ export default function HomePage() {
   const [hideQuickFeedback, setHideQuickFeedback] = useState(false)
   /** ≥900px: use 3 columns when we have 6 tiles (2×3 layout); otherwise 2 columns. */
   const [desktopWide, setDesktopWide] = useState(false)
+  const isTablet = useIsTabletApp()
   const router = useRouter()
 
   useEffect(() => {
@@ -183,7 +186,7 @@ export default function HomePage() {
           color: '#EC4899',
         }]
       : []),
-  ]
+  ].filter(tile => !isTablet || !TABLET_HIDDEN_DASHBOARD_HREFS.has(tile.href))
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--bg)' }}>
@@ -211,6 +214,7 @@ export default function HomePage() {
             </h1>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingTop: 4 }}>
+            <ThemeToggle />
             <ViewToggle current="classic" />
             <span className="num" style={{ fontSize: 20, fontWeight: 300, color: 'var(--text-muted)', letterSpacing: '-0.02em' }}>
               {time}

@@ -23,10 +23,17 @@ import { isDocAgentType, type DocAgentType } from '@/lib/agent/subagents/types'
 import { useUser } from '@/lib/userContext'
 import { writeViewMode } from '@/lib/viewMode'
 import ViewToggle from '@/components/workspace/ViewToggle'
+import ThemeToggle from '@/components/ThemeToggle'
 import JobListPanel, { type JobMarkers } from '@/components/workspace/JobListPanel'
 import ChatPanel, { type LocalLine } from '@/components/workspace/ChatPanel'
 import JobPanel from '@/components/workspace/JobPanel'
 import { decideDrafts, type DraftView } from '@/components/workspace/DraftList'
+import {
+  readNativeKeepScreenOn,
+  setNativeKeepScreenOn,
+  triggerNativeHaptic,
+  useIsTabletApp,
+} from '@/lib/tabletApp'
 
 export default function WorkspacePage() {
   return (
@@ -57,6 +64,9 @@ function Workspace() {
   const [version, setVersion] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [railOpen, setRailOpen] = useState(true)
+  const [screenAwake, setScreenAwake] = useState(false)
+  const isTablet = useIsTabletApp()
   const activeRef = useRef(activeJobId)
   activeRef.current = activeJobId
   const agentRef = useRef(activeDocAgent)
@@ -65,6 +75,17 @@ function Workspace() {
   useEffect(() => {
     writeViewMode('agent')
   }, [])
+
+  useEffect(() => {
+    if (isTablet) setScreenAwake(readNativeKeepScreenOn())
+  }, [isTablet])
+
+  function toggleScreenAwake() {
+    const next = !screenAwake
+    setScreenAwake(next)
+    setNativeKeepScreenOn(next)
+    triggerNativeHaptic('light')
+  }
 
   const loadJobs = useCallback(async () => {
     const res = await fetch('/api/jobs')
@@ -234,30 +255,130 @@ function Workspace() {
     )
   }
 
+  const cols = railOpen
+    ? (job ? '264px minmax(0, 1fr) auto' : '264px minmax(0, 1fr)')
+    : (job ? 'minmax(0, 1fr) auto' : 'minmax(0, 1fr)')
+
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--bg)' }}>
-      <header style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 14px', borderBottom: '1px solid var(--border)' }}>
-        <Link href="/" onClick={() => writeViewMode('classic')} style={{ fontWeight: 800, fontSize: 14, color: 'var(--text)', textDecoration: 'none' }}>
-          Biohazard Cleaning QLD
+      <header
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          height: 54,
+          padding: '0 14px',
+          background: 'var(--rail-bg)',
+          color: 'var(--rail-text)',
+          borderBottom: '1px solid var(--rail-border)',
+          flexShrink: 0,
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => {
+            triggerNativeHaptic('light')
+            setRailOpen(o => !o)
+          }}
+          aria-pressed={railOpen}
+          title={railOpen ? 'Hide job list' : 'Show job list'}
+          aria-label={railOpen ? 'Hide job list' : 'Show job list'}
+          style={{
+            width: 34,
+            height: 34,
+            borderRadius: 9,
+            border: '1px solid var(--rail-border)',
+            background: 'var(--rail-surface)',
+            color: 'var(--rail-muted)',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            flexShrink: 0,
+          }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect width="18" height="18" x="3" y="3" rx="2" />
+            <path d="M9 3v18" />
+          </svg>
+        </button>
+
+        <Link
+          href="/"
+          onClick={() => writeViewMode('classic')}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 10, textDecoration: 'none', color: 'var(--rail-text)', minWidth: 0 }}
+        >
+          <span
+            aria-hidden="true"
+            style={{
+              width: 30,
+              height: 30,
+              borderRadius: 9,
+              background: 'linear-gradient(135deg, #F97316, #EA580C)',
+              boxShadow: '0 2px 8px rgba(249, 115, 22, 0.35)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+            }}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2" />
+            </svg>
+          </span>
+          <span style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15, minWidth: 0 }}>
+            <span style={{ fontWeight: 700, fontSize: 14, letterSpacing: '-0.01em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              Biohazard Cleaning QLD
+            </span>
+            <span style={{ fontSize: 11, color: 'var(--rail-muted)' }}>
+              {isTablet ? 'Tablet Field Workspace' : 'Agent Workspace'}
+            </span>
+          </span>
         </Link>
-        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Agent workspace</span>
-        <div style={{ marginLeft: 'auto' }}>
-          <ViewToggle current="agent" jobId={activeJobId} />
+
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+          {isTablet && (
+            <button
+              type="button"
+              onClick={toggleScreenAwake}
+              aria-pressed={screenAwake}
+              title={screenAwake ? 'Keeping tablet screen awake' : 'Keep tablet screen awake'}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                padding: '5px 10px',
+                borderRadius: 9,
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: 'pointer',
+                border: screenAwake ? '1px solid var(--accent-border)' : '1px solid var(--rail-border)',
+                background: screenAwake ? 'var(--accent-dim)' : 'var(--rail-surface)',
+                color: screenAwake ? 'var(--accent-strong)' : 'var(--rail-muted)',
+              }}
+            >
+              <span>{screenAwake ? '● Awake' : '○ Awake'}</span>
+            </button>
+          )}
+          <ThemeToggle variant="rail" />
+          <ViewToggle current="agent" jobId={activeJobId} variant="rail" />
         </div>
       </header>
-      <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: job ? '260px minmax(0, 1fr) auto' : '260px minmax(0, 1fr)' }}>
-        <JobListPanel
-          jobs={jobs}
-          markers={markers}
-          newJobDrafts={newJobDrafts}
-          onNewJobDecided={created => void onDraftsDecided(created)}
-          activeJobId={activeJobId}
-          activeDocAgent={activeDocAgent}
-          onSelect={id => openJob(id)}
-          onSelectAgent={(id, agent) => openJob(id, agent)}
-          agentsRefreshKey={agentsVersion}
-          loading={jobsLoading}
-        />
+      <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: cols }}>
+        {railOpen && (
+          <JobListPanel
+            jobs={jobs}
+            markers={markers}
+            newJobDrafts={newJobDrafts}
+            onNewJobDecided={created => void onDraftsDecided(created)}
+            activeJobId={activeJobId}
+            activeDocAgent={activeDocAgent}
+            onSelect={id => openJob(id)}
+            onSelectAgent={(id, agent) => openJob(id, agent)}
+            agentsRefreshKey={agentsVersion}
+            loading={jobsLoading}
+          />
+        )}
         <ChatPanel
           rows={rows}
           localLines={localLines}

@@ -1,27 +1,43 @@
 /* ─────────────────────────────────────────────
-   DESIGN TOKENS
+   DESIGN TOKENS — RankPulse slate palette (Dark default, Light via [data-theme="light"])
    ───────────────────────────────────────────── */
-:root {
-  /* Backgrounds — real blacks, not dark greys */
-  --bg:        #080808;
-  --surface:   #101010;
-  --surface-2: #181818;
-  --surface-3: #202020;
+:root,
+[data-theme="dark"] {
+  /* Backgrounds — crisp deep slate hierarchy */
+  --bg:        #020617;
+  --surface:   #0F172A;
+  --surface-2: #1E293B;
+  --surface-3: #334155;
 
   /* Borders — subtle, structural only */
-  --border:    #1E1E1E;
-  --border-2:  #2A2A2A;
+  --border:    #1E293B;
+  --border-2:  #334155;
 
   /* Text */
-  --text:       #EBEBEB;
-  --text-muted: #666;
-  --text-dim:   #444;
+  --text:       #F8FAFC;
+  --text-muted: #94A3B8;
+  --text-dim:   #64748B;
 
-  /* Brand accent — earned, not decorative */
-  --accent:       #FF6B35;
-  --accent-hover: #E85E28;
-  --accent-dim:   rgba(255, 107, 53, 0.10);
-  --accent-glow:  rgba(255, 107, 53, 0.25);
+  /* Brand accent — RankPulse orange */
+  --accent:        #F97316;
+  --accent-strong: #FB923C;
+  --accent-hover:  #EA580C;
+  --accent-dim:    rgba(249, 115, 22, 0.14);
+  --accent-border: rgba(249, 115, 22, 0.34);
+  --accent-glow:   rgba(249, 115, 22, 0.28);
+
+  /* RankPulse signature dark-slate workspace chrome (top bar & left rail) */
+  --rail-bg:          #020617;
+  --rail-surface:     #0F172A;
+  --rail-surface-2:   #1E293B;
+  --rail-border:      #1E293B;
+  --rail-text:        #F8FAFC;
+  --rail-muted:       #94A3B8;
+  --rail-dim:         #64748B;
+
+  /* Surfaces & subtle elevation */
+  --shadow-card: 0 1px 2px rgba(2, 6, 23, 0.45);
+  --row-divider: rgba(148, 163, 184, 0.14);
 
   /* Status palette */
   --green:  #22C55E;
@@ -31,6 +47,40 @@
   --purple: #8B5CF6;
   --teal:   #14B8A6;
   --slate:  #94A3B8;
+}
+
+[data-theme="light"] {
+  /* RankPulse light-slate canvas — crisp & readable in daylight */
+  --bg:        #F8FAFC;
+  --surface:   #FFFFFF;
+  --surface-2: #F1F5F9;
+  --surface-3: #E2E8F0;
+
+  --border:    #E2E8F0;
+  --border-2:  #CBD5E1;
+
+  --text:       #0F172A;
+  --text-muted: #64748B;
+  --text-dim:   #94A3B8;
+
+  --accent:        #EA580C;
+  --accent-strong: #EA580C;
+  --accent-hover:  #C2410C;
+  --accent-dim:    rgba(234, 88, 12, 0.10);
+  --accent-border: rgba(234, 88, 12, 0.30);
+  --accent-glow:   rgba(234, 88, 12, 0.20);
+
+  /* Left job rail & workspace top bar stay dark-slate like RankPulse */
+  --rail-bg:          #020617;
+  --rail-surface:     #0F172A;
+  --rail-surface-2:   #1E293B;
+  --rail-border:      #1E293B;
+  --rail-text:        #F8FAFC;
+  --rail-muted:       #94A3B8;
+  --rail-dim:         #64748B;
+
+  --shadow-card: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --row-divider: rgba(15, 23, 42, 0.08);
 }
 
 /* ─────────────────────────────────────────────
@@ -191,9 +241,10 @@ select option { background: var(--surface-2); color: var(--text); }
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 14px;
   padding: 16px;
-  transition: border-color 0.15s;
+  box-shadow: var(--shadow-card);
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 .card:hover { border-color: var(--border-2); }
 
@@ -281,15 +332,15 @@ label {
    ───────────────────────────────────────────── */
 .doc-rich-editor .doc-rich-editor-prose {
   outline: none;
-  background: #050505;
+  background: var(--surface-2);
 }
 .doc-rich-editor .doc-rich-editor-prose .ProseMirror {
   padding: 12px 14px;
   font-family: 'Inter', system-ui, sans-serif;
   font-size: 9.5pt;
   line-height: 1.75;
-  color: #f5f5f5;
-  font-weight: 300;
+  color: var(--text);
+  font-weight: 400;
   min-height: inherit;
 }
 .doc-rich-editor .doc-rich-editor-prose .ProseMirror ::selection {
@@ -347,4 +398,45 @@ label {
 gmp-place-autocomplete {
   display: block;
   width: 100%;
+}
+
+/* ─────────────────────────────────────────────
+   TABLET APP REFINEMENTS (Android APK)
+   ───────────────────────────────────────────── */
+.tablet-app .btn {
+  min-height: 42px;
+}
+.tablet-app input:not([type="checkbox"]):not([type="radio"]),
+.tablet-app select,
+.tablet-app textarea {
+  min-height: 44px;
+  font-size: 15px;
+}
+.tablet-app .rp-rail-input {
+  min-height: 40px;
+}
+
+/* Light-mode badge legibility boost */
+[data-theme="light"] .badge-lead        { background: #F1F5F9; color: #475569; }
+[data-theme="light"] .badge-assessed    { background: #EFF6FF; color: #1D4ED8; }
+[data-theme="light"] .badge-quoted      { background: #FFFBEB; color: #B45309; }
+[data-theme="light"] .badge-accepted    { background: #FFF7ED; color: #C2410C; }
+[data-theme="light"] .badge-scheduled   { background: #F5F3FF; color: #6D28D9; }
+[data-theme="light"] .badge-underway    { background: #FFF7ED; color: #C2410C; border: 1px solid #FDBA74; }
+[data-theme="light"] .badge-completed   { background: #F0FDFA; color: #0F766E; }
+[data-theme="light"] .badge-report_sent { background: #F1F5F9; color: #475569; }
+[data-theme="light"] .badge-paid        { background: #F0FDF4; color: #15803D; }
+
+/* Dark-slate RankPulse rail scrollbar & inputs */
+.rp-rail ::-webkit-scrollbar-thumb { background: #334155; }
+.rp-rail input.rp-rail-input {
+  background: var(--rail-surface);
+  color: var(--rail-text);
+  border: 1px solid var(--rail-border);
+  border-radius: 10px;
+}
+.rp-rail input.rp-rail-input::placeholder { color: var(--rail-dim); }
+.rp-rail input.rp-rail-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
 }

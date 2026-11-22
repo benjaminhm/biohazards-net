@@ -13,11 +13,20 @@
  * Voice: hold the mic to talk (browser speech recognition, en-AU); replies can
  * be read aloud (browser speech synthesis) with the speaker toggle.
  */
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import type { ChatRow } from '@/lib/agent/workspaceText'
 import type { DocAgentType } from '@/lib/agent/subagents/types'
 import { DOC_AGENT_LABEL } from '@/lib/agent/subagents/labels'
 import DraftList, { type DraftView } from './DraftList'
+import {
+  hasNativeVoice,
+  nativeSpeak,
+  nativeStopSpeaking,
+  startNativeVoice,
+  stopNativeVoice,
+  triggerNativeHaptic,
+  type NativeVoiceEventDetail,
+} from '@/lib/tabletApp'
 
 export interface ChatJobRef { id: string; job_code: string | null; client_name: string | null }
 
@@ -40,12 +49,21 @@ function speechRecognitionCtor(): (new () => SpeechRecognitionLike) | null {
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null
 }
 
+const noopSubscribe = () => () => {}
+
+function readCanListen(): boolean {
+  return hasNativeVoice() || speechRecognitionCtor() !== null
+}
+
 const SPEAK_KEY = 'bh_agent_speak'
 
 export function speak(text: string) {
-  if (typeof window === 'undefined' || !window.speechSynthesis) return
+  if (typeof window === 'undefined') return
+  const clean = text.replace(/[#*_`]/g, '')
+  if (nativeSpeak(clean)) return
+  if (!window.speechSynthesis) return
   window.speechSynthesis.cancel()
-  const u = new SpeechSynthesisUtterance(text.replace(/[#*_`]/g, ''))
+  const u = new SpeechSynthesisUtterance(clean)
   u.lang = 'en-AU'
   window.speechSynthesis.speak(u)
 }
@@ -120,11 +138,13 @@ export default function ChatPanel({
 }) {
   const [input, setInput] = useState('')
   const [listening, setListening] = useState(false)
-  const [canListen] = useState(() => speechRecognitionCtor() !== null)
+  const canListen = useSyncExternalStore(noopSubscribe, readCanListen, () => false)
   const [speakOn, setSpeakOn] = useState(() => typeof window !== 'undefined' && localStorage.getItem(SPEAK_KEY) === '1')
   const recRef = useRef<SpeechRecognitionLike | null>(null)
+  const usingNativeVoiceRef = useRef(false)
   const heardRef = useRef('')
   const scrollRef = useRef<HTMLDivElement>(null)
+  const sendRef = useRef<(text: string, viaVoice: boolean) => Promise<void>>(async () => {})
 
   const byId = new Map(jobs.map(j => [j.id, j]))
   const byCode = new Map(jobs.filter(j => j.job_code).map(j => [j.job_code as string, j]))
@@ -134,27 +154,79 @@ export default function ChatPanel({
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
   }, [rows.length, localLines.length, busy])
 
-  useEffect(() => () => recRef.current?.stop(), [])
+  useEffect(() => () => {
+    recRef.current?.stop()
+    if (usingNativeVoiceRef.current) stopNativeVoice()
+  }, [])
 
   function setSpeak(on: boolean) {
     setSpeakOn(on)
     localStorage.setItem(SPEAK_KEY, on ? '1' : '0')
-    if (!on) window.speechSynthesis?.cancel()
+    triggerNativeHaptic('light')
+    if (!on) {
+      nativeStopSpeaking()
+      window.speechSynthesis?.cancel()
+    }
   }
 
   async function send(text: string, viaVoice: boolean) {
     const t = text.trim()
     if (!t || busy) return
     setInput('')
+    triggerNativeHaptic('light')
     const reply = await onSend(t, viaVoice)
     if (reply && (speakOn || viaVoice)) speak(reply)
   }
 
+  useEffect(() => {
+    sendRef.current = send
+  })
+
+  // Listen to native Android SpeechRecognizer events dispatched by MainActivity.
+  useEffect(() => {
+    function onNativeVoice(e: Event) {
+      const detail = (e as CustomEvent<NativeVoiceEventDetail>).detail
+      if (!detail) return
+      if (detail.type === 'start') {
+        setListening(true)
+      } else if (detail.type === 'partial') {
+        const text = detail.text ?? ''
+        heardRef.current = text
+        setInput(text)
+      } else if (detail.type === 'final') {
+        usingNativeVoiceRef.current = false
+        setListening(false)
+        const heard = (detail.text ?? heardRef.current).trim()
+        heardRef.current = ''
+        if (heard) void sendRef.current(heard, true)
+      } else if (detail.type === 'end' || detail.type === 'error') {
+        usingNativeVoiceRef.current = false
+        setListening(false)
+        const heard = heardRef.current.trim()
+        heardRef.current = ''
+        if (detail.type === 'end' && heard) void sendRef.current(heard, true)
+      }
+    }
+    window.addEventListener('bh-native-voice', onNativeVoice)
+    return () => window.removeEventListener('bh-native-voice', onNativeVoice)
+  }, [])
+
   function startTalking() {
     if (listening || busy) return
+    nativeStopSpeaking()
+    window.speechSynthesis?.cancel()
+    triggerNativeHaptic('light')
+
+    if (hasNativeVoice()) {
+      usingNativeVoiceRef.current = true
+      heardRef.current = ''
+      setListening(true)
+      startNativeVoice('en-AU')
+      return
+    }
+
     const Ctor = speechRecognitionCtor()
     if (!Ctor) return
-    window.speechSynthesis?.cancel()
     const rec = new Ctor()
     rec.lang = 'en-AU'
     rec.interimResults = true
@@ -180,6 +252,10 @@ export default function ChatPanel({
   }
 
   function stopTalking() {
+    if (usingNativeVoiceRef.current) {
+      stopNativeVoice()
+      return
+    }
     recRef.current?.stop()
   }
 
@@ -190,10 +266,10 @@ export default function ChatPanel({
   ].sort((a, b) => (a.kind === 'row' ? a.row.created_at : a.line.created_at).localeCompare(b.kind === 'row' ? b.row.created_at : b.line.created_at))
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
-      <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%', background: 'var(--bg)' }}>
+      <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
         {!items.length && (
-          <div style={{ margin: 'auto', textAlign: 'center', color: 'var(--text-muted)', fontSize: 14, maxWidth: 360 }}>
+          <div style={{ margin: 'auto', textAlign: 'center', color: 'var(--text-muted)', fontSize: 14, maxWidth: 380, padding: '20px 22px', borderRadius: 14, border: '1px solid var(--border)', background: 'var(--surface)', boxShadow: 'var(--shadow-card)' }}>
             {activeDocAgent
               ? <>Ask the {DOC_AGENT_LABEL[activeDocAgent].agent} about its {DOC_AGENT_LABEL[activeDocAgent].doc}, or give it figures to draft.</>
               : <>Ask the head agent something like &ldquo;what needs me today?&rdquo;, or pick a job on the left to talk to its file agent or one of its document agents.
@@ -217,7 +293,20 @@ export default function ChatPanel({
           }
           if (r.speaker === 'user') {
             return (
-              <div key={r.id} style={{ alignSelf: 'flex-end', maxWidth: '80%', padding: '8px 12px', borderRadius: 12, background: 'var(--surface-2)', fontSize: 14, whiteSpace: 'pre-wrap' }}>
+              <div
+                key={r.id}
+                style={{
+                  alignSelf: 'flex-end',
+                  maxWidth: '82%',
+                  padding: '10px 14px',
+                  borderRadius: '14px 14px 4px 14px',
+                  background: 'var(--surface-2)',
+                  border: '1px solid var(--border)',
+                  color: 'var(--text)',
+                  fontSize: 14,
+                  whiteSpace: 'pre-wrap',
+                }}
+              >
                 {text}
               </div>
             )
@@ -231,36 +320,43 @@ export default function ChatPanel({
           const switchTo = r.content?.switch_to
           const cardDrafts = (r.content?.draft_ids ?? []).map(id => draftById.get(id)).filter((d): d is DraftView => Boolean(d))
           const hand = r.content?.handover
+          const edgeColor = r.job_id ? `hsl(${jobHue(r.job_id)} 72% 52%)` : 'var(--accent)'
           return (
             <div
               key={r.id}
               style={{
-                alignSelf: 'flex-start', maxWidth: '92%', paddingLeft: 10,
-                borderLeft: `3px solid ${r.job_id ? `hsl(${jobHue(r.job_id)} 70% 55%)` : 'var(--accent)'}`,
+                alignSelf: 'flex-start',
+                maxWidth: '94%',
+                padding: '10px 14px',
+                borderRadius: 12,
+                background: 'var(--surface)',
+                border: '1px solid var(--border)',
+                borderLeft: `3px solid ${edgeColor}`,
+                boxShadow: 'var(--shadow-card)',
               }}
             >
-              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 2 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 4 }}>
                 {r.job_id && job ? (
                   <button type="button" onClick={() => onOpenJob(job.id)} style={{ background: 'none', border: 'none', padding: 0, color: 'inherit', font: 'inherit', cursor: 'pointer' }}>
                     {label}
                   </button>
                 ) : label}
               </div>
-              <div style={{ fontSize: 14, whiteSpace: 'pre-wrap', lineHeight: 1.45 }}>
+              <div style={{ fontSize: 14, whiteSpace: 'pre-wrap', lineHeight: 1.5, color: 'var(--text)' }}>
                 {r.speaker === 'head_agent' ? withJobChips(text, byCode, onOpenJob) : text}
               </div>
-              {hand && <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>→ Opened #{hand.job_code ?? ''}</div>}
+              {hand && <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>→ Opened #{hand.job_code ?? ''}</div>}
               {switchTo && r.job_id && (
                 <button
                   type="button"
                   onClick={() => onSwitchAgent(r.job_id as string, switchTo.doc_agent)}
-                  style={{ marginTop: 6, fontSize: 12, padding: '3px 10px', borderRadius: 6, border: '1px solid var(--accent)', background: 'var(--accent-dim)', color: 'var(--accent)', cursor: 'pointer' }}
+                  style={{ marginTop: 8, fontSize: 12, fontWeight: 600, padding: '5px 11px', borderRadius: 8, border: '1px solid var(--accent-border)', background: 'var(--accent-dim)', color: 'var(--accent)', cursor: 'pointer' }}
                 >
                   Switch to {switchTo.label}
                 </button>
               )}
               {cardDrafts.length > 0 && (
-                <div style={{ marginTop: 8 }}>
+                <div style={{ marginTop: 10 }}>
                   <DraftList drafts={cardDrafts} onDecided={onDraftsDecided} />
                 </div>
               )}
@@ -268,34 +364,34 @@ export default function ChatPanel({
           )
         })}
         {busy && <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Thinking…</div>}
-        {error && <div style={{ fontSize: 13, color: '#F87171' }}>{error}</div>}
+        {error && <div style={{ fontSize: 13, color: 'var(--red)' }}>{error}</div>}
       </div>
 
-      <div style={{ borderTop: '1px solid var(--border)', padding: 10 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, fontSize: 12, color: 'var(--text-muted)' }}>
+      <div style={{ borderTop: '1px solid var(--border)', background: 'var(--surface)', padding: '10px 12px 12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, fontSize: 12, color: 'var(--text-muted)', flexWrap: 'wrap' }}>
           <span>Talking to:</span>
           {activeJob && activeDocAgent ? (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '2px 4px 2px 8px', borderRadius: 999, border: `1px solid hsl(${jobHue(activeJob.id)} 70% 55%)`, color: 'var(--text)' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 6px 3px 10px', borderRadius: 999, border: `1px solid hsl(${jobHue(activeJob.id)} 70% 52%)`, background: 'var(--surface-2)', color: 'var(--text)', fontWeight: 600 }}>
               Job {activeJob.job_code ?? ''} › {DOC_AGENT_LABEL[activeDocAgent].agent}
-              <button type="button" onClick={onClearDocAgent} aria-label="Back to the file agent" title="Back to the file agent" style={{ border: 'none', background: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 13, padding: '0 4px' }}>
+              <button type="button" onClick={onClearDocAgent} aria-label="Back to the file agent" title="Back to the file agent" style={{ border: 'none', background: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 14, padding: '0 4px' }}>
                 ×
               </button>
             </span>
           ) : activeJob ? (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '2px 4px 2px 8px', borderRadius: 999, border: `1px solid hsl(${jobHue(activeJob.id)} 70% 55%)`, color: 'var(--text)' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 6px 3px 10px', borderRadius: 999, border: `1px solid hsl(${jobHue(activeJob.id)} 70% 52%)`, background: 'var(--surface-2)', color: 'var(--text)', fontWeight: 600 }}>
               Job #{activeJob.job_code ?? ''}{activeJob.client_name ? ` · ${activeJob.client_name}` : ''}
-              <button type="button" onClick={onClearJob} aria-label="Back to the head agent" title="Back to the head agent" style={{ border: 'none', background: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 13, padding: '0 4px' }}>
+              <button type="button" onClick={onClearJob} aria-label="Back to the head agent" title="Back to the head agent" style={{ border: 'none', background: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 14, padding: '0 4px' }}>
                 ×
               </button>
             </span>
           ) : (
-            <span style={{ padding: '2px 8px', borderRadius: 999, border: '1px solid var(--accent)', color: 'var(--text)' }}>Head agent · all jobs</span>
+            <span style={{ padding: '3px 10px', borderRadius: 999, border: '1px solid var(--accent-border)', background: 'var(--accent-dim)', color: 'var(--accent)', fontWeight: 600 }}>Head agent · all jobs</span>
           )}
           <button
             type="button"
             onClick={() => setSpeak(!speakOn)}
             title={speakOn ? 'Replies are read aloud. Click to mute.' : 'Read replies aloud'}
-            style={{ marginLeft: 'auto', border: '1px solid var(--border)', background: speakOn ? 'var(--accent-dim)' : 'transparent', color: speakOn ? 'var(--accent)' : 'var(--text-muted)', borderRadius: 6, padding: '2px 8px', cursor: 'pointer', fontSize: 12 }}
+            style={{ marginLeft: 'auto', border: '1px solid var(--border)', background: speakOn ? 'var(--accent-dim)' : 'var(--surface-2)', color: speakOn ? 'var(--accent)' : 'var(--text-muted)', borderRadius: 8, padding: '4px 10px', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
           >
             {speakOn ? '🔊 Speaking' : '🔇 Muted'}
           </button>
@@ -321,27 +417,44 @@ export default function ChatPanel({
                     ? `Message the file agent for #${activeJob.job_code ?? ''}, or @${activeJob.job_code ?? '1234'}/statement`
                     : 'Ask about all jobs, or @1234 (or @1234/statement) to jump'
             }
-            style={{ flex: 1, resize: 'none', fontSize: 14 }}
+            style={{ flex: 1, resize: 'none', fontSize: 14, borderRadius: 12 }}
           />
           {canListen && (
             <button
               type="button"
               onPointerDown={startTalking}
               onPointerUp={stopTalking}
+              onPointerCancel={() => listening && stopTalking()}
               onPointerLeave={() => listening && stopTalking()}
               disabled={busy}
               title="Hold to talk"
               aria-label="Hold to talk"
               style={{
-                width: 42, height: 42, borderRadius: 21, cursor: 'pointer', fontSize: 18, flexShrink: 0,
-                border: `1px solid ${listening ? '#F87171' : 'var(--border)'}`,
-                background: listening ? 'rgba(248,113,113,0.15)' : 'var(--surface)',
+                width: 46,
+                height: 46,
+                borderRadius: 12,
+                cursor: 'pointer',
+                fontSize: 18,
+                flexShrink: 0,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                border: `1px solid ${listening ? '#EF4444' : 'var(--border-2)'}`,
+                background: listening ? 'rgba(239,68,68,0.16)' : 'var(--surface-2)',
+                color: listening ? '#EF4444' : 'var(--text)',
+                touchAction: 'none',
               }}
             >
               🎙
             </button>
           )}
-          <button type="button" className="btn btn-primary" disabled={busy || !input.trim()} onClick={() => void send(input, false)}>
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={busy || !input.trim()}
+            onClick={() => void send(input, false)}
+            style={{ height: 46, borderRadius: 12, padding: '0 18px' }}
+          >
             Send
           </button>
         </div>

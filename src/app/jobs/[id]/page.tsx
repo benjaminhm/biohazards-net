@@ -75,12 +75,18 @@ import AgentDrawer from '@/components/agent/AgentDrawer'
 import AgentDraftsBanner from '@/components/workspace/AgentDraftsBanner'
 import JobFlags from '@/components/workspace/JobFlags'
 import ViewToggle from '@/components/workspace/ViewToggle'
+import ThemeToggle from '@/components/ThemeToggle'
 import { archivedMenuKeys, menuItemKey } from '@/lib/menuArchive'
 import { FILE_MENU_PARAM, JOB_EMBED_MSG, useJobEmbedBridge } from '@/lib/jobEmbed'
 import { HOME_SECTIONS, HOME_SECTION_IDS, HOME_SECTION_TO_CAP, isHomeSection, type HomeSection } from '@/lib/jobHomeSections'
 import { isTradingNameId, type TradingNameId } from '@/lib/tradingNames'
 import { isPlainClick } from '@/lib/plainClick'
 import { useUser } from '@/lib/userContext'
+import {
+  TABLET_HIDDEN_HOME_SECTIONS,
+  TABLET_HIDDEN_TABS,
+  useIsTabletApp,
+} from '@/lib/tabletApp'
 import {
   UnsavedChangesProvider,
   confirmLeaveWhenUnsaved,
@@ -624,6 +630,7 @@ export default function JobPage() {
   const pathname     = usePathname()
   const router       = useRouter()
   const { caps, isAdmin, isManager, loading: userLoading, org } = useUser()
+  const isTablet = useIsTabletApp()
   const jobsListHref = '/jobs/queue'
   const jobsBackLabel = '← Jobs'
 
@@ -998,8 +1005,11 @@ export default function JobPage() {
    * Filtered Home workflow strip — one entry per cap the user has. Members may
    * have any subset; admins/managers always see all ten. If the set is empty
    * the Home primary tab itself is hidden so we don't render a ghost shell.
+   * On the tablet APK, cloud/office-only PDF sections stay off the tablet.
    */
-  const visibleHomeSections = HOME_SECTIONS.filter(s => caps[HOME_SECTION_TO_CAP[s.id]] === true)
+  const visibleHomeSections = HOME_SECTIONS.filter(
+    s => caps[HOME_SECTION_TO_CAP[s.id]] === true && (!isTablet || !TABLET_HIDDEN_HOME_SECTIONS.has(s.id)),
+  )
 
   const allTabs: { id: Tab; label: string; show: boolean }[] = [
     { id: 'dashboard',      label: 'Dashboard',      show: true },
@@ -1009,8 +1019,8 @@ export default function JobPage() {
     { id: 'case_studies',   label: 'Case Studies',   show: org?.features?.case_studies_tab === true },
     { id: 'photos',         label: `Photos${photos.length ? ` (${photos.length})` : ''}`, show: caps.upload_photos_assigned || caps.upload_photos_any },
     { id: 'prestart_briefing', label: 'Pre-start Briefing', show: true },
-    { id: 'docs',           label: 'Docs',           show: true },
-    { id: 'company_letter', label: 'Company Letter', show: true },
+    { id: 'docs',           label: 'Docs',           show: !isTablet || !TABLET_HIDDEN_TABS.has('docs') },
+    { id: 'company_letter', label: 'Company Letter', show: !isTablet || !TABLET_HIDDEN_TABS.has('company_letter') },
     { id: 'messages',       label: job.inbound_email_address ? (unreadSms > 0 ? `💬 Messages (${unreadSms})` : '💬 Messages') : (unreadSms > 0 ? `💬 SMS (${unreadSms})` : '💬 SMS'), show: caps.send_sms && isActiveJob },
   ]
   const tabs = allTabs.filter(t => t.show)
@@ -1328,6 +1338,7 @@ export default function JobPage() {
               )}
             </div>
             <div data-devid="P2-E2" style={{ display: 'flex', gap: 6, flexShrink: 0, alignItems: 'center' }}>
+              {!embedded && <ThemeToggle />}
               {!embedded && <ViewToggle current="classic" jobId={id} />}
               {job.job_code && (
                 <span

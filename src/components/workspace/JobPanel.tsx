@@ -18,6 +18,8 @@ import type { Job } from '@/lib/types'
 import { JOB_EMBED_MSG } from '@/lib/jobEmbed'
 import DraftList, { type DraftView } from './DraftList'
 import JobFlags from './JobFlags'
+import { THEME_EVENT, resolveTheme } from '@/lib/theme'
+import { triggerNativeHaptic, useIsTabletApp } from '@/lib/tabletApp'
 
 const WIDTH_KEY = 'bh.workspace.jobPanelWidth'
 const DEFAULT_WIDTH = 640
@@ -63,6 +65,24 @@ export default function JobPanel({
   const [restoreWidth, setRestoreWidth] = useState<number | null>(null)
   const [dragging, setDragging] = useState(false)
   const [stripOpen, setStripOpen] = useState(true)
+  const isTablet = useIsTabletApp()
+
+  const syncIframeTheme = useCallback((theme = resolveTheme()) => {
+    try {
+      iframeRef.current?.contentWindow?.postMessage({ type: 'bh-theme:sync', theme }, window.location.origin)
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
+  useEffect(() => {
+    const onTheme = (e: Event) => {
+      const next = (e as CustomEvent<'light' | 'dark'>).detail
+      if (next === 'light' || next === 'dark') syncIframeTheme(next)
+    }
+    window.addEventListener(THEME_EVENT, onTheme)
+    return () => window.removeEventListener(THEME_EVENT, onTheme)
+  }, [syncIframeTheme])
 
   const pending = drafts.filter(d => d.status === 'pending')
   const onChangedRef = useRef(onEmbedChanged)
@@ -174,12 +194,12 @@ export default function JobPanel({
   }
 
   const btn: React.CSSProperties = {
-    padding: '4px 9px', fontSize: 12, fontWeight: 700, borderRadius: 6, cursor: 'pointer',
-    border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-muted)', whiteSpace: 'nowrap',
+    padding: '5px 10px', fontSize: 12, fontWeight: 600, borderRadius: 8, cursor: 'pointer',
+    border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text-muted)', whiteSpace: 'nowrap',
   }
 
   return (
-    <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%', width, borderLeft: '1px solid var(--border)' }}>
+    <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%', width, borderLeft: '1px solid var(--border)', background: 'var(--surface)' }}>
       <div
         role="separator"
         aria-orientation="vertical"
@@ -188,36 +208,80 @@ export default function JobPanel({
         onPointerDown={startDrag}
         onDoubleClick={() => { setRestoreWidth(null); saveWidth(DEFAULT_WIDTH) }}
         style={{
-          position: 'absolute', left: -4, top: 0, bottom: 0, width: 8, cursor: 'col-resize', zIndex: 5,
+          position: 'absolute',
+          left: isTablet ? -8 : -5,
+          top: 0,
+          bottom: 0,
+          width: isTablet ? 16 : 10,
+          cursor: 'col-resize',
+          zIndex: 5,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          touchAction: 'none',
           background: dragging ? 'var(--accent-dim)' : 'transparent',
         }}
-      />
+      >
+        <span
+          aria-hidden="true"
+          style={{
+            width: 3,
+            height: 36,
+            borderRadius: 99,
+            background: dragging ? 'var(--accent)' : 'var(--border-2)',
+            opacity: dragging || isTablet ? 0.9 : 0.45,
+          }}
+        />
+      </div>
 
-      <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)' }}>
+      <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 12, fontWeight: 800, color: 'var(--accent)' }}>
-            {job.job_code ? `#${job.job_code}` : ''}
+          <span className="num" style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 12, fontWeight: 800, color: 'var(--accent)', padding: '2px 7px', borderRadius: 6, background: 'var(--accent-dim)', border: '1px solid var(--accent-border)' }}>
+            {job.job_code ? `#${job.job_code}` : 'JOB'}
           </span>
-          <span style={{ flex: 1, minWidth: 0, fontWeight: 700, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <span style={{ flex: 1, minWidth: 0, fontWeight: 700, fontSize: 14, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {job.client_name || 'Unnamed'}
           </span>
           <button
             type="button"
-            onClick={() => setStripOpen(o => !o)}
+            onClick={() => {
+              triggerNativeHaptic('light')
+              setStripOpen(o => !o)
+            }}
             aria-expanded={stripOpen}
-            style={{ ...btn, color: pending.length ? 'var(--accent)' : 'var(--text-muted)' }}
+            style={{
+              ...btn,
+              color: pending.length ? 'var(--accent)' : 'var(--text-muted)',
+              borderColor: pending.length ? 'var(--accent-border)' : 'var(--border)',
+              background: pending.length ? 'var(--accent-dim)' : 'var(--surface-2)',
+            }}
           >
             {pending.length ? `${pending.length} waiting` : 'Flags'} {stripOpen ? '▴' : '▾'}
           </button>
-          <button type="button" onClick={toggleWide} aria-pressed={wide} style={btn} title="Widen the job panel">
+          <button
+            type="button"
+            onClick={() => {
+              triggerNativeHaptic('light')
+              toggleWide()
+            }}
+            aria-pressed={wide}
+            style={btn}
+            title="Widen the job panel"
+          >
             {wide ? 'Narrow' : 'Wide'}
           </button>
-          <a href={strayed ? base : framePath} target="_blank" rel="noopener" style={{ ...btn, textDecoration: 'none' }} title="Open this job full-page in Classic view">
-            Open in Classic ↗
-          </a>
+          {isTablet ? (
+            <a href={strayed ? base : framePath} style={{ ...btn, textDecoration: 'none' }} title="Open this job full-screen">
+              Full screen
+            </a>
+          ) : (
+            <a href={strayed ? base : framePath} target="_blank" rel="noopener" style={{ ...btn, textDecoration: 'none' }} title="Open this job full-page in Classic view">
+              Open in Classic ↗
+            </a>
+          )}
         </div>
         {stripOpen && (
-          <div style={{ maxHeight: '35vh', overflowY: 'auto', marginTop: 8, display: 'grid', gap: 8 }}>
+          <div style={{ maxHeight: '35vh', overflowY: 'auto', marginTop: 10, display: 'grid', gap: 8 }}>
             <JobFlags jobId={job.id} reloadKey={version} compact />
             {pending.length > 0 && <DraftList drafts={pending} onDecided={onDraftsDecided} />}
           </div>
@@ -225,8 +289,8 @@ export default function JobPanel({
       </div>
 
       {strayed && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: '1px solid var(--border)', background: 'var(--accent-dim)', fontSize: 13 }}>
-          <span style={{ flex: 1 }}>This panel has left the job file.</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', borderBottom: '1px solid var(--border)', background: 'var(--accent-dim)', fontSize: 13 }}>
+          <span style={{ flex: 1, color: 'var(--text)' }}>This panel has left the job file.</span>
           <button type="button" onClick={backToJob} className="btn btn-primary" style={{ padding: '4px 10px', fontSize: 12 }}>
             Back to job
           </button>
@@ -238,7 +302,10 @@ export default function JobPanel({
         ref={iframeRef}
         src={base}
         title={`Job file ${job.job_code ?? job.client_name ?? ''}`}
-        onLoad={() => { loadedRef.current = true }}
+        onLoad={() => {
+          loadedRef.current = true
+          syncIframeTheme()
+        }}
         style={{ flex: 1, minHeight: 0, width: '100%', border: 'none', background: 'var(--bg)', pointerEvents: dragging ? 'none' : 'auto' }}
       />
     </div>

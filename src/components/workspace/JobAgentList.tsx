@@ -83,18 +83,19 @@ export default function JobAgentList({
   }))
   const rowStyle = (selected: boolean, dim: boolean) => ({
     display: 'flex', alignItems: 'center', gap: 6, width: '100%', textAlign: 'left' as const,
-    padding: '4px 12px 4px 34px', border: 'none', cursor: 'pointer', fontSize: 12,
-    background: selected ? 'var(--accent-dim)' : 'transparent',
-    color: selected ? 'var(--accent)' : 'var(--text)',
-    opacity: dim && !selected ? 0.5 : 1,
+    padding: '6px 10px 6px 28px', border: 'none', borderRadius: 7, cursor: 'pointer', fontSize: 12,
+    background: selected ? 'rgba(249,115,22,0.14)' : 'transparent',
+    color: selected ? '#FB923C' : 'var(--rail-text)',
+    opacity: dim && !selected ? 0.48 : 1,
+    marginTop: 1,
   })
 
   return (
-    <div role="group" aria-label="Agents on this job" style={{ paddingBottom: 4 }}>
+    <div role="group" aria-label="Agents on this job" style={{ paddingBottom: 6, paddingTop: 2 }}>
       <button type="button" onClick={() => onSelect(null)} style={rowStyle(isActiveJob && !activeDocAgent, false)}>
         <span style={{ flex: 1, fontWeight: 600 }}>File agent</span>
         <Badge n={data?.file_agent.pending_drafts ?? 0} />
-        {data?.file_agent.unread ? <Dot colour="#60A5FA" title="New activity" /> : null}
+        {data?.file_agent.unread ? <Dot colour="#38BDF8" title="New activity" /> : null}
       </button>
       {rows.map(a => {
         const selected = isActiveJob && activeDocAgent === a.type
@@ -110,13 +111,13 @@ export default function JobAgentList({
               {a.label.replace(/ agent$/, '')}
             </span>
             {data && (
-              <span style={{ fontSize: 10, color: a.state === 'generated' ? '#4ADE80' : 'var(--text-muted)', flexShrink: 0 }}>
+              <span style={{ fontSize: 10, color: a.state === 'generated' ? '#34D399' : 'var(--rail-muted)', flexShrink: 0 }}>
                 {STATE_LABEL[a.state]}
               </span>
             )}
             <Badge n={a.pending_drafts} />
             {a.health ? <Dot colour={HEALTH_COLOUR[a.health]} title={a.health_messages.join('\n') || 'Needs attention'} /> : null}
-            {a.unread ? <Dot colour="#60A5FA" title="New messages" /> : null}
+            {a.unread ? <Dot colour="#38BDF8" title="New messages" /> : null}
           </button>
         )
       })}

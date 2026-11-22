@@ -20,9 +20,13 @@ import type { Metadata, Viewport } from 'next'
 import { headers } from 'next/headers'
 import './globals.css'
 import ServiceWorkerRegistration from '@/components/ServiceWorkerRegistration'
+import ThemeSync from '@/components/ThemeSync'
 import { UserProvider } from '@/lib/userContext'
 import Notepad from '@/components/Notepad'
 import { isTradingNameId, tradingNameOption } from '@/lib/tradingNames'
+
+/** Pre-paint theme bootstrap so Light/Dark never flickers on reload or inside the JobPanel iframe. */
+const THEME_BOOT_SCRIPT = `(function(){try{var t=localStorage.getItem('bh_theme');var isTab=!!window.__bhDataEntry||navigator.userAgent.indexOf('BiohazardsDataEntry')!==-1;if(!isTab){try{if(window.top&&window.top!==window&&window.top.__bhDataEntry)isTab=true;}catch(e){}}if(isTab)document.documentElement.classList.add('tablet-app');var mode=(t==='light'||t==='dark')?t:(isTab?'light':'dark');document.documentElement.setAttribute('data-theme',mode);document.documentElement.style.colorScheme=mode;}catch(e){}})();`
 
 export async function generateMetadata(): Promise<Metadata> {
   const headersList = await headers()
@@ -81,7 +85,7 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export const viewport: Viewport = {
-  themeColor: '#FF6B35',
+  themeColor: '#020617',
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
@@ -119,8 +123,12 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   }
 
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
+      </head>
       <body>
+        <ThemeSync />
         <UserProvider>
           <ServiceWorkerRegistration />
           {children}

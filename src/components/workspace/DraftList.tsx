@@ -12,6 +12,7 @@ import { isOverwrite } from '@/lib/agent/workspaceText'
 import { parseTarget, patchLines } from '@/lib/agent/patchDraft'
 import { newJobLines, type NewJobProposal, type PossibleDuplicate } from '@/lib/agent/newJobDraft'
 import { draftedByLabel } from '@/lib/agent/subagents/labels'
+import { triggerNativeHaptic } from '@/lib/tabletApp'
 
 export interface DraftView {
   id: string
@@ -90,8 +91,14 @@ export default function DraftList({
     try {
       const r = await decideDrafts(action, ids)
       created = r.created
-      if (r.failed.length) setError(r.failed.map(f => f.error).join(' '))
+      if (r.failed.length) {
+        triggerNativeHaptic('warning')
+        setError(r.failed.map(f => f.error).join(' '))
+      } else {
+        triggerNativeHaptic(action === 'approve' ? 'confirm' : 'light')
+      }
     } catch (e) {
+      triggerNativeHaptic('warning')
       setError(e instanceof Error ? e.message : 'Failed')
     } finally {
       setBusy(false)
@@ -100,9 +107,9 @@ export default function DraftList({
   }
 
   return (
-    <div style={{ border: '1px solid rgba(255,107,53,0.35)', borderRadius: 10, background: 'var(--accent-dim)', padding: 10 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-        <div style={{ flex: 1, fontSize: 12, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--accent)' }}>
+    <div style={{ border: '1px solid var(--accent-border)', borderRadius: 12, background: 'var(--surface)', boxShadow: 'var(--shadow-card)', padding: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <div style={{ flex: 1, fontSize: 11, fontWeight: 800, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--accent)' }}>
           {title ?? (onlyNewJobs ? 'Create job' : pending.length ? `${pending.length} change${pending.length === 1 ? '' : 's'} waiting` : 'Changes')}
         </div>
         {pending.length > 1 && (
@@ -119,7 +126,7 @@ export default function DraftList({
       {drafts.map(d => d.kind === 'new_job' ? (
         <NewJobCard key={d.id} d={d} busy={busy} onDecide={action => decide(action, [d.id])} />
       ) : (
-        <div key={d.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '6px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+        <div key={d.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '8px 0', borderTop: '1px solid var(--row-divider)' }}>
           <button
             type="button"
             onClick={() => onFocus?.(d)}
@@ -147,14 +154,14 @@ export default function DraftList({
             )}
           </button>
           {d.status === 'pending' && (
-            <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-              <button type="button" aria-label="Approve" title="Approve" disabled={busy} style={iconBtn('#4ADE80')} onClick={() => decide('approve', [d.id])}>✓</button>
-              <button type="button" aria-label="Reject" title="Reject" disabled={busy} style={iconBtn('#F87171')} onClick={() => decide('reject', [d.id])}>✕</button>
+            <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+              <button type="button" aria-label="Approve" title="Approve" disabled={busy} style={iconBtn('#16A34A')} onClick={() => decide('approve', [d.id])}>✓</button>
+              <button type="button" aria-label="Reject" title="Reject" disabled={busy} style={iconBtn('#EF4444')} onClick={() => decide('reject', [d.id])}>✕</button>
             </div>
           )}
         </div>
       ))}
-      {error && <div style={{ fontSize: 12, color: '#F87171', marginTop: 6 }}>{error}</div>}
+      {error && <div style={{ fontSize: 12, color: 'var(--red)', marginTop: 6 }}>{error}</div>}
     </div>
   )
 }
@@ -164,8 +171,8 @@ function NewJobCard({ d, busy, onDecide }: { d: DraftView; busy: boolean; onDeci
   const dups = ((d.before as { possible_duplicates?: PossibleDuplicate[] } | null)?.possible_duplicates ?? [])
   const done = d.status === 'approved' ? 'Created' : d.status === 'rejected' ? 'Discarded' : STATUS_TEXT[d.status]
   return (
-    <div style={{ padding: '6px 0', borderTop: '1px solid rgba(255,255,255,0.06)', opacity: d.status === 'pending' ? 1 : 0.55 }}>
-      <div style={{ display: 'grid', gap: 2, fontSize: 13 }}>
+    <div style={{ padding: '8px 0', borderTop: '1px solid var(--row-divider)', opacity: d.status === 'pending' ? 1 : 0.55 }}>
+      <div style={{ display: 'grid', gap: 2, fontSize: 13, color: 'var(--text)' }}>
         {lines.length ? lines.map(l => (
           <div key={l.label} style={{ overflowWrap: 'anywhere' }}>
             <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{l.label}: </span>{l.value}
@@ -190,12 +197,12 @@ function NewJobCard({ d, busy, onDecide }: { d: DraftView; busy: boolean; onDeci
   )
 }
 
-const smallBtn = { padding: '3px 10px', fontSize: 12 } as const
-const warnStyle = { marginLeft: 6, fontSize: 11, fontWeight: 700, color: '#FBBF24' } as const
+const smallBtn = { padding: '5px 11px', fontSize: 12, minHeight: 32 } as const
+const warnStyle = { marginLeft: 6, fontSize: 11, fontWeight: 700, color: '#D97706' } as const
 
 function iconBtn(color: string) {
   return {
-    width: 26, height: 26, borderRadius: 6, border: `1px solid ${color}55`, background: 'transparent',
-    color, fontSize: 13, fontWeight: 800, cursor: 'pointer',
+    width: 34, height: 34, borderRadius: 8, border: `1px solid ${color}55`, background: `${color}14`,
+    color, fontSize: 14, fontWeight: 800, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
   } as const
 }

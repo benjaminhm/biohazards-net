@@ -9,8 +9,17 @@
 import { useRouter } from 'next/navigation'
 import { useUser } from '@/lib/userContext'
 import { useWideScreen, writeViewMode, type ViewMode } from '@/lib/viewMode'
+import { triggerNativeHaptic } from '@/lib/tabletApp'
 
-export default function ViewToggle({ current, jobId }: { current: ViewMode; jobId?: string | null }) {
+export default function ViewToggle({
+  current,
+  jobId,
+  variant = 'surface',
+}: {
+  current: ViewMode
+  jobId?: string | null
+  variant?: 'surface' | 'rail'
+}) {
   const router = useRouter()
   const { isAdmin, isManager, loading } = useUser()
   const wide = useWideScreen()
@@ -19,9 +28,15 @@ export default function ViewToggle({ current, jobId }: { current: ViewMode; jobI
   function go(mode: ViewMode) {
     writeViewMode(mode)
     if (mode === current) return
+    triggerNativeHaptic('light')
     if (mode === 'agent') router.push(jobId ? `/workspace?job=${jobId}` : '/workspace')
     else router.push(jobId ? `/jobs/${jobId}` : '/')
   }
+
+  const isRail = variant === 'rail'
+  const wrapBg = isRail ? 'var(--rail-surface)' : 'var(--surface)'
+  const wrapBorder = isRail ? 'var(--rail-border)' : 'var(--border)'
+  const mutedColor = isRail ? 'var(--rail-muted)' : 'var(--text-muted)'
 
   const btn = (mode: ViewMode, label: string) => (
     <button
@@ -29,14 +44,15 @@ export default function ViewToggle({ current, jobId }: { current: ViewMode; jobI
       onClick={() => go(mode)}
       aria-pressed={current === mode}
       style={{
-        padding: '4px 10px',
+        padding: '5px 11px',
         fontSize: 12,
-        fontWeight: 700,
-        border: 'none',
-        borderRadius: 6,
+        fontWeight: 600,
+        border: current === mode ? '1px solid var(--accent-border)' : '1px solid transparent',
+        borderRadius: 7,
         cursor: 'pointer',
-        background: current === mode ? 'var(--accent)' : 'transparent',
-        color: current === mode ? '#000' : 'var(--text-muted)',
+        background: current === mode ? 'var(--accent-dim)' : 'transparent',
+        color: current === mode ? 'var(--accent-strong)' : mutedColor,
+        transition: 'background 0.15s, color 0.15s',
       }}
     >
       {label}
@@ -47,7 +63,7 @@ export default function ViewToggle({ current, jobId }: { current: ViewMode; jobI
     <div
       role="group"
       aria-label="View"
-      style={{ display: 'inline-flex', gap: 2, padding: 2, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)' }}
+      style={{ display: 'inline-flex', gap: 2, padding: 2, borderRadius: 9, border: `1px solid ${wrapBorder}`, background: wrapBg }}
     >
       {btn('classic', 'Classic')}
       {btn('agent', 'Agent')}
