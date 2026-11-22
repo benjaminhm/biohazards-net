@@ -30,6 +30,9 @@ export interface BiohazardsNativeBridge {
   speak?: (text: string) => void
   stopSpeaking?: () => void
   isOnline?: () => boolean
+  openEmailCompose?: (to: string, subject: string, body: string) => boolean
+  openSmsCompose?: (to: string, body: string) => boolean
+  shareText?: (subject: string, body: string) => boolean
 }
 
 declare global {
@@ -39,8 +42,8 @@ declare global {
   }
 }
 
-/** Tabs kept off the tablet APK (cloud PDF generation, letters, signing). */
-export const TABLET_HIDDEN_TABS = new Set<string>(['docs', 'company_letter'])
+/** Tabs kept off the tablet APK (desktop-only letters; Docs stays open in History/link-sending mode). */
+export const TABLET_HIDDEN_TABS = new Set<string>(['company_letter'])
 
 /** Home workflow sections kept off the tablet APK (office/accounts PDFs). */
 export const TABLET_HIDDEN_HOME_SECTIONS = new Set<string>([
@@ -164,6 +167,36 @@ export function nativeStopSpeaking(): boolean {
   try {
     bridge.stopSpeaking()
     return true
+  } catch {
+    return false
+  }
+}
+
+export function openNativeEmailCompose(to: string, subject: string, body: string): boolean {
+  const bridge = getNativeBridge()
+  if (!bridge?.openEmailCompose) return false
+  try {
+    return Boolean(bridge.openEmailCompose(to, subject, body))
+  } catch {
+    return false
+  }
+}
+
+export function openNativeSmsCompose(to: string, body: string): boolean {
+  const bridge = getNativeBridge()
+  if (!bridge?.openSmsCompose) return false
+  try {
+    return Boolean(bridge.openSmsCompose(to, body))
+  } catch {
+    return false
+  }
+}
+
+export function openNativeShare(subject: string, body: string): boolean {
+  const bridge = getNativeBridge()
+  if (!bridge?.shareText) return false
+  try {
+    return Boolean(bridge.shareText(subject, body))
   } catch {
     return false
   }

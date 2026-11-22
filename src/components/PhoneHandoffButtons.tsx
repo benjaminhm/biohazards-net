@@ -7,10 +7,21 @@
  * addressed to the client with that message filled in. Nothing is sent from
  * here: the person taps send on their own phone.
  *
+ * Inside the Android tablet APK, we also show direct native buttons ("Open in
+ * Gmail" and "Share…") so staff can jump straight into the Gmail app on the
+ * tablet with To, Subject and the edited message already pre-filled — while
+ * keeping the phone QR available beside it.
+ *
  * A button is left out when there is no mobile or no email to address it to.
  */
 import { useEffect, useMemo, useState } from 'react'
 import { emailMessageHandoff, handoffFitsQr, handoffQrSvg, textMessageHandoff } from '@/lib/phoneHandoff'
+import {
+  openNativeEmailCompose,
+  openNativeShare,
+  triggerNativeHaptic,
+  useIsTabletApp,
+} from '@/lib/tabletApp'
 
 type Which = 'text' | 'email'
 
@@ -23,6 +34,7 @@ export default function PhoneHandoffButtons({ message, phone, email, subject }: 
   subject: string
 }) {
   const [open, setOpen] = useState<Which | null>(null)
+  const isTablet = useIsTabletApp()
   const text = textMessageHandoff(phone, message)
   const mail = emailMessageHandoff(email, subject, message)
   const link = open === 'text' ? text : open === 'email' ? mail : null
@@ -45,7 +57,24 @@ export default function PhoneHandoffButtons({ message, phone, email, subject }: 
     return () => window.removeEventListener('keydown', onKey, true)
   }, [open])
 
-  if (!text && !mail) return null
+  function handleOpenGmail() {
+    if (!mail || empty) return
+    triggerNativeHaptic('confirm')
+    const opened = openNativeEmailCompose(mail.to, subject.trim(), message)
+    if (!opened) {
+      // Fallback for older APK or browser: standard mailto link.
+      window.location.href = mail.url
+    }
+  }
+
+  function handleNativeShare() {
+    if (empty) return
+    triggerNativeHaptic('light')
+    openNativeShare(subject.trim(), message)
+  }
+
+  if (!text && !mail && !isTablet) return null
+
   const button = (which: Which, label: string) => (
     <button type="button" className="btn btn-secondary" style={{ fontSize: 13, padding: '9px 14px' }} onClick={() => setOpen(which)}>
       {label}
@@ -54,8 +83,29 @@ export default function PhoneHandoffButtons({ message, phone, email, subject }: 
 
   return (
     <>
+      {isTablet && mail && (
+        <button
+          type="button"
+          className="btn btn-primary"
+          disabled={empty}
+          style={{ fontSize: 13, padding: '9px 14px' }}
+          onClick={handleOpenGmail}
+        >
+          Open in Gmail
+        </button>
+      )}
+      {isTablet && !empty && (
+        <button
+          type="button"
+          className="btn btn-secondary"
+          style={{ fontSize: 13, padding: '9px 14px' }}
+          onClick={handleNativeShare}
+        >
+          Share…
+        </button>
+      )}
       {text && button('text', 'Text from phone')}
-      {mail && button('email', 'Email from phone')}
+      {mail && button('email', isTablet ? 'Email QR (phone)' : 'Email from phone')}
       {open && link && (
         <div
           role="dialog"

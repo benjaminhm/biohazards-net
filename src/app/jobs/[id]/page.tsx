@@ -1997,13 +1997,15 @@ export default function JobPage() {
         )}
         {activeTab === 'docs' && (
           <>
-            <SubTabStrip
-              sections={DOCS_SECTIONS}
-              active={docsSection}
-              onChange={setDocsSection}
-              ariaLabel="Docs sections"
-            />
-            {docsSection === 'compose' && (
+            {!isTablet && (
+              <SubTabStrip
+                sections={DOCS_SECTIONS}
+                active={docsSection}
+                onChange={setDocsSection}
+                ariaLabel="Docs sections"
+              />
+            )}
+            {!isTablet && docsSection === 'compose' && (
               <DocumentsTab
                 jobId={job.id}
                 documents={documents}
@@ -2014,13 +2016,13 @@ export default function JobPage() {
                 mode="compose"
               />
             )}
-            {docsSection === 'history' && (
+            {(isTablet || docsSection === 'history') && (
               <DocumentsTab
                 jobId={job.id}
                 documents={documents}
                 documentBundles={documentBundles}
                 onBundlesRefresh={refreshDocumentBundles}
-                canComposeBundles={caps.edit_documents}
+                canComposeBundles={caps.edit_documents && !isTablet}
                 clientName={job.client_name}
                 clientEmail={job.client_email ?? ''}
                 onDocumentDeleted={docId => setDocuments(prev => prev.filter(d => d.id !== docId))}
