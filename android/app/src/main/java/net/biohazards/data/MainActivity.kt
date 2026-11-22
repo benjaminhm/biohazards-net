@@ -10,6 +10,7 @@ import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.media.ExifInterface
 import android.net.ConnectivityManager
+import android.net.MailTo
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.Uri
@@ -846,11 +847,28 @@ class MainActivity : AppCompatActivity() {
         }
 
         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-            if (!request.isForMainFrame) return false
             val uri = request.url
             val scheme = uri.scheme?.lowercase()
+            // Handle mailto/sms/tel even inside iframes (e.g. Job Manager & Workspace job panel).
+            if (scheme == "mailto") {
+                val parsed = runCatching { MailTo.parse(uri.toString()) }.getOrNull()
+                if (parsed != null) {
+                    launchEmailCompose(
+                        parsed.to.orEmpty(),
+                        parsed.subject.orEmpty(),
+                        parsed.body.orEmpty(),
+                    )
+                } else {
+                    openExternal(uri)
+                }
+                return true
+            }
+            if (scheme == "tel" || scheme == "sms" || scheme == "smsto") {
+                openExternal(uri)
+                return true
+            }
+            if (!request.isForMainFrame) return false
             if (scheme != "http" && scheme != "https") {
-                if (scheme == "mailto" || scheme == "tel" || scheme == "sms") openExternal(uri)
                 return true
             }
             if (!isAppHost(uri.host)) {

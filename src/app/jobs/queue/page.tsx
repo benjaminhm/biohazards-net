@@ -29,6 +29,16 @@ import { isHomeSection, visibleHomeSections, type HomeSection } from '@/lib/jobH
 import { archivedMenuKeys, menuItemKey, splitArchived } from '@/lib/menuArchive'
 import { TRADING_NAME_OPTIONS, isTradingNameId } from '@/lib/tradingNames'
 import { isPlainClick } from '@/lib/plainClick'
+import ThemeToggle from '@/components/ThemeToggle'
+import ViewToggle from '@/components/workspace/ViewToggle'
+import { THEME_EVENT, resolveTheme } from '@/lib/theme'
+import {
+  TABLET_HIDDEN_HOME_SECTIONS,
+  readNativeKeepScreenOn,
+  setNativeKeepScreenOn,
+  triggerNativeHaptic,
+  useIsTabletApp,
+} from '@/lib/tabletApp'
 
 const STATUS_ORDER: JobStatus[] = [
   'lead', 'assessed', 'quoted', 'accepted', 'scheduled', 'underway',
@@ -536,6 +546,25 @@ function JobViewer({
     }
   }
 
+  const isTablet = useIsTabletApp()
+
+  const syncIframeTheme = useCallback((theme = resolveTheme()) => {
+    try {
+      iframeRef.current?.contentWindow?.postMessage({ type: 'bh-theme:sync', theme }, window.location.origin)
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
+  useEffect(() => {
+    const onTheme = (e: Event) => {
+      const next = (e as CustomEvent<'light' | 'dark'>).detail
+      if (next === 'light' || next === 'dark') syncIframeTheme(next)
+    }
+    window.addEventListener(THEME_EVENT, onTheme)
+    return () => window.removeEventListener(THEME_EVENT, onTheme)
+  }, [syncIframeTheme])
+
   const btn: React.CSSProperties = { fontSize: 12, padding: '5px 10px' }
 
   return (
@@ -618,15 +647,22 @@ function JobViewer({
             >
               {'\u{1F5D1}\uFE0F'}
             </button>
-            <a href={base} target="_blank" rel="noopener" className="btn btn-ghost" style={{ ...btn, textDecoration: 'none' }} title="Open this job in a new tab">
-              Open full page ↗
-            </a>
+            {isTablet ? (
+              <a href={base} className="btn btn-ghost" style={{ ...btn, textDecoration: 'none' }} title="Open this job full-screen">
+                Full screen
+              </a>
+            ) : (
+              <a href={base} target="_blank" rel="noopener" className="btn btn-ghost" style={{ ...btn, textDecoration: 'none' }} title="Open this job in a new tab">
+                Open full page ↗
+              </a>
+            )}
           </div>
         </div>
         <iframe
           ref={iframeRef}
           src={frameSrc}
           title={`Job ${job.job_code ?? job.client_name ?? ''}`}
+          onLoad={() => syncIframeTheme()}
           style={{ flex: 1, minHeight: 0, width: '100%', border: 'none', background: 'var(--bg)' }}
         />
       </div>
@@ -658,8 +694,13 @@ function JobQueue() {
   const [bulkSaving, setBulkSaving] = useState(false)
   const [creating, setCreating] = useState(false)
   const [listHidden, setListHidden] = useState(false)
+  const [screenAwake, setScreenAwake] = useState(() => readNativeKeepScreenOn())
+  const isTablet = useIsTabletApp()
   const { org: ctxOrg, loading: userLoading, isAdmin, caps } = useUser()
-  const fileSections = useMemo(() => visibleHomeSections(caps), [caps])
+  const fileSections = useMemo(
+    () => visibleHomeSections(caps).filter(s => !isTablet || !TABLET_HIDDEN_HOME_SECTIONS.has(s.id)),
+    [caps, isTablet],
+  )
   const [savedFeatures, setSavedFeatures] = useState<Record<string, unknown> | null>(null)
   const menuArchived = useMemo(() => archivedMenuKeys(savedFeatures ?? ctxOrg?.features), [savedFeatures, ctxOrg?.features])
 
@@ -841,30 +882,114 @@ function JobQueue() {
     }
   }
 
+  function toggleScreenAwake() {
+    const next = !screenAwake
+    setScreenAwake(next)
+    setNativeKeepScreenOn(next)
+    triggerNativeHaptic('light')
+  }
+
   return (
     <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', background: 'var(--bg)' }}>
-      {/* Header */}
-      <div style={{ borderBottom: '1px solid var(--border)', padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+      {/* RankPulse dark-slate header */}
+      <div
+        style={{
+          background: 'var(--rail-bg)',
+          color: 'var(--rail-text)',
+          borderBottom: '1px solid var(--rail-border)',
+          padding: '0 14px',
+          height: 56,
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 10,
+          flexShrink: 0,
+        }}
+      >
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-          <Link href="/" style={{ fontSize: 20, color: 'var(--text-muted)', textDecoration: 'none', lineHeight: 1, padding: '2px 4px' }}>←</Link>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--accent)', marginBottom: 2 }}>
+          <Link
+            href="/"
+            title="Dashboard"
+            style={{
+              width: 34,
+              height: 34,
+              borderRadius: 9,
+              border: '1px solid var(--rail-border)',
+              background: 'var(--rail-surface)',
+              color: 'var(--rail-muted)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              textDecoration: 'none',
+              fontSize: 16,
+              flexShrink: 0,
+            }}
+          >
+            ←
+          </Link>
+          <span
+            aria-hidden="true"
+            style={{
+              width: 30,
+              height: 30,
+              borderRadius: 9,
+              background: 'linear-gradient(135deg, #F97316, #EA580C)',
+              boxShadow: '0 2px 8px rgba(249, 115, 22, 0.35)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+            }}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2" />
+            </svg>
+          </span>
+          <div style={{ minWidth: 0, lineHeight: 1.15 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#FB923C' }}>
               {brandName}
             </div>
-            <h1 style={{ fontSize: 20, fontWeight: 700 }}>Job Manager</h1>
+            <h1 style={{ fontSize: 15, fontWeight: 700, color: 'var(--rail-text)', margin: 0 }}>Job Manager</h1>
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button type="button" className="btn btn-primary" disabled={creating} onClick={() => void createJob()} style={{ fontSize: 14, padding: '8px 16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {isTablet && (
+            <button
+              type="button"
+              onClick={toggleScreenAwake}
+              aria-pressed={screenAwake}
+              title={screenAwake ? 'Keeping tablet screen awake' : 'Keep tablet screen awake'}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                padding: '5px 10px',
+                borderRadius: 9,
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: 'pointer',
+                border: screenAwake ? '1px solid var(--accent-border)' : '1px solid var(--rail-border)',
+                background: screenAwake ? 'var(--accent-dim)' : 'var(--rail-surface)',
+                color: screenAwake ? 'var(--accent-strong)' : 'var(--rail-muted)',
+              }}
+            >
+              <span>{screenAwake ? '● Awake' : '○ Awake'}</span>
+            </button>
+          )}
+          <ThemeToggle variant="rail" />
+          <ViewToggle current="classic" jobId={selectedId} variant="rail" />
+          <button type="button" className="btn btn-primary" disabled={creating} onClick={() => void createJob()} style={{ fontSize: 13, padding: '7px 14px', minHeight: 34 }}>
             {creating ? <span className="spinner" /> : '+ New Job'}
           </button>
-          <Link href="/settings">
-            <button className="btn btn-ghost" style={{ fontSize: 18, padding: '4px 8px' }} title="Company Settings">⚙️</button>
-          </Link>
+          {!isTablet && (
+            <Link href="/settings">
+              <button className="btn btn-ghost" style={{ fontSize: 16, padding: '4px 8px', color: 'var(--rail-muted)' }} title="Company Settings">⚙️</button>
+            </Link>
+          )}
         </div>
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: !wide ? '1fr' : listHidden ? '36px minmax(0, 1fr)' : '340px minmax(0, 1fr)' }}>
+      <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: !wide ? '1fr' : listHidden ? '38px minmax(0, 1fr)' : '310px minmax(0, 1fr)' }}>
         {/* Job menu */}
         {wide && listHidden ? (
           <button
@@ -874,17 +999,17 @@ function JobQueue() {
             aria-label="Show job list"
             style={{
               display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, paddingTop: 12,
-              border: 'none', borderRight: '1px solid var(--border)', background: 'var(--surface)',
-              color: 'var(--text-muted)', cursor: 'pointer', fontSize: 14,
+              border: 'none', borderRight: '1px solid var(--rail-border)', background: 'var(--rail-bg)',
+              color: 'var(--rail-muted)', cursor: 'pointer', fontSize: 14,
             }}
           >
             <span>»</span>
-            <span style={{ writingMode: 'vertical-rl', fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+            <span style={{ writingMode: 'vertical-rl', fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>
               Jobs · {jobs.length}
             </span>
           </button>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, borderRight: wide ? '1px solid var(--border)' : 'none' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, background: 'var(--surface)', borderRight: wide ? '1px solid var(--border)' : 'none' }}>
             <div style={{ padding: 10, borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 6 }}>
               <div style={{ display: 'flex', gap: 6 }}>
                 <input
