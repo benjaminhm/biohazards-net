@@ -27,6 +27,7 @@ import { useUser } from '@/lib/userContext'
 import { FILE_MENU_PARAM, JOB_EMBED_MSG, isFileMenuTabList, type FileMenuTab } from '@/lib/jobEmbed'
 import { isHomeSection, visibleHomeSections, type HomeSection } from '@/lib/jobHomeSections'
 import { archivedMenuKeys, menuItemKey, splitArchived } from '@/lib/menuArchive'
+import { ignoredUxKeys } from '@/lib/uxTags'
 import { TRADING_NAME_OPTIONS, isTradingNameId } from '@/lib/tradingNames'
 import { isPlainClick } from '@/lib/plainClick'
 import ThemeToggle from '@/components/ThemeToggle'
@@ -702,7 +703,14 @@ function JobQueue() {
     [caps, isTablet],
   )
   const [savedFeatures, setSavedFeatures] = useState<Record<string, unknown> | null>(null)
-  const menuArchived = useMemo(() => archivedMenuKeys(savedFeatures ?? ctxOrg?.features), [savedFeatures, ctxOrg?.features])
+  const menuArchived = useMemo(() => {
+    const f = savedFeatures ?? ctxOrg?.features
+    const merged = new Set(archivedMenuKeys(f))
+    for (const k of ignoredUxKeys(f)) {
+      if (k.startsWith('section:') || k.startsWith('tab:')) merged.add(k)
+    }
+    return merged
+  }, [savedFeatures, ctxOrg?.features])
 
   const archiveMenuItems = useCallback(async (keys: string[], archived: boolean) => {
     const res = await fetch('/api/org/menu-archive', {

@@ -33,7 +33,6 @@ import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigat
 import Link from 'next/link'
 import type { Job, Photo, Document, DocumentBundle, JobStatus } from '@/lib/types'
 import { DOC_TYPE_LABELS } from '@/lib/types'
-import ClientDetailsTab from '@/components/tabs/ClientDetailsTab'
 import InitialContactTab from '@/components/tabs/InitialContactTab'
 import TimelineTab from '@/components/tabs/TimelineTab'
 import AssessmentTab from '@/components/tabs/AssessmentTab'
@@ -77,7 +76,7 @@ import JobFlags from '@/components/workspace/JobFlags'
 import ViewToggle from '@/components/workspace/ViewToggle'
 import ThemeToggle from '@/components/ThemeToggle'
 import { archivedMenuKeys, menuItemKey } from '@/lib/menuArchive'
-import { UX_CONTEXT_EVENT, catalogItemForKey } from '@/lib/uxTags'
+import { UX_CONTEXT_EVENT, catalogItemForKey, ignoredUxKeys } from '@/lib/uxTags'
 import { FILE_MENU_PARAM, JOB_EMBED_MSG, useJobEmbedBridge } from '@/lib/jobEmbed'
 import { HOME_SECTIONS, HOME_SECTION_IDS, HOME_SECTION_TO_CAP, isHomeSection, type HomeSection } from '@/lib/jobHomeSections'
 import { isTradingNameId, type TradingNameId } from '@/lib/tradingNames'
@@ -1034,7 +1033,8 @@ export default function JobPage() {
   const allTabs: { id: Tab; label: string; show: boolean }[] = [
     { id: 'dashboard',      label: 'Dashboard',      show: true },
     { id: 'home',           label: 'Home',           show: visibleHomeSections.length > 0 },
-    { id: 'details',        label: 'Client Details', show: true },
+    // Client Details is unified into Initial Contact (Client & Site); keep deep-link compat via ?tab=details below.
+    { id: 'details',        label: 'Client Details', show: false },
     { id: 'timeline',       label: 'Timeline',       show: true },
     { id: 'case_studies',   label: 'Case Studies',   show: org?.features?.case_studies_tab === true },
     { id: 'photos',         label: `Photos${photos.length ? ` (${photos.length})` : ''}`, show: caps.upload_photos_assigned || caps.upload_photos_any },
@@ -1044,13 +1044,14 @@ export default function JobPage() {
     { id: 'messages',       label: job.inbound_email_address ? (unreadSms > 0 ? `💬 Messages (${unreadSms})` : '💬 Messages') : (unreadSms > 0 ? `💬 SMS (${unreadSms})` : '💬 SMS'), show: caps.send_sms && isActiveJob },
   ]
   const tabs = allTabs.filter(t => t.show)
+  /** Archived or UX-ignored menu items leave the tab bar, drawer, and file menu unless currently open. */
+  const uxIgnored = ignoredUxKeys(org?.features)
+  const menuArchived = new Set([...archivedMenuKeys(org?.features), ...uxIgnored])
   /** The Job Manager lists these under the numbered Home sections, Photos first. */
   const fileMenuTabs = [
     ...tabs.filter(t => t.id === 'photos'),
     ...tabs.filter(t => t.id !== 'photos' && t.id !== 'home'),
   ].map(({ id, label }) => ({ id, label }))
-  /** Archived menu items leave the tab bar and drawer, unless they are the one open now. */
-  const menuArchived = archivedMenuKeys(org?.features)
   const barTabs = tabs.filter(t => t.id === activeTab || !menuArchived.has(menuItemKey('tab', t.id)))
   const drawerSections = visibleHomeSections.filter(s => s.id === homeSection || !menuArchived.has(menuItemKey('section', s.id)))
   const pageTitle = activeTab === 'home' && homeSection === 'execute'
@@ -1586,10 +1587,10 @@ export default function JobPage() {
           />
         )}
         {activeTab === 'dashboard' && (
-          <JobDocsDashboardTab job={job} documents={documents} onGo={goToDocTarget} />
+          <JobDocsDashboardTab job={job} documents={documents} onGo={goToDocTarget} ignoredKeys={uxIgnored} />
         )}
-        {showDetails && (
-          <ClientDetailsTab
+        {(showDetails || showInitialContact) && (
+          <InitialContactTab
             job={job}
             onJobUpdate={setJob}
             readOnly={!isAdmin && !caps.edit_job_details}
@@ -1598,13 +1599,6 @@ export default function JobPage() {
         )}
         {showTimeline && (
           <TimelineTab job={job} onJobUpdate={setJob} readOnly={!isAdmin && !caps.edit_job_details} />
-        )}
-        {showInitialContact && (
-          <InitialContactTab
-            job={job}
-            onJobUpdate={setJob}
-            readOnly={!isAdmin && !caps.edit_job_details}
-          />
         )}
         {showAssessmentUI && assessmentSection === 'presentation' && (
           <AssessmentTab
@@ -2034,6 +2028,7 @@ export default function JobPage() {
                 onDocumentDeleted={docId => setDocuments(prev => prev.filter(d => d.id !== docId))}
                 onNavigate={tab => requestTabChange(tab)}
                 mode="compose"
+                ignoredKeys={uxIgnored}
               />
             )}
             {(isTablet || docsSection === 'history') && (

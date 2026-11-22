@@ -94,9 +94,18 @@ interface Props {
   job: Job
   documents: Document[]
   onGo: (target: DocDashboardTarget) => void
+  /** Keys tagged `ignore` (e.g. `section:legal`, `tab:timeline`) are hidden from "To do". */
+  ignoredKeys?: Set<string>
 }
 
-export default function JobDocsDashboardTab({ job, documents, onGo }: Props) {
+function isTargetIgnored(target: DocDashboardTarget, ignoredKeys?: Set<string>): boolean {
+  if (!ignoredKeys || ignoredKeys.size === 0) return false
+  if (target.kind === 'home') return ignoredKeys.has(`section:${target.section}`)
+  if (target.kind === 'tab') return ignoredKeys.has(`tab:${target.tab}`)
+  return false
+}
+
+export default function JobDocsDashboardTab({ job, documents, onGo, ignoredKeys }: Props) {
   const byType = useMemo(() => {
     const map = new Map<DocType, Document[]>()
     for (const doc of documents) {
@@ -110,7 +119,9 @@ export default function JobDocsDashboardTab({ job, documents, onGo }: Props) {
 
   const done = ROWS.filter(r => byType.has(r.type))
   const anyQuoteDone = done.some(r => r.quote)
-  const todo = ROWS.filter(r => !byType.has(r.type) && !r.optional && !(r.quote && anyQuoteDone))
+  const todo = ROWS.filter(
+    r => !byType.has(r.type) && !r.optional && !(r.quote && anyQuoteDone) && !isTargetIgnored(r.target, ignoredKeys),
+  )
 
   return (
     <div style={{ maxWidth: 760, paddingBottom: 48 }}>

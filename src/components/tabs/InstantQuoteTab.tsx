@@ -41,6 +41,9 @@ import {
 } from '@/lib/instantQuote'
 import { INSTANT_DRAFT_DROP_LABELS, INSTANT_QUOTE_BRIEF_MIN_CHARS, type InstantQuoteDraft } from '@/lib/instantQuoteDraft'
 import { emailMessageHandoff, handoffFitsQr, handoffQrSvg, textMessageHandoff } from '@/lib/phoneHandoff'
+import { SendBrandSmsButton } from '@/components/SendBrandSms'
+import PhoneHandoffButtons from '@/components/PhoneHandoffButtons'
+import { isTradingNameId, tradingAuthReplyEmail, tradingSmsSenderId } from '@/lib/tradingNames'
 import { DEFAULT_DEPOSIT_PERCENT } from '@/lib/signing/pay'
 import { isPhonePasscode, phonePasscode, phonePasscodeLabel } from '@/lib/signing/phone'
 
@@ -53,8 +56,10 @@ interface Props {
 
 const INPUT: CSSProperties = {
   width: '100%',
-  fontSize: 14,
-  padding: '8px 10px',
+  boxSizing: 'border-box',
+  minHeight: 44,
+  fontSize: 16,
+  padding: '10px 12px',
   borderRadius: 8,
   border: '1px solid var(--border)',
   background: 'var(--bg)',
@@ -105,9 +110,12 @@ interface ClientLink {
   message: string
 }
 
-/** The link ready to send: a QR that opens Messages (or Mail) on staff's phone, with the message filled in. */
-function LinkReady({ link, phone, email, subject, onClose }: {
+/** The link ready to send: direct brand SMS (e.g. FCQ), native Gmail/Share on tablet, or QR handoff to phone. */
+function LinkReady({ link, jobId, smsSenderId, replyEmail, phone, email, subject, onClose }: {
   link: ClientLink
+  jobId: string
+  smsSenderId: string | null
+  replyEmail: string
   phone: string
   email: string
   subject: string
@@ -116,7 +124,8 @@ function LinkReady({ link, phone, email, subject, onClose }: {
   const [message, setMessage] = useState(link.message)
   const [copied, setCopied] = useState('')
   const byPhone = isPhonePasscode(link.passcode)
-  const text = textMessageHandoff(byPhone ? link.passcode : phone, message)
+  const effectivePhone = byPhone ? link.passcode : phone
+  const text = textMessageHandoff(effectivePhone, message)
   const mail = emailMessageHandoff(email, subject, message)
   const handoff = text ?? mail
   const qr = useMemo(
@@ -136,41 +145,55 @@ function LinkReady({ link, phone, email, subject, onClose }: {
 
   return (
     <div style={{ ...SECTION, borderColor: 'var(--accent)', display: 'grid', gap: 10 }}>
-      <div style={{ fontWeight: 800, fontSize: 15 }}>Link ready. Nothing has been sent.</div>
-      {qr && handoff ? (
-        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+      <div style={{ fontWeight: 800, fontSize: 15 }}>
+        {smsSenderId
+          ? `Link ready. Review the message and send via ${smsSenderId} SMS or copy it.`
+          : 'Link ready. Nothing has been sent.'}
+      </div>
+      <textarea value={message} onChange={e => setMessage(e.target.value)} rows={7} style={TEXTAREA} aria-label="Message to send" />
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <SendBrandSmsButton
+          jobId={jobId}
+          senderId={smsSenderId}
+          phone={effectivePhone}
+          message={message}
+          replyEmail={replyEmail}
+        />
+        <button type="button" className={smsSenderId ? 'btn btn-secondary' : 'btn btn-primary'} style={{ minHeight: 42 }} onClick={() => copy('message', message)}>
+          {copied === 'message' ? '✓ Copied' : 'Copy message'}
+        </button>
+        <button type="button" className="btn btn-secondary" style={{ minHeight: 42 }} onClick={() => copy('link', link.url)}>
+          {copied === 'link' ? '✓ Copied' : 'Copy link only'}
+        </button>
+        <PhoneHandoffButtons
+          message={message}
+          phone={effectivePhone}
+          email={email}
+          subject={subject}
+        />
+        <button type="button" className="btn btn-secondary" style={{ minHeight: 42 }} onClick={onClose}>Done</button>
+      </div>
+      {qr && handoff && !smsSenderId && (
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center', marginTop: 4 }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={qr} alt="QR code for the message" width={220} height={220} style={{ borderRadius: 8, background: '#fff' }} />
+          <img src={qr} alt="QR code for the message" width={190} height={190} style={{ borderRadius: 8, background: '#fff' }} />
           <div style={{ flex: '1 1 220px', fontSize: 13, lineHeight: 1.5 }}>
             <div style={{ fontWeight: 700 }}>Scan with your phone camera.</div>
             <div style={{ color: 'var(--text-muted)' }}>
-              {text ? 'Messages' : 'Mail'} opens to {handoff.to} with the message below filled in. Tap send on the phone.
+              {text ? 'Messages' : 'Mail'} opens to {handoff.to} with the message filled in.
             </div>
             <a className="btn btn-secondary" href={handoff.url} style={{ display: 'inline-block', marginTop: 8, textDecoration: 'none', fontSize: 13 }}>
-              On this phone: open in {text ? 'Messages' : 'Mail'}
+              On this device: open in {text ? 'Messages' : 'Mail'}
             </a>
           </div>
         </div>
-      ) : (
-        <div style={HINT}>
-          {!handoff
-            ? 'The job has no mobile or email to send it to. Copy the message and send it yourself.'
-            : !message.trim() ? 'The message is empty.' : 'The message is too long for a QR code. Shorten it, or copy it.'}
-        </div>
       )}
-      <textarea value={message} onChange={e => setMessage(e.target.value)} rows={7} style={TEXTAREA} aria-label="Message to send" />
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <button type="button" className="btn" onClick={() => copy('message', message)}>{copied === 'message' ? '✓ Copied' : 'Copy message'}</button>
-        <button type="button" className="btn" onClick={() => copy('link', link.url)}>{copied === 'link' ? '✓ Copied' : 'Copy link only'}</button>
-        <button type="button" className="btn" onClick={onClose}>Done</button>
-      </div>
       {copied === 'failed' && <div style={HINT}>Could not copy. Select the message and copy it by hand.</div>}
       <div style={HINT}>
         {byPhone
           ? <>The client opens the link by typing their mobile, {phonePasscodeLabel(link.passcode)}, so text it to that number. </>
           : <>The link opens with the passcode <strong>{link.passcode}</strong>, which is in the message. </>}
-        They read the quote, accept and sign on their phone, then see the {DEFAULT_DEPOSIT_PERCENT}% deposit. Where it is up to shows under the quote in Documents.
-        {' '}This link is shown once; pressing the button again makes a new one and this one stops working.
+        They read the quote, accept and sign on their phone, then see the {DEFAULT_DEPOSIT_PERCENT}% deposit.
         {link.pendingHost && <> {link.pendingHost} is not connected yet, so the link opens on {link.host}.</>}
       </div>
     </div>
@@ -195,6 +218,8 @@ export default function InstantQuoteTab({ job, photos, onJobUpdate, onPhotosUpda
   const [link, setLink] = useState<ClientLink | null>(null)
   const [error, setError] = useState('')
   const [dropped, setDropped] = useState<InstantQuoteDraft['dropped']>([])
+  const [editHeader, setEditHeader] = useState(false)
+  const [showClauses, setShowClauses] = useState(false)
   const usedIds = useMemo(() => usedPhotoIds(job.assessment_data, photos), [job.assessment_data, photos])
 
   useEffect(() => {
@@ -205,6 +230,19 @@ export default function InstantQuoteTab({ job, photos, onJobUpdate, onPhotosUpda
 
   const isDirty = JSON.stringify(capture) !== JSON.stringify(saved)
   useRegisterUnsavedChanges('instant-quote', isDirty)
+
+  // Auto-save edits shortly after typing stops (prevents lost work on iPad/tablet)
+  useEffect(() => {
+    if (!isDirty || saving || drafting || sending) return
+    const timer = setTimeout(() => {
+      void save()
+    }, 850)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDirty, capture])
+
+  const smsSenderId = isTradingNameId(job.trading_name) ? tradingSmsSenderId(job.trading_name) : null
+  const replyEmail = tradingAuthReplyEmail(isTradingNameId(job.trading_name) ? job.trading_name : null)
 
   const figures = useMemo(() => instantQuoteFigures(capture), [capture])
   const title = instantQuoteTitle(capture)
@@ -344,46 +382,82 @@ export default function InstantQuoteTab({ job, photos, onJobUpdate, onPhotosUpda
         One fixed price, quoted without a site inspection, from what the client reported. The quote says so at the top and in its assumptions. Nothing is remeasured afterwards, so the scope, the exclusions and the assumptions are what the price covers. You type the price. The wording is a draft for you to check.
       </div>
 
-      <div style={{ marginBottom: 12 }}>
+      <div style={{ marginBottom: 14 }}>
         <div style={LABEL}>This quote is for</div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 18px' }}>
-          {INSTANT_QUOTE_SERVICES.map(service => (
-            <label key={service.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          {INSTANT_QUOTE_SERVICES.map(service => {
+            const checked = capture.services.includes(service.id)
+            return (
+              <label
+                key={service.id}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  minHeight: 42,
+                  padding: '0 12px',
+                  borderRadius: 10,
+                  border: `1.5px solid ${checked ? 'var(--accent)' : 'var(--border)'}`,
+                  background: checked ? 'var(--accent-dim)' : 'var(--bg)',
+                  color: checked ? 'var(--accent)' : 'var(--text)',
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={e => toggleService(service.id, e.target.checked)}
+                  style={{ width: 17, height: 17 }}
+                />
+                {service.label}
+              </label>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Compact client / address / title summary bar (expand only if overriding) */}
+      <div style={{ ...SECTION, marginTop: 0, marginBottom: 12, padding: '10px 12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+          <div style={{ fontSize: 13, color: 'var(--text)', minWidth: 0 }}>
+            <strong>{job.client_name || 'Client'}</strong>
+            {' · '}
+            <span style={{ color: 'var(--text-muted)' }}>{capture.job_address ?? job.site_address ?? 'No address'}</span>
+            {capture.custom_title.trim() && (
+              <span style={{ color: 'var(--accent)', marginLeft: 6 }}>· {capture.custom_title.trim()}</span>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setEditHeader(e => !e)}
+            style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 12, fontWeight: 700, cursor: 'pointer', flexShrink: 0, minHeight: 36, padding: '0 6px' }}
+          >
+            {editHeader ? 'Done' : 'Edit title / address'}
+          </button>
+        </div>
+        {editHeader && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginTop: 10 }}>
+            <div>
+              <label style={LABEL}>Title on the quote (optional)</label>
               <input
-                type="checkbox"
-                checked={capture.services.includes(service.id)}
-                onChange={e => toggleService(service.id, e.target.checked)}
+                value={capture.custom_title}
+                onChange={e => patch({ custom_title: e.target.value })}
+                placeholder={instantQuoteTitle({ services: capture.services, custom_title: '' })}
+                style={INPUT}
               />
-              {service.label}
-            </label>
-          ))}
-        </div>
-      </div>
-
-      <div style={{ marginBottom: 12, maxWidth: 480 }}>
-        <label style={LABEL}>Title on the quote</label>
-        <input
-          value={capture.custom_title}
-          onChange={e => patch({ custom_title: e.target.value })}
-          placeholder={instantQuoteTitle({ services: capture.services, custom_title: '' })}
-          style={INPUT}
-        />
-        <div style={HINT}>Leave blank to use the services ticked above.</div>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 12 }}>
-        <div style={{ fontSize: 14 }}>
-          <div style={LABEL}>Client</div>
-          <div>{job.client_name || '—'}</div>
-        </div>
-        <div>
-          <label style={LABEL}>Job address</label>
-          <input
-            value={capture.job_address ?? job.site_address ?? ''}
-            onChange={e => patch({ job_address: e.target.value })}
-            style={INPUT}
-          />
-        </div>
+            </div>
+            <div>
+              <label style={LABEL}>Job address</label>
+              <input
+                value={capture.job_address ?? job.site_address ?? ''}
+                onChange={e => patch({ job_address: e.target.value })}
+                style={INPUT}
+              />
+            </div>
+          </div>
+        )}
       </div>
 
       <div style={SECTION}>
@@ -461,25 +535,66 @@ export default function InstantQuoteTab({ job, photos, onJobUpdate, onPhotosUpda
         </div>
       </div>
 
-      {([
-        ['job_inclusions', 'Inclusions', instantQuoteStandardInclusions(capture.services)],
-        ['job_exclusions', 'Exclusions', instantQuoteStandardExclusions(capture.services)],
-        ['job_assumptions', 'Assumptions', instantQuoteStandardAssumptions()],
-      ] as const).map(([key, label, standard]) => (
-        <div key={key} style={SECTION}>
-          <div style={LABEL}>{label}</div>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>Printed on every fast quote:</div>
-          <StandardLines lines={standard} />
-          <label style={{ ...LABEL, marginTop: 10 }}>{label} for this job</label>
-          <textarea
-            value={capture[key]}
-            onChange={e => patch({ [key]: e.target.value })}
-            rows={Math.max(3, instantQuoteLines(capture[key]).length + 1)}
-            placeholder="One item per line. Printed after the lines above."
-            style={TEXTAREA}
-          />
-        </div>
-      ))}
+      {/* Collapsible Standard + Job-specific Inclusions, Exclusions & Assumptions */}
+      <div style={SECTION}>
+        <button
+          type="button"
+          onClick={() => setShowClauses(s => !s)}
+          aria-expanded={showClauses}
+          style={{
+            width: '100%',
+            minHeight: 40,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 10,
+            background: 'none',
+            border: 'none',
+            padding: 0,
+            color: 'var(--text)',
+            fontSize: 13,
+            fontWeight: 700,
+            cursor: 'pointer',
+            textAlign: 'left',
+          }}
+        >
+          <span>
+            {showClauses ? '▾ Inclusions, Exclusions & Assumptions' : '▸ Standard Inclusions, Exclusions & Assumptions (edit or add job notes)'}
+            {!showClauses && (
+              <span style={{ fontWeight: 400, color: 'var(--text-muted)', marginLeft: 8, fontSize: 12 }}>
+                {[
+                  instantQuoteLines(capture.job_inclusions).length ? `+${instantQuoteLines(capture.job_inclusions).length} inc` : null,
+                  instantQuoteLines(capture.job_exclusions).length ? `+${instantQuoteLines(capture.job_exclusions).length} exc` : null,
+                  instantQuoteLines(capture.job_assumptions).length ? `+${instantQuoteLines(capture.job_assumptions).length} assump` : null,
+                ].filter(Boolean).join(' · ') || 'Standard lines applied'}
+              </span>
+            )}
+          </span>
+        </button>
+        {showClauses && (
+          <div style={{ display: 'grid', gap: 14, marginTop: 12 }}>
+            {([
+              ['job_inclusions', 'Inclusions', instantQuoteStandardInclusions(capture.services)],
+              ['job_exclusions', 'Exclusions', instantQuoteStandardExclusions(capture.services)],
+              ['job_assumptions', 'Assumptions', instantQuoteStandardAssumptions()],
+            ] as const).map(([key, label, standard]) => (
+              <div key={key} style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+                <div style={LABEL}>{label}</div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>Printed on every fast quote:</div>
+                <StandardLines lines={standard} />
+                <label style={{ ...LABEL, marginTop: 10 }}>{label} for this job</label>
+                <textarea
+                  value={capture[key]}
+                  onChange={e => patch({ [key]: e.target.value })}
+                  rows={Math.max(3, instantQuoteLines(capture[key]).length + 1)}
+                  placeholder="One item per line. Printed after the lines above."
+                  style={TEXTAREA}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div style={SECTION}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
@@ -542,27 +657,24 @@ export default function InstantQuoteTab({ job, photos, onJobUpdate, onPhotosUpda
         </div>
       </div>
 
-      <div style={{ ...HINT, marginTop: 14 }}>
-        <strong>Text quote to client</strong> saves this page and the quote to Documents, then makes the client&rsquo;s private link and shows a QR code. Scan it with your phone and Messages opens with the message and link ready to send. The client opens it with their mobile number, reads the quote with its photos, and signs on their phone.
-      </div>
-      <div style={HINT}>
-        <strong>Generate quote</strong> opens the printed quote to read first.
-      </div>
       {error && <div style={{ color: 'var(--danger, #f87171)', fontSize: 13, marginTop: 10 }}>{error}</div>}
-      <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
-        <button type="button" className="btn btn-primary" onClick={() => void sendToClient()} disabled={saving || sending}>
-          {sending ? 'Making the link…' : 'Text quote to client'}
+      <div style={{ display: 'flex', gap: 8, marginTop: 14, alignItems: 'center', flexWrap: 'wrap' }}>
+        <button type="button" className="btn btn-primary" style={{ minHeight: 44, padding: '0 16px', fontSize: 14, fontWeight: 700 }} onClick={() => void sendToClient()} disabled={saving || sending}>
+          {sending ? 'Making the link…' : smsSenderId ? `Send quote (${smsSenderId} SMS / Link)` : 'Text quote to client'}
         </button>
-        <button type="button" className="btn" onClick={() => void saveAndCompose()} disabled={saving || sending}>
-          Generate quote
+        <button type="button" className="btn btn-secondary" style={{ minHeight: 44, padding: '0 14px', fontSize: 14 }} onClick={() => void saveAndCompose()} disabled={saving || sending}>
+          Preview / Generate PDF
         </button>
-        <button type="button" className="btn" onClick={() => void save()} disabled={saving || sending}>
-          {saving ? 'Saving…' : 'Save'}
-        </button>
+        <span style={{ fontSize: 12, fontWeight: 600, color: saving ? 'var(--text-muted)' : !isDirty ? '#10B981' : 'var(--text-muted)' }}>
+          {saving ? 'Saving…' : isDirty ? 'Unsaved…' : 'Saved ✓'}
+        </span>
       </div>
       {link && (
         <LinkReady
           link={link}
+          jobId={job.id}
+          smsSenderId={smsSenderId}
+          replyEmail={replyEmail}
           phone={clientPhone}
           email={clientEmail}
           subject={`${title} ${figures.total ? formatAud(figures.total) : ''}`.trim()}

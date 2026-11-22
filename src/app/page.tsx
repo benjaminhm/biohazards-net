@@ -34,6 +34,7 @@ import ViewToggle from '@/components/workspace/ViewToggle'
 import ThemeToggle from '@/components/ThemeToggle'
 import { isWideScreen, readViewMode } from '@/lib/viewMode'
 import { TABLET_HIDDEN_DASHBOARD_HREFS, useIsTabletApp } from '@/lib/tabletApp'
+import { ignoredUxKeys } from '@/lib/uxTags'
 
 const LS_HIDE_FEEDBACK = 'bh_dash_quick_feedback_hidden'
 function fmtBooking(iso: string) {
@@ -119,6 +120,8 @@ export default function HomePage() {
   const consultationEnabled =
     !userLoading && ctxOrg != null && ctxOrg.features?.consultation === true
 
+  const ignoredKeys = ignoredUxKeys(ctxOrg?.features)
+
   const dashboardGridTiles = [
     {
       href: '/jobs/queue',
@@ -186,7 +189,9 @@ export default function HomePage() {
           color: '#EC4899',
         }]
       : []),
-  ].filter(tile => !isTablet || !TABLET_HIDDEN_DASHBOARD_HREFS.has(tile.href))
+  ]
+    .filter(tile => !isTablet || !TABLET_HIDDEN_DASHBOARD_HREFS.has(tile.href))
+    .filter(tile => !ignoredKeys.has(`route:${tile.href}`))
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--bg)' }}>

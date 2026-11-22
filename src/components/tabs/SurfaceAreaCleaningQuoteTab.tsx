@@ -69,8 +69,10 @@ function savedRooms(job: Job) {
 
 const INPUT: CSSProperties = {
   width: '100%',
-  fontSize: 14,
-  padding: '8px 10px',
+  boxSizing: 'border-box',
+  minHeight: 44,
+  fontSize: 16,
+  padding: '10px 12px',
   borderRadius: 8,
   border: '1px solid var(--border)',
   background: 'var(--bg)',
@@ -168,6 +170,8 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [measureOpen, setMeasureOpen] = useState(false)
+  const [editAddress, setEditAddress] = useState(false)
+  const [showClauses, setShowClauses] = useState(false)
   /** Set when rooms measured on the phone were merged into unsaved edits, so the job update that follows does not reload the quote over them. */
   const keepCaptureFor = useRef<string | null>(null)
   const [standards, setStandards] = useState<SurfaceAreaCleaningStandards>(defaultSurfaceAreaCleaningStandards)
@@ -215,6 +219,16 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
     || JSON.stringify(capture.other_lines) !== JSON.stringify(saved.other_lines)
     || !samePhotoIds(capture.photo_ids, saved.photo_ids)
   useRegisterUnsavedChanges('surface-area-cleaning-quote', isDirty)
+
+  // Auto-save edits shortly after typing stops (prevents lost work on iPad/tablet)
+  useEffect(() => {
+    if (!isDirty || saving) return
+    const timer = setTimeout(() => {
+      void save()
+    }, 850)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDirty, capture])
 
   const live = useRef({ job, isDirty, saving, onJobUpdate })
   useEffect(() => {
@@ -488,13 +502,29 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
           </>
         )}
       </div>
-      <div style={{ marginBottom: 12 }}>
-        <label style={LABEL}>Job address</label>
-        <input
-          value={capture.job_address ?? job.site_address ?? ''}
-          onChange={e => patch({ job_address: e.target.value })}
-          style={INPUT}
-        />
+      <div style={{ marginBottom: 12, border: '1px solid var(--border)', borderRadius: 8, padding: '8px 12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+          <div style={{ fontSize: 13, color: 'var(--text-muted)', minWidth: 0 }}>
+            <strong style={{ color: 'var(--text)' }}>Address:</strong> {capture.job_address ?? job.site_address ?? '—'}
+          </div>
+          <button
+            type="button"
+            onClick={() => setEditAddress(e => !e)}
+            style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 12, fontWeight: 700, cursor: 'pointer', flexShrink: 0, minHeight: 36, padding: '0 6px' }}
+          >
+            {editAddress ? 'Done' : 'Edit'}
+          </button>
+        </div>
+        {editAddress && (
+          <div style={{ marginTop: 8 }}>
+            <label style={LABEL}>Job address</label>
+            <input
+              value={capture.job_address ?? job.site_address ?? ''}
+              onChange={e => patch({ job_address: e.target.value })}
+              style={INPUT}
+            />
+          </div>
+        )}
       </div>
       <div style={{ marginBottom: 12, display: 'grid', gap: 12 }}>
         <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
@@ -911,44 +941,75 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
           <span>{formatAud(figures.total)}</span>
         </div>
       </div>
-      <div style={{ marginTop: 18, display: 'grid', gap: 14 }}>
-        {([
-          ['inclusions', 'job_inclusions', 'Inclusions'],
-          ['exclusions', 'job_exclusions', 'Exclusions'],
-          ['assumptions', 'job_assumptions', 'Assumptions'],
-        ] as const).map(([key, jobKey, label]) => (
-          <div key={key} style={{ display: 'grid', gap: 8 }}>
-            <ClickToEditText
-              label={label}
-              hint="Standard. Saved for this company and used on every new job."
-              asList
-              value={standards[key]}
-              onChange={value => editStandards({ [key]: value })}
-            />
-            <ClickToEditText
-              label={`${label} for this job only`}
-              hint="Unusual or one-off items. Printed after the standard ones, not carried to new jobs."
-              asList
-              emptyText="None. Click to add."
-              value={capture[jobKey]}
-              onChange={value => patch({ [jobKey]: value })}
-            />
+      <div style={{ marginTop: 18, border: '1px solid var(--border)', borderRadius: 10, padding: '10px 12px' }}>
+        <button
+          type="button"
+          onClick={() => setShowClauses(s => !s)}
+          aria-expanded={showClauses}
+          style={{
+            width: '100%',
+            minHeight: 40,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 10,
+            background: 'none',
+            border: 'none',
+            padding: 0,
+            color: 'var(--text)',
+            fontSize: 13,
+            fontWeight: 700,
+            cursor: 'pointer',
+            textAlign: 'left',
+          }}
+        >
+          <span>
+            {showClauses
+              ? '▾ Clauses & Engagement Agreement'
+              : '▸ Clauses & Engagement Agreement (Inclusions, Exclusions, Assumptions, Payment terms)'}
+          </span>
+        </button>
+        {showClauses && (
+          <div style={{ marginTop: 12, display: 'grid', gap: 14 }}>
+            {([
+              ['inclusions', 'job_inclusions', 'Inclusions'],
+              ['exclusions', 'job_exclusions', 'Exclusions'],
+              ['assumptions', 'job_assumptions', 'Assumptions'],
+            ] as const).map(([key, jobKey, label]) => (
+              <div key={key} style={{ display: 'grid', gap: 8 }}>
+                <ClickToEditText
+                  label={label}
+                  hint="Standard. Saved for this company and used on every new job."
+                  asList
+                  value={standards[key]}
+                  onChange={value => editStandards({ [key]: value })}
+                />
+                <ClickToEditText
+                  label={`${label} for this job only`}
+                  hint="Unusual or one-off items. Printed after the standard ones, not carried to new jobs."
+                  asList
+                  emptyText="None. Click to add."
+                  value={capture[jobKey]}
+                  onChange={value => patch({ [jobKey]: value })}
+                />
+              </div>
+            ))}
+            <ClickToEditText label="Payment terms" value={standards.payment_terms} onChange={payment_terms => editStandards({ payment_terms })} />
+            <div>
+              <div style={LABEL}>Engagement agreement</div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
+                Saved for this company. The next contents clearance quote and surface cleaning quote start from this text. Brackets such as [name], [surface], [rate per m2], [labour amount], [deposit], and [total] are filled when the document is printed. A contents-clearance line is left out. The signature lines stay blank for signing.
+              </div>
+              {standardsReady && (
+                <RichTextEditor
+                  value={standards.engagement_agreement}
+                  onChange={engagement_agreement => editStandards({ engagement_agreement })}
+                  minHeight={240}
+                />
+              )}
+            </div>
           </div>
-        ))}
-        <ClickToEditText label="Payment terms" value={standards.payment_terms} onChange={payment_terms => editStandards({ payment_terms })} />
-        <div>
-          <div style={LABEL}>Engagement agreement</div>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
-            Saved for this company. The next contents clearance quote and surface cleaning quote start from this text. Brackets such as [name], [surface], [rate per m2], [labour amount], [deposit], and [total] are filled when the document is printed. A contents-clearance line is left out. The signature lines stay blank for signing.
-          </div>
-          {standardsReady && (
-            <RichTextEditor
-              value={standards.engagement_agreement}
-              onChange={engagement_agreement => editStandards({ engagement_agreement })}
-              minHeight={240}
-            />
-          )}
-        </div>
+        )}
       </div>
       <div style={{ marginTop: 18, marginBottom: 4 }}>
         <div style={LABEL}>Photos</div>
@@ -969,13 +1030,31 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
         />
       </div>
       {saveError && <div style={{ color: 'var(--danger, #f87171)', fontSize: 13, marginTop: 10 }}>{saveError}</div>}
-      <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
-        <button type="button" className="btn" onClick={() => void save()} disabled={saving}>
-          {saving ? 'Saving…' : 'Save'}
-        </button>
-        <button type="button" className="btn btn-primary" onClick={() => void saveAndCompose()} disabled={saving}>
-          Generate quote
-        </button>
+      <div style={{ height: 76 }} />
+      <div
+        style={{
+          position: 'fixed',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 25,
+          background: 'var(--bg)',
+          borderTop: '1px solid var(--border)',
+          padding: '10px 16px max(12px, env(safe-area-inset-bottom, 0px))',
+        }}
+      >
+        <div style={{ maxWidth: 880, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+            <span style={{ fontSize: 16, fontWeight: 800, color: 'var(--text)' }}>{formatAud(figures.total)}</span>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>inc GST</span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: saving ? 'var(--text-muted)' : !isDirty ? '#10B981' : 'var(--text-muted)' }}>
+              {saving ? 'Saving…' : isDirty ? 'Unsaved…' : 'Saved ✓'}
+            </span>
+          </div>
+          <button type="button" className="btn btn-primary" style={{ minHeight: 44, padding: '0 18px', fontSize: 14, fontWeight: 700 }} onClick={() => void saveAndCompose()} disabled={saving}>
+            Generate quote
+          </button>
+        </div>
       </div>
       {measureOpen && (
         <PhoneMeasureQr jobId={job.id} roomCount={capture.rooms.length} onClose={() => setMeasureOpen(false)} />

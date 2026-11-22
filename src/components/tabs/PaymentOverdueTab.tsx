@@ -28,8 +28,9 @@ interface Props {
 
 const INPUT: CSSProperties = {
   width: '100%',
-  fontSize: 14,
-  padding: '8px 10px',
+  minHeight: 44,
+  fontSize: 16,
+  padding: '10px 12px',
   borderRadius: 8,
   border: '1px solid var(--border)',
   background: 'var(--surface-2)',
@@ -72,6 +73,10 @@ export default function PaymentOverdueTab({ job, onJobUpdate }: Props) {
   const [saving, setSaving] = useState(false)
   const [savedFlash, setSavedFlash] = useState(false)
   const [saveError, setSaveError] = useState('')
+  const [editPayer, setEditPayer] = useState(false)
+  const [showGuarantor, setShowGuarantor] = useState(
+    () => Boolean(baseline.guarantor_name.trim() || baseline.guarantor_address.trim() || baseline.guarantee_reference.trim()),
+  )
 
   useEffect(() => {
     const id = job.client_account_id
@@ -106,6 +111,16 @@ export default function PaymentOverdueTab({ job, onJobUpdate }: Props) {
 
   const isDirty = !capturesEqual(capture, baseline)
   useRegisterUnsavedChanges('payment-overdue', isDirty)
+
+  // Auto-save edits shortly after typing stops
+  useEffect(() => {
+    if (!isDirty || saving) return
+    const timer = setTimeout(() => {
+      void save()
+    }, 750)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDirty, capture])
 
   const statement = useMemo(() => statementV2Figures(job.assessment_data), [job.assessment_data])
   const statementLines = useMemo(() => statementReminderLines(statement), [statement])
@@ -195,30 +210,76 @@ export default function PaymentOverdueTab({ job, onJobUpdate }: Props) {
         )}
       </section>
 
+      {/* Contracted payer — 1-line summary card by default; auto-expands if name/address is missing */}
       <section style={cardStyle}>
-        <div style={headingStyle}>Contracted payer</div>
-        <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--text-muted)' }}>
-          {payerSourceHint(seed.source, matchesSeed)}
-        </p>
-        <label style={LABEL}>Name</label>
-        <input style={{ ...INPUT, marginBottom: 12 }} value={capture.payer_name} onChange={e => patch({ payer_name: e.target.value })} />
-        <label style={LABEL}>Address for the letter of demand</label>
-        <textarea style={{ ...INPUT, marginBottom: 12, minHeight: 72 }} value={capture.payer_address} onChange={e => patch({ payer_address: e.target.value })} />
-        <label style={LABEL}>ABN</label>
-        <input style={INPUT} value={capture.payer_abn} onChange={e => patch({ payer_abn: e.target.value })} />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+          <div style={{ ...headingStyle, marginBottom: 0 }}>Contracted payer</div>
+          <button
+            type="button"
+            onClick={() => setEditPayer(e => !e)}
+            style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 13, fontWeight: 700, cursor: 'pointer', minHeight: 36, padding: '0 6px' }}
+          >
+            {editPayer || !capture.payer_name.trim() || !capture.payer_address.trim() ? 'Done' : 'Edit'}
+          </button>
+        </div>
+        {editPayer || !capture.payer_name.trim() || !capture.payer_address.trim() ? (
+          <div style={{ marginTop: 10 }}>
+            <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--text-muted)' }}>
+              {payerSourceHint(seed.source, matchesSeed)}
+            </p>
+            <label style={LABEL}>Name</label>
+            <input style={{ ...INPUT, marginBottom: 12 }} value={capture.payer_name} onChange={e => patch({ payer_name: e.target.value })} />
+            <label style={LABEL}>Address for the letter of demand</label>
+            <textarea style={{ ...INPUT, marginBottom: 12, minHeight: 72 }} value={capture.payer_address} onChange={e => patch({ payer_address: e.target.value })} />
+            <label style={LABEL}>ABN</label>
+            <input style={INPUT} value={capture.payer_abn} onChange={e => patch({ payer_abn: e.target.value })} />
+          </div>
+        ) : (
+          <div style={{ fontSize: 14, color: 'var(--text)', marginTop: 8, lineHeight: 1.5 }}>
+            <strong>{capture.payer_name}</strong>
+            {capture.payer_abn ? <span style={{ color: 'var(--text-muted)' }}> · ABN {capture.payer_abn}</span> : null}
+            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }}>{capture.payer_address}</div>
+          </div>
+        )}
       </section>
 
+      {/* Personal guarantor — collapsed behind toggle unless filled */}
       <section style={cardStyle}>
-        <div style={headingStyle}>Personal guarantor</div>
-        <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--text-muted)' }}>
-          Leave this blank when nobody personally guaranteed payment. A guarantor is not the person who books the job.
-        </p>
-        <label style={LABEL}>Name</label>
-        <input style={{ ...INPUT, marginBottom: 12 }} value={capture.guarantor_name} onChange={e => patch({ guarantor_name: e.target.value })} />
-        <label style={LABEL}>Their address</label>
-        <textarea style={{ ...INPUT, marginBottom: 12, minHeight: 72 }} value={capture.guarantor_address} onChange={e => patch({ guarantor_address: e.target.value })} />
-        <label style={LABEL}>Guarantee reference</label>
-        <input style={INPUT} value={capture.guarantee_reference} onChange={e => patch({ guarantee_reference: e.target.value })} placeholder="Engagement dated …" />
+        <button
+          type="button"
+          onClick={() => setShowGuarantor(s => !s)}
+          aria-expanded={showGuarantor}
+          style={{
+            width: '100%',
+            minHeight: 40,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            background: 'none',
+            border: 'none',
+            padding: 0,
+            color: 'var(--text)',
+            fontSize: 13,
+            fontWeight: 700,
+            cursor: 'pointer',
+            textAlign: 'left',
+          }}
+        >
+          <span>{showGuarantor ? '▾ Personal guarantor (optional)' : '+ Add personal guarantor (only if someone personally guaranteed payment)'}</span>
+        </button>
+        {showGuarantor && (
+          <div style={{ marginTop: 12 }}>
+            <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--text-muted)' }}>
+              Leave blank when nobody personally guaranteed payment. A guarantor is not the person who books the job.
+            </p>
+            <label style={LABEL}>Name</label>
+            <input style={{ ...INPUT, marginBottom: 12 }} value={capture.guarantor_name} onChange={e => patch({ guarantor_name: e.target.value })} />
+            <label style={LABEL}>Their address</label>
+            <textarea style={{ ...INPUT, marginBottom: 12, minHeight: 72 }} value={capture.guarantor_address} onChange={e => patch({ guarantor_address: e.target.value })} />
+            <label style={LABEL}>Guarantee reference</label>
+            <input style={INPUT} value={capture.guarantee_reference} onChange={e => patch({ guarantee_reference: e.target.value })} placeholder="Engagement dated …" />
+          </div>
+        )}
       </section>
 
       <section style={cardStyle}>
@@ -330,11 +391,11 @@ export default function PaymentOverdueTab({ job, onJobUpdate }: Props) {
           {saveError && (
             <div style={{ color: '#F87171', fontSize: 13, marginBottom: 8 }} role="alert">{saveError}</div>
           )}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button type="button" className="btn btn-primary" disabled={saving || !isDirty} onClick={() => void save()} style={{ flex: '1 1 160px', padding: 12, fontWeight: 700 }}>
-              {saving ? 'Saving…' : savedFlash ? 'Saved' : 'Save'}
-            </button>
-            <button type="button" className="btn btn-secondary" disabled={saving || !result.ok} onClick={() => void generate()} style={{ flex: '1 1 160px', padding: 12, fontWeight: 700 }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: saving ? 'var(--text-muted)' : savedFlash || !isDirty ? '#10B981' : 'var(--text-muted)', minWidth: 74 }}>
+              {saving ? 'Saving…' : isDirty ? 'Unsaved…' : 'Saved ✓'}
+            </span>
+            <button type="button" className="btn btn-primary" disabled={saving || !result.ok} onClick={() => void generate()} style={{ flex: '1 1 200px', minHeight: 44, padding: '0 16px', fontWeight: 700, fontSize: 14 }}>
               Generate reminder
             </button>
           </div>

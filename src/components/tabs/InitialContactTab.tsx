@@ -1,29 +1,21 @@
 /*
  * components/tabs/InitialContactTab.tsx
  *
- * Minimal intake surface shown under Home > Initial Contact.
+ * Unified Client & Site screen (merges Initial Contact + Client Details into
+ * one clean, iPad/tablet-friendly surface).
  *
- * Scope is deliberately narrow — just enough to identify the caller, know how
- * to contact them, capture the organisation they represent (if any), and
- * locate the biohazard. Incident classification, urgency, and status live
- * downstream (Onsite Assessment, header metadata, etc.).
- *
- * Fields, in visual order:
- *   1. Smart Fill (paste intake source)
- *   2. Name
- *   3. Role / relationship (hint only)
- *   4. Organisation (optional)
- *   5. Phone (+ add number)
- *   6. Email
- *   7. Site address
- *   8. Site contact (if different) — collapsed by default
- *   9. Incident — Job Type + Urgency (triaged at intake, refined at assessment)
- *  10. Access notes — parking, keys, pets, discretion (free text blob)
- *  11. Call notes — append-only log (uses /api/jobs/[id]/notes)
- *
- * Everything persists via PATCH /api/jobs/[id] (or the notes append endpoint
- * for call notes). The parent's onJobUpdate is called with the fresh job
- * record so no full page reload is needed.
+ * Design principles:
+ *   - Core fields only up front (Name, Phone, Site address, Job Type, Urgency)
+ *     in a compact responsive grid with 44px+ touch targets and 16px inputs
+ *     (prevents iPadOS Safari auto-zoom).
+ *   - Inline Brand pills (BCQ | FCQ | HCQ) + quick actions (vCard, Maps, Call,
+ *     SMS, Copy) right at the top.
+ *   - SmartFill stays open on blank jobs and collapses to a 1-line bar once
+ *     the job has a name or address.
+ *   - Secondary details (Organisation, Role/relationship, Email, extra phones,
+ *     Site contact, Trade Account) tuck neatly under one disclosure toggle and
+ *     auto-open whenever any of them already has data.
+ *   - Auto-saves every edit on blur via PATCH /api/jobs/[id].
  */
 'use client'
 
@@ -31,6 +23,8 @@ import { useEffect, useRef, useState } from 'react'
 import type { Job, JobType, JobUrgency, PhoneEntry } from '@/lib/types'
 import SmartFill from '@/components/SmartFill'
 import AddressAutocomplete from '@/components/AddressAutocomplete'
+import TradeAccountPicker from '@/components/TradeAccountPicker'
+import { TRADING_NAME_OPTIONS, type TradingNameId } from '@/lib/tradingNames'
 
 const JOB_TYPES: { value: JobType; label: string }[] = [
   { value: 'crime_scene', label: 'Crime scene' },
@@ -53,9 +47,9 @@ interface Props {
   job: Job
   onJobUpdate: (job: Job) => void
   readOnly?: boolean
+  onChangeTradingName?: () => void
 }
 
-// Converts any AU mobile format to 04xxxxxxxx (mirrors DetailsTab helper).
 function normalizeAUPhone(raw: string): string {
   if (!raw) return raw
   const cleaned = raw.replace(/[\s\-()\.]/g, '')
@@ -73,43 +67,79 @@ function toE164(phone: string): string {
   return cleaned
 }
 
-const actionBtn: React.CSSProperties = {
-  padding: '8px 10px',
-  borderRadius: 6,
+function extractSuburb(address: string): string {
+  if (!address) return ''
+  const parts = address.split(',')
+  if (parts.length >= 2) {
+    const raw = parts[1].trim()
+    return raw.replace(/\b(QLD|NSW|VIC|WA|SA|TAS|ACT|NT)\b.*/i, '').replace(/\d{4,}.*/, '').trim()
+  }
+  const match = address.match(/([A-Za-z\s]+?)(?:\s+(?:QLD|NSW|VIC|WA|SA|TAS|ACT|NT))?(?:\s+\d{4})?$/i)
+  return match ? match[1].trim().split(/\s+/).slice(-2).join(' ') : ''
+}
+
+const cardStyle: React.CSSProperties = {
   border: '1px solid var(--border)',
+  borderRadius: 12,
   background: 'var(--surface)',
+  padding: 16,
+  marginBottom: 14,
+}
+
+const actionBtn: React.CSSProperties = {
+  minHeight: 44,
+  minWidth: 44,
+  padding: '0 10px',
+  borderRadius: 8,
+  border: '1px solid var(--border)',
+  background: 'var(--surface-2)',
   color: 'var(--text)',
-  fontSize: 14,
+  fontSize: 15,
   cursor: 'pointer',
   textDecoration: 'none',
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
-  minWidth: 36,
+  flexShrink: 0,
 }
 
 const fieldBox: React.CSSProperties = {
   display: 'block',
   width: '100%',
+  boxSizing: 'border-box',
+  minHeight: 44,
   padding: '10px 12px',
   background: 'var(--surface-2)',
   border: '1px solid var(--border)',
-  borderRadius: 6,
+  borderRadius: 8,
   color: 'var(--text)',
-  fontSize: 15,
+  fontSize: 16,
   outline: 'none',
 }
 
-/**
- * Auto-saving text input. Commits the value on blur or Enter (single-line
- * variant) if it changed. Keeps the draft local while editing so typing is
- * smooth even with a slow network.
- */
+const sectionLabel: React.CSSProperties = {
+  display: 'block',
+  fontSize: 11,
+  fontWeight: 700,
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase',
+  color: 'var(--text-muted)',
+  marginBottom: 6,
+}
+
+const hint: React.CSSProperties = {
+  fontSize: 12,
+  color: 'var(--text-muted)',
+  marginTop: 5,
+  lineHeight: 1.45,
+}
+
 function FieldInput({
   value,
   onCommit,
   placeholder,
   type = 'text',
+  inputMode,
   multiline = false,
   disabled = false,
 }: {
@@ -117,6 +147,7 @@ function FieldInput({
   onCommit: (v: string) => void
   placeholder?: string
   type?: string
+  inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode']
   multiline?: boolean
   disabled?: boolean
 }) {
@@ -140,7 +171,7 @@ function FieldInput({
         onBlur={commit}
         placeholder={placeholder}
         rows={3}
-        style={{ ...fieldBox, resize: 'vertical', minHeight: 76, fontFamily: 'inherit' }}
+        style={{ ...fieldBox, minHeight: 84, resize: 'vertical', fontFamily: 'inherit' }}
       />
     )
   }
@@ -148,12 +179,16 @@ function FieldInput({
   return (
     <input
       type={type}
+      inputMode={inputMode}
       value={draft}
       disabled={disabled}
       onChange={e => setDraft(e.target.value)}
       onBlur={commit}
       onKeyDown={e => {
-        if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          ;(e.currentTarget as HTMLInputElement).blur()
+        }
       }}
       placeholder={placeholder}
       style={fieldBox}
@@ -162,36 +197,76 @@ function FieldInput({
 }
 
 export default function InitialContactTab({ job, onJobUpdate, readOnly = false }: Props) {
-  const [saving, setSaving] = useState(false)
-  const [showExtraPhones, setShowExtraPhones] = useState((job.client_phones ?? []).length > 0)
-  const [showSiteContact, setShowSiteContact] = useState(
-    !!(job.site_contact_name || job.site_contact_phone),
+  const hasSecondaryData = Boolean(
+    job.client_organization_name?.trim() ||
+    job.client_contact_role?.trim() ||
+    job.client_email?.trim() ||
+    job.client_account_id ||
+    job.site_contact_name?.trim() ||
+    job.site_contact_phone?.trim() ||
+    (job.client_phones && job.client_phones.length > 0),
   )
+
+  const [showMore, setShowMore] = useState(hasSecondaryData)
   const [noteDraft, setNoteDraft] = useState('')
   const [postingNote, setPostingNote] = useState(false)
-  const noteRef = useRef<HTMLTextAreaElement | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [savedFlash, setSavedFlash] = useState(false)
+  const [copiedKey, setCopiedKey] = useState<string | null>(null)
+  const noteRef = useRef<HTMLTextAreaElement>(null)
 
-  function commitJobPatchResult(res: Response, data: { job?: Job; error?: string }): boolean {
-    if (!res.ok || !data.job) {
-      alert(data.error || `Save failed (${res.status})`)
-      return false
-    }
-    onJobUpdate(data.job)
-    return true
-  }
+  useEffect(() => {
+    setShowMore(
+      Boolean(
+        job.client_organization_name?.trim() ||
+        job.client_contact_role?.trim() ||
+        job.client_email?.trim() ||
+        job.client_account_id ||
+        job.site_contact_name?.trim() ||
+        job.site_contact_phone?.trim() ||
+        (job.client_phones && job.client_phones.length > 0),
+      ),
+    )
+  }, [
+    job.id,
+    job.client_organization_name,
+    job.client_contact_role,
+    job.client_email,
+    job.client_account_id,
+    job.site_contact_name,
+    job.site_contact_phone,
+    job.client_phones,
+  ])
 
-  async function patchField(patch: Record<string, unknown>) {
+  async function patchField(updates: Record<string, unknown>) {
+    if (readOnly) return
     setSaving(true)
+    setSavedFlash(false)
     try {
       const res = await fetch(`/api/jobs/${job.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(patch),
+        body: JSON.stringify(updates),
       })
-      const data = (await res.json()) as { job?: Job; error?: string }
-      commitJobPatchResult(res, data)
+      if (res.ok) {
+        const data = await res.json()
+        if (data.job) onJobUpdate(data.job)
+        setSavedFlash(true)
+        setTimeout(() => setSavedFlash(false), 1800)
+      }
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function copyText(val: string, key: string) {
+    if (!val.trim()) return
+    try {
+      await navigator.clipboard.writeText(val.trim())
+      setCopiedKey(key)
+      setTimeout(() => setCopiedKey(null), 1500)
+    } catch {
+      /* ignore */
     }
   }
 
@@ -199,26 +274,25 @@ export default function InitialContactTab({ job, onJobUpdate, readOnly = false }
     return patchField({ client_phones: next })
   }
 
-  async function addExtraPhone() {
-    const next = [...(job.client_phones ?? []), { label: 'Mobile', number: '' }]
-    setShowExtraPhones(true)
-    await updatePhones(next)
+  function addExtraPhone() {
+    setShowMore(true)
+    const next: PhoneEntry[] = [...(job.client_phones ?? []), { label: 'Mobile', number: '' }]
+    return updatePhones(next)
   }
 
-  async function updateExtraPhone(idx: number, key: 'label' | 'number', value: string) {
-    const next = [...(job.client_phones ?? [])]
-    next[idx] = { ...next[idx], [key]: value }
-    await updatePhones(next)
+  function updateExtraPhone(idx: number, field: keyof PhoneEntry, value: string) {
+    const next = (job.client_phones ?? []).map((p, i) => (i === idx ? { ...p, [field]: value } : p))
+    return updatePhones(next)
   }
 
-  async function removeExtraPhone(idx: number) {
+  function removeExtraPhone(idx: number) {
     const next = (job.client_phones ?? []).filter((_, i) => i !== idx)
-    await updatePhones(next)
+    return updatePhones(next)
   }
 
   async function addNote() {
     const text = noteDraft.trim()
-    if (!text) return
+    if (!text || postingNote || readOnly) return
     setPostingNote(true)
     try {
       const res = await fetch(`/api/jobs/${job.id}/notes`, {
@@ -226,8 +300,9 @@ export default function InitialContactTab({ job, onJobUpdate, readOnly = false }
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text }),
       })
-      const data = (await res.json()) as { job?: Job; error?: string }
-      if (commitJobPatchResult(res, data)) {
+      if (res.ok) {
+        const data = await res.json()
+        if (data.job) onJobUpdate(data.job)
         setNoteDraft('')
         noteRef.current?.focus()
       }
@@ -236,33 +311,67 @@ export default function InitialContactTab({ job, onJobUpdate, readOnly = false }
     }
   }
 
-  const sectionLabel: React.CSSProperties = {
-    display: 'block',
-    fontSize: 11,
-    fontWeight: 700,
-    letterSpacing: '0.08em',
-    textTransform: 'uppercase',
-    color: 'var(--text-muted)',
-    marginBottom: 6,
-  }
-  const hint: React.CSSProperties = { fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }
-  const fieldBlock: React.CSSProperties = { marginBottom: 18 }
-  const disclosureBtn: React.CSSProperties = {
-    padding: '8px 12px',
-    background: 'none',
-    border: '1px dashed var(--border)',
-    borderRadius: 6,
-    color: 'var(--text-muted)',
-    fontSize: 12,
-    cursor: 'pointer',
+  function downloadVCard() {
+    const suburb = extractSuburb(job.site_address)
+    const contactName = [job.client_organization_name, job.client_name, suburb]
+      .filter(Boolean)
+      .join(' · ')
+    const phone04 = normalizeAUPhone(job.client_phone || '')
+    const phone61 = toE164(phone04)
+    const extraPhoneLines = (job.client_phones ?? []).flatMap(p => {
+      const n04 = normalizeAUPhone(p.number || '')
+      const n61 = toE164(n04)
+      const type = p.label.toLowerCase().includes('land') ? 'HOME' : 'CELL'
+      return [
+        n04 ? `TEL;TYPE=${type}:${n04}` : '',
+        n61 && n61 !== n04 ? `TEL;TYPE=${type}:${n61}` : '',
+      ].filter(Boolean)
+    })
+    const vcard = [
+      'BEGIN:VCARD',
+      'VERSION:3.0',
+      `FN:${contactName}`,
+      `N:${job.client_name};;;;`,
+      phone04 ? `TEL;TYPE=CELL:${phone04}` : '',
+      phone61 && phone61 !== phone04 ? `TEL;TYPE=CELL:${phone61}` : '',
+      ...extraPhoneLines,
+      job.client_email ? `EMAIL:${job.client_email}` : '',
+      job.site_address ? `ADR;TYPE=HOME:;;${job.site_address};;;;` : '',
+      `NOTE:biohazards.net${suburb ? ' · ' + suburb : ''}`,
+      'END:VCARD',
+    ]
+      .filter(Boolean)
+      .join('\n')
+    const blob = new Blob([vcard], { type: 'text/vcard' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${(contactName || 'contact').replace(/[^a-zA-Z0-9]+/g, '_')}.vcf`
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   const primaryPhoneE164 = toE164(normalizeAUPhone(job.client_phone || ''))
+  const mapsHref = job.site_address?.trim()
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(job.site_address)}`
+    : null
   const noteLines = job.notes ? job.notes.split('\n').filter(Boolean) : []
+  const isBlankJob = !job.client_name?.trim() && !job.site_address?.trim()
+
+  const secondarySummary = [
+    job.client_organization_name?.trim(),
+    job.client_contact_role?.trim(),
+    job.client_email?.trim(),
+    job.site_contact_name?.trim() ? `Site: ${job.site_contact_name.trim()}` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ')
 
   return (
-    <div style={{ paddingBottom: 40 }}>
+    <div style={{ paddingBottom: 48 }}>
+      {/* SmartFill — open by default only on blank jobs, 1-tap toggle once populated */}
       <SmartFill
+        defaultOpen={isBlankJob}
         onApply={async (fields) => {
           const allowed = [
             'client_name',
@@ -281,7 +390,6 @@ export default function InitialContactTab({ job, onJobUpdate, readOnly = false }
           if (fields.company_name && !updates.client_organization_name) {
             updates.client_organization_name = fields.company_name
           }
-          // Smart Fill addresses come from text, not Places — wipe stale geo sidecars.
           const patchExtras: Record<string, unknown> = {}
           if (updates.site_address) {
             patchExtras.site_place_id = ''
@@ -314,347 +422,522 @@ export default function InitialContactTab({ job, onJobUpdate, readOnly = false }
         }}
       />
 
-      <fieldset
-        disabled={readOnly}
-        style={{ border: 'none', padding: 0, margin: 0, opacity: readOnly ? 0.7 : 1 }}
+      {/* Brand pills + quick contact actions + live save status */}
+      <div
+        style={{
+          ...cardStyle,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 10,
+          flexWrap: 'wrap',
+          padding: '12px 14px',
+        }}
       >
-        <div style={fieldBlock}>
-          <label style={sectionLabel}>Name</label>
-          <FieldInput
-            value={job.client_name ?? ''}
-            onCommit={v => patchField({ client_name: v })}
-            placeholder="Who called?"
-          />
-        </div>
-
-        <div style={fieldBlock}>
-          <label style={sectionLabel}>Role or relationship</label>
-          <FieldInput
-            value={job.client_contact_role ?? ''}
-            onCommit={v => patchField({ client_contact_role: v })}
-            placeholder="e.g. property manager, tenant, family member, executor, funeral director, insurer"
-          />
-          <div style={hint}>Free text — one line about how the caller relates to the site.</div>
-        </div>
-
-        <div style={fieldBlock}>
-          <label style={sectionLabel}>Organisation (optional)</label>
-          <FieldInput
-            value={job.client_organization_name ?? ''}
-            onCommit={v => patchField({ client_organization_name: v })}
-            placeholder="Company or account name if the caller is a representative"
-          />
-        </div>
-
-        <div style={fieldBlock}>
-          <label style={sectionLabel}>Phone</label>
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-            <div style={{ flex: 1 }}>
-              <FieldInput
-                value={job.client_phone ?? ''}
-                onCommit={v => patchField({ client_phone: v })}
-                placeholder="04xx xxx xxx"
-                type="tel"
-              />
-            </div>
-            {job.client_phone && (
-              <>
-                <a href={`tel:${primaryPhoneE164}`} title="Call" style={actionBtn}>📞</a>
-                <a href={`sms:${primaryPhoneE164}`} title="Text" style={actionBtn}>💬</a>
-              </>
-            )}
-          </div>
-
-          {showExtraPhones && (job.client_phones ?? []).map((p, i) => {
-            const extraE164 = toE164(normalizeAUPhone(p.number || ''))
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <span style={{ ...sectionLabel, marginBottom: 0, marginRight: 4 }}>Brand</span>
+          {TRADING_NAME_OPTIONS.map(opt => {
+            const selected = job.trading_name === opt.id
             return (
-              <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 6 }}>
-                <select
-                  value={p.label}
-                  onChange={e => updateExtraPhone(i, 'label', e.target.value)}
-                  style={{ width: 100, flexShrink: 0, fontSize: 12, padding: '10px 6px' }}
-                >
-                  <option>Landline</option>
-                  <option>Mobile</option>
-                  <option>Work</option>
-                  <option>Other</option>
-                </select>
-                <div style={{ flex: 1 }}>
-                  <FieldInput
-                    value={p.number}
-                    onCommit={v => updateExtraPhone(i, 'number', v)}
-                    placeholder="Additional number"
-                    type="tel"
-                  />
-                </div>
-                {p.number && (
-                  <>
-                    <a href={`tel:${extraE164}`} title="Call" style={actionBtn}>📞</a>
-                    <a href={`sms:${extraE164}`} title="Text" style={actionBtn}>💬</a>
-                  </>
-                )}
-                <button
-                  type="button"
-                  onClick={() => removeExtraPhone(i)}
-                  title="Remove"
-                  style={{ ...actionBtn, color: '#F87171' }}
-                >
-                  ×
-                </button>
-              </div>
+              <button
+                key={opt.id}
+                type="button"
+                disabled={readOnly || saving}
+                title={opt.label}
+                onClick={() => void patchField({ trading_name: opt.id as TradingNameId })}
+                style={{
+                  minHeight: 40,
+                  padding: '0 14px',
+                  borderRadius: 999,
+                  border: `1.5px solid ${selected ? 'var(--accent)' : 'var(--border)'}`,
+                  background: selected ? 'var(--accent-dim)' : 'var(--surface-2)',
+                  color: selected ? 'var(--accent)' : 'var(--text-muted)',
+                  fontSize: 13,
+                  fontWeight: selected ? 800 : 600,
+                  cursor: readOnly ? 'default' : 'pointer',
+                }}
+              >
+                {opt.short}
+              </button>
             )
           })}
-
-          <button
-            type="button"
-            onClick={() => {
-              if (!showExtraPhones && (job.client_phones ?? []).length === 0) {
-                addExtraPhone()
-              } else if (showExtraPhones) {
-                addExtraPhone()
-              } else {
-                setShowExtraPhones(true)
-              }
-            }}
-            style={{ ...disclosureBtn, marginTop: 8 }}
-          >
-            + Add number
-          </button>
         </div>
 
-        <div style={fieldBlock}>
-          <label style={sectionLabel}>Email</label>
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-            <div style={{ flex: 1 }}>
-              <FieldInput
-                value={job.client_email ?? ''}
-                onCommit={v => patchField({ client_email: v })}
-                placeholder="name@example.com"
-                type="email"
-              />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {(saving || savedFlash) && (
+            <span style={{ fontSize: 12, fontWeight: 600, color: saving ? 'var(--text-muted)' : '#10B981' }}>
+              {saving ? 'Saving…' : 'Saved ✓'}
+            </span>
+          )}
+          {mapsHref && (
+            <a href={mapsHref} target="_blank" rel="noopener noreferrer" title="Open site in Google Maps" style={{ ...actionBtn, padding: '0 12px', fontSize: 13, fontWeight: 600, gap: 5 }}>
+              🗺️ Maps
+            </a>
+          )}
+          <button
+            type="button"
+            onClick={downloadVCard}
+            title="Save client contact to phone/iPad"
+            style={{ ...actionBtn, padding: '0 12px', fontSize: 13, fontWeight: 600, gap: 5 }}
+          >
+            💾 vCard
+          </button>
+        </div>
+      </div>
+
+      <fieldset
+        disabled={readOnly}
+        style={{ border: 'none', padding: 0, margin: 0, opacity: readOnly ? 0.75 : 1 }}
+      >
+        {/* Core client & site details */}
+        <div style={cardStyle}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))',
+              gap: 14,
+              marginBottom: 14,
+            }}
+          >
+            <div>
+              <label style={sectionLabel}>Client name</label>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <div style={{ flex: 1 }}>
+                  <FieldInput
+                    value={job.client_name ?? ''}
+                    onCommit={v => patchField({ client_name: v })}
+                    placeholder="Who called?"
+                  />
+                </div>
+                {job.client_name?.trim() && (
+                  <button
+                    type="button"
+                    onClick={() => void copyText(job.client_name, 'name')}
+                    title="Copy name"
+                    style={actionBtn}
+                  >
+                    {copiedKey === 'name' ? '✓' : '📋'}
+                  </button>
+                )}
+              </div>
             </div>
-            {job.client_email && (
-              <a href={`mailto:${job.client_email}`} title="Email" style={actionBtn}>✉️</a>
-            )}
+
+            <div>
+              <label style={sectionLabel}>Mobile / phone</label>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <div style={{ flex: 1 }}>
+                  <FieldInput
+                    value={job.client_phone ?? ''}
+                    onCommit={v => patchField({ client_phone: v })}
+                    placeholder="04xx xxx xxx"
+                    type="tel"
+                    inputMode="tel"
+                  />
+                </div>
+                {job.client_phone?.trim() && (
+                  <>
+                    <a href={`tel:${primaryPhoneE164}`} title="Call" style={actionBtn}>📞</a>
+                    <a href={`sms:${primaryPhoneE164}`} title="Text" style={actionBtn}>💬</a>
+                    <button
+                      type="button"
+                      onClick={() => void copyText(job.client_phone, 'phone')}
+                      title="Copy phone"
+                      style={actionBtn}
+                    >
+                      {copiedKey === 'phone' ? '✓' : '📋'}
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div style={{ marginBottom: 14 }}>
+            <label style={sectionLabel}>Site address</label>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+              <div style={{ flex: 1 }}>
+                <AddressAutocomplete
+                  value={job.site_address ?? ''}
+                  placeId={job.site_place_id ?? ''}
+                  lat={job.site_lat ?? null}
+                  lng={job.site_lng ?? null}
+                  disabled={readOnly}
+                  placeholder="Street, suburb, state, postcode"
+                  onChange={next =>
+                    patchField({
+                      site_address: next.address,
+                      site_place_id: next.placeId,
+                      site_lat: next.lat,
+                      site_lng: next.lng,
+                    })
+                  }
+                />
+              </div>
+              {job.site_address?.trim() && (
+                <button
+                  type="button"
+                  onClick={() => void copyText(job.site_address, 'address')}
+                  title="Copy address"
+                  style={actionBtn}
+                >
+                  {copiedKey === 'address' ? '✓' : '📋'}
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+              gap: 14,
+              alignItems: 'end',
+            }}
+          >
+            <div>
+              <label style={sectionLabel}>Job type</label>
+              <select
+                value={job.job_type}
+                disabled={readOnly}
+                onChange={e => patchField({ job_type: e.target.value })}
+                style={fieldBox}
+              >
+                {JOB_TYPES.map(t => (
+                  <option key={t.value} value={t.value}>{t.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label style={sectionLabel}>Urgency</label>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {URGENCIES.map(u => {
+                  const selected = job.urgency === u.value
+                  return (
+                    <button
+                      key={u.value}
+                      type="button"
+                      disabled={readOnly}
+                      onClick={() => patchField({ urgency: u.value })}
+                      style={{
+                        flex: '1 1 auto',
+                        minHeight: 44,
+                        padding: '0 12px',
+                        borderRadius: 10,
+                        border: `1.5px solid ${selected ? 'var(--accent)' : 'var(--border)'}`,
+                        background: selected ? 'var(--accent-dim)' : 'var(--surface-2)',
+                        color: selected ? 'var(--accent)' : 'var(--text-muted)',
+                        fontSize: 13,
+                        fontWeight: selected ? 700 : 500,
+                        cursor: readOnly ? 'default' : 'pointer',
+                      }}
+                    >
+                      {u.label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
           </div>
         </div>
 
-        <div style={fieldBlock}>
-          <label style={sectionLabel}>Site address</label>
-          <AddressAutocomplete
-            value={job.site_address ?? ''}
-            placeId={job.site_place_id ?? ''}
-            lat={job.site_lat ?? null}
-            lng={job.site_lng ?? null}
-            disabled={readOnly}
-            placeholder="Street, suburb, state, postcode"
-            onChange={next =>
-              patchField({
-                site_address: next.address,
-                site_place_id: next.placeId,
-                site_lat: next.lat,
-                site_lng: next.lng,
-              })
-            }
-          />
-          <div style={hint}>Start typing for Google suggestions — or type the full address freehand for rural/unusual sites.</div>
-        </div>
+        {/* Collapsible secondary details: email, org, role, extra phones, site contact, trade account */}
+        <div style={cardStyle}>
+          <button
+            type="button"
+            onClick={() => setShowMore(s => !s)}
+            aria-expanded={showMore}
+            style={{
+              width: '100%',
+              minHeight: 40,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 10,
+              background: 'none',
+              border: 'none',
+              padding: 0,
+              color: 'var(--text)',
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: 'pointer',
+              textAlign: 'left',
+            }}
+          >
+            <span style={{ minWidth: 0 }}>
+              <span>{showMore ? '▾ More client details' : '▸ More client details (email, organisation, role, site contact, account)'}</span>
+              {!showMore && secondarySummary && (
+                <span style={{ display: 'block', fontSize: 12, fontWeight: 400, color: 'var(--text-muted)', marginTop: 2 }}>
+                  {secondarySummary}
+                </span>
+              )}
+            </span>
+          </button>
 
-        <div style={fieldBlock}>
-          {!showSiteContact ? (
-            <button
-              type="button"
-              onClick={() => setShowSiteContact(true)}
-              style={disclosureBtn}
-            >
-              + Site contact (if different)
-            </button>
-          ) : (
-            <>
-              <label style={sectionLabel}>Site contact (if different)</label>
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6 }}>
-                <div style={{ flex: 1 }}>
+          {showMore && (
+            <div style={{ marginTop: 14, display: 'grid', gap: 14 }}>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                  gap: 14,
+                }}
+              >
+                <div>
+                  <label style={sectionLabel}>Email</label>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <div style={{ flex: 1 }}>
+                      <FieldInput
+                        value={job.client_email ?? ''}
+                        onCommit={v => patchField({ client_email: v })}
+                        placeholder="name@example.com"
+                        type="email"
+                        inputMode="email"
+                      />
+                    </div>
+                    {job.client_email?.trim() && (
+                      <>
+                        <a href={`mailto:${job.client_email}`} title="Email" style={actionBtn}>✉️</a>
+                        <button
+                          type="button"
+                          onClick={() => void copyText(job.client_email, 'email')}
+                          title="Copy email"
+                          style={actionBtn}
+                        >
+                          {copiedKey === 'email' ? '✓' : '📋'}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <label style={sectionLabel}>Organisation</label>
+                  <FieldInput
+                    value={job.client_organization_name ?? ''}
+                    onCommit={v => patchField({ client_organization_name: v })}
+                    placeholder="Company or agency name"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label style={sectionLabel}>Role or relationship</label>
+                <FieldInput
+                  value={job.client_contact_role ?? ''}
+                  onCommit={v => patchField({ client_contact_role: v })}
+                  placeholder="e.g. Property manager, tenant, family member, executor, insurer"
+                />
+              </div>
+
+              {/* Extra phone numbers */}
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <label style={{ ...sectionLabel, marginBottom: 0 }}>Additional phone numbers</label>
+                  <button
+                    type="button"
+                    onClick={() => void addExtraPhone()}
+                    style={{
+                      minHeight: 36,
+                      padding: '0 10px',
+                      background: 'none',
+                      border: '1px dashed var(--border)',
+                      borderRadius: 8,
+                      color: 'var(--accent)',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    + Add number
+                  </button>
+                </div>
+                {(job.client_phones ?? []).map((p, i) => {
+                  const extraE164 = toE164(normalizeAUPhone(p.number || ''))
+                  return (
+                    <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 6 }}>
+                      <select
+                        value={p.label}
+                        onChange={e => updateExtraPhone(i, 'label', e.target.value)}
+                        style={{ ...fieldBox, width: 108, flexShrink: 0, fontSize: 14, padding: '8px 6px' }}
+                      >
+                        <option>Mobile</option>
+                        <option>Landline</option>
+                        <option>Work</option>
+                        <option>Other</option>
+                      </select>
+                      <div style={{ flex: 1 }}>
+                        <FieldInput
+                          value={p.number}
+                          onCommit={v => updateExtraPhone(i, 'number', v)}
+                          placeholder="Additional number"
+                          type="tel"
+                          inputMode="tel"
+                        />
+                      </div>
+                      {p.number && (
+                        <>
+                          <a href={`tel:${extraE164}`} title="Call" style={actionBtn}>📞</a>
+                          <a href={`sms:${extraE164}`} title="Text" style={actionBtn}>💬</a>
+                        </>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => removeExtraPhone(i)}
+                        title="Remove"
+                        style={{ ...actionBtn, color: '#F87171' }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Site contact if different */}
+              <div>
+                <label style={sectionLabel}>On-site contact (if different from caller)</label>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                    gap: 8,
+                  }}
+                >
                   <FieldInput
                     value={job.site_contact_name ?? ''}
                     onCommit={v => patchField({ site_contact_name: v })}
                     placeholder="On-site contact name"
                   />
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <div style={{ flex: 1 }}>
-                  <FieldInput
-                    value={job.site_contact_phone ?? ''}
-                    onCommit={v => patchField({ site_contact_phone: v })}
-                    placeholder="On-site contact phone"
-                    type="tel"
-                  />
-                </div>
-                {job.site_contact_phone && (
-                  <>
-                    <a
-                      href={`tel:${toE164(normalizeAUPhone(job.site_contact_phone))}`}
-                      title="Call"
-                      style={actionBtn}
-                    >
-                      📞
-                    </a>
-                    <a
-                      href={`sms:${toE164(normalizeAUPhone(job.site_contact_phone))}`}
-                      title="Text"
-                      style={actionBtn}
-                    >
-                      💬
-                    </a>
-                  </>
-                )}
-              </div>
-              <div style={hint}>
-                Use when the person who opens the door isn&rsquo;t the caller (tenant,
-                concierge, family member on site).
-              </div>
-            </>
-          )}
-        </div>
-
-        <div style={fieldBlock}>
-          <label style={sectionLabel}>Incident</label>
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-              gap: 10,
-              marginBottom: 8,
-            }}
-          >
-            <select
-              value={job.job_type}
-              disabled={readOnly}
-              onChange={e => patchField({ job_type: e.target.value })}
-              style={{ ...fieldBox, padding: '10px 12px' }}
-            >
-              {JOB_TYPES.map(t => (
-                <option key={t.value} value={t.value}>{t.label}</option>
-              ))}
-            </select>
-          </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {URGENCIES.map(u => {
-              const selected = job.urgency === u.value
-              return (
-                <button
-                  key={u.value}
-                  type="button"
-                  disabled={readOnly}
-                  onClick={() => patchField({ urgency: u.value })}
-                  style={{
-                    padding: '8px 14px',
-                    borderRadius: 20,
-                    border: `2px solid ${selected ? 'var(--accent)' : 'var(--border)'}`,
-                    background: selected ? 'var(--accent-dim)' : 'var(--surface-2)',
-                    color: selected ? 'var(--accent)' : 'var(--text-muted)',
-                    fontSize: 13,
-                    fontWeight: selected ? 700 : 500,
-                    cursor: readOnly ? 'default' : 'pointer',
-                  }}
-                >
-                  {u.label}
-                </button>
-              )
-            })}
-          </div>
-          <div style={hint}>Initial triage — refine on Onsite Assessment once eyes are on site.</div>
-        </div>
-
-        <div style={fieldBlock}>
-          <label style={sectionLabel}>Access notes</label>
-          <FieldInput
-            value={job.access_notes ?? ''}
-            onCommit={v => patchField({ access_notes: v })}
-            placeholder="Parking, key handling, entry preferences, pets, hazards on site, discretion (neighbours, signage, unmarked vehicle), anything the tech should know before arriving."
-            multiline
-          />
-          <div style={hint}>One free-text blob — no need to pre-categorise.</div>
-        </div>
-
-        <div style={fieldBlock}>
-          <label style={sectionLabel}>Call notes</label>
-          <textarea
-            ref={noteRef}
-            value={noteDraft}
-            disabled={readOnly || postingNote}
-            onChange={e => setNoteDraft(e.target.value)}
-            onKeyDown={e => {
-              if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-                e.preventDefault()
-                addNote()
-              }
-            }}
-            placeholder="Anything the caller said that doesn&rsquo;t fit a field — context, constraints, emotional cues, scope hints."
-            rows={3}
-            style={{ ...fieldBox, resize: 'vertical', minHeight: 76, fontFamily: 'inherit' }}
-          />
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              marginTop: 6,
-              gap: 8,
-              flexWrap: 'wrap',
-            }}
-          >
-            <span style={hint}>
-              {noteDraft.trim()
-                ? 'Cmd/Ctrl+Enter to save as a timestamped entry.'
-                : 'Each entry is stamped and appended to the job log.'}
-            </span>
-            <button
-              type="button"
-              onClick={addNote}
-              disabled={!noteDraft.trim() || postingNote || saving}
-              className="btn btn-primary"
-              style={{ padding: '8px 14px', fontSize: 13 }}
-            >
-              {postingNote ? 'Saving…' : 'Add note'}
-            </button>
-          </div>
-
-          {noteLines.length > 0 && (
-            <div
-              style={{
-                marginTop: 12,
-                border: '1px solid var(--border)',
-                borderRadius: 6,
-                background: 'var(--surface)',
-                padding: 10,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 6,
-                maxHeight: 240,
-                overflowY: 'auto',
-              }}
-            >
-              {noteLines
-                .slice()
-                .reverse()
-                .map((line, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      fontSize: 12,
-                      color: 'var(--text)',
-                      lineHeight: 1.45,
-                      whiteSpace: 'pre-wrap',
-                      borderBottom: i < noteLines.length - 1 ? '1px solid var(--border)' : 'none',
-                      paddingBottom: 6,
-                    }}
-                  >
-                    {line}
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <div style={{ flex: 1 }}>
+                      <FieldInput
+                        value={job.site_contact_phone ?? ''}
+                        onCommit={v => patchField({ site_contact_phone: v })}
+                        placeholder="On-site contact phone"
+                        type="tel"
+                        inputMode="tel"
+                      />
+                    </div>
+                    {job.site_contact_phone?.trim() && (
+                      <>
+                        <a
+                          href={`tel:${toE164(normalizeAUPhone(job.site_contact_phone))}`}
+                          title="Call"
+                          style={actionBtn}
+                        >
+                          📞
+                        </a>
+                        <a
+                          href={`sms:${toE164(normalizeAUPhone(job.site_contact_phone))}`}
+                          title="Text"
+                          style={actionBtn}
+                        >
+                          💬
+                        </a>
+                      </>
+                    )}
                   </div>
-                ))}
+                </div>
+              </div>
+
+              {/* Trade account link */}
+              <TradeAccountPicker job={job} onPatch={patchField} readOnly={readOnly} />
             </div>
           )}
+        </div>
+
+        {/* Access notes & call log */}
+        <div style={cardStyle}>
+          <div style={{ marginBottom: 16 }}>
+            <label style={sectionLabel}>Access notes</label>
+            <FieldInput
+              value={job.access_notes ?? ''}
+              onCommit={v => patchField({ access_notes: v })}
+              placeholder="Parking, keys, entry instructions, pets, discretion, hazards on arrival…"
+              multiline
+            />
+          </div>
+
+          <div>
+            <label style={sectionLabel}>Call notes</label>
+            <textarea
+              ref={noteRef}
+              value={noteDraft}
+              disabled={readOnly || postingNote}
+              onChange={e => setNoteDraft(e.target.value)}
+              onKeyDown={e => {
+                if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                  e.preventDefault()
+                  void addNote()
+                }
+              }}
+              placeholder="Anything the caller said — context, constraints, scope hints…"
+              rows={3}
+              style={{ ...fieldBox, minHeight: 84, resize: 'vertical', fontFamily: 'inherit' }}
+            />
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginTop: 8,
+                gap: 8,
+                flexWrap: 'wrap',
+              }}
+            >
+              <span style={hint}>
+                {noteDraft.trim()
+                  ? 'Tap Add note (or Cmd/Ctrl+Enter) to timestamp.'
+                  : 'Timestamped and appended to the job log.'}
+              </span>
+              <button
+                type="button"
+                onClick={() => void addNote()}
+                disabled={!noteDraft.trim() || postingNote || saving}
+                className="btn btn-primary"
+                style={{ minHeight: 44, padding: '0 16px', fontSize: 14, fontWeight: 700 }}
+              >
+                {postingNote ? 'Saving…' : 'Add note'}
+              </button>
+            </div>
+
+            {noteLines.length > 0 && (
+              <div
+                style={{
+                  marginTop: 12,
+                  border: '1px solid var(--border)',
+                  borderRadius: 8,
+                  background: 'var(--bg)',
+                  padding: 10,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 6,
+                  maxHeight: 240,
+                  overflowY: 'auto',
+                }}
+              >
+                {noteLines
+                  .slice()
+                  .reverse()
+                  .map((line, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        fontSize: 13,
+                        color: 'var(--text)',
+                        lineHeight: 1.45,
+                        whiteSpace: 'pre-wrap',
+                        borderBottom: i < noteLines.length - 1 ? '1px solid var(--border)' : 'none',
+                        paddingBottom: 6,
+                      }}
+                    >
+                      {line}
+                    </div>
+                  ))}
+              </div>
+            )}
+          </div>
         </div>
       </fieldset>
     </div>

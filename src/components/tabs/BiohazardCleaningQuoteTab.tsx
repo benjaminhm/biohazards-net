@@ -87,8 +87,10 @@ interface Props {
 
 const INPUT: CSSProperties = {
   width: '100%',
-  fontSize: 14,
-  padding: '8px 10px',
+  boxSizing: 'border-box',
+  minHeight: 44,
+  fontSize: 16,
+  padding: '10px 12px',
   borderRadius: 8,
   border: '1px solid var(--border)',
   background: 'var(--bg)',
@@ -510,6 +512,8 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate, photos = [
   const [scopeDraft, setScopeDraft] = useState<string | null>(null)
   const [scopeDraftWeak, setScopeDraftWeak] = useState<BiohazardDraftWeakStep[]>([])
   const [draftError, setDraftError] = useState('')
+  const [editTravelAddresses, setEditTravelAddresses] = useState(false)
+  const [showClauses, setShowClauses] = useState(false)
 
   const captureRef = useRef(capture)
   const jobRef = useRef(job)
@@ -1118,51 +1122,64 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate, photos = [
       </div>
 
       <div style={SECTION}>
-        <PricedTitle title="Travel" pricing="fixed" />
-        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
-          Price it here from kilometres × rate. The printed quote shows travel as one fixed price, with no kilometres or rate.
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+          <PricedTitle title="Travel" pricing="fixed" />
+          <button
+            type="button"
+            onClick={() => setEditTravelAddresses(e => !e)}
+            style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 12, fontWeight: 700, cursor: 'pointer', minHeight: 36, padding: '0 6px' }}
+          >
+            {editTravelAddresses ? 'Hide addresses' : 'Edit base / job addresses'}
+          </button>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-          <div>
-            <label style={LABEL}>Base address</label>
-            <AddressAutocomplete
-              value={capture.base_address ?? companyAddress}
-              lat={capture.base_lat}
-              lng={capture.base_lng}
-              placeholder="Start typing the base address…"
-              style={INPUT}
-              onChange={next => {
-                const sameAsCompany = next.address.trim() === companyAddress
-                const update = { base_address: sameAsCompany ? null : next.address, base_lat: next.lat, base_lng: next.lng }
-                patch(update)
-                if (next.lat != null && next.lng != null) void lookUpDistance(update)
-              }}
-            />
-            <div style={HINT}>The company address unless changed here.</div>
+        {!editTravelAddresses ? (
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.45 }}>
+            {baseAddress || 'Company base'} → {jobAddress || 'Job address'}
           </div>
-          <div>
-            <label style={LABEL}>Job address</label>
-            <AddressAutocomplete
-              value={capture.job_address ?? job.site_address ?? ''}
-              lat={capture.job_address == null ? (capture.job_lat ?? job.site_lat) : capture.job_lat}
-              lng={capture.job_address == null ? (capture.job_lng ?? job.site_lng) : capture.job_lng}
-              placeholder="Start typing the job address…"
-              style={INPUT}
-              onChange={next => {
-                const sameAsJob = next.address.trim() === (job.site_address ?? '').trim()
-                const update = { job_address: sameAsJob ? null : next.address, job_lat: next.lat, job_lng: next.lng }
-                patch(update)
-                if (next.lat != null && next.lng != null) void lookUpDistance(update)
-              }}
-            />
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 12 }}>
+            <div>
+              <label style={LABEL}>Base address</label>
+              <AddressAutocomplete
+                value={capture.base_address ?? companyAddress}
+                lat={capture.base_lat}
+                lng={capture.base_lng}
+                placeholder="Start typing the base address…"
+                style={INPUT}
+                onChange={next => {
+                  const sameAsCompany = next.address.trim() === companyAddress
+                  const update = { base_address: sameAsCompany ? null : next.address, base_lat: next.lat, base_lng: next.lng }
+                  patch(update)
+                  if (next.lat != null && next.lng != null) void lookUpDistance(update)
+                }}
+              />
+              <div style={HINT}>The company address unless changed here.</div>
+            </div>
+            <div>
+              <label style={LABEL}>Job address</label>
+              <AddressAutocomplete
+                value={capture.job_address ?? job.site_address ?? ''}
+                lat={capture.job_address == null ? (capture.job_lat ?? job.site_lat) : capture.job_lat}
+                lng={capture.job_address == null ? (capture.job_lng ?? job.site_lng) : capture.job_lng}
+                placeholder="Start typing the job address…"
+                style={INPUT}
+                onChange={next => {
+                  const sameAsJob = next.address.trim() === (job.site_address ?? '').trim()
+                  const update = { job_address: sameAsJob ? null : next.address, job_lat: next.lat, job_lng: next.lng }
+                  patch(update)
+                  if (next.lat != null && next.lng != null) void lookUpDistance(update)
+                }}
+              />
+            </div>
           </div>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        )}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
           <div>
             <label style={LABEL}>Return trip (km){capture.travel_from_maps ? ' · from map' : ''}</label>
             <div style={{ display: 'flex', gap: 8 }}>
               <input
                 type="number"
+                inputMode="decimal"
                 min={0}
                 step="0.1"
                 value={capture.travel_km ?? ''}
@@ -1172,7 +1189,8 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate, photos = [
               />
               <button
                 type="button"
-                className="btn"
+                className="btn btn-secondary"
+                style={{ minHeight: 44, padding: '0 12px', flexShrink: 0 }}
                 disabled={distanceBusy || !baseAddress || !jobAddress}
                 onClick={() => void lookUpDistance(undefined, true)}
               >
@@ -1185,6 +1203,7 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate, photos = [
             <label style={LABEL}>Rate per km ($)</label>
             <input
               type="number"
+              inputMode="decimal"
               min={0}
               step="0.01"
               value={capture.rate_per_km ?? ''}
@@ -1558,60 +1577,89 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate, photos = [
         </div>
       </div>
 
-      <div style={{ marginTop: 18, display: 'grid', gap: 14 }}>
-        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-          These clauses start from the company default and are kept on this job. [biohazard type] and [area affected] are filled when the quote is printed. Use “Save as default for future jobs” to update the company default with this job’s wording.
-        </div>
-        {(remembered || capture.clauses_from_kind) && (
-          <div
-            style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 8,
-              padding: '8px 10px',
-              borderRadius: 8,
-              border: '1px solid var(--border)',
-              fontSize: 13,
-            }}
-          >
-            <span>
-              {capture.clauses_from_kind === kind && remembered
-                ? `Inclusions, exclusions, assumptions, and the engagement agreement are from the last ${biohazardCleaningDocumentTitle(kind)} quote${remembered.saved_at ? ` (${new Date(remembered.saved_at).toLocaleDateString('en-AU')})` : ''}. Generating this quote remembers them for the next one.`
-                : remembered
-                  ? `There are remembered clauses from the last ${biohazardCleaningDocumentTitle(kind)} quote.`
-                  : `Generating this quote remembers these clauses for the next ${biohazardCleaningDocumentTitle(kind)} quote.`}
-            </span>
-            {remembered && clauses && BIOHAZARD_REMEMBERED_KEYS.some(key => !sameText(clauses[key], remembered[key])) && (
-              <button type="button" className="btn" style={{ fontSize: 12, padding: '2px 8px' }} onClick={applyLastKindClauses}>
-                Use the last {biohazardCleaningDocumentTitle(kind)} clauses
-              </button>
-            )}
-          </div>
-        )}
-        {clauseBlock('scope_of_work', 'Scope of work', 'numbered')}
-        {clauseBlock('inclusions', 'Inclusions', 'list')}
-        {clauseBlock('exclusions', 'Exclusions', 'list')}
-        {clauseBlock('assumptions', 'Assumptions', 'list')}
-        {clauseBlock('payment_terms', 'Payment terms', 'text')}
-        {clauses && (
-          <div>
-            <ClauseHeader
-              label="Engagement agreement"
-              differs={template != null && !sameText(clauses.engagement_agreement, template.engagement_agreement)}
-              savingDefault={savingDefault === 'engagement_agreement'}
-              onSaveDefault={() => void saveClauseAsDefault('engagement_agreement')}
-              onUseDefault={() => template && editClause('engagement_agreement', template.engagement_agreement)}
-            />
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
-              Brackets such as [name], [biohazard type], [area affected], [surface], [distance amount], [labour amount], [deposit], and [total] are filled when the document is printed. The signature lines stay blank for signing.
+      <div style={{ ...SECTION, marginTop: 18 }}>
+        <button
+          type="button"
+          onClick={() => setShowClauses(s => !s)}
+          aria-expanded={showClauses}
+          style={{
+            width: '100%',
+            minHeight: 42,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 10,
+            background: 'none',
+            border: 'none',
+            padding: 0,
+            color: 'var(--text)',
+            fontSize: 13,
+            fontWeight: 700,
+            cursor: 'pointer',
+            textAlign: 'left',
+          }}
+        >
+          <span>
+            {showClauses ? '▾ Clauses & Engagement Agreement' : '▸ Clauses & Engagement Agreement (Scope, Inclusions, Exclusions, Assumptions, Payment terms)'}
+          </span>
+        </button>
+        {showClauses && (
+          <div style={{ marginTop: 12, display: 'grid', gap: 14 }}>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              These clauses start from the company default and are kept on this job. [biohazard type] and [area affected] are filled when the quote is printed. Use “Save as default for future jobs” to update the company default with this job’s wording.
             </div>
-            <RichTextEditor
-              value={clauses.engagement_agreement}
-              onChange={value => editClause('engagement_agreement', value)}
-              minHeight={240}
-            />
+            {(remembered || capture.clauses_from_kind) && (
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 8,
+                  padding: '8px 10px',
+                  borderRadius: 8,
+                  border: '1px solid var(--border)',
+                  fontSize: 13,
+                }}
+              >
+                <span>
+                  {capture.clauses_from_kind === kind && remembered
+                    ? `Inclusions, exclusions, assumptions, and the engagement agreement are from the last ${biohazardCleaningDocumentTitle(kind)} quote${remembered.saved_at ? ` (${new Date(remembered.saved_at).toLocaleDateString('en-AU')})` : ''}. Generating this quote remembers them for the next one.`
+                    : remembered
+                      ? `There are remembered clauses from the last ${biohazardCleaningDocumentTitle(kind)} quote.`
+                      : `Generating this quote remembers these clauses for the next ${biohazardCleaningDocumentTitle(kind)} quote.`}
+                </span>
+                {remembered && clauses && BIOHAZARD_REMEMBERED_KEYS.some(key => !sameText(clauses[key], remembered[key])) && (
+                  <button type="button" className="btn" style={{ fontSize: 12, padding: '2px 8px' }} onClick={applyLastKindClauses}>
+                    Use the last {biohazardCleaningDocumentTitle(kind)} clauses
+                  </button>
+                )}
+              </div>
+            )}
+            {clauseBlock('scope_of_work', 'Scope of work', 'numbered')}
+            {clauseBlock('inclusions', 'Inclusions', 'list')}
+            {clauseBlock('exclusions', 'Exclusions', 'list')}
+            {clauseBlock('assumptions', 'Assumptions', 'list')}
+            {clauseBlock('payment_terms', 'Payment terms', 'text')}
+            {clauses && (
+              <div>
+                <ClauseHeader
+                  label="Engagement agreement"
+                  differs={template != null && !sameText(clauses.engagement_agreement, template.engagement_agreement)}
+                  savingDefault={savingDefault === 'engagement_agreement'}
+                  onSaveDefault={() => void saveClauseAsDefault('engagement_agreement')}
+                  onUseDefault={() => template && editClause('engagement_agreement', template.engagement_agreement)}
+                />
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
+                  Brackets such as [name], [biohazard type], [area affected], [surface], [distance amount], [labour amount], [deposit], and [total] are filled when the document is printed. The signature lines stay blank for signing.
+                </div>
+                <RichTextEditor
+                  value={clauses.engagement_agreement}
+                  onChange={value => editClause('engagement_agreement', value)}
+                  minHeight={240}
+                />
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1668,17 +1716,40 @@ export default function BiohazardCleaningQuoteTab({ job, onJobUpdate, photos = [
       )}
 
       {saveError && <div style={{ color: 'var(--danger, #f87171)', fontSize: 13, marginTop: 10 }}>{saveError}</div>}
-      <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
-        <button type="button" className="btn" onClick={() => void checkOnly()} disabled={checking || generating}>
-          {checking ? 'Checking…' : 'Check quote'}
-        </button>
-        <button type="button" className="btn btn-primary" onClick={() => void generate()} disabled={checking || generating || !clauses}>
-          {checking
-            ? 'Checking…'
-            : generating
-              ? 'Saving…'
-              : shownCheck && shownCheck.flags.length > 0 ? 'Generate anyway' : 'Generate quote'}
-        </button>
+      <div style={{ height: 76 }} />
+      <div
+        style={{
+          position: 'fixed',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 25,
+          background: 'var(--bg)',
+          borderTop: '1px solid var(--border)',
+          padding: '10px 16px max(12px, env(safe-area-inset-bottom, 0px))',
+        }}
+      >
+        <div style={{ maxWidth: 880, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+            <span style={{ fontSize: 16, fontWeight: 800, color: 'var(--text)' }}>{formatAud(figures.total)}</span>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>inc GST</span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: saveState === 'saving' ? 'var(--text-muted)' : saveState === 'error' ? '#F87171' : '#10B981' }}>
+              {saveState === 'saving' ? 'Saving…' : saveState === 'error' ? 'Save failed' : 'Saved ✓'}
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button type="button" className="btn btn-secondary" style={{ minHeight: 44, padding: '0 14px', fontSize: 14 }} onClick={() => void checkOnly()} disabled={checking || generating}>
+              {checking ? 'Checking…' : 'Check quote'}
+            </button>
+            <button type="button" className="btn btn-primary" style={{ minHeight: 44, padding: '0 16px', fontSize: 14, fontWeight: 700 }} onClick={() => void generate()} disabled={checking || generating || !clauses}>
+              {checking
+                ? 'Checking…'
+                : generating
+                  ? 'Saving…'
+                  : shownCheck && shownCheck.flags.length > 0 ? 'Generate anyway' : 'Generate quote'}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   )

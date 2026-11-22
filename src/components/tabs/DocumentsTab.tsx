@@ -166,6 +166,8 @@ interface Props {
   /** When the job is linked to a trade account, each saved document can be
    *  released to that client's accounts portal. */
   tradeAccountLinked?: boolean
+  /** UX keys tagged `ignore` — hides compose buttons for retired sections. */
+  ignoredKeys?: Set<string>
   /** @deprecated use mode='compose' | 'history' instead. */
   showCreateSection?: boolean
   /** @deprecated use mode='compose' | 'history' instead. */
@@ -684,12 +686,38 @@ function DataCaptureForPhase({
  * split by the client-facing / operational boundary (matches the legacy
  * accordion contents). Each button routes to /jobs/<id>/docs/<type>?compose=1.
  */
+const DOC_TYPE_TO_SECTION_KEY: Partial<Record<DocType, string>> = {
+  assessment_document: 'section:onsite_assessment',
+  sow: 'section:scope_of_work',
+  house_survey: 'section:survey',
+  instant_quote: 'section:instant_quote',
+  biohazard_cleaning_quote: 'section:biohazard_cleaning',
+  contents_clearance_quote: 'section:contents_clearance',
+  surface_area_cleaning_quote: 'section:surface_area_cleaning',
+  quote: 'section:quote',
+  iaq_multi: 'section:quote',
+  engagement_agreement: 'section:legal',
+  nda: 'section:legal',
+  authority_to_proceed: 'section:safety_compliance',
+  swms: 'section:safety_compliance',
+  jsa: 'section:safety_compliance',
+  risk_assessment: 'section:safety_compliance',
+  waste_disposal_manifest: 'section:execute',
+  report: 'section:verify',
+  company_letterhead: 'section:company_letterhead',
+  company_letter: 'tab:company_letter',
+  statement_of_accounts: 'section:statement',
+  payment_reminder: 'section:payment_overdue',
+}
+
 function ComposeView({
   jobId,
   onNavigate,
+  ignoredKeys,
 }: {
   jobId: string
   onNavigate?: (tab: NavigateTab) => void
+  ignoredKeys?: Set<string>
 }) {
   const phaseHeader: CSSProperties = {
     fontSize: 10,
@@ -708,48 +736,60 @@ function ComposeView({
     marginBottom: 14,
   }
 
+  function isDocTypeVisible(type: DocType): boolean {
+    if (!ignoredKeys || ignoredKeys.size === 0) return true
+    const mapped = DOC_TYPE_TO_SECTION_KEY[type]
+    return !mapped || !ignoredKeys.has(mapped)
+  }
+
   function renderGroup(phaseIds: DocWorkflowPhaseId[]) {
-    return DOC_TYPE_GROUPS.filter(g => phaseIds.includes(g.id) && g.types.length > 0).map(pg => (
-      <div key={pg.id} style={{ marginBottom: 18 }}>
-        <div style={phaseHeader}>{workflowPhaseTitleNoNumber(pg.label)}</div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-          {pg.types.map(type => (
-            <ComposeLink key={type} href={`/jobs/${jobId}/docs/${type}?compose=1`}>
-              + {DOC_TYPE_LABELS[type]}
-            </ComposeLink>
-          ))}
-        </div>
-        {pg.id === 'quote' && (
-          <>
-            <div style={{ ...phaseHeader, marginTop: 12 }}>Multi-Docs</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, rowGap: 10 }}>
-              <button
-                type="button"
-                onClick={() => onNavigate?.('iaq_multi_capture')}
-                style={{
-                  padding: '9px 14px',
-                  borderRadius: 8,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  background: 'rgba(20,184,166,0.18)',
-                  border: '1px solid rgba(45,212,191,0.5)',
-                  color: '#99F6E4',
-                  cursor: onNavigate ? 'pointer' : 'default',
-                }}
-              >
-                Assessment/Scope/Quote
-              </button>
-              <span style={{ color: 'var(--border)', userSelect: 'none' }} aria-hidden>
-                |
-              </span>
-              <ComposeLink href={`/jobs/${jobId}/docs/iaq_multi?compose=1`}>
-                + Assessment/Scope/Quote
+    return DOC_TYPE_GROUPS.filter(g => phaseIds.includes(g.id)).map(pg => {
+      if (ignoredKeys?.has(`section:${pg.id}`) && pg.id !== 'quote') return null
+      const visibleTypes = pg.types.filter(isDocTypeVisible)
+      const showMultiQuote = pg.id === 'quote' && !ignoredKeys?.has('section:quote')
+      if (visibleTypes.length === 0 && !showMultiQuote) return null
+      return (
+        <div key={pg.id} style={{ marginBottom: 18 }}>
+          <div style={phaseHeader}>{workflowPhaseTitleNoNumber(pg.label)}</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {visibleTypes.map(type => (
+              <ComposeLink key={type} href={`/jobs/${jobId}/docs/${type}?compose=1`}>
+                + {DOC_TYPE_LABELS[type]}
               </ComposeLink>
-            </div>
-          </>
-        )}
-      </div>
-    ))
+            ))}
+          </div>
+          {showMultiQuote && (
+            <>
+              <div style={{ ...phaseHeader, marginTop: 12 }}>Multi-Docs</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, rowGap: 10 }}>
+                <button
+                  type="button"
+                  onClick={() => onNavigate?.('iaq_multi_capture')}
+                  style={{
+                    padding: '9px 14px',
+                    borderRadius: 8,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    background: 'rgba(20,184,166,0.18)',
+                    border: '1px solid rgba(45,212,191,0.5)',
+                    color: '#99F6E4',
+                    cursor: onNavigate ? 'pointer' : 'default',
+                  }}
+                >
+                  Assessment/Scope/Quote
+                </button>
+                <span style={{ color: 'var(--border)', userSelect: 'none' }} aria-hidden>
+                  |
+                </span>
+                <ComposeLink href={`/jobs/${jobId}/docs/iaq_multi?compose=1`}>
+                  + Assessment/Scope/Quote
+                </ComposeLink>
+              </div>
+            </>
+          )}
+        </div>
+      )
+    })
   }
 
   return (
@@ -918,6 +958,7 @@ export default function DocumentsTab({
   onNavigate,
   mode,
   tradeAccountLinked = false,
+  ignoredKeys,
   showCreateSection = true,
   showSavedSection = true,
 }: Props) {
@@ -934,6 +975,7 @@ export default function DocumentsTab({
       <ComposeView
         jobId={jobId}
         onNavigate={onNavigate}
+        ignoredKeys={ignoredKeys}
       />
     )
   }

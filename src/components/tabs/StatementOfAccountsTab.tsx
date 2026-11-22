@@ -30,8 +30,10 @@ interface Props {
 
 const INPUT: CSSProperties = {
   width: '100%',
-  fontSize: 14,
-  padding: '8px 10px',
+  boxSizing: 'border-box',
+  minHeight: 44,
+  fontSize: 16,
+  padding: '10px 12px',
   borderRadius: 8,
   border: '1px solid var(--border)',
   background: 'var(--surface-2)',
@@ -176,6 +178,10 @@ export default function StatementOfAccountsTab({ job, onJobUpdate }: Props) {
   const [raising, setRaising] = useState(false)
   const [raiseNotes, setRaiseNotes] = useState<string[]>([])
   const [raiseError, setRaiseError] = useState('')
+  const [showOptions, setShowOptions] = useState(
+    () => !saved.charges_gst || saved.ignored_quotes.length > 0 || saved.invoice1_paid_in_full || saved.manual_adjustment != null,
+  )
+  const [showManualInvoices, setShowManualInvoices] = useState(false)
 
   useEffect(() => {
     setCapture(saved)
@@ -202,6 +208,16 @@ export default function StatementOfAccountsTab({ job, onJobUpdate }: Props) {
 
   const isDirty = !capturesEqual(capture, saved)
   useRegisterUnsavedChanges('statement-of-accounts', isDirty)
+
+  // Auto-save edits shortly after typing stops (prevents lost work on iPad/tablet)
+  useEffect(() => {
+    if (!isDirty || saving) return
+    const timer = setTimeout(() => {
+      void save()
+    }, 750)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDirty, capture])
 
   const figures = useMemo(
     () => statementV2Figures(job.assessment_data, capture),
@@ -391,138 +407,214 @@ export default function StatementOfAccountsTab({ job, onJobUpdate }: Props) {
         </section>
       )}
 
+      {/* Deposit — primary editable section */}
       <section style={CARD}>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 700, marginBottom: 16 }}>
-          <input type="checkbox" checked={capture.charges_gst} onChange={e => patch({ charges_gst: e.target.checked })} />
-          This job charges GST
-        </label>
+        <div style={HEADING}>{capture.invoice1_paid_in_full ? 'Invoice 1 paid' : 'Deposit'}</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+          <div>
+            <label style={LABEL}>{capture.invoice1_paid_in_full ? 'Invoice 1 paid' : 'Deposit paid'} ($, {amountsNote})</label>
+            <input
+              type="number"
+              inputMode="decimal"
+              min={0}
+              step="0.01"
+              value={capture.invoice1_paid_in_full ? figures.deposit : capture.deposit_amount ?? ''}
+              onChange={e => patch({ deposit_amount: numberInput(e.target.value) })}
+              disabled={capture.invoice1_paid_in_full}
+              placeholder="0.00"
+              style={capture.invoice1_paid_in_full ? { ...INPUT, opacity: 0.7 } : INPUT}
+            />
+            {capture.invoice1_paid_in_full && (
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>The whole estimate.</div>
+            )}
+            {figures.suggested_deposit != null && capture.deposit_amount !== figures.suggested_deposit && (
+              <button type="button" onClick={() => patch({ deposit_amount: figures.suggested_deposit })} style={HINT}>
+                Suggested: half the quotes, {formatAud(figures.suggested_deposit)}
+              </button>
+            )}
+          </div>
+          <div>
+            <label style={LABEL}>{capture.invoice1_paid_in_full ? 'Date paid' : 'Deposit date'}</label>
+            <input type="date" value={capture.deposit_date} onChange={e => patch({ deposit_date: e.target.value })} style={INPUT} />
+          </div>
+        </div>
+        {xeroPaid && xeroDiffers && !capture.invoice1_paid_in_full && (
+          <button
+            type="button"
+            onClick={() => patch({ deposit_amount: xeroPaid.amount_paid, deposit_date: xeroPaid.paid_on ?? capture.deposit_date })}
+            style={{ ...HINT, marginTop: 10, textAlign: 'left', display: 'block' }}
+          >
+            Xero shows {formatAud(xeroPaid.amount_paid)} paid{xeroPaid.paid_on ? ` on ${formatLongDate(xeroPaid.paid_on)}` : ''}{xeroPaid.invoice_number ? ` (${xeroPaid.invoice_number})` : ''}. Use it
+          </button>
+        )}
+      </section>
 
-        {quotes.length > 0 && (
-          <div style={{ marginBottom: 16 }}>
-            <div style={LABEL}>Quotes on this statement</div>
-            {quotes.map(quote => (
-              <label key={quote.key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, marginBottom: 6 }}>
-                <input
-                  type="checkbox"
-                  checked={capture.ignored_quotes.includes(quote.key)}
-                  onChange={e => patch({
-                    ignored_quotes: e.target.checked
-                      ? [...capture.ignored_quotes, quote.key]
-                      : capture.ignored_quotes.filter(k => k !== quote.key),
-                  })}
-                />
-                Leave out {quote.label}, {formatAud(quote.amount_ex)} ex GST
-              </label>
-            ))}
-            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-              A quote that is left out, and its record, is not billed or mentioned on the statement.
+      {/* Collapsible Adjustments & options (GST, excluded quotes, paid in full, manual adjustment) */}
+      <section style={CARD}>
+        <button
+          type="button"
+          onClick={() => setShowOptions(s => !s)}
+          aria-expanded={showOptions}
+          style={{
+            width: '100%',
+            minHeight: 40,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 10,
+            background: 'none',
+            border: 'none',
+            padding: 0,
+            color: 'var(--text)',
+            fontSize: 13,
+            fontWeight: 700,
+            cursor: 'pointer',
+            textAlign: 'left',
+          }}
+        >
+          <span>
+            {showOptions ? '▾ Adjustments & options' : '▸ Adjustments & options'}
+            {!showOptions && (
+              <span style={{ fontWeight: 400, color: 'var(--text-muted)', marginLeft: 8, fontSize: 12 }}>
+                {[
+                  capture.charges_gst ? 'GST on' : 'No GST',
+                  capture.invoice1_paid_in_full ? 'Paid in full' : null,
+                  capture.ignored_quotes.length > 0 ? `${capture.ignored_quotes.length} quote excluded` : null,
+                  capture.manual_adjustment != null ? `Adj ${signedAud(capture.manual_adjustment)}` : null,
+                ].filter(Boolean).join(' · ')}
+              </span>
+            )}
+          </span>
+        </button>
+
+        {showOptions && (
+          <div style={{ marginTop: 14, display: 'grid', gap: 14 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 14, fontWeight: 700, minHeight: 36, cursor: 'pointer' }}>
+              <input type="checkbox" checked={capture.charges_gst} onChange={e => patch({ charges_gst: e.target.checked })} style={{ width: 18, height: 18 }} />
+              This job charges GST
+            </label>
+
+            {quotes.length > 0 && (
+              <div>
+                <div style={LABEL}>Exclude quotes from statement</div>
+                {quotes.map(quote => (
+                  <label key={quote.key} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 14, marginBottom: 6, minHeight: 36, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={capture.ignored_quotes.includes(quote.key)}
+                      onChange={e => patch({
+                        ignored_quotes: e.target.checked
+                          ? [...capture.ignored_quotes, quote.key]
+                          : capture.ignored_quotes.filter(k => k !== quote.key),
+                      })}
+                      style={{ width: 18, height: 18 }}
+                    />
+                    Leave out {quote.label}, {formatAud(quote.amount_ex)} ex GST
+                  </label>
+                ))}
+              </div>
+            )}
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 14, fontWeight: 700, minHeight: 36, cursor: 'pointer' }}>
+              <input type="checkbox" checked={capture.invoice1_paid_in_full} onChange={e => patch({ invoice1_paid_in_full: e.target.checked })} style={{ width: 18, height: 18 }} />
+              Invoice 1 (the estimate) was paid in full up front
+            </label>
+
+            <div>
+              <label style={LABEL}>Manual adjustment ($, {amountsNote}, optional)</label>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
+                A negative amount reduces the balance. The reason is printed with it.
+              </div>
+              <input
+                type="number"
+                inputMode="decimal"
+                step="0.01"
+                value={capture.manual_adjustment ?? ''}
+                onChange={e => patch({ manual_adjustment: numberInput(e.target.value) })}
+                placeholder="0.00"
+                style={INPUT}
+              />
+              {capture.manual_adjustment != null && (
+                <div style={{ marginTop: 10 }}>
+                  <label style={LABEL}>Reason</label>
+                  <input
+                    type="text"
+                    value={capture.manual_adjustment_reason}
+                    onChange={e => patch({ manual_adjustment_reason: e.target.value })}
+                    placeholder="Required with an adjustment"
+                    style={INPUT}
+                  />
+                </div>
+              )}
             </div>
           </div>
         )}
-
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 700, marginBottom: 16 }}>
-          <input type="checkbox" checked={capture.invoice1_paid_in_full} onChange={e => patch({ invoice1_paid_in_full: e.target.checked })} />
-          Invoice 1 (the estimate) was paid in full up front
-        </label>
-
-        <div style={{ display: 'grid', gap: 12 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
-            <div>
-              <label style={LABEL}>{capture.invoice1_paid_in_full ? 'Invoice 1 paid' : 'Deposit paid'} ($, {amountsNote})</label>
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                value={capture.invoice1_paid_in_full ? figures.deposit : capture.deposit_amount ?? ''}
-                onChange={e => patch({ deposit_amount: numberInput(e.target.value) })}
-                disabled={capture.invoice1_paid_in_full}
-                placeholder="0.00"
-                style={capture.invoice1_paid_in_full ? { ...INPUT, opacity: 0.7 } : INPUT}
-              />
-              {capture.invoice1_paid_in_full && (
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>The whole estimate.</div>
-              )}
-              {figures.suggested_deposit != null && capture.deposit_amount !== figures.suggested_deposit && (
-                <button type="button" onClick={() => patch({ deposit_amount: figures.suggested_deposit })} style={HINT}>
-                  Suggested: half the quotes, {formatAud(figures.suggested_deposit)}
-                </button>
-              )}
-            </div>
-            <div>
-              <label style={LABEL}>{capture.invoice1_paid_in_full ? 'Date paid' : 'Deposit date'}</label>
-              <input type="date" value={capture.deposit_date} onChange={e => patch({ deposit_date: e.target.value })} style={INPUT} />
-            </div>
-          </div>
-          {xeroPaid && xeroDiffers && !capture.invoice1_paid_in_full && (
-            <button
-              type="button"
-              onClick={() => patch({ deposit_amount: xeroPaid.amount_paid, deposit_date: xeroPaid.paid_on ?? capture.deposit_date })}
-              style={{ ...HINT, marginTop: 0, textAlign: 'left' }}
-            >
-              Xero shows {formatAud(xeroPaid.amount_paid)} paid{xeroPaid.paid_on ? ` on ${formatLongDate(xeroPaid.paid_on)}` : ''}{xeroPaid.invoice_number ? ` (${xeroPaid.invoice_number})` : ''}. Use it
-            </button>
-          )}
-
-          <div>
-            <label style={LABEL}>Adjustment ($, {amountsNote}, optional)</label>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
-              A negative amount reduces the balance. The reason is printed with it.
-            </div>
-            <input
-              type="number"
-              step="0.01"
-              value={capture.manual_adjustment ?? ''}
-              onChange={e => patch({ manual_adjustment: numberInput(e.target.value) })}
-              placeholder="0.00"
-              style={INPUT}
-            />
-            {capture.manual_adjustment != null && (
-              <div style={{ marginTop: 10 }}>
-                <label style={LABEL}>Reason</label>
-                <input
-                  type="text"
-                  value={capture.manual_adjustment_reason}
-                  onChange={e => patch({ manual_adjustment_reason: e.target.value })}
-                  placeholder="Required with an adjustment"
-                  style={INPUT}
-                />
-              </div>
-            )}
-          </div>
-        </div>
       </section>
 
+      {/* Collapsible Manual Xero invoice numbers & links (auto-filled by Xero button above) */}
       <section style={CARD}>
-        <div style={HEADING}>Invoices</div>
-        <div style={{ display: 'grid', gap: 12 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
-            <div>
-              <label style={LABEL}>Invoice 1 number (estimate)</label>
-              <input type="text" value={capture.invoice_number} onChange={e => patch({ invoice_number: e.target.value })} placeholder="INV-1001" style={INPUT} />
+        <button
+          type="button"
+          onClick={() => setShowManualInvoices(s => !s)}
+          aria-expanded={showManualInvoices || !xeroConnected}
+          style={{
+            width: '100%',
+            minHeight: 40,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 10,
+            background: 'none',
+            border: 'none',
+            padding: 0,
+            color: 'var(--text)',
+            fontSize: 13,
+            fontWeight: 700,
+            cursor: 'pointer',
+            textAlign: 'left',
+          }}
+        >
+          <span>
+            {(showManualInvoices || !xeroConnected) ? '▾ Manual Xero invoice numbers & links' : '▸ Manual Xero invoice numbers & links (auto-filled by Xero)'}
+            {!(showManualInvoices || !xeroConnected) && (capture.invoice_number || capture.invoice2_number || capture.credit_note_number) && (
+              <span style={{ fontWeight: 400, color: 'var(--text-muted)', marginLeft: 8, fontSize: 12 }}>
+                {[capture.invoice_number, capture.invoice2_number, capture.credit_note_number].filter(Boolean).join(' · ')}
+              </span>
+            )}
+          </span>
+        </button>
+
+        {(showManualInvoices || !xeroConnected) && (
+          <div style={{ display: 'grid', gap: 12, marginTop: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+              <div>
+                <label style={LABEL}>Invoice 1 number (estimate)</label>
+                <input type="text" value={capture.invoice_number} onChange={e => patch({ invoice_number: e.target.value })} placeholder="INV-1001" style={INPUT} />
+              </div>
+              <div>
+                <label style={LABEL}>Invoice 1 payment link</label>
+                <input type="url" value={capture.invoice_url} onChange={e => patch({ invoice_url: e.target.value })} placeholder="https://" style={INPUT} />
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+              <div>
+                <label style={LABEL}>Invoice 2 or credit note number</label>
+                <input type="text" value={capture.invoice2_number} onChange={e => patch({ invoice2_number: e.target.value })} placeholder="INV-1002" style={INPUT} />
+              </div>
+              <div>
+                <label style={LABEL}>Invoice 2 payment link</label>
+                <input type="url" value={capture.invoice2_url} onChange={e => patch({ invoice2_url: e.target.value })} placeholder="https://" style={INPUT} />
+              </div>
             </div>
             <div>
-              <label style={LABEL}>Invoice 1 payment link</label>
-              <input type="url" value={capture.invoice_url} onChange={e => patch({ invoice_url: e.target.value })} placeholder="https://" style={INPUT} />
+              <label style={LABEL}>Credit note number</label>
+              <input type="text" value={capture.credit_note_number} onChange={e => patch({ credit_note_number: e.target.value })} placeholder="CN-0001" style={INPUT} />
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              The Xero button above fills these in. Type them only for an invoice or credit note made in Xero by hand.
             </div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
-            <div>
-              <label style={LABEL}>Invoice 2 or credit note number</label>
-              <input type="text" value={capture.invoice2_number} onChange={e => patch({ invoice2_number: e.target.value })} placeholder="INV-1002" style={INPUT} />
-            </div>
-            <div>
-              <label style={LABEL}>Invoice 2 payment link</label>
-              <input type="url" value={capture.invoice2_url} onChange={e => patch({ invoice2_url: e.target.value })} placeholder="https://" style={INPUT} />
-            </div>
-          </div>
-          <div>
-            <label style={LABEL}>Credit note number</label>
-            <input type="text" value={capture.credit_note_number} onChange={e => patch({ credit_note_number: e.target.value })} placeholder="CN-0001" style={INPUT} />
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-            The Xero button above fills these in. Type them only for an invoice or credit note made in Xero by hand.
-          </div>
-        </div>
+        )}
       </section>
 
       <div
@@ -543,22 +635,16 @@ export default function StatementOfAccountsTab({ job, onJobUpdate }: Props) {
               {saveError}
             </div>
           )}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: saving ? 'var(--text-muted)' : savedFlash || !isDirty ? '#10B981' : 'var(--text-muted)', minWidth: 74 }}>
+              {saving ? 'Saving…' : isDirty ? 'Unsaved…' : 'Saved ✓'}
+            </span>
             <button
               type="button"
               className="btn btn-primary"
-              disabled={saving || !isDirty}
-              onClick={() => void save()}
-              style={{ flex: '1 1 160px', padding: 12, fontWeight: 700 }}
-            >
-              {saving ? 'Saving…' : savedFlash ? 'Saved' : 'Save'}
-            </button>
-            <button
-              type="button"
-              className="btn btn-secondary"
               disabled={saving}
               onClick={() => void saveAndCompose()}
-              style={{ flex: '1 1 160px', padding: 12, fontWeight: 700 }}
+              style={{ flex: '1 1 200px', minHeight: 44, padding: '0 16px', fontWeight: 700, fontSize: 14 }}
             >
               Save as document
             </button>

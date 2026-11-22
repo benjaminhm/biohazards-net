@@ -193,6 +193,23 @@ export function resolveUxTags(
   return out
 }
 
+/**
+ * Set of every key whose resolved UX tag is `ignore` (combines both
+ * `menu_archived:*` and manual `ux_tag:* = ignore`). Used across navigation,
+ * Home Dashboard, Job Manager, Job Dashboard, and Docs Compose to hide ignored
+ * surfaces cleanly without deleting any data.
+ */
+export function ignoredUxKeys(
+  features: Record<string, unknown> | null | undefined,
+): Set<string> {
+  const resolved = resolveUxTags(features)
+  const ignored = new Set<string>()
+  for (const [key, rec] of Object.entries(resolved)) {
+    if (rec.tag === 'ignore') ignored.add(key)
+  }
+  return ignored
+}
+
 /** Return updated `orgs.features` with one tag set or cleared (`tag === null`). */
 export function applyUxTag(
   features: Record<string, unknown> | null | undefined,
