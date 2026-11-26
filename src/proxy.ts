@@ -68,6 +68,7 @@ import {
 } from '@/lib/staffSession'
 import { resolveActiveMembership } from '@/lib/membership'
 import { decideStaffAccess } from '@/lib/staffDesk'
+import { isCobidHost } from '@/lib/cobid/hosts'
 
 function isPublicPath(pathname: string): boolean {
   if (pathname === '/login' || pathname.startsWith('/login/')) return true
@@ -90,6 +91,9 @@ function isPublicPath(pathname: string): boolean {
   if (pathname.startsWith('/api/portal')) return true
   if (pathname === '/photo' || pathname.startsWith('/photo/')) return true
   if (pathname === '/api/photo' || pathname.startsWith('/api/photo/')) return true
+  // Co-Bid enforces dual auth (bh_cobid magic-link cookie OR bh_staff coordinator cookie) per route.
+  if (pathname === '/cobid' || pathname.startsWith('/cobid/')) return true
+  if (pathname === '/api/cobid' || pathname.startsWith('/api/cobid/')) return true
   if (isSharedAsset(pathname)) return true
   return false
 }
@@ -118,6 +122,40 @@ export async function proxy(request: NextRequest) {
     pathname === '/portal' || pathname.startsWith('/portal/') || pathname.startsWith('/api/portal')
   const isPhotoPath =
     pathname === '/photo' || pathname.startsWith('/photo/') || pathname === '/api/photo' || pathname.startsWith('/api/photo/')
+  const isCobidPath =
+    pathname === '/cobid' || pathname.startsWith('/cobid/') || pathname === '/api/cobid' || pathname.startsWith('/api/cobid/')
+
+  // Co-Bid multi-OpCo workspace: app.hazmatmanagement.com.au (or COBID_HOSTS).
+  // Isolated from biohazards.net staff routes; supports bh_cobid magic-link sessions
+  // and bh_staff coordinator sign-in on this host.
+  if (isCobidHost(host)) {
+    requestHeaders.set('x-subdomain', 'cobid')
+    if (
+      isSharedAsset(pathname) ||
+      isCobidPath ||
+      pathname === '/login' ||
+      pathname.startsWith('/login/') ||
+      pathname.startsWith('/api/auth/')
+    ) {
+      return NextResponse.next({ request: { headers: requestHeaders } })
+    }
+    if (pathname === '/') {
+      const url = request.nextUrl.clone()
+      url.pathname = '/cobid'
+      return NextResponse.rewrite(url, { request: { headers: requestHeaders } })
+    }
+    const inviteMatch = pathname.match(/^\/invite\/([^/]+)$/)
+    if (inviteMatch) {
+      const url = request.nextUrl.clone()
+      url.pathname = `/cobid/invite/${inviteMatch[1]}`
+      return NextResponse.rewrite(url, { request: { headers: requestHeaders } })
+    }
+    return new NextResponse('Not found', { status: 404 })
+  }
+  if (isCobidPath) {
+    requestHeaders.set('x-subdomain', 'cobid')
+    return NextResponse.next({ request: { headers: requestHeaders } })
+  }
 
   // Client document links: document.<brand>.com.au/<private code>. The address
   // deliberately says "document", not "sign", and nothing else is reachable here.

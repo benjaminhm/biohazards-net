@@ -69,6 +69,14 @@ export async function generateMetadata(): Promise<Metadata> {
     }
   }
 
+  if (headersList.get('x-subdomain') === 'cobid') {
+    return {
+      title: 'Hazmat Management — Co-Bid Workspace',
+      description: 'Multi-OpCo commercial ring-fenced co-bidding workspace',
+      robots: { index: false, follow: false },
+    }
+  }
+
   return {
     title: 'Biohazard Cleaning QLD',
     description: 'Job management for Biohazard Cleaning QLD',
@@ -119,6 +127,14 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     return (
       <html lang="en">
         <body style={{ background: '#FAFAFA', color: '#111111' }}>{children}</body>
+      </html>
+    )
+  }
+
+  if (headersList.get('x-subdomain') === 'cobid') {
+    return (
+      <html lang="en">
+        <body style={{ background: '#F8FAFC', color: '#0F172A' }}>{children}</body>
       </html>
     )
   }

@@ -1,0 +1,60 @@
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
+@source "../../components/cobid";
+@source ".";
+
+@layer base {
+  .cobid-root {
+    background-color: #f8fafc;
+    color: #0f172a;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    min-height: 100vh;
+  }
+
+  .cobid-root label {
+    display: inline-flex;
+    font-size: inherit;
+    font-weight: inherit;
+    letter-spacing: normal;
+    text-transform: none;
+    color: inherit;
+    margin-bottom: 0;
+  }
+
+  .cobid-root input:not([type="checkbox"]):not([type="radio"]),
+  .cobid-root select,
+  .cobid-root textarea {
+    color: #0f172a;
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    width: auto;
+    font-size: inherit;
+    line-height: inherit;
+  }
+
+  .cobid-root input:not([type="checkbox"]):not([type="radio"]):focus,
+  .cobid-root select:focus,
+  .cobid-root textarea:focus {
+    border-color: #0f172a;
+    box-shadow: none;
+  }
+
+  .cobid-root select option {
+    background: #ffffff;
+    color: #0f172a;
+  }
+
+  .cobid-root button {
+    font-size: inherit;
+    line-height: inherit;
+  }
+}
+
+@media print {
+  .cobid-root .no-print {
+    display: none !important;
+  }
+}

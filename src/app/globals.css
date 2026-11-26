@@ -85,82 +85,86 @@
 
 /* ─────────────────────────────────────────────
    RESET
+   Wrapped in @layer base so scoped Tailwind utilities (e.g. /cobid) can
+   override element resets cleanly without affecting biohazards-net pages.
    ───────────────────────────────────────────── */
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-html, body {
-  background: var(--bg);
-  color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI',
-               'Helvetica Neue', Arial, sans-serif;
-  font-size: 15px;
-  line-height: 1.5;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  html, body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI',
+                 'Helvetica Neue', Arial, sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  a { color: inherit; text-decoration: none; }
+
+  button {
+    cursor: pointer;
+    border: none;
+    background: none;
+    font-family: inherit;
+    font-size: inherit;
+    color: inherit;
+  }
+
+  input, select, textarea {
+    font-family: inherit;
+    font-size: inherit;
+    color: var(--text);
+    background: var(--surface-2);
+    border: 1px solid var(--border-2);
+    border-radius: 8px;
+    padding: 11px 14px;
+    outline: none;
+    width: 100%;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+
+  /* Only text fields — appearance:none on <select> hides the dropdown chevron */
+  input, textarea {
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
+  select {
+    cursor: pointer;
+  }
+
+  input:focus,
+  select:focus,
+  textarea:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-dim);
+  }
+
+  /* Checkboxes/radios must not use full-width text-input reset — appearance:none hides the check */
+  input[type="checkbox"],
+  input[type="radio"] {
+    all: revert;
+    width: 1.15rem;
+    height: 1.15rem;
+    min-width: 1.15rem;
+    cursor: pointer;
+    accent-color: var(--accent);
+    flex-shrink: 0;
+  }
+
+  input[type="checkbox"]:focus,
+  input[type="radio"]:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  input::placeholder, textarea::placeholder { color: var(--text-dim); }
+
+  select option { background: var(--surface-2); color: var(--text); }
 }
-
-a { color: inherit; text-decoration: none; }
-
-button {
-  cursor: pointer;
-  border: none;
-  background: none;
-  font-family: inherit;
-  font-size: inherit;
-  color: inherit;
-}
-
-input, select, textarea {
-  font-family: inherit;
-  font-size: inherit;
-  color: var(--text);
-  background: var(--surface-2);
-  border: 1px solid var(--border-2);
-  border-radius: 8px;
-  padding: 11px 14px;
-  outline: none;
-  width: 100%;
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-
-/* Only text fields — appearance:none on <select> hides the dropdown chevron */
-input, textarea {
-  -webkit-appearance: none;
-  appearance: none;
-}
-
-select {
-  cursor: pointer;
-}
-
-input:focus,
-select:focus,
-textarea:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-dim);
-}
-
-/* Checkboxes/radios must not use full-width text-input reset — appearance:none hides the check */
-input[type="checkbox"],
-input[type="radio"] {
-  all: revert;
-  width: 1.15rem;
-  height: 1.15rem;
-  min-width: 1.15rem;
-  cursor: pointer;
-  accent-color: var(--accent);
-  flex-shrink: 0;
-}
-
-input[type="checkbox"]:focus,
-input[type="radio"]:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-input::placeholder, textarea::placeholder { color: var(--text-dim); }
-
-select option { background: var(--surface-2); color: var(--text); }
 
 /* ─────────────────────────────────────────────
    TYPOGRAPHY UTILITIES
@@ -284,14 +288,16 @@ select option { background: var(--surface-2); color: var(--text); }
    ───────────────────────────────────────────── */
 .field { margin-bottom: 20px; }
 
-label {
-  display: block;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-  margin-bottom: 7px;
+@layer base {
+  label {
+    display: block;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 7px;
+  }
 }
 
 .divider {
