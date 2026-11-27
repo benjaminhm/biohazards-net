@@ -592,7 +592,7 @@ export async function POST(
         return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });
     }
 
-    const updated = await getWorkspaceById(session.orgId, jobId, role);
+    const updated = await getWorkspaceById(session.orgId, jobId, role, req);
     return NextResponse.json({ job: updated });
   } catch (err) {
     console.error("POST /api/cobid/workspaces/[jobId]/actions error:", err);

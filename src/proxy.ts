@@ -68,7 +68,15 @@ import {
 } from '@/lib/staffSession'
 import { resolveActiveMembership } from '@/lib/membership'
 import { decideStaffAccess } from '@/lib/staffDesk'
-import { isCobidHost } from '@/lib/cobid/hosts'
+import { isCobidDocsHost, isCobidHost, isHazmatSiteHost } from '@/lib/cobid/hosts'
+
+const HAZMAT_SITE_ROUTES: Record<string, string> = {
+  '/': '/hazmat-site',
+  '/how-it-works': '/hazmat-site/how-it-works',
+  '/governance': '/hazmat-site/governance',
+  '/operators': '/hazmat-site/operators',
+  '/about': '/hazmat-site/about',
+}
 
 function isPublicPath(pathname: string): boolean {
   if (pathname === '/login' || pathname.startsWith('/login/')) return true
@@ -94,6 +102,8 @@ function isPublicPath(pathname: string): boolean {
   // Co-Bid enforces dual auth (bh_cobid magic-link cookie OR bh_staff coordinator cookie) per route.
   if (pathname === '/cobid' || pathname.startsWith('/cobid/')) return true
   if (pathname === '/api/cobid' || pathname.startsWith('/api/cobid/')) return true
+  // Public institutional website for HAZMAT Management Pty Ltd (also served at hazmatmanagement.com.au).
+  if (pathname === '/hazmat-site' || pathname.startsWith('/hazmat-site/')) return true
   if (isSharedAsset(pathname)) return true
   return false
 }
@@ -124,6 +134,27 @@ export async function proxy(request: NextRequest) {
     pathname === '/photo' || pathname.startsWith('/photo/') || pathname === '/api/photo' || pathname.startsWith('/api/photo/')
   const isCobidPath =
     pathname === '/cobid' || pathname.startsWith('/cobid/') || pathname === '/api/cobid' || pathname.startsWith('/api/cobid/')
+  const isHazmatSitePath =
+    pathname === '/hazmat-site' || pathname.startsWith('/hazmat-site/')
+
+  // Public institutional website: hazmatmanagement.com.au & www.hazmatmanagement.com.au (or HAZMAT_SITE_HOSTS).
+  // Strictly isolated from biohazards.net staff routes: only the 5 public pages and shared assets are reachable.
+  if (isHazmatSiteHost(host)) {
+    requestHeaders.set('x-subdomain', 'hazmat-site')
+    requestHeaders.set('x-hazmat-site-root', '1')
+    requestHeaders.set('x-hazmat-site-base', '')
+    if (isSharedAsset(pathname)) {
+      return NextResponse.next({ request: { headers: requestHeaders } })
+    }
+    const normalizedPath = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname
+    const rewrittenPath = HAZMAT_SITE_ROUTES[normalizedPath]
+    if (rewrittenPath) {
+      const url = request.nextUrl.clone()
+      url.pathname = rewrittenPath
+      return NextResponse.rewrite(url, { request: { headers: requestHeaders } })
+    }
+    return new NextResponse('Not found', { status: 404 })
+  }
 
   // Co-Bid multi-OpCo workspace: app.hazmatmanagement.com.au (or COBID_HOSTS).
   // Isolated from biohazards.net staff routes; supports bh_cobid magic-link sessions
@@ -150,10 +181,60 @@ export async function proxy(request: NextRequest) {
       url.pathname = `/cobid/invite/${inviteMatch[1]}`
       return NextResponse.rewrite(url, { request: { headers: requestHeaders } })
     }
+    const onboardMatch = pathname.match(/^\/onboard\/([^/]+)$/)
+    if (onboardMatch) {
+      const url = request.nextUrl.clone()
+      url.pathname = `/cobid/onboard/${onboardMatch[1]}`
+      return NextResponse.rewrite(url, { request: { headers: requestHeaders } })
+    }
+    const bidMatch = pathname.match(/^\/bid\/([^/]+)$/)
+    if (bidMatch) {
+      const url = request.nextUrl.clone()
+      url.pathname = `/cobid/bid/${bidMatch[1]}`
+      return NextResponse.rewrite(url, { request: { headers: requestHeaders } })
+    }
+    return new NextResponse('Not found', { status: 404 })
+  }
+
+  // Co-Bid independent entity client documents host: docs.hazmatmanagement.com.au (or COBID_DOCS_HOSTS).
+  // Strictly isolated: only serves individual entity docs, PDFs, neutral package index, and scoped file assets.
+  if (isCobidDocsHost(host)) {
+    requestHeaders.set('x-subdomain', 'cobid')
+    if (
+      isSharedAsset(pathname) ||
+      pathname.startsWith('/api/cobid/doc/') ||
+      pathname.startsWith('/api/cobid/pkg/') ||
+      pathname === '/api/cobid/files'
+    ) {
+      return NextResponse.next({ request: { headers: requestHeaders } })
+    }
+    const pkgMatch = pathname.match(/^\/pkg\/([A-Za-z0-9_-]{16,128})$/)
+    if (pkgMatch) {
+      const url = request.nextUrl.clone()
+      url.pathname = `/cobid/pkg/${pkgMatch[1]}`
+      return NextResponse.rewrite(url, { request: { headers: requestHeaders } })
+    }
+    const pdfMatch = pathname.match(/^\/([A-Za-z0-9_-]{16,128})\/pdf$/)
+    if (pdfMatch) {
+      const url = request.nextUrl.clone()
+      url.pathname = `/api/cobid/doc/${pdfMatch[1]}/pdf`
+      return NextResponse.rewrite(url, { request: { headers: requestHeaders } })
+    }
+    const docMatch = pathname.match(/^\/([A-Za-z0-9_-]{16,128})$/)
+    if (docMatch) {
+      const url = request.nextUrl.clone()
+      url.pathname = `/cobid/doc/${docMatch[1]}`
+      return NextResponse.rewrite(url, { request: { headers: requestHeaders } })
+    }
     return new NextResponse('Not found', { status: 404 })
   }
   if (isCobidPath) {
     requestHeaders.set('x-subdomain', 'cobid')
+    return NextResponse.next({ request: { headers: requestHeaders } })
+  }
+  if (isHazmatSitePath) {
+    requestHeaders.set('x-subdomain', 'hazmat-site')
+    requestHeaders.set('x-hazmat-site-base', '/hazmat-site')
     return NextResponse.next({ request: { headers: requestHeaders } })
   }
 

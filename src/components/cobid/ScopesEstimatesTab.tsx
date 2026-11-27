@@ -3,14 +3,19 @@
 import { useState } from "react";
 import {
   AlertCircle,
+  Check,
   CheckCircle2,
+  Copy,
+  ExternalLink,
   FileCheck2,
+  Link2,
   Plus,
   Send,
   Trash2,
 } from "lucide-react";
 import { useWorkspace } from "./WorkspaceContext";
 import { calcTotals, formatAUD } from "@/lib/cobid/utils";
+import { QUOTE_TYPE_META } from "@/lib/cobid/types";
 import { AgreementBadge, ScopeBadge } from "./StatusBadge";
 
 export function ScopesEstimatesTab({
@@ -27,6 +32,7 @@ export function ScopesEstimatesTab({
     approveScopeAsContractor,
     requestScopeRevision,
     sendAgreementToClient,
+    issueBidInvite,
   } = useWorkspace();
 
   const [addingForOpCo, setAddingForOpCo] = useState<string | null>(null);
@@ -37,6 +43,10 @@ export function ScopesEstimatesTab({
 
   const [revisionOpCoId, setRevisionOpCoId] = useState<string | null>(null);
   const [revisionText, setRevisionText] = useState("");
+
+  const [issuingBidFor, setIssuingBidFor] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [bidNotice, setBidNotice] = useState<Record<string, string>>({});
 
   if (!activeJob) return null;
 
@@ -61,21 +71,52 @@ export function ScopesEstimatesTab({
     setAddingForOpCo(null);
   };
 
+  const handleIssueBidInvite = async (opCoId: string) => {
+    setIssuingBidFor(opCoId);
+    try {
+      const res = await issueBidInvite(opCoId, true);
+      navigator.clipboard.writeText(res.bidUrl).catch(() => {});
+      setCopiedId(opCoId);
+      setTimeout(() => setCopiedId((c) => (c === opCoId ? null : c)), 2500);
+      setBidNotice((prev) => ({
+        ...prev,
+        [opCoId]: res.emailSent
+          ? "Quote Builder link emailed & copied to clipboard."
+          : `Quote Builder link copied to clipboard (${res.emailError || "ready to share"}).`,
+      }));
+    } catch (err) {
+      setBidNotice((prev) => ({
+        ...prev,
+        [opCoId]: err instanceof Error ? err.message : "Failed to issue bid link",
+      }));
+    } finally {
+      setIssuingBidFor(null);
+    }
+  };
+
+  const copyBidUrl = (opCoId: string, url: string) => {
+    navigator.clipboard.writeText(url).catch(() => {});
+    setCopiedId(opCoId);
+    setTimeout(() => setCopiedId((c) => (c === opCoId ? null : c)), 2000);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-base font-semibold text-slate-900">
-            Done-For-You Scopes & Individual Estimates
+            Independent BCQ / SACQ Scopes &amp; Individual Estimates
           </h2>
           <p className="text-xs text-slate-500">
-            The Scoping Desk prepares each trade&apos;s scope & estimate. Each OpCo reviews and approves their own package before an individual agreement is issued to the client.
+            Invite each approved operator to their dedicated ring-fenced BCQ/SACQ quote builder
+            page, or draft and submit for OpCo lock before dispatching separate client documents.
           </p>
         </div>
       </div>
 
       {visibleOpCos.map((opCo) => {
         const totals = calcTotals(opCo.lineItems, opCo.depositPercent);
+        const qtMeta = QUOTE_TYPE_META[opCo.quoteType] ?? QUOTE_TYPE_META.custom;
         const canEditEstimate =
           role.type === "coordinator" && opCo.agreementStatus !== "signed";
         const isThisContractor =
@@ -96,6 +137,9 @@ export function ScopesEstimatesTab({
                     <span className="rounded bg-slate-900 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-white">
                       Stage {opCo.sequenceOrder}
                     </span>
+                    <span className="rounded border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold uppercase text-indigo-800">
+                      {qtMeta.code}
+                    </span>
                     <h3 className="text-sm font-semibold text-slate-900">
                       {opCo.companyName}
                     </h3>
@@ -104,7 +148,11 @@ export function ScopesEstimatesTab({
                     </span>
                   </div>
                   <div className="mt-0.5 text-xs text-slate-500">
-                    ABN {opCo.abn} · Independent Quote Ref: {opCo.agreementRef}
+                    ABN {opCo.abn} · Independent Job:{" "}
+                    <span className="font-mono font-medium text-slate-700">
+                      {opCo.independentJobRef || opCo.agreementRef}
+                    </span>{" "}
+                    · {qtMeta.label}
                   </div>
                 </div>
               </div>
@@ -113,6 +161,66 @@ export function ScopesEstimatesTab({
                 <AgreementBadge status={opCo.agreementStatus} />
               </div>
             </div>
+
+            {/* Coordinator BCQ/SACQ Bid Builder Link Bar */}
+            {role.type === "coordinator" && (
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/40 px-5 py-2.5 text-xs">
+                <div className="flex flex-wrap items-center gap-2 text-slate-600">
+                  <Link2 className="h-3.5 w-3.5 text-slate-500" />
+                  <span className="font-medium text-slate-800">
+                    OpCo {qtMeta.code} Quote Builder:
+                  </span>
+                  {opCo.bidUrl ? (
+                    <>
+                      <a
+                        href={opCo.bidUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 font-mono text-[11px] text-indigo-700 underline hover:text-indigo-900"
+                      >
+                        Open Builder
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => copyBidUrl(opCo.id, opCo.bidUrl!)}
+                        className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+                      >
+                        {copiedId === opCo.id ? (
+                          <Check className="h-3 w-3 text-emerald-600" />
+                        ) : (
+                          <Copy className="h-3 w-3" />
+                        )}
+                        {copiedId === opCo.id ? "Copied" : "Copy Link"}
+                      </button>
+                    </>
+                  ) : (
+                    <span className="text-[11px] text-slate-500">Not issued yet</span>
+                  )}
+                  {bidNotice[opCo.id] && (
+                    <span className="text-[11px] font-medium text-emerald-700">
+                      {bidNotice[opCo.id]}
+                    </span>
+                  )}
+                </div>
+
+                {opCo.agreementStatus !== "signed" && (
+                  <button
+                    type="button"
+                    disabled={issuingBidFor === opCo.id}
+                    onClick={() => handleIssueBidInvite(opCo.id)}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold text-slate-800 hover:bg-slate-100 disabled:opacity-50"
+                  >
+                    <Send className="h-3 w-3" />
+                    {issuingBidFor === opCo.id
+                      ? "Sending…"
+                      : opCo.bidUrl
+                        ? `Resend ${qtMeta.code} Bid Link`
+                        : `Email & Copy ${qtMeta.code} Bid Link`}
+                  </button>
+                )}
+              </div>
+            )}
 
             {opCo.scopeStatus === "revision_requested" && opCo.revisionNote && (
               <div className="flex items-start gap-2.5 border-b border-rose-200 bg-rose-50 px-5 py-3 text-xs text-rose-800">

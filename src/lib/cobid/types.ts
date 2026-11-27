@@ -5,6 +5,65 @@ export type UserRole =
 
 export type SettlementRail = "direct_to_opco" | "trust_clearing";
 
+export type OnboardingStatus =
+  | "invited"
+  | "in_progress"
+  | "pending_review"
+  | "approved"
+  | "suspended";
+
+export type OpCoComplianceDocType =
+  | "public_liability"
+  | "workcover"
+  | "trade_licence"
+  | "hazmat_licence"
+  | "swms"
+  | "other";
+
+export type QuoteType = "bcq" | "sacq" | "ccq" | "mtq" | "custom";
+
+export const QUOTE_TYPE_META: Record<
+  QuoteType,
+  { code: string; label: string; description: string }
+> = {
+  bcq: {
+    code: "BCQ",
+    label: "Biohazard Cleaning Quote",
+    description: "Forensic, biological, trauma, unattended death, or sharps remediation",
+  },
+  sacq: {
+    code: "SACQ",
+    label: "Surface Area Cleaning Quote",
+    description: "Decontamination, antimicrobial treatment, odour & surface restoration",
+  },
+  ccq: {
+    code: "CCQ",
+    label: "Contents Clearance Quote",
+    description: "Affected contents sort, removal, hazmat disposal, and manifest tracking",
+  },
+  mtq: {
+    code: "MTQ",
+    label: "Meth Testing Quote",
+    description: "Presumptive / NATA lab meth residue sampling and clearance testing",
+  },
+  custom: {
+    code: "TRADE",
+    label: "Specialist Trade Quote",
+    description: "Asbestos removal, strip-out, rebuild, plumbing, electrical, or specialist works",
+  },
+};
+
+export interface StructuredQuoteData {
+  roomsOrZones?: string[];
+  hazardClassification?: string;
+  standardsApplied?: string[];
+  ppeAndContainment?: string;
+  wasteDisposalNotes?: string;
+  siteConditions?: string;
+  estimatedDuration?: string;
+  specialNotes?: string;
+}
+
 export type ScopeApprovalStatus =
   | "draft"
   | "pending_contractor"
@@ -78,6 +137,33 @@ export interface ComplianceDoc {
   fileUrl?: string;
 }
 
+export interface OpCoComplianceDoc {
+  id: string;
+  opCoId: string;
+  docType: OpCoComplianceDocType;
+  title: string;
+  documentNumber: string;
+  issuerOrInsurer: string;
+  coverageAmount: string;
+  expiresAt: string | null;
+  filePath: string;
+  fileName: string;
+  status: "pending" | "verified" | "rejected";
+  verifiedAt?: string | null;
+  verifiedBy?: string | null;
+  rejectionReason?: string | null;
+  isExpired: boolean;
+}
+
+export interface OpCoXeroSummary {
+  connected: boolean;
+  tenantName?: string;
+  status: "not_connected" | "connected" | "disconnected" | "error";
+  accountCode: string;
+  invoiceMode: "authorised" | "draft";
+  lastError?: string | null;
+}
+
 export interface AuditEvent {
   id: string;
   timestamp: string;
@@ -99,9 +185,13 @@ export interface WorkspaceMessage {
 
 export interface OpCoScope {
   id: string;
+  directoryOpCoId?: string;
   sequenceOrder: number;
   dependsOnOpCoId?: string;
   tradeCategory: string;
+  quoteType: QuoteType;
+  independentJobRef?: string;
+  structuredQuoteData?: StructuredQuoteData;
   companyName: string;
   abn: string;
   licenceNumber: string;
@@ -115,7 +205,7 @@ export interface OpCoScope {
   payId: string;
   depositPercent: number;
 
-  // Scoping & Estimating (done-for-you, then approved)
+  // Scoping & Estimating (built by OpCo on BCQ/SACQ page, then approved)
   scopeSummary: string;
   scopeDeliverables: string[];
   exclusions: string[];
@@ -124,13 +214,28 @@ export interface OpCoScope {
   revisionNote?: string;
   contractorApprovedAt?: string;
 
-  // Individual Legal Agreement (strictly separate per OpCo)
+  // Independent Entity Document & Legal Agreement (separate URL on docs.hazmatmanagement.com.au)
   agreementRef: string;
   agreementStatus: AgreementStatus;
   agreementSentAt?: string;
   clientSignedAt?: string;
   clientSignedBy?: string;
   agreementAuditHash?: string;
+  docStatus?: "not_sent" | "open" | "signed" | "declined" | "voided";
+  docUrl?: string;
+  docViewedAt?: string;
+  docDeclineReason?: string;
+  bidUrl?: string;
+
+  // Per-OpCo Xero Direct Invoicing
+  xeroDepositInvoiceId?: string;
+  xeroDepositInvoiceNumber?: string;
+  xeroDepositOnlineUrl?: string;
+  xeroBalanceInvoiceId?: string;
+  xeroBalanceInvoiceNumber?: string;
+  xeroBalanceOnlineUrl?: string;
+  xeroLastSyncedAt?: string;
+  xeroLastError?: string;
 
   // Individual Deposit & Final Balance (paid directly to OpCo unless Trust Clearing enabled)
   depositStatus: PaymentStatus;
@@ -139,6 +244,7 @@ export interface OpCoScope {
   depositMethod?:
     | "Bank Transfer / PayID"
     | "Direct Card (OpCo Merchant)"
+    | "Xero Online Invoice"
     | "Trust Clearing Allocation";
 
   balanceStatus: PaymentStatus;
@@ -162,6 +268,10 @@ export interface OpCoScope {
 
 export interface JobWorkspace {
   id: string;
+  linkedJobId?: string;
+  sharedPhotoIds?: string[];
+  packageUrl?: string;
+  packageSentAt?: string;
   reference: string;
   title: string;
   propertyAddress: string;
@@ -191,11 +301,20 @@ export interface DirectoryOpCo {
   key: string;
   tradeCategory: string;
   companyName: string;
+  legalEntityName: string;
+  tradingName: string;
   abn: string;
+  acn: string;
+  gstRegistered: boolean;
   licenceNumber: string;
   monogram: string;
   contactName: string;
   contactEmail: string;
+  phone: string;
+  logoPath?: string | null;
+  serviceRegions: string[];
+  allowedQuoteTypes: QuoteType[];
+  termsAndConditions: string;
   bankName: string;
   bsb: string;
   accountNumber: string;
@@ -219,6 +338,19 @@ export interface DirectoryOpCo {
     isHandoverGate?: boolean;
   }[];
   defaultComplianceDocs: string[];
+  onboardingStatus: OnboardingStatus;
+  onboardingToken?: string | null;
+  onboardingExpiresAt?: string | null;
+  deedSignedAt?: string | null;
+  deedSignedBy?: string | null;
+  deedSignedTitle?: string | null;
+  deedAuditHash?: string | null;
+  approvedAt?: string | null;
+  approvedBy?: string | null;
+  reviewNotes?: string | null;
+  complianceDocs: OpCoComplianceDoc[];
+  hasExpiredCompliance: boolean;
+  xero: OpCoXeroSummary;
   isActive: boolean;
 }
 

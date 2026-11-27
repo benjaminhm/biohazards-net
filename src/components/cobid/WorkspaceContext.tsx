@@ -8,6 +8,7 @@ import type {
   LineItem,
   Milestone,
   ProgressLog,
+  QuoteType,
   SettlementRail,
   UserRole,
 } from "@/lib/cobid/types";
@@ -25,6 +26,28 @@ export interface NewJobPayload {
   settlementRail: SettlementRail;
   siteAccessNotes: string;
   selectedOpCoKeys: string[];
+  quoteTypesByOpCo?: Record<string, QuoteType>;
+  linkedJobId?: string;
+  sharedPhotoIds?: string[];
+}
+
+export interface BidInviteResult {
+  bidUrl: string;
+  emailSent: boolean;
+  emailError?: string;
+}
+
+export interface DispatchDocsResult {
+  packageUrl: string;
+  documents: Array<{
+    scopeId: string;
+    stageOrder: number;
+    companyName: string;
+    independentJobRef: string;
+    docUrl: string;
+  }>;
+  emailSent: boolean;
+  emailError?: string;
 }
 
 interface WorkspaceContextValue {
@@ -54,6 +77,15 @@ interface WorkspaceContextValue {
   removeLineItem: (opCoId: string, lineItemId: string) => Promise<void>;
   sendScopeToContractor: (opCoId: string) => Promise<void>;
   sendAgreementToClient: (opCoId: string) => Promise<void>;
+
+  // Phase 2 & 3 Coordinator actions
+  issueBidInvite: (opCoId: string, sendEmail?: boolean) => Promise<BidInviteResult>;
+  dispatchEntityDocs: (sendEmail?: boolean) => Promise<DispatchDocsResult>;
+  syncXeroPayments: () => Promise<{ updatedCount: number; errors: string[] }>;
+  raiseXeroInvoice: (
+    opCoId: string,
+    kind: "deposit" | "balance"
+  ) => Promise<{ ok: boolean; invoiceNumber?: string; onlineUrl?: string | null; error?: string }>;
 
   // Contractor actions
   approveScopeAsContractor: (opCoId: string) => Promise<void>;
@@ -241,6 +273,10 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const applyJobUpdate = (updated: JobWorkspace) => {
+    setJobs((prev) => prev.map((j) => (j.id === updated.id ? updated : j)));
+  };
+
   const dispatchAction = async (action: string, payload: Record<string, unknown>) => {
     if (!activeJob) return;
     setDbStatus("saving");
@@ -252,7 +288,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       });
       if (!res.ok) throw new Error(`Action ${action} failed`);
       const data = (await res.json()) as { job: JobWorkspace };
-      setJobs((prev) => prev.map((j) => (j.id === data.job.id ? data.job : j)));
+      applyJobUpdate(data.job);
       setDbStatus("synced");
     } catch (err) {
       console.error(err);
@@ -268,15 +304,112 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      if (!res.ok) throw new Error("Create workspace failed");
-      const data = (await res.json()) as { job: JobWorkspace };
-      setJobs((prev) => [data.job, ...prev]);
-      setActiveJobId(data.job.id);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setDbStatus("error");
+        throw new Error(data?.error || "Create workspace failed");
+      }
+      const created = data.job as JobWorkspace;
+      setJobs((prev) => [created, ...prev]);
+      setActiveJobId(created.id);
       setRoleState({ type: "coordinator" });
       setDbStatus("synced");
     } catch (err) {
       console.error(err);
       setDbStatus("error");
+      throw err;
+    }
+  };
+
+  const issueBidInvite = async (opCoId: string, sendEmail = true): Promise<BidInviteResult> => {
+    if (!activeJob) throw new Error("No active workspace");
+    setDbStatus("saving");
+    try {
+      const res = await fetch(`/api/cobid/workspaces/${activeJob.id}/bid-invites`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ opCoId, sendEmail }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Failed to issue bid invite");
+      if (data.job) applyJobUpdate(data.job);
+      setDbStatus("synced");
+      return {
+        bidUrl: data.bidUrl,
+        emailSent: Boolean(data.emailSent),
+        emailError: data.emailError,
+      };
+    } catch (err) {
+      setDbStatus("error");
+      throw err;
+    }
+  };
+
+  const dispatchEntityDocs = async (sendEmail = true): Promise<DispatchDocsResult> => {
+    if (!activeJob) throw new Error("No active workspace");
+    setDbStatus("saving");
+    try {
+      const res = await fetch(`/api/cobid/workspaces/${activeJob.id}/dispatch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sendEmail }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Failed to dispatch entity documents");
+      if (data.job) applyJobUpdate(data.job);
+      setDbStatus("synced");
+      return {
+        packageUrl: data.packageUrl,
+        documents: data.documents ?? [],
+        emailSent: Boolean(data.emailSent),
+        emailError: data.emailError,
+      };
+    } catch (err) {
+      setDbStatus("error");
+      throw err;
+    }
+  };
+
+  const syncXeroPayments = async () => {
+    if (!activeJob) return { updatedCount: 0, errors: [] };
+    setDbStatus("saving");
+    try {
+      const res = await fetch(`/api/cobid/workspaces/${activeJob.id}/xero-sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "sync" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Xero sync failed");
+      if (data.job) applyJobUpdate(data.job);
+      setDbStatus("synced");
+      const results = (data.syncResults ?? []) as Array<{ updated?: boolean; error?: string }>;
+      return {
+        updatedCount: results.filter((r) => r.updated).length,
+        errors: results.map((r) => r.error).filter((e): e is string => Boolean(e)),
+      };
+    } catch (err) {
+      setDbStatus("error");
+      throw err;
+    }
+  };
+
+  const raiseXeroInvoice = async (opCoId: string, kind: "deposit" | "balance") => {
+    if (!activeJob) return { ok: false, error: "No active workspace" };
+    setDbStatus("saving");
+    try {
+      const res = await fetch(`/api/cobid/workspaces/${activeJob.id}/xero-sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "raise_invoice", opCoId, kind }),
+      });
+      const data = await res.json();
+      if (data.job) applyJobUpdate(data.job);
+      setDbStatus("synced");
+      return data.invoiceResult ?? { ok: false, error: data?.error || "Invoice failed" };
+    } catch (err) {
+      setDbStatus("error");
+      return { ok: false, error: err instanceof Error ? err.message : "Invoice failed" };
     }
   };
 
@@ -305,6 +438,10 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         sendScopeToContractor: (opCoId) =>
           dispatchAction("send_scope_to_contractor", { opCoId }),
         sendAgreementToClient: (opCoId) => dispatchAction("send_agreement", { opCoId }),
+        issueBidInvite,
+        dispatchEntityDocs,
+        syncXeroPayments,
+        raiseXeroInvoice,
         approveScopeAsContractor: (opCoId) => dispatchAction("approve_scope", { opCoId }),
         requestScopeRevision: (opCoId, note) =>
           dispatchAction("request_revision", { opCoId, note }),

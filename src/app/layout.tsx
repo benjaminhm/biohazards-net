@@ -77,6 +77,18 @@ export async function generateMetadata(): Promise<Metadata> {
     }
   }
 
+  if (headersList.get('x-subdomain') === 'hazmat-site') {
+    return {
+      title: {
+        default: 'HAZMAT Management Pty Ltd — Independent Remediation Coordination',
+        template: '%s · HAZMAT Management Pty Ltd',
+      },
+      description:
+        'Independent remediation scoping, sequencing, and compliance-coordination platform connecting insurers, NDIS coordinators, strata managers, and property owners with verified independent specialist operators.',
+      robots: { index: true, follow: true },
+    }
+  }
+
   return {
     title: 'Biohazard Cleaning QLD',
     description: 'Job management for Biohazard Cleaning QLD',
@@ -132,6 +144,14 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   }
 
   if (headersList.get('x-subdomain') === 'cobid') {
+    return (
+      <html lang="en">
+        <body style={{ background: '#F8FAFC', color: '#0F172A' }}>{children}</body>
+      </html>
+    )
+  }
+
+  if (headersList.get('x-subdomain') === 'hazmat-site') {
     return (
       <html lang="en">
         <body style={{ background: '#F8FAFC', color: '#0F172A' }}>{children}</body>

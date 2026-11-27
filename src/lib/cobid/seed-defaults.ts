@@ -1,6 +1,27 @@
 import type { DirectoryOpCo } from "./types";
 
-export type SeedOpCoTemplate = Omit<DirectoryOpCo, "id" | "isActive">;
+export type SeedOpCoTemplate = Pick<
+  DirectoryOpCo,
+  | "key"
+  | "tradeCategory"
+  | "companyName"
+  | "abn"
+  | "licenceNumber"
+  | "monogram"
+  | "contactName"
+  | "contactEmail"
+  | "bankName"
+  | "bsb"
+  | "accountNumber"
+  | "payId"
+  | "defaultDepositPercent"
+  | "defaultScopeSummary"
+  | "defaultDeliverables"
+  | "defaultExclusions"
+  | "defaultLineItems"
+  | "defaultMilestones"
+  | "defaultComplianceDocs"
+>;
 
 export const DEFAULT_OPCO_TEMPLATES: SeedOpCoTemplate[] = [
   {
