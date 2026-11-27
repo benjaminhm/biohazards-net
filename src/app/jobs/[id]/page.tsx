@@ -28,7 +28,7 @@
  */
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import type { Job, Photo, Document, DocumentBundle, JobStatus } from '@/lib/types'
@@ -1131,12 +1131,16 @@ export default function JobPage() {
     marginBottom: -1,
   } as const
 
+  const loadedJobIdRef = useRef<string | null>(null)
+
   useEffect(() => {
     if (userLoading) return
     if (!isAdmin && !isManager) {
       router.replace('/')
       return
     }
+    if (loadedJobIdRef.current === id) return
+    loadedJobIdRef.current = id
     fetchAll()
   }, [id, userLoading, isAdmin, isManager, router])
 

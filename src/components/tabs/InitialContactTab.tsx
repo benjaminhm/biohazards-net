@@ -152,12 +152,16 @@ function FieldInput({
   disabled?: boolean
 }) {
   const [draft, setDraft] = useState(value)
+  const [prevValue, setPrevValue] = useState(value)
+  const [focused, setFocused] = useState(false)
 
-  useEffect(() => {
-    setDraft(value)
-  }, [value])
+  if (value !== prevValue) {
+    setPrevValue(value)
+    if (!focused) setDraft(value)
+  }
 
   function commit() {
+    setFocused(false)
     const next = draft.trim()
     if (next !== (value ?? '').trim()) onCommit(next)
   }
@@ -167,6 +171,7 @@ function FieldInput({
       <textarea
         value={draft}
         disabled={disabled}
+        onFocus={() => setFocused(true)}
         onChange={e => setDraft(e.target.value)}
         onBlur={commit}
         placeholder={placeholder}
@@ -182,6 +187,7 @@ function FieldInput({
       inputMode={inputMode}
       value={draft}
       disabled={disabled}
+      onFocus={() => setFocused(true)}
       onChange={e => setDraft(e.target.value)}
       onBlur={commit}
       onKeyDown={e => {
@@ -214,6 +220,8 @@ export default function InitialContactTab({ job, onJobUpdate, readOnly = false }
   const [savedFlash, setSavedFlash] = useState(false)
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
   const noteRef = useRef<HTMLTextAreaElement>(null)
+  const patchChainRef = useRef<Promise<void>>(Promise.resolve())
+  const inFlightPatchesRef = useRef(0)
 
   useEffect(() => {
     setShowMore(
@@ -238,25 +246,32 @@ export default function InitialContactTab({ job, onJobUpdate, readOnly = false }
     job.client_phones,
   ])
 
-  async function patchField(updates: Record<string, unknown>) {
-    if (readOnly) return
-    setSaving(true)
-    setSavedFlash(false)
-    try {
-      const res = await fetch(`/api/jobs/${job.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates),
-      })
-      if (res.ok) {
-        const data = await res.json()
-        if (data.job) onJobUpdate(data.job)
-        setSavedFlash(true)
-        setTimeout(() => setSavedFlash(false), 1800)
+  function patchField(updates: Record<string, unknown>): Promise<void> {
+    if (readOnly) return Promise.resolve()
+    const run = async () => {
+      inFlightPatchesRef.current += 1
+      setSaving(true)
+      setSavedFlash(false)
+      try {
+        const res = await fetch(`/api/jobs/${job.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updates),
+        })
+        if (res.ok) {
+          const data = await res.json()
+          if (data.job) onJobUpdate(data.job)
+          setSavedFlash(true)
+          setTimeout(() => setSavedFlash(false), 1800)
+        }
+      } finally {
+        inFlightPatchesRef.current -= 1
+        if (inFlightPatchesRef.current === 0) setSaving(false)
       }
-    } finally {
-      setSaving(false)
     }
+    const next = patchChainRef.current.then(run, run)
+    patchChainRef.current = next
+    return next
   }
 
   async function copyText(val: string, key: string) {
@@ -442,7 +457,7 @@ export default function InitialContactTab({ job, onJobUpdate, readOnly = false }
               <button
                 key={opt.id}
                 type="button"
-                disabled={readOnly || saving}
+                disabled={readOnly}
                 title={opt.label}
                 onClick={() => void patchField({ trading_name: opt.id as TradingNameId })}
                 style={{

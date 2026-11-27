@@ -162,12 +162,11 @@ export default function ContentsClearanceQuoteTab({ job, photos, onJobUpdate, on
   const appliedDistanceKey = useRef('')
   const captureRef = useRef(capture)
   const jobRef = useRef(job)
+  const loadedJobIdRef = useRef(job.id)
+  const savingRef = useRef(false)
+  const skipSyncForUpdatedAtRef = useRef<string | null>(null)
   captureRef.current = capture
   jobRef.current = job
-
-  useEffect(() => {
-    setCapture(normalizeContentsClearanceCapture(job.assessment_data?.contents_clearance_quote))
-  }, [job.id, job.updated_at])
 
   const isDirty = capture.clearance_kind !== saved.clearance_kind
     || capture.estimated_m3 !== saved.estimated_m3
@@ -198,6 +197,24 @@ export default function ContentsClearanceQuoteTab({ job, photos, onJobUpdate, on
     || capture.job_assumptions !== saved.job_assumptions
     || !samePhotoIds(capture.photo_ids, saved.photo_ids)
   useRegisterUnsavedChanges('contents-clearance-quote', isDirty)
+  const dirtyRef = useRef(isDirty)
+  dirtyRef.current = isDirty
+
+  useEffect(() => {
+    if (job.id !== loadedJobIdRef.current) {
+      loadedJobIdRef.current = job.id
+      skipSyncForUpdatedAtRef.current = null
+      setCapture(normalizeContentsClearanceCapture(job.assessment_data?.contents_clearance_quote))
+      return
+    }
+    if (skipSyncForUpdatedAtRef.current === job.updated_at) {
+      skipSyncForUpdatedAtRef.current = null
+      return
+    }
+    if (dirtyRef.current || savingRef.current) return
+    setCapture(normalizeContentsClearanceCapture(job.assessment_data?.contents_clearance_quote))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job.id, job.updated_at])
 
   // Auto-save edits shortly after typing stops (prevents lost work on iPad/tablet)
   useEffect(() => {
@@ -207,7 +224,7 @@ export default function ContentsClearanceQuoteTab({ job, photos, onJobUpdate, on
     }, 850)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isDirty, capture])
+  }, [isDirty, saving, checkingFlags, capture])
 
   const figures = useMemo(
     () => contentsClearanceFigures(capture.estimated_m3, capture.estimated_km, {
@@ -406,26 +423,32 @@ export default function ContentsClearanceQuoteTab({ job, photos, onJobUpdate, on
     }
   }
 
-  async function save(next = capture): Promise<boolean> {
+  async function save(next?: ContentsClearanceCapture): Promise<boolean> {
+    if (savingRef.current) return false
+    const snapshot = next ?? captureRef.current
+    const currentJob = jobRef.current
+    savingRef.current = true
     setSaving(true)
     setSaveError('')
     try {
-      const merged = mergeAssessmentData(job.assessment_data)
-      const res = await fetch(`/api/jobs/${job.id}`, {
+      const merged = mergeAssessmentData(currentJob.assessment_data)
+      const res = await fetch(`/api/jobs/${currentJob.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          assessment_data: { ...merged, contents_clearance_quote: next },
+          assessment_data: { ...merged, contents_clearance_quote: snapshot },
         }),
       })
       const data = (await res.json()) as { job?: Job; error?: string }
       if (!res.ok || !data.job) throw new Error(data.error || `Save failed (${res.status})`)
+      skipSyncForUpdatedAtRef.current = data.job.updated_at
       onJobUpdate(data.job)
       return true
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : 'Save failed')
       return false
     } finally {
+      savingRef.current = false
       setSaving(false)
     }
   }

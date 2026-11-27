@@ -14,7 +14,7 @@
  * Nothing is sent from the app (docs/ai-product-principles.md).
  * "Generate quote" opens the standard document page instead, to read the quote before sending.
  */
-import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
 import CaptureFieldToolbar from '@/components/CaptureFieldToolbar'
 import SelectedPhotos from '@/components/SelectedPhotos'
@@ -221,15 +221,33 @@ export default function InstantQuoteTab({ job, photos, onJobUpdate, onPhotosUpda
   const [editHeader, setEditHeader] = useState(false)
   const [showClauses, setShowClauses] = useState(false)
   const usedIds = useMemo(() => usedPhotoIds(job.assessment_data, photos), [job.assessment_data, photos])
-
-  useEffect(() => {
-    setCapture(savedCapture(job))
-    // Reload only when the saved job changes, not on every render of the same job.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [job.id, job.updated_at])
+  const loadedJobIdRef = useRef(job.id)
+  const captureRef = useRef(capture)
+  captureRef.current = capture
+  const savingRef = useRef(false)
+  const skipSyncForUpdatedAtRef = useRef<string | null>(null)
 
   const isDirty = JSON.stringify(capture) !== JSON.stringify(saved)
   useRegisterUnsavedChanges('instant-quote', isDirty)
+  const dirtyRef = useRef(isDirty)
+  dirtyRef.current = isDirty
+
+  useEffect(() => {
+    if (job.id !== loadedJobIdRef.current) {
+      loadedJobIdRef.current = job.id
+      skipSyncForUpdatedAtRef.current = null
+      setCapture(savedCapture(job))
+      return
+    }
+    if (skipSyncForUpdatedAtRef.current === job.updated_at) {
+      skipSyncForUpdatedAtRef.current = null
+      return
+    }
+    if (dirtyRef.current || savingRef.current) return
+    setCapture(savedCapture(job))
+    // Reload only when the saved job changes externally, never overwriting in-progress edits.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job.id, job.updated_at])
 
   // Auto-save edits shortly after typing stops (prevents lost work on iPad/tablet)
   useEffect(() => {
@@ -239,7 +257,7 @@ export default function InstantQuoteTab({ job, photos, onJobUpdate, onPhotosUpda
     }, 850)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isDirty, capture])
+  }, [isDirty, saving, drafting, sending, capture])
 
   const smsSenderId = isTradingNameId(job.trading_name) ? tradingSmsSenderId(job.trading_name) : null
   const replyEmail = tradingAuthReplyEmail(isTradingNameId(job.trading_name) ? job.trading_name : null)
@@ -289,6 +307,9 @@ export default function InstantQuoteTab({ job, photos, onJobUpdate, onPhotosUpda
   }
 
   async function save(): Promise<boolean> {
+    if (savingRef.current) return false
+    const snapshot = captureRef.current
+    savingRef.current = true
     setSaving(true)
     setError('')
     try {
@@ -296,16 +317,18 @@ export default function InstantQuoteTab({ job, photos, onJobUpdate, onPhotosUpda
       const res = await fetch(`/api/jobs/${job.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assessment_data: { ...merged, instant_quote: capture } }),
+        body: JSON.stringify({ assessment_data: { ...merged, instant_quote: snapshot } }),
       })
       const data = (await res.json()) as { job?: Job; error?: string }
       if (!res.ok || !data.job) throw new Error(data.error || `Save failed (${res.status})`)
+      skipSyncForUpdatedAtRef.current = data.job.updated_at
       onJobUpdate(data.job)
       return true
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Save failed')
       return false
     } finally {
+      savingRef.current = false
       setSaving(false)
     }
   }

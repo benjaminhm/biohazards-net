@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
 import type { Document, Job } from '@/lib/types'
 import { mergeAssessmentData } from '@/lib/riskDerivation'
@@ -182,8 +182,29 @@ export default function StatementOfAccountsTab({ job, onJobUpdate }: Props) {
     () => !saved.charges_gst || saved.ignored_quotes.length > 0 || saved.invoice1_paid_in_full || saved.manual_adjustment != null,
   )
   const [showManualInvoices, setShowManualInvoices] = useState(false)
+  const loadedJobIdRef = useRef(job.id)
+  const captureRef = useRef(capture)
+  captureRef.current = capture
+  const savingRef = useRef(false)
+  const skipSyncForUpdatedAtRef = useRef<string | null>(null)
+
+  const isDirty = !capturesEqual(capture, saved)
+  useRegisterUnsavedChanges('statement-of-accounts', isDirty)
+  const dirtyRef = useRef(isDirty)
+  dirtyRef.current = isDirty
 
   useEffect(() => {
+    if (job.id !== loadedJobIdRef.current) {
+      loadedJobIdRef.current = job.id
+      skipSyncForUpdatedAtRef.current = null
+      setCapture(saved)
+      return
+    }
+    if (skipSyncForUpdatedAtRef.current === job.updated_at) {
+      skipSyncForUpdatedAtRef.current = null
+      return
+    }
+    if (dirtyRef.current || savingRef.current) return
     setCapture(saved)
   }, [job.id, job.updated_at, saved])
 
@@ -206,9 +227,6 @@ export default function StatementOfAccountsTab({ job, onJobUpdate }: Props) {
     return () => { live = false }
   }, [job.id])
 
-  const isDirty = !capturesEqual(capture, saved)
-  useRegisterUnsavedChanges('statement-of-accounts', isDirty)
-
   // Auto-save edits shortly after typing stops (prevents lost work on iPad/tablet)
   useEffect(() => {
     if (!isDirty || saving) return
@@ -217,7 +235,7 @@ export default function StatementOfAccountsTab({ job, onJobUpdate }: Props) {
     }, 750)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isDirty, capture])
+  }, [isDirty, saving, capture])
 
   const figures = useMemo(
     () => statementV2Figures(job.assessment_data, capture),
@@ -235,11 +253,15 @@ export default function StatementOfAccountsTab({ job, onJobUpdate }: Props) {
   }
 
   async function save(): Promise<boolean> {
+    if (savingRef.current) return false
+    const snapshot = captureRef.current
+    savingRef.current = true
     setSaving(true)
     setSaveError('')
     try {
       const merged = mergeAssessmentData(job.assessment_data)
-      const next = { ...capture, deposit_taken: figures.deposit > 0.004 }
+      const snapFigures = statementV2Figures(job.assessment_data, snapshot)
+      const next = { ...snapshot, deposit_taken: snapFigures.deposit > 0.004 }
       const res = await fetch(`/api/jobs/${job.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -247,6 +269,7 @@ export default function StatementOfAccountsTab({ job, onJobUpdate }: Props) {
       })
       const data = (await res.json()) as { job?: Job; error?: string }
       if (!res.ok || !data.job) throw new Error(data.error || `Save failed (${res.status})`)
+      skipSyncForUpdatedAtRef.current = data.job.updated_at
       onJobUpdate(data.job)
       setSavedFlash(true)
       setTimeout(() => setSavedFlash(false), 2000)
@@ -255,6 +278,7 @@ export default function StatementOfAccountsTab({ job, onJobUpdate }: Props) {
       setSaveError(e instanceof Error ? e.message : 'Save failed')
       return false
     } finally {
+      savingRef.current = false
       setSaving(false)
     }
   }

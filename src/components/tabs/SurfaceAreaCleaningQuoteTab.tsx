@@ -172,22 +172,19 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
   const [measureOpen, setMeasureOpen] = useState(false)
   const [editAddress, setEditAddress] = useState(false)
   const [showClauses, setShowClauses] = useState(false)
-  /** Set when rooms measured on the phone were merged into unsaved edits, so the job update that follows does not reload the quote over them. */
+  /** Set when our own save or phone-room merge triggered the job update, so the sync effect never overwrites newer local edits. */
   const keepCaptureFor = useRef<string | null>(null)
+  const loadedJobIdRef = useRef(job.id)
+  const editSeqRef = useRef(0)
+  const savingRef = useRef(false)
+  const captureRef = useRef(capture)
+  captureRef.current = capture
   const [standards, setStandards] = useState<SurfaceAreaCleaningStandards>(defaultSurfaceAreaCleaningStandards)
   const [standardsReady, setStandardsReady] = useState(false)
   const skipStandardsSave = useRef(true)
   const companyLoadedRef = useRef(false)
   const loadedEngagementRef = useRef('')
   const clearanceStandardsRef = useRef<ContentsClearanceStandards | null>(null)
-
-  useEffect(() => {
-    if (keepCaptureFor.current === job.updated_at) {
-      keepCaptureFor.current = null
-      return
-    }
-    setCapture(normalizeSurfaceAreaCleaningCapture(job.assessment_data?.surface_area_cleaning_quote))
-  }, [job.id, job.updated_at])
 
   const isDirty = capture.cleaning_kind !== saved.cleaning_kind
     || capture.custom_title !== saved.custom_title
@@ -220,6 +217,26 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
     || !samePhotoIds(capture.photo_ids, saved.photo_ids)
   useRegisterUnsavedChanges('surface-area-cleaning-quote', isDirty)
 
+  const dirtyRef = useRef(isDirty)
+  dirtyRef.current = isDirty
+
+  useEffect(() => {
+    if (job.id !== loadedJobIdRef.current) {
+      loadedJobIdRef.current = job.id
+      editSeqRef.current = 0
+      keepCaptureFor.current = null
+      setCapture(normalizeSurfaceAreaCleaningCapture(job.assessment_data?.surface_area_cleaning_quote))
+      return
+    }
+    if (keepCaptureFor.current === job.updated_at) {
+      keepCaptureFor.current = null
+      return
+    }
+    if (dirtyRef.current || savingRef.current) return
+    setCapture(normalizeSurfaceAreaCleaningCapture(job.assessment_data?.surface_area_cleaning_quote))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job.id, job.updated_at])
+
   // Auto-save edits shortly after typing stops (prevents lost work on iPad/tablet)
   useEffect(() => {
     if (!isDirty || saving) return
@@ -228,7 +245,7 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
     }, 850)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isDirty, capture])
+  }, [isDirty, saving, capture])
 
   const live = useRef({ job, isDirty, saving, onJobUpdate })
   useEffect(() => {
@@ -361,6 +378,7 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
   }
 
   function patch(next: Partial<SurfaceAreaCleaningCapture>) {
+    editSeqRef.current += 1
     setCapture(prev => ({ ...prev, ...next }))
   }
 
@@ -369,7 +387,11 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
     patch({ rooms, exclude_ceiling: excludeCeiling, estimated_m2: total ?? capture.estimated_m2 })
   }
 
-  async function save(next = capture): Promise<boolean> {
+  async function save(next?: SurfaceAreaCleaningCapture): Promise<boolean> {
+    if (savingRef.current) return false
+    const snapshot = next ?? captureRef.current
+    const seqAtStart = editSeqRef.current
+    savingRef.current = true
     setSaving(true)
     setSaveError('')
     try {
@@ -379,7 +401,8 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
         const latestRes = await fetch(`/api/jobs/${job.id}`, { cache: 'no-store' })
         const latest = (await latestRes.json().catch(() => ({}))) as { job?: Job; error?: string }
         if (!latestRes.ok || !latest.job) throw new Error(latest.error || `Save failed (${latestRes.status})`)
-        const toSave = withSurfaceAreaRooms(next, mergeMeasuredRooms(saved.rooms, next.rooms, savedRooms(latest.job)))
+        const measured = savedRooms(latest.job)
+        const toSave = withSurfaceAreaRooms(snapshot, mergeMeasuredRooms(saved.rooms, snapshot.rooms, measured))
         const res = await fetch(`/api/jobs/${job.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -391,6 +414,15 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
         if (res.status === 409) continue
         const data = (await res.json()) as { job?: Job; error?: string }
         if (!res.ok || !data.job) throw new Error(data.error || `Save failed (${res.status})`)
+        // Keep whatever the user typed or clicked while this save was in flight; only fold in any rooms measured on the phone.
+        keepCaptureFor.current = data.job.updated_at
+        if (editSeqRef.current !== seqAtStart) {
+          if (JSON.stringify(measured) !== JSON.stringify(saved.rooms)) {
+            setCapture(prev => withSurfaceAreaRooms(prev, mergeMeasuredRooms(saved.rooms, prev.rooms, measured)))
+          }
+        } else if (JSON.stringify(toSave.rooms) !== JSON.stringify(snapshot.rooms)) {
+          setCapture(toSave)
+        }
         onJobUpdate(data.job)
         return true
       }
@@ -399,6 +431,7 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
       setSaveError(e instanceof Error ? e.message : 'Save failed')
       return false
     } finally {
+      savingRef.current = false
       setSaving(false)
     }
   }
@@ -1023,7 +1056,7 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
           photos={photos}
           ids={capture.photo_ids}
           fallback={photos.filter(isSurfaceAreaAppendixPhoto)}
-          onChange={ids => setCapture(prev => ({ ...prev, photo_ids: ids }))}
+          onChange={ids => patch({ photo_ids: ids })}
           onPhotosUpdate={onPhotosUpdate}
           usedIds={usedIds}
           emptyText="No photos on this quote."

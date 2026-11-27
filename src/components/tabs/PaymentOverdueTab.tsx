@@ -120,7 +120,7 @@ export default function PaymentOverdueTab({ job, onJobUpdate }: Props) {
     }, 750)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isDirty, capture])
+  }, [isDirty, saving, capture])
 
   const statement = useMemo(() => statementV2Figures(job.assessment_data), [job.assessment_data])
   const statementLines = useMemo(() => statementReminderLines(statement), [statement])
@@ -154,7 +154,6 @@ export default function PaymentOverdueTab({ job, onJobUpdate }: Props) {
       const data = (await res.json()) as { job?: Job; error?: string }
       if (!res.ok || !data.job) throw new Error(data.error || `Save failed (${res.status})`)
       onJobUpdate(data.job)
-      setCapture(normalizePaymentOverdueCapture(data.job.assessment_data?.payment_overdue))
       setSavedFlash(true)
       setTimeout(() => setSavedFlash(false), 2000)
       return true
