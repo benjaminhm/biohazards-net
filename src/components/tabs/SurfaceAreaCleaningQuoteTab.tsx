@@ -41,6 +41,13 @@ import {
 } from '@/lib/surfaceAreaCleaningQuote'
 import { documentPlainText } from '@/lib/documentAsk'
 import {
+  SURFACE_AREA_DRAFT_DROP_LABELS,
+  SURFACE_AREA_DRAFT_GAP_LABELS,
+  hasSurfaceAreaScopeInputs,
+  type SurfaceAreaDraftDroppedLine,
+  type SurfaceAreaDraftWeakStep,
+} from '@/lib/surfaceAreaScopeDraft'
+import {
   DEFAULT_ENGAGEMENT_AGREEMENT,
   persistableEngagement,
   sharedEngagementAgreement,
@@ -169,6 +176,11 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
   const usedIds = useMemo(() => usedPhotoIds(job.assessment_data, photos), [job.assessment_data, photos])
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
+  const [draftingScope, setDraftingScope] = useState(false)
+  const [draftError, setDraftError] = useState('')
+  const [scopeDraft, setScopeDraft] = useState<string | null>(null)
+  const [scopeDraftWeak, setScopeDraftWeak] = useState<SurfaceAreaDraftWeakStep[]>([])
+  const [scopeDraftDropped, setScopeDraftDropped] = useState<SurfaceAreaDraftDroppedLine[]>([])
   const [measureOpen, setMeasureOpen] = useState(false)
   const [editAddress, setEditAddress] = useState(false)
   const [showClauses, setShowClauses] = useState(false)
@@ -225,6 +237,10 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
       loadedJobIdRef.current = job.id
       editSeqRef.current = 0
       keepCaptureFor.current = null
+      setScopeDraft(null)
+      setScopeDraftWeak([])
+      setScopeDraftDropped([])
+      setDraftError('')
       setCapture(normalizeSurfaceAreaCleaningCapture(job.assessment_data?.surface_area_cleaning_quote))
       return
     }
@@ -299,13 +315,18 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
     }),
     [capture],
   )
-  const askText = useMemo(() => documentPlainText(surfaceAreaCleaningQuoteContent({
-    reference: 'Draft',
-    clientName: job.client_name || '',
-    siteAddress: job.site_address || '',
-    capture,
-    standards,
-  })), [capture, job.client_name, job.site_address, standards])
+  const askText = useMemo(() => {
+    const wording = documentPlainText(surfaceAreaCleaningQuoteContent({
+      reference: 'Draft',
+      clientName: job.client_name || '',
+      siteAddress: job.site_address || '',
+      capture,
+      standards,
+    }))
+    const draft = scopeDraft?.trim()
+    if (!draft || draft === capture.scope_of_work.trim()) return wording
+    return `${wording}\n\n## AI-generated scope\nThis draft is on screen and is not the quote wording until it is used.\n${draft}`
+  }, [capture, job.client_name, job.site_address, standards, scopeDraft])
 
   useEffect(() => {
     let cancelled = false
@@ -435,6 +456,47 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
       setSaving(false)
     }
   }
+
+  async function draftScope() {
+    if (draftingScope) return
+    if (!hasSurfaceAreaScopeInputs(captureRef.current)) {
+      setDraftError('Enter a presentation or objective first.')
+      return
+    }
+    setDraftingScope(true)
+    setDraftError('')
+    try {
+      const res = await fetch(`/api/jobs/${job.id}/surface-area-scope-draft`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ capture: captureRef.current }),
+      })
+      const data = (await res.json().catch(() => ({}))) as {
+        scope?: string
+        weak?: SurfaceAreaDraftWeakStep[]
+        dropped?: SurfaceAreaDraftDroppedLine[]
+        error?: string
+      }
+      if (!res.ok || !data.scope) throw new Error(data.error || 'The scope could not be drafted.')
+      setScopeDraft(data.scope)
+      setScopeDraftWeak(Array.isArray(data.weak) ? data.weak : [])
+      setScopeDraftDropped(Array.isArray(data.dropped) ? data.dropped : [])
+    } catch (e) {
+      setDraftError(e instanceof Error ? e.message : 'The scope could not be drafted.')
+    } finally {
+      setDraftingScope(false)
+    }
+  }
+
+  function applyScopeDraft() {
+    if (scopeDraft == null) return
+    patch({ scope_of_work: scopeDraft })
+    setScopeDraft(null)
+    setScopeDraftWeak([])
+    setScopeDraftDropped([])
+  }
+
+  const canDraftScope = hasSurfaceAreaScopeInputs(capture)
 
   async function saveAndCompose() {
     if (!(capture.labour_days != null && capture.labour_days > 0)) {
@@ -584,7 +646,57 @@ export default function SurfaceAreaCleaningQuoteTab({ job, photos, onJobUpdate, 
           />
         </div>
         <div>
-          <label style={LABEL}>Scope of work</label>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 6 }}>
+            <label style={{ ...LABEL, marginBottom: 0 }}>Scope of work</label>
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ fontSize: 12, padding: '4px 10px' }}
+              onClick={() => void draftScope()}
+              disabled={draftingScope || !canDraftScope}
+              title={canDraftScope ? 'Draft scope steps from presentation, objective, and rooms' : 'Enter a presentation or objective first'}
+            >
+              {draftingScope ? 'Generating…' : 'Generate scope of work'}
+            </button>
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
+            Written from the presentation, objective, rooms, and ceiling setting. You review it before it replaces the scope below.
+            {draftError && <span style={{ color: 'var(--danger, #f87171)' }}> {draftError}</span>}
+          </div>
+          {scopeDraft != null && (
+            <div style={{ ...SECTION, marginTop: 0, marginBottom: 8, borderStyle: 'dashed' }}>
+              <div style={LABEL}>Generated scope of work</div>
+              <ol style={{ margin: 0, paddingLeft: 18, fontSize: 14, display: 'grid', gap: 4 }}>
+                {scopeDraft.split('\n').map((line, i) => <li key={`${i}:${line}`}>{line}</li>)}
+              </ol>
+              {scopeDraftWeak.map(step => (
+                <div key={`${step.gap}:${step.line}`} style={{ fontSize: 12, color: 'var(--danger, #f87171)', marginTop: 6 }}>
+                  Check step ({SURFACE_AREA_DRAFT_GAP_LABELS[step.gap]}): “{step.line}”
+                </div>
+              ))}
+              {scopeDraftDropped.map(item => (
+                <div key={`${item.reason}:${item.line}`} style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
+                  Left out ({SURFACE_AREA_DRAFT_DROP_LABELS[item.reason]}): “{item.line}”
+                </div>
+              ))}
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
+                Hygienist and testing lines are added on the quote when they are ticked.
+              </div>
+              <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                <button type="button" className="btn btn-primary" style={{ fontSize: 12, padding: '4px 10px' }} onClick={applyScopeDraft}>
+                  Use this scope
+                </button>
+                <button
+                  type="button"
+                  className="btn"
+                  style={{ fontSize: 12, padding: '4px 10px' }}
+                  onClick={() => { setScopeDraft(null); setScopeDraftWeak([]); setScopeDraftDropped([]) }}
+                >
+                  Discard
+                </button>
+              </div>
+            </div>
+          )}
           <textarea
             value={capture.scope_of_work}
             onChange={e => patch({ scope_of_work: e.target.value })}
