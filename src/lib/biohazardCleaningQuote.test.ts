@@ -582,12 +582,17 @@ test('BCQ-20261026-355F keeps the total and deposit, and prints matching zone ro
       client_organization_name: 'Ray White Waterford',
       client_contact_role: '',
       client_phone: '+61480473391',
+      client_email: 'sarahkathryncameron@gmail.com',
       site_address: '7/2 Bishop Street, Eagleby QLD 4207,',
     },
     { screenActionBar: false },
   )
   assert.match(html, /Jemma Archibald, Property Manager, Ray White Waterford/)
   assert.match(html, /bcq-nowrap">\+61480473391/)
+  assert.match(html, /bcq-email">sarahkathryncameron@gmail\.com<\/div>/)
+  assert.doesNotMatch(html, /bcq-nowrap">sarahkathryncameron@gmail\.com/)
+  assert.match(html, /<div>7\/2 Bishop Street, Eagleby QLD 4207<\/div>/)
+  assert.doesNotMatch(html, /bcq-nowrap">7\/2 Bishop Street/)
   assert.match(html, /Quote summary/)
   assert.match(html, /Kitchen, Laundry and Toilet · 103\.48 m²/)
   assert.match(html, /Living, Main bedroom, Bedroom, Hall, Bathroom and Garage · 361\.36 m²/)

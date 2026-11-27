@@ -976,9 +976,10 @@ function cssSowPrint(): string {
     }
     .sow-root.bcq-doc .sow-mid .body-text { font-size: 10.25pt; line-height: 1.4; max-width: 90ch; }
     .sow-root.bcq-doc .bcq-nowrap { white-space: nowrap; }
+    .sow-root.bcq-doc .bcq-email { font-size: 8.5pt; overflow-wrap: anywhere; word-break: break-word; }
     .sow-root.bcq-doc .bcq-meta {
       display: grid;
-      grid-template-columns: 1.15fr 1.25fr 1fr;
+      grid-template-columns: 1fr 1.05fr 1.35fr;
       gap: 0;
       border: 1px solid var(--sow-rule);
       margin-bottom: 16px;
@@ -4501,15 +4502,19 @@ function buildBiohazardCleaningHTML(
     companyAbn ? `ABN ${companyAbn}` : '',
     companyLicence ? `Licence ${companyLicence}` : '',
   ].filter(Boolean)
-  const jobBits = [(client?.client_phone || '').trim(), (client?.client_email || '').trim(), tidyBiohazardAddress(c.job_address || c.site_address || client?.site_address || '')].filter(Boolean)
-  const nowrap = (value: string) => /@|\d/.test(value)
-    ? `<div class="bcq-nowrap">${esc(value)}</div>`
-    : `<div>${esc(value)}</div>`
+  const jobPhone = (client?.client_phone || '').trim()
+  const jobEmail = (client?.client_email || '').trim()
+  const jobAddress = tidyBiohazardAddress(c.job_address || c.site_address || client?.site_address || '')
+  const jobLines = [
+    jobPhone ? `<div class="bcq-nowrap">${esc(jobPhone)}</div>` : '',
+    jobEmail ? `<div class="bcq-email">${esc(jobEmail)}</div>` : '',
+    jobAddress ? `<div>${esc(jobAddress)}</div>` : '',
+  ].filter(Boolean)
   const metaHtml = `
         <div class="bcq-meta">
           <div class="bcq-meta-cell">
             <div class="sow-meta-label">Business details</div>
-            <div class="bcq-meta-value"><div>${esc(companyName)}</div>${companyBits.map(bit => nowrap(bit)).join('')}</div>
+            <div class="bcq-meta-value"><div>${esc(companyName)}</div>${companyBits.map(bit => `<div class="bcq-nowrap">${esc(bit)}</div>`).join('')}</div>
           </div>
           <div class="bcq-meta-cell">
             <div class="sow-meta-label">Client</div>
@@ -4517,7 +4522,7 @@ function buildBiohazardCleaningHTML(
           </div>
           <div class="bcq-meta-cell">
             <div class="sow-meta-label">Job</div>
-            <div class="bcq-meta-value">${jobBits.map(bit => nowrap(bit)).join('') || '—'}</div>
+            <div class="bcq-meta-value">${jobLines.join('') || '—'}</div>
           </div>
         </div>`
   const footerHtml = `<footer class="sow-foot">
